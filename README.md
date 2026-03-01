@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-words_to_data = "0.1.0"
+words-to-data = "0.1.1"
 ```
 
 Or clone and build locally:
