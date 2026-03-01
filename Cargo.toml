@@ -1,0 +1,17 @@
+[package]
+name = "words-to-data"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "words_to_data"
+path = "src/lib.rs"
+
+[dependencies]
+rayon = "1.11.0"
+roxmltree = "0.21.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.148"
+similar = "2.7.0"
+thiserror = "2.0.17"
+time = { version = "0.3.44", features = ["serde"] }

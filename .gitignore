@@ -1,0 +1,21 @@
+# Rust
+/target
+
+# Nix
+.direnv/
+
+# Artifacts
+./*.xml
+*.json
+parsed/
+
+# Main directories for dumping data while testing
+usc_data/
+bill_data/
+
+# Debug driver scripts
+src/main.rs
+
+# Claude Code Users
+CLAUDE.md
+.claude/
