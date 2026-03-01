@@ -1,6 +1,4 @@
-# Words To Data
-
-A Rust library for parsing United States legislative documents in USLM (United States Legislative Markup) XML format and computing diffs between document versions.
+# Words To Data - Convert Legal Documents Into Diffable Data Structures 
 
 ## Overview
 
