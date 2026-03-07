@@ -1,4 +1,6 @@
-# Words To Data - Convert Legal Documents Into Diffable Data Structures 
+# Words To Data - Convert Legal Documents Into Diffable Data Structures
+
+[![CI](https://github.com/Scronkfinkle/words-to-data/actions/workflows/ci.yml/badge.svg)](https://github.com/Scronkfinkle/words-to-data/actions/workflows/ci.yml)
 
 ## Overview
 
