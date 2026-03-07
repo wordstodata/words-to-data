@@ -32,7 +32,7 @@ jobs:
       run: cargo build --lib --verbose
 
     - name: Run Rust tests
-      run: cargo test --lib --verbose
+      run: cargo test --verbose
 
     - name: Build with Python feature
       run: cargo build --lib --features python --verbose
