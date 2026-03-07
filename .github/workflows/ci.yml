@@ -89,10 +89,13 @@ jobs:
       run: pip install maturin pytest
 
     - name: Build Python package
-      run: maturin develop --release
+      run: maturin build --release
+      
+    - name: Install Python package
+      run: pip install target/wheels/words_to_data*.whl
 
     - name: Run Python tests
-      run: pytest python/tests/ -v
+      run: python -m pytest python/tests/ -v
 
     - name: Test Python import
       run: python -c "from words_to_data import parse_uslm_xml, compute_diff, USLMElement, TreeDiff; print('Import successful!')"
