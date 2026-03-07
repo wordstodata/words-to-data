@@ -212,6 +212,42 @@ impl TreeDiff {
             child_diffs,
         }
     }
+
+    /// Search for a diff by its structural path
+    ///
+    /// Recursively searches this element and all descendants for an element
+    /// with the specified path. The path must be a fully qualified structural
+    /// path (e.g., "uscodedocument_7/title_7/chapter_1/section_1").
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The full structural path of the element to find
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(&TreeDiff)` if an element with the matching path is found,
+    /// or `None` if no such element exists in this tree.
+    pub fn find(&self, path: &str) -> Option<&TreeDiff> {
+        if path == self.root_path.as_str() {
+            return Some(self);
+        }
+        let remaining_path = path.strip_prefix(self.root_path.as_str())?;
+        let next_step: Vec<&str> = remaining_path.split("/").collect();
+        assert!(next_step.len() > 1);
+
+        let child_id = next_step[1];
+        let child_vec: Vec<&TreeDiff> = self
+            .child_diffs
+            .iter()
+            .filter(|c| c.root_path.ends_with(child_id))
+            .collect();
+        if child_vec.is_empty() {
+            None
+        } else {
+            assert!(child_vec.len() == 1);
+            child_vec[0].find(path)
+        }
+    }
 }
 
 /// Compute field-level changes between two elements
