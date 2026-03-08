@@ -6,7 +6,10 @@ fn test_parse_bill_amendments_success() {
     assert!(result.is_ok(), "Failed to parse bill: {:?}", result.err());
 
     let data = result.unwrap();
-    assert_eq!(data.bill_id, "119-21", "Bill ID should be extracted from document");
+    assert_eq!(
+        data.bill_id, "119-21",
+        "Bill ID should be extracted from document"
+    );
 }
 
 #[test]

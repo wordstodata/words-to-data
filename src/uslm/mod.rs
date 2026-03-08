@@ -104,7 +104,7 @@ impl DocumentType {
                     }),
                     _ => Err(USLMError::UnknownDocumentType(format!(
                         "Unhandled type for USCode document: {}",
-                        val.to_lowercase().to_string()
+                        val.to_lowercase()
                     ))),
                 },
                 None => Err(USLMError::UnknownDocumentType(

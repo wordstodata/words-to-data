@@ -113,7 +113,10 @@ fn test_find_deep_nested_element() {
     assert!(result.is_some());
 
     let found = result.unwrap();
-    assert_eq!(found.data.path, "uscodedocument_7/title_7/chapter_1/section_1");
+    assert_eq!(
+        found.data.path,
+        "uscodedocument_7/title_7/chapter_1/section_1"
+    );
     assert_eq!(found.data.element_type, ElementType::Section);
 }
 

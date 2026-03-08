@@ -192,9 +192,5 @@ fn test_parse_all_usc_titles() {
 }
 
 fn count_elements(elem: &USLMElement) -> usize {
-    1 + elem
-        .children
-        .iter()
-        .map(|c| count_elements(c))
-        .sum::<usize>()
+    1 + elem.children.iter().map(count_elements).sum::<usize>()
 }

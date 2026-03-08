@@ -228,7 +228,7 @@ pub fn parse_uslm_directory(input_dir: &str, date: &str) -> Result<Vec<USLMEleme
 
     // Collect all XML file paths
     let xml_files: Vec<PathBuf> = fs::read_dir(dir_path)
-        .map_err(|e| ParseError::Io(e))?
+        .map_err(ParseError::Io)?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
@@ -314,7 +314,7 @@ pub fn parse_uslm_directory_to_json(input_dir: &str, date: &str, output_dir: &st
 
     // Collect all XML file paths
     let xml_files: Vec<PathBuf> = fs::read_dir(dir_path)
-        .map_err(|e| ParseError::Io(e))?
+        .map_err(ParseError::Io)?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();

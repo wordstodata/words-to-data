@@ -46,10 +46,7 @@ impl USLMElement {
     }
 
     fn find(&self, path: &str) -> Option<USLMElement> {
-        match self.inner.find(path) {
-            None => None,
-            Some(element) => Some(USLMElement::from(element)),
-        }
+        self.inner.find(path).map(USLMElement::from)
     }
 
     fn __repr__(&self) -> String {
@@ -67,7 +64,7 @@ impl USLMElement {
 // ============================================================================
 
 /// A single word-level change within a text field
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct TextChange {
     inner: crate::diff::TextChange,
@@ -105,7 +102,7 @@ impl TextChange {
 }
 
 /// A change detected in a single text content field
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct FieldChangeEvent {
     inner: crate::diff::FieldChangeEvent,
@@ -120,6 +117,7 @@ impl FieldChangeEvent {
     }
 
     #[getter]
+    #[allow(clippy::wrong_self_convention)]
     fn from_date(&self) -> String {
         self.inner.from_date.to_string()
     }
@@ -154,7 +152,7 @@ impl FieldChangeEvent {
 }
 
 /// A hierarchical diff between two versions of a USLM document tree
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct TreeDiff {
     inner: RustTreeDiff,
@@ -203,6 +201,7 @@ impl TreeDiff {
     }
 
     #[getter]
+    #[allow(clippy::wrong_self_convention)]
     fn from_element(&self) -> PyResult<Py<PyAny>> {
         let data = serde_json::to_value(&self.inner.from_element).unwrap();
         let result = Python::attach(|py| {
@@ -276,7 +275,7 @@ impl TreeDiff {
 // ============================================================================
 
 /// A reference to a USC section found in a bill
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct UscReference {
     inner: crate::uslm::UscReference,
@@ -311,7 +310,7 @@ impl UscReference {
 }
 
 /// An amendment found in a bill that modifies the US Code
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct BillAmendment {
     inner: crate::uslm::BillAmendment,
@@ -365,7 +364,7 @@ impl BillAmendment {
 }
 
 /// Data extracted from a bill document
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct AmendmentData {
     bill_id: String,

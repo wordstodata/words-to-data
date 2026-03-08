@@ -4,7 +4,11 @@ use words_to_data::utils::date_str_to_date;
 fn test_valid_date_parsing() {
     // Standard format
     let result = date_str_to_date("2025-07-18");
-    assert!(result.is_ok(), "Failed to parse valid date: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse valid date: {:?}",
+        result.err()
+    );
 
     let date = result.unwrap();
     assert_eq!(date.year(), 2025);
@@ -84,7 +88,10 @@ fn test_invalid_day_for_month() {
 
     // Non-leap year Feb 29
     let result = date_str_to_date("2025-02-29");
-    assert!(result.is_err(), "2025 is not a leap year, Feb 29 should be invalid");
+    assert!(
+        result.is_err(),
+        "2025 is not a leap year, Feb 29 should be invalid"
+    );
 }
 
 #[test]
