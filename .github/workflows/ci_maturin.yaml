@@ -175,4 +175,4 @@ jobs:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_TEST_API_TOKEN }}
         with:
           command: upload
-          args: "--non-interactive --repository-url https://test.pypi.org/simple/ --skip-existing wheels-*/*"
+          args: "--non-interactive --repository-url=https://test.pypi.org/simple/ --skip-existing wheels-*/*"
