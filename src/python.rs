@@ -275,7 +275,7 @@ impl TreeDiff {
 // ============================================================================
 
 /// A reference to a USC section found in a bill
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct UscReference {
     inner: crate::uslm::UscReference,
@@ -310,7 +310,7 @@ impl UscReference {
 }
 
 /// An amendment found in a bill that modifies the US Code
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct BillAmendment {
     inner: crate::uslm::BillAmendment,
@@ -364,7 +364,7 @@ impl BillAmendment {
 }
 
 /// Data extracted from a bill document
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 struct AmendmentData {
     bill_id: String,
