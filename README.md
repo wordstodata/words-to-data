@@ -24,7 +24,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-words-to-data = "0.1.1"
+words-to-data = "0.1.2"
 ```
 
 ### Python

@@ -11,7 +11,7 @@ from .words_to_data import (
     UscReference,
 )
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __all__ = [
     "parse_uslm_xml",
     "compute_diff",
