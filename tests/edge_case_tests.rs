@@ -1,11 +1,14 @@
-use words_to_data::uslm::{parser::parse, ElementType};
+use words_to_data::uslm::{ElementType, parser::parse};
 
 // ========== Error Handling Tests ==========
 
 // Test 1: Parse nonexistent file returns error
 #[test]
 fn test_parse_nonexistent_file() {
-    let result = parse("tests/test_data/usc/2025-07-18/nonexistent.xml", "2025-07-18");
+    let result = parse(
+        "tests/test_data/usc/2025-07-18/nonexistent.xml",
+        "2025-07-18",
+    );
     assert!(result.is_err(), "Should return error for nonexistent file");
 }
 
@@ -13,7 +16,10 @@ fn test_parse_nonexistent_file() {
 #[test]
 fn test_parse_invalid_date_format() {
     let result = parse("tests/test_data/usc/2025-07-18/usc01.xml", "invalid-date");
-    assert!(result.is_err(), "Should return error for invalid date format");
+    assert!(
+        result.is_err(),
+        "Should return error for invalid date format"
+    );
 }
 
 // Test 3: Parse with malformed date (wrong format)
@@ -49,7 +55,10 @@ fn test_parse_smallest_file() {
     assert_eq!(root.data.uslm_id.as_ref().unwrap(), "/us/usc/t9");
 
     // Should have at least some content
-    assert!(!root.children.is_empty(), "Smallest file should still have children");
+    assert!(
+        !root.children.is_empty(),
+        "Smallest file should still have children"
+    );
 }
 
 // Test 7: Parse large file (usc07.xml ~28M)
@@ -67,7 +76,11 @@ fn test_parse_large_file() {
     }
 
     let count = count_elements(&root);
-    assert!(count > 1000, "Large file should have many elements, got {}", count);
+    assert!(
+        count > 1000,
+        "Large file should have many elements, got {}",
+        count
+    );
 }
 
 // Test 8: Element with no children
@@ -98,9 +111,7 @@ fn test_element_with_no_text_fields() {
 
     // Root typically has no text fields (all text is in children)
     assert!(
-        root.data.heading.is_none()
-            || root.data.chapeau.is_none()
-            || root.data.content.is_none()
+        root.data.heading.is_none() || root.data.chapeau.is_none() || root.data.content.is_none()
     );
 }
 
@@ -110,7 +121,10 @@ fn test_element_with_no_text_fields() {
 #[test]
 fn test_parse_level_elements() {
     let result = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
-    assert!(result.is_ok(), "Should successfully parse title with level elements");
+    assert!(
+        result.is_ok(),
+        "Should successfully parse title with level elements"
+    );
 
     let root = result.unwrap();
 
@@ -161,7 +175,8 @@ fn test_deeply_nested_structure() {
 
     // Try to find a deeply nested element (paragraph or deeper)
     // uscodedocument_9/title_9/chapter_1/section_10/subsection_a/paragraph_1 = 6 levels
-    let deep_elem = root.find("uscodedocument_9/title_9/chapter_1/section_10/subsection_a/paragraph_1");
+    let deep_elem =
+        root.find("uscodedocument_9/title_9/chapter_1/section_10/subsection_a/paragraph_1");
 
     assert!(deep_elem.is_some(), "Should find deeply nested paragraph");
 
