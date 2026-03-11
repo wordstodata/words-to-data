@@ -4,8 +4,8 @@ use thiserror::Error;
 
 use crate::{
     uslm::{
-        self, BillType, DocumentType, ElementData, ElementType, RefPair, SourceCredit,
-        USLMElement, USLMError,
+        self, BillType, DocumentType, ElementData, ElementType, RefPair, SourceCredit, USLMElement,
+        USLMError,
     },
     utils::load_xml_file,
 };
