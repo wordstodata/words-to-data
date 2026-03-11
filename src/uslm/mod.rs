@@ -345,7 +345,7 @@ pub struct BillAmendment {
 #[serde(rename_all = "snake_case")]
 pub struct SourceCredit {
     /// The `<ref>` elements of the source credit
-    ref_pairs: Vec<RefPair>,
+    pub ref_pairs: Vec<RefPair>,
 }
 
 /// A reference pair within a source credit
@@ -356,9 +356,9 @@ pub struct SourceCredit {
 #[serde(rename_all = "snake_case")]
 pub struct RefPair {
     /// The ID of the `<ref>` source credit
-    ref_id: String,
+    pub ref_id: String,
     /// The description of the source credit
-    description: String,
+    pub description: String,
 }
 
 /// Metadata and content for a single element in a USLM document

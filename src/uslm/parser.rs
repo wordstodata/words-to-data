@@ -3,7 +3,10 @@ use std::str::FromStr;
 use thiserror::Error;
 
 use crate::{
-    uslm::{self, BillType, DocumentType, ElementData, ElementType, USLMElement, USLMError},
+    uslm::{
+        self, BillType, DocumentType, ElementData, ElementType, RefPair, SourceCredit, USLMElement,
+        USLMError,
+    },
     utils::load_xml_file,
 };
 
@@ -254,6 +257,60 @@ fn rewrap_str(s: Option<&str>) -> Option<String> {
     s.map(String::from)
 }
 
+/// Extract source credits from a USLM element
+///
+/// This function finds all `<sourceCredit>` child nodes and extracts their references,
+/// splitting them into separate SourceCredit objects when separated by semicolons.
+///
+/// # Arguments
+///
+/// * `node` - The XML node to extract source credits from
+///
+/// # Returns
+///
+/// A vector of SourceCredit objects, potentially empty if no source credits exist
+fn extract_source_credits(node: &roxmltree::Node) -> Vec<SourceCredit> {
+    let source_credit_nodes = node.children().filter(|n| n.has_tag_name("sourceCredit"));
+
+    let mut result = Vec::new();
+
+    for sc_node in source_credit_nodes {
+        let mut current_refs = Vec::new();
+
+        // Walk through descendants to find refs and semicolons
+        for descendant in sc_node.descendants() {
+            if descendant.has_tag_name("ref") {
+                if let Some(href) = descendant.attribute("href") {
+                    let description = descendant.text().unwrap_or("").to_string();
+                    current_refs.push(RefPair {
+                        ref_id: href.to_string(),
+                        description,
+                    });
+                }
+            } else if let Some(text) = descendant.text()
+                && text.contains(';')
+            {
+                // Finalize current group
+                if !current_refs.is_empty() {
+                    result.push(SourceCredit {
+                        ref_pairs: current_refs.clone(),
+                    });
+                    current_refs.clear();
+                }
+            }
+        }
+
+        // Add final group
+        if !current_refs.is_empty() {
+            result.push(SourceCredit {
+                ref_pairs: current_refs,
+            });
+        }
+    }
+
+    result
+}
+
 fn parse_element(
     node: roxmltree::Node,
     document_type: &DocumentType,
@@ -317,6 +374,9 @@ fn parse_element(
 
     let d = crate::utils::date_str_to_date(date)?;
 
+    // Extract source credits from the node
+    let source_credits = extract_source_credits(&node);
+
     let element_data = ElementData {
         path: structural_path.clone(),
         uslm_id: uslm_id.clone(),
@@ -332,7 +392,7 @@ fn parse_element(
         proviso: text_contents.proviso,
         content: text_contents.content,
         continuation: text_contents.continuation,
-        source_credits: Vec::new(),
+        source_credits,
     };
 
     let cont_node = match matches!(element_type, uslm::ElementType::USCodeDocument) {
