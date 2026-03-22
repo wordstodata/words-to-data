@@ -1,5 +1,5 @@
 use rstest::rstest;
-use words_to_data::uslm::parser::parse;
+use words_to_data::uslm::parser::{parse, parse_from_str};
 
 #[test]
 fn test_parse_usc_title_7() {
@@ -100,4 +100,31 @@ fn test_appendix_vs_regular_titles(#[case] regular: &str, #[case] appendix: &str
 
     // Paths should be different
     assert_ne!(regular_root.data.path, appendix_root.data.path);
+}
+
+#[test]
+fn test_parse_from_str_should_produce_same_result_as_parse() {
+    // Load XML manually
+    let xml_str = std::fs::read_to_string("tests/test_data/usc/2025-07-18/usc07.xml")
+        .expect("Failed to read test file");
+
+    // Parse from string
+    let from_str_result = parse_from_str(&xml_str, "2025-07-18");
+    assert!(
+        from_str_result.is_ok(),
+        "parse_from_str failed: {:?}",
+        from_str_result.err()
+    );
+
+    // Parse from file
+    let from_file_result = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
+    assert!(from_file_result.is_ok());
+
+    // Both should produce identical results
+    let from_str = from_str_result.unwrap();
+    let from_file = from_file_result.unwrap();
+
+    assert_eq!(from_str.data.uslm_id, from_file.data.uslm_id);
+    assert_eq!(from_str.data.path, from_file.data.path);
+    assert_eq!(from_str.children.len(), from_file.children.len());
 }

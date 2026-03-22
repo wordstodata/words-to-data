@@ -3,12 +3,15 @@ use std::str::FromStr;
 use thiserror::Error;
 
 use crate::{
+    io::load_xml_file,
     uslm::{
         self, BillType, DocumentType, ElementData, ElementType, RefPair, SourceCredit, USLMElement,
-        USLMError,
+        USLMError, path::should_include_in_uslm_path,
     },
-    utils::load_xml_file,
 };
+
+// Re-export path functions for backward compatibility with existing API
+pub use crate::uslm::path::generate_structural_path;
 
 /// Errors that can occur during USLM XML parsing
 #[derive(Error, Debug)]
@@ -88,67 +91,10 @@ fn check_attr(node: &roxmltree::Node, attr: &str, val: &str) -> bool {
     }
 }
 
-/// Determines if an element type should be included in the USLM path
+/// Parse a USLM XML string into a USLMElement tree
 ///
-/// Returns true for elements that are part of the official USLM identifier scheme,
-/// false for structural-only elements like Level
-fn should_include_in_uslm_path(element_type: ElementType) -> bool {
-    !matches!(element_type, ElementType::Level | ElementType::Unknown)
-}
-
-/// Generate a full structural path for an element
-///
-/// Creates a hierarchical path string that includes all elements in the document
-/// structure, including structural-only elements like Level that are not part of
-/// the USLM identifier scheme.
-///
-/// # Format
-///
-/// Paths use the format `elementtype_value` with `/` separators:
-/// - For root elements: `"uscodedocument_26"`
-/// - For nested elements: `"uscodedocument_26/title_26/chapter_1/section_174/level_a/subsection_1"`
-///
-/// # Arguments
-///
-/// * `element_type` - The type of element (Section, Paragraph, etc.)
-/// * `number_value` - The identifier/number for this element (e.g., "174", "a", "1")
-/// * `parent_structural_path` - The structural path of the parent element, or None for root
-///
-/// # Returns
-///
-/// A string containing the full structural path for this element.
-///
-/// # Examples
-///
-/// ```
-/// use words_to_data::uslm::parser::generate_structural_path;
-/// use words_to_data::uslm::ElementType;
-///
-/// // Root element
-/// let root = generate_structural_path(ElementType::USCodeDocument, "26", None);
-/// assert_eq!(root, "uscodedocument_26");
-///
-/// // Child element
-/// let section = generate_structural_path(ElementType::Section, "174", Some("uscodedocument_26/title_26"));
-/// assert_eq!(section, "uscodedocument_26/title_26/section_174");
-/// ```
-pub fn generate_structural_path(
-    element_type: ElementType,
-    number_value: &str,
-    parent_structural_path: Option<&str>,
-) -> String {
-    let element_name = format!("{:?}", element_type).to_lowercase();
-    match parent_structural_path {
-        Some(parent) => format!("{}/{}_{}", parent, element_name, number_value),
-        None => format!("{}_{}", element_name, number_value),
-    }
-}
-
-/// Parse a USLM XML document into a USLMElement tree
-///
-/// This is the main entry point for parsing USLM documents. It handles both
-/// US Code titles and Public Laws (bills), automatically detecting the document
-/// type from the XML structure.
+/// This function parses XML content directly from a string, enabling unit testing
+/// without filesystem access and in-memory parsing workflows.
 ///
 /// The parser:
 /// - Extracts the hierarchical structure of the document
@@ -158,7 +104,7 @@ pub fn generate_structural_path(
 ///
 /// # Arguments
 ///
-/// * `path` - Path to the USLM XML file to parse
+/// * `xml_str` - The USLM XML content as a string
 /// * `date` - Publication date in "YYYY-MM-DD" format (e.g., "2025-07-18")
 ///
 /// # Returns
@@ -173,28 +119,21 @@ pub fn generate_structural_path(
 ///
 /// # Examples
 ///
-/// ```
-/// use words_to_data::uslm::parser::parse;
+/// ```no_run
+/// use words_to_data::uslm::parser::parse_from_str;
 ///
-/// // Parse a USC title
-/// let usc = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-/// assert_eq!(usc.data.uslm_id.unwrap(), "/us/usc/t7");
-///
-/// // Parse a public law
-/// let bill = parse("tests/test_data/bills/hr-119-21.xml", "2025-07-04").unwrap();
-/// assert_eq!(bill.data.uslm_id.unwrap(), "/us/pl/119-21");
+/// let xml = std::fs::read_to_string("usc07.xml").unwrap();
+/// let element = parse_from_str(&xml, "2025-07-18").unwrap();
 /// ```
 ///
 /// # Errors
 ///
 /// Returns `ParseError` if:
-/// - The file cannot be read
 /// - The XML is malformed
 /// - The document type is not recognized
 /// - Required elements are missing from the XML structure
-pub fn parse(path: &str, date: &str) -> Result<USLMElement> {
-    let xml_str = load_xml_file(path)?;
-    let doc = roxmltree::Document::parse(&xml_str)?;
+pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
+    let doc = roxmltree::Document::parse(xml_str)?;
 
     let top_level_node = doc
         .descendants()
@@ -251,6 +190,61 @@ pub fn parse(path: &str, date: &str) -> Result<USLMElement> {
     let top_level_node = top_level_node.unwrap();
     let element = parse_element(top_level_node, &document_type, date, None, None, None, 0)?;
     Ok(element)
+}
+
+/// Parse a USLM XML document into a USLMElement tree
+///
+/// This is the main entry point for parsing USLM documents from files. It handles both
+/// US Code titles and Public Laws (bills), automatically detecting the document
+/// type from the XML structure.
+///
+/// For in-memory parsing without filesystem access, use `parse_from_str()` instead.
+///
+/// The parser:
+/// - Extracts the hierarchical structure of the document
+/// - Generates both structural paths and USLM IDs for elements
+/// - Parses all text content fields (heading, chapeau, proviso, content, continuation)
+/// - Preserves source credits and metadata
+///
+/// # Arguments
+///
+/// * `path` - Path to the USLM XML file to parse
+/// * `date` - Publication date in "YYYY-MM-DD" format (e.g., "2025-07-18")
+///
+/// # Returns
+///
+/// A `USLMElement` tree representing the entire document hierarchy, or a
+/// `ParseError` if parsing fails.
+///
+/// # Supported Document Types
+///
+/// - **US Code** (`<uscDoc>`): USC titles and their appendices
+/// - **Public Laws** (`<pLaw>`): Enacted legislation
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::parser::parse;
+///
+/// // Parse a USC title
+/// let usc = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
+/// assert_eq!(usc.data.uslm_id.unwrap(), "/us/usc/t7");
+///
+/// // Parse a public law
+/// let bill = parse("tests/test_data/bills/hr-119-21.xml", "2025-07-04").unwrap();
+/// assert_eq!(bill.data.uslm_id.unwrap(), "/us/pl/119-21");
+/// ```
+///
+/// # Errors
+///
+/// Returns `ParseError` if:
+/// - The file cannot be read
+/// - The XML is malformed
+/// - The document type is not recognized
+/// - Required elements are missing from the XML structure
+pub fn parse(path: &str, date: &str) -> Result<USLMElement> {
+    let xml_str = load_xml_file(path)?;
+    parse_from_str(&xml_str, date)
 }
 
 fn rewrap_str(s: Option<&str>) -> Option<String> {
@@ -372,7 +366,7 @@ fn parse_element(
         None
     };
 
-    let d = crate::utils::date_str_to_date(date)?;
+    let d = crate::date::date_str_to_date(date)?;
 
     // Extract source credits from the node
     let source_credits = extract_source_credits(&node);

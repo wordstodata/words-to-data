@@ -6,6 +6,7 @@ use time::Date;
 
 pub mod bill_parser;
 pub mod parser;
+pub mod path;
 
 /// Errors that can occur when parsing or processing USLM documents
 #[derive(Error, Debug)]
@@ -243,6 +244,15 @@ impl std::str::FromStr for ElementType {
 /// Legislative elements can have up to five distinct text fields, each serving
 /// a specific purpose in the document structure. These fields are tracked
 /// separately to enable precise change detection when comparing document versions.
+/// One of five text fields that can appear in an element:
+///
+/// - Heading: Opening text that appears before enumerated sub-elements
+/// - Chapeau: A conditional or qualifying clause (often starting with "Provided that")
+/// - Proviso: The main text content of the element
+/// - Content: Text that appears after all child elements
+/// - Continuation: Text that appears after all child elements
+///
+/// **IMPORTANT**: Becuase continuations appear _after_ child elements, the full text of some elements require child elements to be present. This makes sense, to load a full section, you need the subsections, which need paragraphs which may need clauses, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TextContentField {
@@ -341,6 +351,12 @@ pub struct BillAmendment {
 /// The Source credit can contain multiple `<ref>` elements, and they are separated logically
 /// as new sources by a `;` between them in the XML. So when you encounter a `<SourceCredit>` element,
 /// you should split the element into multiple `<SourceCredit>` elements, each with a single `<ref>` element.
+///
+/// **IMPORTANT**: Source credits point to USLM ID shaped paths, for example:
+/// ```xml
+/// <sourceCredit id="id2ffb3c99-76ce-11f0-a3ab-d79a777afc56">(<ref href="/us/act/1954-08-16/ch736">Aug. 16, 1954, ch. 736</ref>, <ref href="/us/stat/68A/3">68A Stat. 3</ref>; <ref href="/us/pl/99/514/s2">Pub. L. 99–514, § 2</ref>, <date date="1986-10-22">Oct. 22, 1986</date>, <ref href="/us/stat/100/2095">100 Stat. 2095</ref>.)</sourceCredit>
+/// ```
+/// They do not actually state change information, and the source credits are not guaranteed to cover all the bills that provided changes to the document. They are better thought of as an incomplete list of pointers. While useful, it is easy to confuse these with the full, definitive listing of bills that created the Element.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SourceCredit {

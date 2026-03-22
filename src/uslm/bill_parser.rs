@@ -9,11 +9,11 @@ use std::str::FromStr;
 use roxmltree::Node;
 
 use crate::{
+    io::load_xml_file,
     uslm::{
         AmendingAction, BillAmendment, ElementType, UscReference,
         parser::{ParseError, extract_number},
     },
-    utils::load_xml_file,
 };
 
 /// Data extracted from a bill document
@@ -30,6 +30,61 @@ pub struct AmendmentData {
 
 pub type Result<T> = std::result::Result<T, ParseError>;
 
+/// Parse a bill XML string and extract all amendments to the United States Code
+///
+/// This function parses a Public Law (bill) document from an XML string and extracts
+/// structured information about how the bill amends existing USC sections. It identifies:
+/// - USC sections being modified (from `<ref>` tags)
+/// - The type of amending actions (amend, add, delete, insert, etc.)
+/// - The location in the bill where each amendment occurs
+///
+/// This variant enables unit testing without filesystem access and in-memory
+/// parsing workflows.
+///
+/// # Arguments
+///
+/// * `xml_str` - The Public Law XML content as a string
+///
+/// # Returns
+///
+/// An `AmendmentData` struct containing the bill ID and all extracted amendments,
+/// or a `ParseError` if parsing fails.
+///
+/// # Examples
+///
+/// ```no_run
+/// use words_to_data::uslm::bill_parser::parse_bill_amendments_from_str;
+///
+/// let xml = std::fs::read_to_string("bill.xml").unwrap();
+/// let data = parse_bill_amendments_from_str(&xml).unwrap();
+/// ```
+///
+/// # Errors
+///
+/// Returns `ParseError` if:
+/// - The XML is malformed
+/// - No `<pLaw>` element is found
+/// - Required elements are missing from the XML structure
+pub fn parse_bill_amendments_from_str(xml_str: &str) -> Result<AmendmentData> {
+    let doc = roxmltree::Document::parse(xml_str)?;
+    let plaw_node = doc.descendants().find(|n| n.has_tag_name("pLaw"));
+    match plaw_node {
+        None => Err(ParseError::UnableToParseElement(
+            "Could not find public law document".to_string(),
+        )),
+        Some(node) => {
+            // Extract bill_id
+            let element_type = ElementType::from_str(node.tag_name().name())?;
+            let number = extract_number(element_type, &node)?;
+            let amendments = get_amendments(&node);
+            Ok(AmendmentData {
+                bill_id: number.value,
+                amendments,
+            })
+        }
+    }
+}
+
 /// Parse a bill XML file and extract all amendments to the United States Code
 ///
 /// This function parses a Public Law (bill) document and extracts structured
@@ -37,6 +92,8 @@ pub type Result<T> = std::result::Result<T, ParseError>;
 /// - USC sections being modified (from `<ref>` tags)
 /// - The type of amending actions (amend, add, delete, insert, etc.)
 /// - The location in the bill where each amendment occurs
+///
+/// For in-memory parsing without filesystem access, use `parse_bill_amendments_from_str()` instead.
 ///
 /// # Arguments
 ///
@@ -73,23 +130,7 @@ pub type Result<T> = std::result::Result<T, ParseError>;
 /// versions may implement more sophisticated bill parsing logic.
 pub fn parse_bill_amendments(path: &str) -> Result<AmendmentData> {
     let xml_str = load_xml_file(path)?;
-    let doc = roxmltree::Document::parse(&xml_str)?;
-    let plaw_node = doc.descendants().find(|n| n.has_tag_name("pLaw"));
-    match plaw_node {
-        None => Err(ParseError::UnableToParseElement(
-            "Could not find public law document".to_string(),
-        )),
-        Some(node) => {
-            // Extract bill_id
-            let element_type = ElementType::from_str(node.tag_name().name())?;
-            let number = extract_number(element_type, &node)?;
-            let amendments = get_amendments(&node);
-            Ok(AmendmentData {
-                bill_id: number.value,
-                amendments,
-            })
-        }
-    }
+    parse_bill_amendments_from_str(&xml_str)
 }
 
 /// Extract amendments from a bill XML node

@@ -1,98 +1,16 @@
 use crate::uslm::parser::ParseError;
 use crate::uslm::{USLMElement, parser::parse};
 use rayon::prelude::*;
-use serde::{Serialize, de::DeserializeOwned};
-use std::fs::{self, File};
-use std::io::Read;
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use time::Date;
+
+// Re-export from io module for backward compatibility
+pub use crate::io::{load_xml_file, read_json_file, write_json_file};
+
+// Re-export from date module for backward compatibility
+pub use crate::date::date_str_to_date;
 
 type Result<T> = std::result::Result<T, ParseError>;
-
-/// Load an XML file from disk into a string
-///
-/// # Arguments
-///
-/// * `path` - Path to the XML file to load
-///
-/// # Returns
-///
-/// The file contents as a `String`, or an I/O error if the file cannot be read.
-pub fn load_xml_file(path: &str) -> std::io::Result<String> {
-    let mut file = File::open(path)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    Ok(contents)
-}
-
-/// Convert a month number to the corresponding Month enum
-///
-/// # Arguments
-///
-/// * `n` - Month number (1-12, where 1 is January and 12 is December)
-///
-/// # Returns
-///
-/// The corresponding `time::Month` value, or `ParseError::InvalidDate` if
-/// the month number is out of range.
-fn month_from_number(n: i32) -> Result<time::Month> {
-    match n {
-        1 => Ok(time::Month::January),
-        2 => Ok(time::Month::February),
-        3 => Ok(time::Month::March),
-        4 => Ok(time::Month::April),
-        5 => Ok(time::Month::May),
-        6 => Ok(time::Month::June),
-        7 => Ok(time::Month::July),
-        8 => Ok(time::Month::August),
-        9 => Ok(time::Month::September),
-        10 => Ok(time::Month::October),
-        11 => Ok(time::Month::November),
-        12 => Ok(time::Month::December),
-        _ => Err(ParseError::InvalidDate),
-    }
-}
-
-/// Parse a date string in YYYY-MM-DD format to a Date
-///
-/// # Arguments
-///
-/// * `date_str` - Date string in the format "YYYY-MM-DD" (e.g., "2025-07-18")
-///
-/// # Returns
-///
-/// A `time::Date` if parsing succeeds, or `ParseError::InvalidDate` if:
-/// - The format is invalid (not three dash-separated components)
-/// - The month is out of range (must be 1-12)
-/// - The day is invalid for the given month/year
-///
-/// # Examples
-///
-/// ```
-/// use words_to_data::utils::date_str_to_date;
-///
-/// let date = date_str_to_date("2025-07-18").unwrap();
-/// assert_eq!(date.year(), 2025);
-/// assert_eq!(date.month() as u8, 7);
-/// assert_eq!(date.day(), 18);
-/// ```
-pub fn date_str_to_date(date_str: &str) -> Result<Date> {
-    let date_split: Vec<&str> = date_str.split("-").collect();
-    if date_split.len() != 3 {
-        return Err(ParseError::InvalidDate);
-    }
-    let year_num = i32::from_str(date_split[0]).expect("year should be valid i32");
-    let month_num = i32::from_str(date_split[1]).expect("month should be valid i32");
-    let day_num = u8::from_str(date_split[2]).expect("day should be valid u8");
-    let month_enum = month_from_number(month_num).expect("month num shoudl be between 1-12");
-    let date = Date::from_calendar_date(year_num, month_enum, day_num);
-    match date {
-        Ok(d) => Ok(d),
-        Err(_e) => Err(ParseError::InvalidDate),
-    }
-}
 
 /// Parse a USLM XML file into a USLMElement tree
 ///
@@ -115,57 +33,6 @@ pub fn date_str_to_date(date_str: &str) -> Result<Date> {
 /// ```
 pub fn parse_uslm_xml(xml_path: &str, date: &str) -> Result<USLMElement> {
     parse(xml_path, date)
-}
-
-/// Write any serializable data to a JSON file with pretty formatting
-///
-/// # Arguments
-///
-/// * `data` - The data to serialize (must implement `Serialize`)
-/// * `json_path` - Path where the JSON file will be written
-///
-/// # Returns
-///
-/// `Ok(())` if successful, or a `ParseError` if serialization or file writing fails.
-///
-/// # Examples
-///
-/// ```no_run
-/// use words_to_data::utils::{parse_uslm_xml, write_json_file};
-///
-/// let element = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-/// write_json_file(&element, "output.json").unwrap();
-/// ```
-pub fn write_json_file<T: Serialize>(data: &T, json_path: &str) -> Result<()> {
-    let json_string = serde_json::to_string_pretty(data)?;
-    let mut output = fs::File::create(json_path)?;
-    write!(output, "{}", json_string)?;
-    Ok(())
-}
-
-/// Read and deserialize a JSON file into any type
-///
-/// # Arguments
-///
-/// * `json_path` - Path to the JSON file to read
-///
-/// # Returns
-///
-/// The deserialized data of type `T`, or a `ParseError` if reading or
-/// deserialization fails.
-///
-/// # Examples
-///
-/// ```no_run
-/// use words_to_data::utils::read_json_file;
-/// use words_to_data::uslm::USLMElement;
-///
-/// let element: USLMElement = read_json_file("output.json").unwrap();
-/// ```
-pub fn read_json_file<T: DeserializeOwned>(json_path: &str) -> Result<T> {
-    let json_string = fs::read_to_string(json_path)?;
-    let data = serde_json::from_str(&json_string)?;
-    Ok(data)
 }
 
 /// Parse a USLM XML file and write it directly to JSON

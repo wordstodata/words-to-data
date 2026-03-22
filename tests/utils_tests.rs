@@ -67,17 +67,17 @@ fn test_invalid_date_too_many_components() {
 }
 
 #[test]
-#[should_panic(expected = "month num shoudl be between 1-12")]
 fn test_invalid_month_number() {
     // Month 13 doesn't exist
-    let _result = date_str_to_date("2025-13-01");
+    let result = date_str_to_date("2025-13-01");
+    assert!(result.is_err(), "Month 13 should be invalid");
 }
 
 #[test]
-#[should_panic(expected = "month num shoudl be between 1-12")]
 fn test_month_out_of_range() {
     // Month 0 is invalid
-    let _result = date_str_to_date("2025-00-15");
+    let result = date_str_to_date("2025-00-15");
+    assert!(result.is_err(), "Month 0 should be invalid");
 }
 
 #[test]
@@ -95,9 +95,9 @@ fn test_invalid_day_for_month() {
 }
 
 #[test]
-#[should_panic]
 fn test_non_numeric_values() {
-    let _result = date_str_to_date("abcd-ef-gh");
+    let result = date_str_to_date("abcd-ef-gh");
+    assert!(result.is_err(), "Non-numeric values should be invalid");
 }
 
 #[test]

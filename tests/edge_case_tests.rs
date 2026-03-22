@@ -24,9 +24,12 @@ fn test_parse_invalid_date_format() {
 
 // Parse with malformed date (wrong format)
 #[test]
-#[should_panic(expected = "day should be valid")]
 fn test_parse_malformed_date() {
-    let _result = parse("tests/test_data/usc/2025-07-18/usc01.xml", "07-18-2025");
+    let result = parse("tests/test_data/usc/2025-07-18/usc01.xml", "07-18-2025");
+    assert!(
+        result.is_err(),
+        "Should return error for malformed date format"
+    );
 }
 
 // Parse with incomplete date
@@ -38,9 +41,9 @@ fn test_parse_incomplete_date() {
 
 // Parse with invalid month in date
 #[test]
-#[should_panic(expected = "month num")]
 fn test_parse_invalid_month() {
-    let _result = parse("tests/test_data/usc/2025-07-18/usc01.xml", "2025-13-18");
+    let result = parse("tests/test_data/usc/2025-07-18/usc01.xml", "2025-13-18");
+    assert!(result.is_err(), "Should return error for invalid month");
 }
 
 // ========== Boundary Condition Tests ==========

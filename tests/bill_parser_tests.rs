@@ -1,4 +1,4 @@
-use words_to_data::uslm::bill_parser::parse_bill_amendments;
+use words_to_data::uslm::bill_parser::{parse_bill_amendments, parse_bill_amendments_from_str};
 
 #[test]
 fn test_parse_bill_amendments_success() {
@@ -251,4 +251,30 @@ fn test_amendment_paths_are_unique() {
         "Amendment source paths should be unique, found duplicates: {:?}",
         duplicates
     );
+}
+
+#[test]
+fn test_parse_bill_amendments_from_str_should_produce_same_result_as_parse() {
+    // Load XML manually
+    let xml_str = std::fs::read_to_string("tests/test_data/bills/hr-119-21.xml")
+        .expect("Failed to read test file");
+
+    // Parse from string
+    let from_str_result = parse_bill_amendments_from_str(&xml_str);
+    assert!(
+        from_str_result.is_ok(),
+        "parse_bill_amendments_from_str failed: {:?}",
+        from_str_result.err()
+    );
+
+    // Parse from file
+    let from_file_result = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml");
+    assert!(from_file_result.is_ok());
+
+    // Both should produce identical results
+    let from_str = from_str_result.unwrap();
+    let from_file = from_file_result.unwrap();
+
+    assert_eq!(from_str.bill_id, from_file.bill_id);
+    assert_eq!(from_str.amendments.len(), from_file.amendments.len());
 }
