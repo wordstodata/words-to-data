@@ -20,6 +20,7 @@ use crate::{
 ///
 /// Contains the bill identifier and all amendments found within the bill
 /// that modify the United States Code.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AmendmentData {
     /// The bill identifier (e.g., "119-21" for the 119th Congress, 21st law)
     pub bill_id: String,

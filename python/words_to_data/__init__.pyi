@@ -26,6 +26,15 @@ class USLMElement:
           """
           ...
 
+      def to_json(self) -> str:
+          """Serialize the element to a JSON string."""
+          ...
+
+      @staticmethod
+      def from_json(json_str: str) -> USLMElement:
+          """Deserialize a JSON string to a USLMElement."""
+          ...
+
 class TextChange:
     """A single word-level change within a text field"""
 
@@ -47,6 +56,15 @@ class TextChange:
     @property
     def tag(self) -> Literal["insert", "delete", "equal"]:
         """The type of change"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize the change to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> TextChange:
+        """Deserialize a JSON string to a TextChange."""
         ...
 
 class FieldChangeEvent:
@@ -80,6 +98,15 @@ class FieldChangeEvent:
     @property
     def changes(self) -> list[TextChange]:
         """Word-level changes showing insertions, deletions, and unchanged portions"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize the field change event to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> FieldChangeEvent:
+        """Deserialize a JSON string to a FieldChangeEvent."""
         ...
 
 class TreeDiff:
@@ -131,6 +158,15 @@ class TreeDiff:
         """
         ...
 
+    def to_json(self) -> str:
+        """Serialize the diff to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> TreeDiff:
+        """Deserialize a JSON string to a TreeDiff."""
+        ...
+
 def parse_uslm_xml(path: str, date: str) -> USLMElement:
     """Parse a USLM XML file and return as a USLMElement.
 
@@ -171,6 +207,15 @@ class UscReference:
         """The human-readable text of the reference (e.g., '7 U.S.C. 2025(c)(1)(A)(ii)')"""
         ...
 
+    def to_json(self) -> str:
+        """Serialize the reference to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> UscReference:
+        """Deserialize a JSON string to a UscReference."""
+        ...
+
 class BillAmendment:
     """An amendment found in a bill that modifies the US Code"""
 
@@ -189,6 +234,15 @@ class BillAmendment:
         """The bill element path where this amendment occurs"""
         ...
 
+    def to_json(self) -> str:
+        """Serialize the amendment to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> BillAmendment:
+        """Deserialize a JSON string to a BillAmendment."""
+        ...
+
 class AmendmentData:
     """Data extracted from a bill document"""
 
@@ -200,6 +254,15 @@ class AmendmentData:
     @property
     def amendments(self) -> list[BillAmendment]:
         """All amendments extracted from the bill"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize the amendment data to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> AmendmentData:
+        """Deserialize a JSON string to an AmendmentData."""
         ...
 
 def parse_bill_amendments(path: str) -> AmendmentData:

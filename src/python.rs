@@ -57,6 +57,18 @@ impl USLMElement {
             self.children.len()
         )
     }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: crate::uslm::USLMElement = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
 }
 
 // ============================================================================
@@ -98,6 +110,18 @@ impl TextChange {
             self.tag(),
             &self.value()[..self.value().len().min(20)]
         )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: crate::diff::TextChange = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self { inner })
     }
 }
 
@@ -148,6 +172,23 @@ impl FieldChangeEvent {
             self.field_name(),
             self.changes.len()
         )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: crate::diff::FieldChangeEvent = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        let changes = inner
+            .changes
+            .iter()
+            .map(|tc| TextChange { inner: tc.clone() })
+            .collect();
+        Ok(Self { inner, changes })
     }
 }
 
@@ -268,6 +309,18 @@ impl TreeDiff {
             self.child_diffs.len()
         )
     }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: RustTreeDiff = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
 }
 
 // ============================================================================
@@ -306,6 +359,18 @@ impl UscReference {
             "UscReference(path='{}', display_text='{}')",
             self.inner.path, self.inner.display_text
         )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: crate::uslm::UscReference = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self { inner })
     }
 }
 
@@ -361,13 +426,25 @@ impl BillAmendment {
             self.action_types()
         )
     }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: crate::uslm::BillAmendment = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
 }
 
 /// Data extracted from a bill document
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 struct AmendmentData {
-    bill_id: String,
+    inner: crate::uslm::bill_parser::AmendmentData,
     amendments: Vec<BillAmendment>,
 }
 
@@ -380,7 +457,7 @@ impl AmendmentData {
             .collect();
 
         AmendmentData {
-            bill_id: rust_data.bill_id,
+            inner: rust_data,
             amendments,
         }
     }
@@ -390,7 +467,7 @@ impl AmendmentData {
 impl AmendmentData {
     #[getter]
     fn bill_id(&self) -> String {
-        self.bill_id.clone()
+        self.inner.bill_id.clone()
     }
 
     #[getter]
@@ -401,9 +478,21 @@ impl AmendmentData {
     fn __repr__(&self) -> String {
         format!(
             "AmendmentData(bill_id='{}', amendments={})",
-            self.bill_id,
+            self.inner.bill_id,
             self.amendments.len()
         )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: crate::uslm::bill_parser::AmendmentData = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(inner))
     }
 }
 
