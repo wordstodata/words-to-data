@@ -287,6 +287,12 @@ pub enum AmendingAction {
     Redesignate,
     /// Remove an entire section or provision from the law
     Repeal,
+    /// Relocate an element (may include redesignation)
+    Move,
+    /// Remove specific text within an element (finer than Delete)
+    Strike,
+    /// Remove specific text and replace with new text
+    StrikeAndInsert,
 }
 
 impl FromStr for AmendingAction {
@@ -304,6 +310,9 @@ impl FromStr for AmendingAction {
             "insert" => Ok(AmendingAction::Insert),
             "redesignate" => Ok(AmendingAction::Redesignate),
             "repeal" => Ok(AmendingAction::Repeal),
+            "move" => Ok(AmendingAction::Move),
+            "strike" => Ok(AmendingAction::Strike),
+            "strikeandinsert" | "strike_and_insert" => Ok(AmendingAction::StrikeAndInsert),
             _ => Err(USLMError::UnknownAmendingAction(s.to_lowercase())),
         }
     }
@@ -340,10 +349,9 @@ pub struct UscReference {
 pub struct BillAmendment {
     /// Type of action (amend, add, delete, insert, redesignate, repeal)
     pub action_types: Vec<AmendingAction>,
-    /// USC paths that this action affects
-    pub target_paths: Vec<UscReference>,
-    /// The bill element path where this action occurs
-    pub source_path: String,
+
+    /// The text of the change
+    pub amending_text: String,
 }
 
 /// Source Credit Attribution

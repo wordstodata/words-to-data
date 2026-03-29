@@ -136,3 +136,36 @@ fn should_capture_amending_text_with_strike_and_insert_language() {
         "Should find amendments with strike and insert language"
     );
 }
+
+#[test]
+fn should_find_section_174_amendment_in_bill() {
+    let data =
+        parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").expect("Failed to parse bill");
+
+    let amendment = data
+        .amendments
+        .into_iter()
+        .find(|a| {
+            a.amending_text.contains("Section 174 is amended")
+                && a.amending_text.contains("foreign research")
+        })
+        .expect("Should find amendment for section 174");
+
+    // Verify the amendment text mentions section 174
+    assert!(
+        amendment.amending_text.contains("Section 174 is amended"),
+        "Amendment should reference Section 174"
+    );
+
+    // Verify it contains the foreign research language
+    assert!(
+        amendment.amending_text.contains("foreign research"),
+        "Amendment should mention foreign research"
+    );
+
+    // Verify it has the expected action types
+    assert!(
+        !amendment.action_types.is_empty(),
+        "Amendment should have action types"
+    );
+}

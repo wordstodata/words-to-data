@@ -324,10 +324,346 @@ impl TreeDiff {
 }
 
 // ============================================================================
+// LegalDiff types
+// ============================================================================
+
+use crate::legal_diff::{
+    AnnotationMetadata as RustAnnotationMetadata, AnnotationStatus as RustAnnotationStatus,
+    BillReference as RustBillReference, ChangeAnnotation as RustChangeAnnotation,
+    LegalDiff as RustLegalDiff,
+};
+use crate::uslm::AmendingAction;
+use std::str::FromStr;
+
+/// A reference to a bill that caused a change
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct BillReference {
+    inner: RustBillReference,
+}
+
+impl BillReference {
+    fn from(rust_ref: &RustBillReference) -> Self {
+        BillReference {
+            inner: rust_ref.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl BillReference {
+    #[new]
+    fn new(bill_id: &str, causative_text: &str) -> Self {
+        BillReference {
+            inner: RustBillReference {
+                bill_id: bill_id.to_string(),
+                causative_text: causative_text.to_string(),
+            },
+        }
+    }
+
+    #[getter]
+    fn bill_id(&self) -> String {
+        self.inner.bill_id.clone()
+    }
+
+    #[getter]
+    fn causative_text(&self) -> String {
+        self.inner.causative_text.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("BillReference(bill_id='{}')", self.inner.bill_id)
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: RustBillReference = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
+}
+
+/// Metadata about an annotation
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct AnnotationMetadata {
+    inner: RustAnnotationMetadata,
+}
+
+impl AnnotationMetadata {
+    fn from(rust_meta: &RustAnnotationMetadata) -> Self {
+        AnnotationMetadata {
+            inner: rust_meta.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl AnnotationMetadata {
+    #[getter]
+    fn status(&self) -> String {
+        match self.inner.status {
+            RustAnnotationStatus::Pending => "pending".to_string(),
+            RustAnnotationStatus::Verified => "verified".to_string(),
+            RustAnnotationStatus::Disputed => "disputed".to_string(),
+            RustAnnotationStatus::Rejected => "rejected".to_string(),
+        }
+    }
+
+    #[getter]
+    fn confidence(&self) -> Option<f32> {
+        self.inner.confidence
+    }
+
+    #[getter]
+    fn annotator(&self) -> String {
+        self.inner.annotator.clone()
+    }
+
+    #[getter]
+    fn timestamp(&self) -> String {
+        self.inner
+            .timestamp
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|_| "invalid timestamp".to_string())
+    }
+
+    #[getter]
+    fn notes(&self) -> Option<String> {
+        self.inner.notes.clone()
+    }
+
+    #[getter]
+    fn reasoning(&self) -> Option<String> {
+        self.inner.reasoning.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "AnnotationMetadata(status='{}', annotator='{}')",
+            self.status(),
+            self.inner.annotator
+        )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: RustAnnotationMetadata = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
+}
+
+/// An annotation linking a change to its legal cause
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct ChangeAnnotation {
+    inner: RustChangeAnnotation,
+}
+
+impl ChangeAnnotation {
+    fn from(rust_ann: &RustChangeAnnotation) -> Self {
+        ChangeAnnotation {
+            inner: rust_ann.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl ChangeAnnotation {
+    #[new]
+    #[pyo3(signature = (operation, bill_id, causative_text, annotator, confidence=None, notes=None, reasoning=None, related_paths=None))]
+    fn new(
+        operation: &str,
+        bill_id: &str,
+        causative_text: &str,
+        annotator: &str,
+        confidence: Option<f32>,
+        notes: Option<String>,
+        reasoning: Option<String>,
+        related_paths: Option<Vec<String>>,
+    ) -> PyResult<Self> {
+        let action = AmendingAction::from_str(operation)
+            .map_err(|e| PyValueError::new_err(format!("Invalid operation: {}", e)))?;
+
+        let metadata = RustAnnotationMetadata {
+            status: RustAnnotationStatus::Pending,
+            confidence,
+            annotator: annotator.to_string(),
+            timestamp: time::OffsetDateTime::now_utc(),
+            notes,
+            reasoning,
+        };
+
+        let source_bill = RustBillReference {
+            bill_id: bill_id.to_string(),
+            causative_text: causative_text.to_string(),
+        };
+
+        Ok(ChangeAnnotation {
+            inner: RustChangeAnnotation {
+                operation: action,
+                source_bill,
+                related_paths: related_paths.unwrap_or_default(),
+                metadata,
+            },
+        })
+    }
+
+    #[getter]
+    fn operation(&self) -> String {
+        format!("{:?}", self.inner.operation).to_lowercase()
+    }
+
+    #[getter]
+    fn source_bill(&self) -> BillReference {
+        BillReference::from(&self.inner.source_bill)
+    }
+
+    #[getter]
+    fn related_paths(&self) -> Vec<String> {
+        self.inner.related_paths.clone()
+    }
+
+    #[getter]
+    fn metadata(&self) -> AnnotationMetadata {
+        AnnotationMetadata::from(&self.inner.metadata)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ChangeAnnotation(operation='{}', bill_id='{}')",
+            self.operation(),
+            self.inner.source_bill.bill_id
+        )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: RustChangeAnnotation = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
+}
+
+/// A legal diff combining word-level changes with semantic annotations
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct LegalDiff {
+    inner: RustLegalDiff,
+}
+
+impl LegalDiff {
+    fn from(rust_diff: &RustLegalDiff) -> Self {
+        LegalDiff {
+            inner: rust_diff.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl LegalDiff {
+    #[new]
+    fn new(tree_diff: &TreeDiff) -> Self {
+        let rust_legal_diff = RustLegalDiff::new(&tree_diff.inner);
+        LegalDiff {
+            inner: rust_legal_diff,
+        }
+    }
+
+    #[getter]
+    fn tree_diff(&self) -> TreeDiff {
+        TreeDiff::from(&self.inner.tree_diff)
+    }
+
+    #[getter]
+    fn annotations_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner.annotations).unwrap();
+        let result = Python::attach(|py| {
+            let obj = pythonize(py, &data).unwrap();
+            obj.unbind()
+        });
+        Ok(result)
+    }
+
+    /// Add an annotation for a specific structural path
+    fn add_annotation(&mut self, path: &str, annotation: &ChangeAnnotation) {
+        self.inner
+            .add_annotation(path.to_string(), annotation.inner.clone());
+    }
+
+    /// Get all annotations for a specific path
+    fn get_annotations(&self, path: &str) -> Option<Vec<ChangeAnnotation>> {
+        self.inner
+            .get_annotations(path)
+            .map(|anns| anns.iter().map(ChangeAnnotation::from).collect())
+    }
+
+    /// Get the TreeDiff node for a specific path
+    fn get_diff_node(&self, path: &str) -> Option<TreeDiff> {
+        self.inner.get_diff_node(path).map(TreeDiff::from)
+    }
+
+    /// Find all annotations that reference a given path in their related_paths
+    fn find_related_annotations(&self, path: &str) -> Vec<(String, ChangeAnnotation)> {
+        self.inner
+            .find_related_annotations(path)
+            .into_iter()
+            .map(|(p, ann)| (p.clone(), ChangeAnnotation::from(ann)))
+            .collect()
+    }
+
+    /// Get all paths that have annotations
+    fn annotated_paths(&self) -> Vec<String> {
+        self.inner.annotated_paths().cloned().collect()
+    }
+
+    /// Get all paths in the TreeDiff that lack annotations
+    fn unannotated_paths(&self) -> Vec<String> {
+        self.inner.unannotated_paths()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "LegalDiff(root_path='{}', annotations={})",
+            self.inner.tree_diff.root_path,
+            self.inner.annotations.len()
+        )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: RustLegalDiff = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
+}
+
+// ============================================================================
 // Bill parsing types
 // ============================================================================
 
-/// An amendment found in a bill that modifies the US Code
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 struct BillAmendment {
@@ -521,5 +857,10 @@ fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TextChange>()?;
     m.add_class::<AmendmentData>()?;
     m.add_class::<BillAmendment>()?;
+    // legal_diff types
+    m.add_class::<LegalDiff>()?;
+    m.add_class::<ChangeAnnotation>()?;
+    m.add_class::<BillReference>()?;
+    m.add_class::<AnnotationMetadata>()?;
     Ok(())
 }
