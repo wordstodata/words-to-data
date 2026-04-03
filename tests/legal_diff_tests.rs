@@ -13,7 +13,7 @@ fn get_section_174_amendment() -> BillAmendment {
         parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").expect("Failed to parse bill");
 
     data.amendments
-        .into_iter()
+        .into_values()
         .find(|a| {
             a.amending_text.contains("Section 174 is amended")
                 && a.amending_text.contains("foreign research")
@@ -32,6 +32,7 @@ fn make_section_174a_annotation(annotator: &str) -> ChangeAnnotation {
         operation: AmendingAction::StrikeAndInsert,
         source_bill: BillReference {
             bill_id: data.bill_id.clone(),
+            amendment_id: amendment.id.clone(),
             causative_text: amendment.amending_text,
         },
         related_paths: vec![],
@@ -58,6 +59,7 @@ fn make_test_annotation(operation: AmendingAction, annotator: &str) -> ChangeAnn
         operation,
         source_bill: BillReference {
             bill_id: data.bill_id.clone(),
+            amendment_id: amendment.id.clone(),
             causative_text: amendment.amending_text,
         },
         related_paths: vec![],

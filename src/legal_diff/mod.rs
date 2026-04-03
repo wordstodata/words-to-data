@@ -37,7 +37,9 @@ pub struct ChangeAnnotation {
 pub struct BillReference {
     /// The bill identifier (e.g., "119-21" for Pub. L. 119-21)
     pub bill_id: String,
-    /// Text of the amending instruction from the bill
+    /// The amendment ID (content-hash) that links back to the BillAmendment
+    pub amendment_id: String,
+    /// Text of the amending instruction from the bill (may be a substring of the full amendment)
     pub causative_text: String,
 }
 

@@ -353,10 +353,11 @@ impl BillReference {
 #[pymethods]
 impl BillReference {
     #[new]
-    fn new(bill_id: &str, causative_text: &str) -> Self {
+    fn new(bill_id: &str, amendment_id: &str, causative_text: &str) -> Self {
         BillReference {
             inner: RustBillReference {
                 bill_id: bill_id.to_string(),
+                amendment_id: amendment_id.to_string(),
                 causative_text: causative_text.to_string(),
             },
         }
@@ -368,12 +369,20 @@ impl BillReference {
     }
 
     #[getter]
+    fn amendment_id(&self) -> String {
+        self.inner.amendment_id.clone()
+    }
+
+    #[getter]
     fn causative_text(&self) -> String {
         self.inner.causative_text.clone()
     }
 
     fn __repr__(&self) -> String {
-        format!("BillReference(bill_id='{}')", self.inner.bill_id)
+        format!(
+            "BillReference(bill_id='{}', amendment_id='{}')",
+            self.inner.bill_id, &self.inner.amendment_id
+        )
     }
 
     fn to_json(&self) -> PyResult<String> {
@@ -484,10 +493,11 @@ impl ChangeAnnotation {
 #[allow(clippy::too_many_arguments)]
 impl ChangeAnnotation {
     #[new]
-    #[pyo3(signature = (operation, bill_id, causative_text, annotator, confidence=None, notes=None, reasoning=None, related_paths=None))]
+    #[pyo3(signature = (operation, bill_id, amendment_id, causative_text, annotator, confidence=None, notes=None, reasoning=None, related_paths=None))]
     fn new(
         operation: &str,
         bill_id: &str,
+        amendment_id: &str,
         causative_text: &str,
         annotator: &str,
         confidence: Option<f32>,
@@ -509,6 +519,7 @@ impl ChangeAnnotation {
 
         let source_bill = RustBillReference {
             bill_id: bill_id.to_string(),
+            amendment_id: amendment_id.to_string(),
             causative_text: causative_text.to_string(),
         };
 
@@ -682,6 +693,11 @@ impl BillAmendment {
 #[pymethods]
 impl BillAmendment {
     #[getter]
+    fn id(&self) -> String {
+        self.inner.id.clone()
+    }
+
+    #[getter]
     fn action_types(&self) -> Vec<String> {
         self.inner
             .action_types
@@ -702,7 +718,8 @@ impl BillAmendment {
             self.inner.amending_text.clone()
         };
         format!(
-            "BillAmendment(action_types={:?}, amending_text='{}')",
+            "BillAmendment(id='{}', action_types={:?}, amending_text='{}')",
+            &self.inner.id[..12],
             self.action_types(),
             text_preview
         )
@@ -733,7 +750,7 @@ impl AmendmentData {
     fn from(rust_data: crate::uslm::bill_parser::AmendmentData) -> Self {
         let amendments = rust_data
             .amendments
-            .iter()
+            .values()
             .map(BillAmendment::from)
             .collect();
 

@@ -347,6 +347,10 @@ pub struct UscReference {
 /// An amending action found in a bill
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BillAmendment {
+    /// Content-based ID: sha256("{bill_id}:{amending_text}")
+    /// This provides a stable, deterministic identifier that works regardless of source format.
+    pub id: String,
+
     /// Type of action (amend, add, delete, insert, redesignate, repeal)
     pub action_types: Vec<AmendingAction>,
 

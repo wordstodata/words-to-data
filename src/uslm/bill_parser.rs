@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 /// Bill-specific parsing logic
@@ -5,7 +6,9 @@ use std::str::FromStr;
 /// This module handles parsing Public Laws and extracting bill-specific information:
 /// - Amending actions that reference USC sections
 /// - Quoted content that represents new USC text
+use hex;
 use roxmltree::Node;
+use sha2::{Digest, Sha256};
 
 use crate::{
     io::load_xml_file,
@@ -25,7 +28,8 @@ pub struct AmendmentData {
     pub bill_id: String,
 
     /// All amendments extracted from instruction elements in the bill
-    pub amendments: Vec<BillAmendment>,
+    /// Keyed by content-based ID: sha256("{bill_id}:{amending_text}")
+    pub amendments: HashMap<String, BillAmendment>,
 }
 
 pub type Result<T> = std::result::Result<T, ParseError>;
@@ -76,9 +80,10 @@ pub fn parse_bill_amendments_from_str(xml_str: &str) -> Result<AmendmentData> {
             // Extract bill_id
             let element_type = ElementType::from_str(node.tag_name().name())?;
             let number = extract_number(element_type, &node)?;
-            let amendments = get_amendments(&node);
+            let bill_id = number.value;
+            let amendments = get_amendments(&node, &bill_id);
             Ok(AmendmentData {
-                bill_id: number.value,
+                bill_id,
                 amendments,
             })
         }
@@ -133,6 +138,18 @@ pub fn parse_bill_amendments(path: &str) -> Result<AmendmentData> {
     parse_bill_amendments_from_str(&xml_str)
 }
 
+/// Compute a content-based amendment ID
+///
+/// The ID is a SHA256 hash of "{bill_id}:{amending_text}", providing a stable,
+/// deterministic identifier that works regardless of the source format (USLM XML,
+/// plaintext, etc.).
+fn compute_amendment_id(bill_id: &str, amending_text: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("{}:{}", bill_id, amending_text));
+    let result = hasher.finalize();
+    hex::encode(result)
+}
+
 /// Extract amendments from a bill XML node
 ///
 /// This function performs a simple extraction of amendments by finding all
@@ -143,11 +160,13 @@ pub fn parse_bill_amendments(path: &str) -> Result<AmendmentData> {
 /// # Arguments
 ///
 /// * `node` - The root XML node to search for amendments (typically the bill root)
+/// * `bill_id` - The bill identifier, used to compute content-based amendment IDs
 ///
 /// # Returns
 ///
-/// A vector of `BillAmendment` structures, one for each instruction element found.
+/// A HashMap of `BillAmendment` structures keyed by content-based ID.
 /// Each amendment contains:
+/// - A content-based ID (sha256 of bill_id + amending_text)
 /// - Amending action types from `<amendingAction>` tags
 /// - The full readable text of the instruction element
 ///
@@ -156,26 +175,20 @@ pub fn parse_bill_amendments(path: &str) -> Result<AmendmentData> {
 /// This is a naive and simple extraction approach. A more sophisticated
 /// implementation could better handle complex legislative language patterns,
 /// nested instructions, and implicit amendments.
-///
-/// # Examples
-///
-/// ```no_run
-/// use roxmltree::Document;
-/// use words_to_data::uslm::bill_parser::get_amendments;
-///
-/// let xml = std::fs::read_to_string("bill.xml").unwrap();
-/// let doc = Document::parse(&xml).unwrap();
-/// let root = doc.root_element();
-/// let amendments = get_amendments(&root);
-/// ```
-pub fn get_amendments(node: &Node) -> Vec<BillAmendment> {
+pub fn get_amendments(node: &Node, bill_id: &str) -> HashMap<String, BillAmendment> {
     let nodes = node
         .descendants()
         .filter(|p| p.attribute("role").unwrap_or_default() == "instruction");
-    nodes.map(|n| get_amendment_data(&n)).collect()
+
+    let mut amendments = HashMap::new();
+    for n in nodes {
+        let amendment = get_amendment_data(&n, bill_id);
+        amendments.insert(amendment.id.clone(), amendment);
+    }
+    amendments
 }
 
-fn get_amendment_data(node: &Node) -> BillAmendment {
+fn get_amendment_data(node: &Node, bill_id: &str) -> BillAmendment {
     let mut action_types: Vec<AmendingAction> = Vec::new();
 
     // Find all <amendingAction> tags
@@ -190,9 +203,13 @@ fn get_amendment_data(node: &Node) -> BillAmendment {
         }
     }
 
+    let amending_text = node_text(node);
+    let id = compute_amendment_id(bill_id, &amending_text);
+
     BillAmendment {
+        id,
         action_types,
-        amending_text: node_text(node),
+        amending_text,
     }
 }
 

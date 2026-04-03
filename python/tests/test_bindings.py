@@ -224,6 +224,7 @@ def test_change_annotation_creation():
         bill_id="119-21",
         causative_text="Section 2 of Public Law 119-21 amends section 174(a)...",
         annotator="human:test_user",
+        amendment_id="test"
     )
 
     assert isinstance(annotation, ChangeAnnotation)
@@ -267,6 +268,7 @@ def test_legal_diff_methods():
         bill_id="119-21",
         causative_text="Test amendment text",
         annotator="human:test",
+        amendment_id="test"
     )
     legal_diff.add_annotation(path_with_change, annotation)
 
@@ -298,6 +300,7 @@ def test_change_annotation_with_optional_fields():
         notes="High confidence match based on text similarity",
         reasoning="The bill text directly matches the change observed in the diff",
         related_paths=["uscodedocument_26/title_26/section_175"],
+        amendment_id="test"
     )
 
     assert annotation.operation == "strikeandinsert"
@@ -327,6 +330,7 @@ def test_related_annotations():
         causative_text="Section redesignation",
         annotator="human:test",
         related_paths=[related_path],
+        amendment_id="test"
     )
 
     legal_diff.add_annotation(source_path, annotation)
@@ -357,6 +361,7 @@ def test_legal_diff_json_roundtrip():
         causative_text="Test text",
         annotator="human:test",
         confidence=0.9,
+        amendment_id="test"
     )
     legal_diff.add_annotation(path, annotation)
 
@@ -393,6 +398,7 @@ def test_annotation_types_json_roundtrip():
         annotator="model:claude-3",
         confidence=0.85,
         notes="AI-generated annotation",
+        amendment_id="test"
     )
 
     ann_json = annotation.to_json()
@@ -407,7 +413,8 @@ def test_annotation_types_json_roundtrip():
     assert restored_ann.metadata.confidence == annotation.metadata.confidence
 
     # Test BillReference roundtrip
-    bill_ref = BillReference("119-21", "Section 2(a)(1)")
+        
+    bill_ref = BillReference(bill_id="119-21", amendment_id="test", causative_text="Section 2(a)(1)")
     bill_json = bill_ref.to_json()
     restored_bill = BillReference.from_json(bill_json)
     assert restored_bill.bill_id == bill_ref.bill_id
