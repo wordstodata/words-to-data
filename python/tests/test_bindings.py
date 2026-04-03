@@ -217,13 +217,15 @@ def test_change_annotation_creation():
     new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
     diff = compute_diff(old, new)
     legal_diff = LegalDiff(diff)
-
+    path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
     # Create a ChangeAnnotation
     annotation = ChangeAnnotation(
         operation="amend",
         bill_id="119-21",
         causative_text="Section 2 of Public Law 119-21 amends section 174(a)...",
         annotator="human:test_user",
+        amendment_id="test",
+        paths = [path]
     )
 
     assert isinstance(annotation, ChangeAnnotation)
@@ -232,11 +234,9 @@ def test_change_annotation_creation():
     assert annotation.source_bill.causative_text == "Section 2 of Public Law 119-21 amends section 174(a)..."
     assert annotation.metadata.annotator == "human:test_user"
     assert annotation.metadata.status == "pending"  # default status
-    assert annotation.related_paths == []  # default empty list
 
     # Add the annotation to the legal diff
-    path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
-    legal_diff.add_annotation(path, annotation)
+    legal_diff.add_annotation(annotation)
 
     # Retrieve it back
     retrieved = legal_diff.get_annotations(path)
@@ -267,8 +267,10 @@ def test_legal_diff_methods():
         bill_id="119-21",
         causative_text="Test amendment text",
         annotator="human:test",
+        amendment_id="test",
+        paths = [path_with_change]
     )
-    legal_diff.add_annotation(path_with_change, annotation)
+    legal_diff.add_annotation(annotation)
 
     # Test annotated_paths
     annotated = legal_diff.annotated_paths()
@@ -297,7 +299,8 @@ def test_change_annotation_with_optional_fields():
         confidence=0.95,
         notes="High confidence match based on text similarity",
         reasoning="The bill text directly matches the change observed in the diff",
-        related_paths=["uscodedocument_26/title_26/section_175"],
+        paths=["uscodedocument_26/title_26/section_175"],
+        amendment_id="test"
     )
 
     assert annotation.operation == "strikeandinsert"
@@ -305,38 +308,6 @@ def test_change_annotation_with_optional_fields():
     assert abs(annotation.metadata.confidence - 0.95) < 0.001  # f32 precision
     assert annotation.metadata.notes == "High confidence match based on text similarity"
     assert annotation.metadata.reasoning == "The bill text directly matches the change observed in the diff"
-    assert annotation.related_paths == ["uscodedocument_26/title_26/section_175"]
-
-
-def test_related_annotations():
-    """Test find_related_annotations functionality"""
-    from words_to_data import LegalDiff, ChangeAnnotation
-
-    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-    diff = compute_diff(old, new)
-    legal_diff = LegalDiff(diff)
-
-    # Create an annotation that references a related path
-    source_path = "uscodedocument_26/title_26/section_174"
-    related_path = "uscodedocument_26/title_26/section_175"
-
-    annotation = ChangeAnnotation(
-        operation="redesignate",
-        bill_id="119-21",
-        causative_text="Section redesignation",
-        annotator="human:test",
-        related_paths=[related_path],
-    )
-
-    legal_diff.add_annotation(source_path, annotation)
-
-    # Find annotations that reference the related path
-    related = legal_diff.find_related_annotations(related_path)
-    assert len(related) == 1
-    path, ann = related[0]
-    assert path == source_path
-    assert ann.operation == "redesignate"
 
 
 def test_legal_diff_json_roundtrip():
@@ -357,8 +328,10 @@ def test_legal_diff_json_roundtrip():
         causative_text="Test text",
         annotator="human:test",
         confidence=0.9,
+        amendment_id="test",
+        paths=[path]
     )
-    legal_diff.add_annotation(path, annotation)
+    legal_diff.add_annotation(annotation)
 
     # Serialize to JSON
     json_str = legal_diff.to_json()
@@ -393,6 +366,8 @@ def test_annotation_types_json_roundtrip():
         annotator="model:claude-3",
         confidence=0.85,
         notes="AI-generated annotation",
+        amendment_id="test",
+        paths=["test"]
     )
 
     ann_json = annotation.to_json()
@@ -407,7 +382,8 @@ def test_annotation_types_json_roundtrip():
     assert restored_ann.metadata.confidence == annotation.metadata.confidence
 
     # Test BillReference roundtrip
-    bill_ref = BillReference("119-21", "Section 2(a)(1)")
+        
+    bill_ref = BillReference(bill_id="119-21", amendment_id="test", causative_text="Section 2(a)(1)")
     bill_json = bill_ref.to_json()
     restored_bill = BillReference.from_json(bill_json)
     assert restored_bill.bill_id == bill_ref.bill_id

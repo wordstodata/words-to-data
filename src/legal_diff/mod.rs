@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashSet, hash::Hash};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ pub struct LegalDiff {
     pub tree_diff: TreeDiff,
 
     /// List of annotated changes
-    pub annotations: HashMap<String, Vec<ChangeAnnotation>>,
+    pub annotations: Vec<ChangeAnnotation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,12 +21,8 @@ pub struct ChangeAnnotation {
     /// Reference to the bill that enacted the change
     pub source_bill: BillReference,
 
-    /// Structural paths of related changes
-    ///
-    /// Example: A redesignation of paragraph (2) to (3) would have:
-    /// - Annotation on removed path "section_1/paragraph_2"
-    /// - related_paths: ["section_1/paragraph_3"]
-    pub related_paths: Vec<String>,
+    /// Structural paths of changes in the TreeDiff
+    pub paths: Vec<String>,
 
     /// Metadata about the annotation itself
     pub metadata: AnnotationMetadata,
@@ -37,7 +33,9 @@ pub struct ChangeAnnotation {
 pub struct BillReference {
     /// The bill identifier (e.g., "119-21" for Pub. L. 119-21)
     pub bill_id: String,
-    /// Text of the amending instruction from the bill
+    /// The amendment ID (content-hash) that links back to the BillAmendment
+    pub amendment_id: String,
+    /// Text of the amending instruction from the bill (may be a substring of the full amendment)
     pub causative_text: String,
 }
 
@@ -83,18 +81,25 @@ impl LegalDiff {
     pub fn new(tree_diff: &TreeDiff) -> Self {
         LegalDiff {
             tree_diff: tree_diff.clone(),
-            annotations: HashMap::new(),
+            annotations: Vec::new(),
         }
     }
 
     /// Add an annotation for a specific structural path
-    pub fn add_annotation(&mut self, path: String, annotation: ChangeAnnotation) {
-        self.annotations.entry(path).or_default().push(annotation);
+    pub fn add_annotation(&mut self, annotation: ChangeAnnotation) {
+        self.annotations.push(annotation);
     }
 
     /// Get all annotations for a specific path
-    pub fn get_annotations(&self, path: &str) -> Option<&[ChangeAnnotation]> {
-        self.annotations.get(path).map(|v| v.as_slice())
+    pub fn get_annotations(&self, path: &str) -> Vec<&ChangeAnnotation> {
+        let path_string = String::from(path);
+
+        let matches: Vec<&ChangeAnnotation> = self
+            .annotations
+            .iter()
+            .filter(|annotation| annotation.paths.contains(&path_string))
+            .collect();
+        matches
     }
 
     /// Get the TreeDiff node for a specific path
@@ -103,33 +108,23 @@ impl LegalDiff {
         self.tree_diff.find(path)
     }
 
-    /// Find all annotations that reference a given path in their related_paths
-    /// (Reverse lookup for relationships)
-    pub fn find_related_annotations(&self, path: &str) -> Vec<(&String, &ChangeAnnotation)> {
-        let mut results = Vec::new();
-        for (source_path, annotations) in &self.annotations {
-            for annotation in annotations {
-                if annotation.related_paths.contains(&path.to_string()) {
-                    results.push((source_path, annotation));
-                }
-            }
-        }
-        results
-    }
-
     /// Get all paths that have annotations
-    pub fn annotated_paths(&self) -> impl Iterator<Item = &String> {
-        self.annotations.keys()
+    pub fn annotated_paths(&self) -> HashSet<String> {
+        self.annotations
+            .iter()
+            .flat_map(|annotation| annotation.paths.clone())
+            .collect()
     }
 
     /// Get all paths in the TreeDiff that lack annotations
     /// Useful for finding unannotated changes
     pub fn unannotated_paths(&self) -> Vec<String> {
+        let a_paths = self.annotated_paths();
         let mut paths_with_changes = Vec::new();
         Self::collect_paths_with_changes(&self.tree_diff, &mut paths_with_changes);
         paths_with_changes
             .into_iter()
-            .filter(|p| !self.annotations.contains_key(p))
+            .filter(|p| !a_paths.contains(p))
             .collect()
     }
 

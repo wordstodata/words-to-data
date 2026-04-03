@@ -198,6 +198,11 @@ class BillAmendment:
     """An amendment found in a bill that modifies the US Code"""
 
     @property
+    def id(self) -> str:
+        """Content-based ID: sha256("{bill_id}:{amending_text}") - 64 hex chars"""
+        ...
+
+    @property
     def action_types(self) -> list[Literal["amend", "add", "delete", "insert", "redesignate", "repeal", "move", "strike", "strikeandinsert"]]:
         """Types of amending actions performed by this amendment"""
         ...
@@ -260,11 +265,12 @@ def parse_bill_amendments(path: str) -> AmendmentData:
 class BillReference:
     """A reference to a bill that caused a change"""
 
-    def __init__(self, bill_id: str, causative_text: str) -> None:
+    def __init__(self, bill_id: str, amendment_id: str, causative_text: str) -> None:
         """Create a new bill reference.
 
         Args:
             bill_id: The bill identifier (e.g., "119-21")
+            amendment_id: The amendment ID (content-hash) linking back to BillAmendment
             causative_text: Text of the amending instruction from the bill
         """
         ...
@@ -272,6 +278,11 @@ class BillReference:
     @property
     def bill_id(self) -> str:
         """The bill identifier (e.g., "119-21" for Pub. L. 119-21)"""
+        ...
+
+    @property
+    def amendment_id(self) -> str:
+        """The amendment ID (content-hash) linking back to BillAmendment"""
         ...
 
     @property
@@ -337,24 +348,26 @@ class ChangeAnnotation:
         self,
         operation: Literal["amend", "add", "delete", "insert", "redesignate", "repeal", "move", "strike", "strikeandinsert"],
         bill_id: str,
+        amendment_id: str,
         causative_text: str,
         annotator: str,
+        paths: list[str],
         confidence: float | None = None,
         notes: str | None = None,
         reasoning: str | None = None,
-        related_paths: list[str] | None = None,
     ) -> None:
         """Create a new change annotation.
 
         Args:
             operation: The type of legal operation that caused this change
             bill_id: The bill identifier (e.g., "119-21")
+            amendment_id: The amendment ID (content-hash) linking back to BillAmendment
             causative_text: Text of the amending instruction from the bill
             annotator: Identifier for who/what created this annotation
+            paths: Structural paths of related changes (for moves, redesignations)
             confidence: Confidence score for AI-generated annotations (0.0 - 1.0)
             notes: Freeform notes about the annotation
             reasoning: Explanation of how/why this annotation was determined
-            related_paths: Structural paths of related changes (for moves, redesignations)
         """
         ...
 
@@ -366,11 +379,6 @@ class ChangeAnnotation:
     @property
     def source_bill(self) -> BillReference:
         """Reference to the bill that enacted the change"""
-        ...
-
-    @property
-    def related_paths(self) -> list[str]:
-        """Structural paths of related changes (for moves, redesignations)"""
         ...
 
     @property
@@ -408,7 +416,7 @@ class LegalDiff:
         """All annotations as a dictionary (path -> list of annotation dicts)"""
         ...
 
-    def add_annotation(self, path: str, annotation: ChangeAnnotation) -> None:
+    def add_annotation(self, annotation: ChangeAnnotation) -> None:
         """Add an annotation for a specific structural path.
 
         Args:
@@ -436,17 +444,6 @@ class LegalDiff:
 
         Returns:
             The TreeDiff node, or None if not found
-        """
-        ...
-
-    def find_related_annotations(self, path: str) -> list[tuple[str, ChangeAnnotation]]:
-        """Find all annotations that reference a given path in their related_paths.
-
-        Args:
-            path: The path to search for in related_paths
-
-        Returns:
-            List of (source_path, annotation) tuples
         """
         ...
 
