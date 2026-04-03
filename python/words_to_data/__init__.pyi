@@ -194,44 +194,17 @@ def compute_diff(old_element: USLMElement, new_element: USLMElement) -> TreeDiff
     """
     ...
 
-class UscReference:
-    """A reference to a USC section found in a bill"""
-
-    @property
-    def path(self) -> str:
-        """The USLM path being referenced (e.g., '/us/usc/t7/s2025/c/1/A/ii')"""
-        ...
-
-    @property
-    def display_text(self) -> str:
-        """The human-readable text of the reference (e.g., '7 U.S.C. 2025(c)(1)(A)(ii)')"""
-        ...
-
-    def to_json(self) -> str:
-        """Serialize the reference to a JSON string."""
-        ...
-
-    @staticmethod
-    def from_json(json_str: str) -> UscReference:
-        """Deserialize a JSON string to a UscReference."""
-        ...
-
 class BillAmendment:
     """An amendment found in a bill that modifies the US Code"""
 
     @property
-    def action_types(self) -> list[Literal["amend", "add", "delete", "insert", "redesignate", "repeal"]]:
+    def action_types(self) -> list[Literal["amend", "add", "delete", "insert", "redesignate", "repeal", "move", "strike", "strikeandinsert"]]:
         """Types of amending actions performed by this amendment"""
         ...
 
     @property
-    def target_paths(self) -> list[UscReference]:
-        """USC sections that this amendment affects"""
-        ...
-
-    @property
-    def source_path(self) -> str:
-        """The bill element path where this amendment occurs"""
+    def amending_text(self) -> str:
+        """The full readable text of the amending instruction"""
         ...
 
     def to_json(self) -> str:
@@ -279,6 +252,220 @@ def parse_bill_amendments(path: str) -> AmendmentData:
         OSError: If the file cannot be read
     """
     ...
+
+# ============================================================================
+# LegalDiff types
+# ============================================================================
+
+class BillReference:
+    """A reference to a bill that caused a change"""
+
+    def __init__(self, bill_id: str, causative_text: str) -> None:
+        """Create a new bill reference.
+
+        Args:
+            bill_id: The bill identifier (e.g., "119-21")
+            causative_text: Text of the amending instruction from the bill
+        """
+        ...
+
+    @property
+    def bill_id(self) -> str:
+        """The bill identifier (e.g., "119-21" for Pub. L. 119-21)"""
+        ...
+
+    @property
+    def causative_text(self) -> str:
+        """Text of the amending instruction from the bill"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> BillReference:
+        """Deserialize a JSON string to a BillReference."""
+        ...
+
+class AnnotationMetadata:
+    """Metadata about an annotation"""
+
+    @property
+    def status(self) -> Literal["pending", "verified", "disputed", "rejected"]:
+        """Current verification status of this annotation"""
+        ...
+
+    @property
+    def confidence(self) -> float | None:
+        """Confidence score for AI-generated annotations (0.0 - 1.0), None for human annotations"""
+        ...
+
+    @property
+    def annotator(self) -> str:
+        """Identifier for who/what created this annotation (e.g., "human:username" or "model:gpt-4")"""
+        ...
+
+    @property
+    def timestamp(self) -> str:
+        """When this annotation was created (ISO 8601 format)"""
+        ...
+
+    @property
+    def notes(self) -> str | None:
+        """Freeform notes about the annotation"""
+        ...
+
+    @property
+    def reasoning(self) -> str | None:
+        """Explanation of how/why this annotation was determined"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> AnnotationMetadata:
+        """Deserialize a JSON string to an AnnotationMetadata."""
+        ...
+
+class ChangeAnnotation:
+    """An annotation linking a change to its legal cause"""
+
+    def __init__(
+        self,
+        operation: Literal["amend", "add", "delete", "insert", "redesignate", "repeal", "move", "strike", "strikeandinsert"],
+        bill_id: str,
+        causative_text: str,
+        annotator: str,
+        confidence: float | None = None,
+        notes: str | None = None,
+        reasoning: str | None = None,
+        related_paths: list[str] | None = None,
+    ) -> None:
+        """Create a new change annotation.
+
+        Args:
+            operation: The type of legal operation that caused this change
+            bill_id: The bill identifier (e.g., "119-21")
+            causative_text: Text of the amending instruction from the bill
+            annotator: Identifier for who/what created this annotation
+            confidence: Confidence score for AI-generated annotations (0.0 - 1.0)
+            notes: Freeform notes about the annotation
+            reasoning: Explanation of how/why this annotation was determined
+            related_paths: Structural paths of related changes (for moves, redesignations)
+        """
+        ...
+
+    @property
+    def operation(self) -> Literal["amend", "add", "delete", "insert", "redesignate", "repeal", "move", "strike", "strikeandinsert"]:
+        """The type of legal operation that caused this change"""
+        ...
+
+    @property
+    def source_bill(self) -> BillReference:
+        """Reference to the bill that enacted the change"""
+        ...
+
+    @property
+    def related_paths(self) -> list[str]:
+        """Structural paths of related changes (for moves, redesignations)"""
+        ...
+
+    @property
+    def metadata(self) -> AnnotationMetadata:
+        """Metadata about the annotation itself"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> ChangeAnnotation:
+        """Deserialize a JSON string to a ChangeAnnotation."""
+        ...
+
+class LegalDiff:
+    """A legal diff combining word-level changes with semantic annotations"""
+
+    def __init__(self, tree_diff: TreeDiff) -> None:
+        """Create a new LegalDiff from an existing TreeDiff with no annotations.
+
+        Args:
+            tree_diff: The underlying word-level diff
+        """
+        ...
+
+    @property
+    def tree_diff(self) -> TreeDiff:
+        """The underlying word-level diffs"""
+        ...
+
+    @property
+    def annotations_dict(self) -> dict[str, list[dict[str, Any]]]:
+        """All annotations as a dictionary (path -> list of annotation dicts)"""
+        ...
+
+    def add_annotation(self, path: str, annotation: ChangeAnnotation) -> None:
+        """Add an annotation for a specific structural path.
+
+        Args:
+            path: The structural path to annotate
+            annotation: The annotation to add
+        """
+        ...
+
+    def get_annotations(self, path: str) -> list[ChangeAnnotation] | None:
+        """Get all annotations for a specific path.
+
+        Args:
+            path: The structural path to look up
+
+        Returns:
+            List of annotations for the path, or None if no annotations exist
+        """
+        ...
+
+    def get_diff_node(self, path: str) -> TreeDiff | None:
+        """Get the TreeDiff node for a specific path.
+
+        Args:
+            path: The structural path to look up
+
+        Returns:
+            The TreeDiff node, or None if not found
+        """
+        ...
+
+    def find_related_annotations(self, path: str) -> list[tuple[str, ChangeAnnotation]]:
+        """Find all annotations that reference a given path in their related_paths.
+
+        Args:
+            path: The path to search for in related_paths
+
+        Returns:
+            List of (source_path, annotation) tuples
+        """
+        ...
+
+    def annotated_paths(self) -> list[str]:
+        """Get all paths that have annotations."""
+        ...
+
+    def unannotated_paths(self) -> list[str]:
+        """Get all paths in the TreeDiff that lack annotations."""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> LegalDiff:
+        """Deserialize a JSON string to a LegalDiff."""
+        ...
 
 __version__: str
 __all__: list[str]

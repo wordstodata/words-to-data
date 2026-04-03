@@ -1,23 +1,46 @@
-from words_to_data import TreeDiff, compute_diff, parse_uslm_xml, USLMElement, parse_bill_amendments, AmendmentData, BillAmendment, UscReference, FieldChangeEvent, TextChange
+from words_to_data import (
+    TreeDiff,
+    compute_diff,
+    parse_uslm_xml,
+    USLMElement,
+    parse_bill_amendments,
+    AmendmentData,
+    BillAmendment,
+    FieldChangeEvent,
+    TextChange,
+)
+
 
 def test_uslm_elements():
     element = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-    s174a = element.find("uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
-    assert isinstance(element,USLMElement)
-    assert isinstance(s174a,USLMElement)
+    s174a = element.find(
+        "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
+    )
+    assert isinstance(element, USLMElement)
+    assert isinstance(s174a, USLMElement)
+
 
 def test_diffs():
-    old = parse_uslm_xml('tests/test_data/usc/2025-07-18/usc26.xml', '2025-07-18')
-    new = parse_uslm_xml('tests/test_data/usc/2025-07-30/usc26.xml', '2025-07-30')
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
     # Compute diff
     diff = compute_diff(old, new)
-    s174a = diff.find("uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
+    s174a = diff.find(
+        "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
+    )
     assert isinstance(s174a, TreeDiff)
     field_change = s174a.changes[0]
     assert len(field_change.changes) == 2
     assert field_change.field_name == "chapeau"
-    assert field_change.old_value == "In the case of a taxpayer’s specified research or experimental expenditures for any taxable year—"
-    assert field_change.new_value == "In the case of a taxpayer’s foreign research or experimental expenditures for any taxable year—"
+    assert (
+        field_change.old_value
+        == "In the case of a taxpayer’s specified research or experimental expenditures for any taxable year—"
+    )
+    assert (
+        field_change.new_value
+        == "In the case of a taxpayer’s foreign research or experimental expenditures for any taxable year—"
+    )
+
 
 def test_bill_parsing():
     # Parse bill amendments
@@ -31,18 +54,21 @@ def test_bill_parsing():
     # Validate BillAmendment
     amendment = data.amendments[0]
     assert isinstance(amendment, BillAmendment)
-    assert amendment.source_path.startswith("/us/pl/")
-    assert len(amendment.target_paths) > 0
+    assert len(amendment.amending_text) > 0
     assert len(amendment.action_types) > 0
 
-    # Validate UscReference
-    ref = amendment.target_paths[0]
-    assert isinstance(ref, UscReference)
-    assert ref.path.startswith("/us/usc/")
-    assert len(ref.display_text) > 0
-
     # Validate action types are valid strings
-    valid_actions = ["amend", "add", "delete", "insert", "redesignate", "repeal"]
+    valid_actions = [
+        "amend",
+        "add",
+        "delete",
+        "insert",
+        "redesignate",
+        "repeal",
+        "move",
+        "strike",
+        "strikeandinsert",
+    ]
     assert all(action in valid_actions for action in amendment.action_types)
 
 
@@ -57,8 +83,8 @@ def test_to_json_methods():
     assert "path" in parsed or "data" in parsed  # should have structure
 
     # Test TreeDiff.to_json() and nested types
-    old = parse_uslm_xml('tests/test_data/usc/2025-07-18/usc26.xml', '2025-07-18')
-    new = parse_uslm_xml('tests/test_data/usc/2025-07-30/usc26.xml', '2025-07-30')
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
     diff = compute_diff(old, new)
     diff_json = diff.to_json()
     assert isinstance(diff_json, str)
@@ -66,7 +92,9 @@ def test_to_json_methods():
     assert "root_path" in parsed_diff
 
     # Test FieldChangeEvent.to_json()
-    s174a = diff.find("uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
+    s174a = diff.find(
+        "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
+    )
     assert s174a is not None
     field_change = s174a.changes[0]
     field_json = field_change.to_json()
@@ -94,15 +122,8 @@ def test_to_json_methods():
     amendment_json = amendment.to_json()
     assert isinstance(amendment_json, str)
     parsed_amendment = json.loads(amendment_json)
-    assert "source_path" in parsed_amendment
-
-    # Test UscReference.to_json()
-    ref = amendment.target_paths[0]
-    ref_json = ref.to_json()
-    assert isinstance(ref_json, str)
-    parsed_ref = json.loads(ref_json)
-    assert "path" in parsed_ref
-    assert "display_text" in parsed_ref
+    assert "amending_text" in parsed_amendment
+    assert "action_types" in parsed_amendment
 
 
 def test_from_json_roundtrip():
@@ -117,8 +138,8 @@ def test_from_json_roundtrip():
     assert len(restored_element.children) == len(element.children)
 
     # Test TreeDiff round-trip
-    old = parse_uslm_xml('tests/test_data/usc/2025-07-18/usc26.xml', '2025-07-18')
-    new = parse_uslm_xml('tests/test_data/usc/2025-07-30/usc26.xml', '2025-07-30')
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
     diff = compute_diff(old, new)
     diff_json = diff.to_json()
     restored_diff = TreeDiff.from_json(diff_json)
@@ -127,7 +148,9 @@ def test_from_json_roundtrip():
     assert len(restored_diff.child_diffs) == len(diff.child_diffs)
 
     # Test FieldChangeEvent round-trip
-    s174a = diff.find("uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
+    s174a = diff.find(
+        "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
+    )
     assert s174a is not None
     field_change = s174a.changes[0]
     field_json = field_change.to_json()
@@ -158,13 +181,241 @@ def test_from_json_roundtrip():
     amendment_json = amendment.to_json()
     restored_amendment = BillAmendment.from_json(amendment_json)
     assert isinstance(restored_amendment, BillAmendment)
-    assert restored_amendment.source_path == amendment.source_path
+    assert restored_amendment.amending_text == amendment.amending_text
     assert restored_amendment.action_types == amendment.action_types
 
-    # Test UscReference round-trip
-    ref = amendment.target_paths[0]
-    ref_json = ref.to_json()
-    restored_ref = UscReference.from_json(ref_json)
-    assert isinstance(restored_ref, UscReference)
-    assert restored_ref.path == ref.path
-    assert restored_ref.display_text == ref.display_text
+
+# ============================================================================
+# legal_diff module tests
+# ============================================================================
+
+
+def test_legal_diff_creation():
+    """Test creating a LegalDiff from a TreeDiff"""
+    from words_to_data import LegalDiff
+
+    # Create a TreeDiff first
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+
+    # Create a LegalDiff from the TreeDiff
+    legal_diff = LegalDiff(diff)
+
+    assert isinstance(legal_diff, LegalDiff)
+    # tree_diff property should return a TreeDiff
+    assert isinstance(legal_diff.tree_diff, TreeDiff)
+    assert legal_diff.tree_diff.root_path == diff.root_path
+
+
+def test_change_annotation_creation():
+    """Test creating a ChangeAnnotation and adding it to a LegalDiff"""
+    from words_to_data import LegalDiff, ChangeAnnotation
+
+    # Create a LegalDiff
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+    legal_diff = LegalDiff(diff)
+
+    # Create a ChangeAnnotation
+    annotation = ChangeAnnotation(
+        operation="amend",
+        bill_id="119-21",
+        causative_text="Section 2 of Public Law 119-21 amends section 174(a)...",
+        annotator="human:test_user",
+    )
+
+    assert isinstance(annotation, ChangeAnnotation)
+    assert annotation.operation == "amend"
+    assert annotation.source_bill.bill_id == "119-21"
+    assert annotation.source_bill.causative_text == "Section 2 of Public Law 119-21 amends section 174(a)..."
+    assert annotation.metadata.annotator == "human:test_user"
+    assert annotation.metadata.status == "pending"  # default status
+    assert annotation.related_paths == []  # default empty list
+
+    # Add the annotation to the legal diff
+    path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
+    legal_diff.add_annotation(path, annotation)
+
+    # Retrieve it back
+    retrieved = legal_diff.get_annotations(path)
+    assert retrieved is not None
+    assert len(retrieved) == 1
+    assert retrieved[0].operation == "amend"
+
+
+def test_legal_diff_methods():
+    """Test various LegalDiff methods"""
+    from words_to_data import LegalDiff, ChangeAnnotation
+
+    # Create a LegalDiff with changes
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+    legal_diff = LegalDiff(diff)
+
+    # Test unannotated_paths - should have paths since we haven't added annotations yet
+    unannotated = legal_diff.unannotated_paths()
+    assert len(unannotated) > 0
+    assert isinstance(unannotated, list)
+
+    # Add an annotation to one path
+    path_with_change = unannotated[0]
+    annotation = ChangeAnnotation(
+        operation="amend",
+        bill_id="119-21",
+        causative_text="Test amendment text",
+        annotator="human:test",
+    )
+    legal_diff.add_annotation(path_with_change, annotation)
+
+    # Test annotated_paths
+    annotated = legal_diff.annotated_paths()
+    assert path_with_change in annotated
+
+    # Test get_diff_node
+    diff_node = legal_diff.get_diff_node(path_with_change)
+    assert diff_node is not None
+    assert isinstance(diff_node, TreeDiff)
+
+    # Test that unannotated_paths now excludes the annotated path
+    new_unannotated = legal_diff.unannotated_paths()
+    assert path_with_change not in new_unannotated
+
+
+def test_change_annotation_with_optional_fields():
+    """Test creating ChangeAnnotation with optional fields"""
+    from words_to_data import ChangeAnnotation
+
+    # Create with all optional fields
+    annotation = ChangeAnnotation(
+        operation="strikeandinsert",
+        bill_id="119-21",
+        causative_text="Section 2(a) strikes 'specified' and inserts 'foreign'",
+        annotator="model:gpt-4",
+        confidence=0.95,
+        notes="High confidence match based on text similarity",
+        reasoning="The bill text directly matches the change observed in the diff",
+        related_paths=["uscodedocument_26/title_26/section_175"],
+    )
+
+    assert annotation.operation == "strikeandinsert"
+    assert annotation.metadata.confidence is not None
+    assert abs(annotation.metadata.confidence - 0.95) < 0.001  # f32 precision
+    assert annotation.metadata.notes == "High confidence match based on text similarity"
+    assert annotation.metadata.reasoning == "The bill text directly matches the change observed in the diff"
+    assert annotation.related_paths == ["uscodedocument_26/title_26/section_175"]
+
+
+def test_related_annotations():
+    """Test find_related_annotations functionality"""
+    from words_to_data import LegalDiff, ChangeAnnotation
+
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+    legal_diff = LegalDiff(diff)
+
+    # Create an annotation that references a related path
+    source_path = "uscodedocument_26/title_26/section_174"
+    related_path = "uscodedocument_26/title_26/section_175"
+
+    annotation = ChangeAnnotation(
+        operation="redesignate",
+        bill_id="119-21",
+        causative_text="Section redesignation",
+        annotator="human:test",
+        related_paths=[related_path],
+    )
+
+    legal_diff.add_annotation(source_path, annotation)
+
+    # Find annotations that reference the related path
+    related = legal_diff.find_related_annotations(related_path)
+    assert len(related) == 1
+    path, ann = related[0]
+    assert path == source_path
+    assert ann.operation == "redesignate"
+
+
+def test_legal_diff_json_roundtrip():
+    """Test JSON serialization and deserialization of LegalDiff"""
+    import json
+    from words_to_data import LegalDiff, ChangeAnnotation
+
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+    legal_diff = LegalDiff(diff)
+
+    # Add an annotation
+    path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
+    annotation = ChangeAnnotation(
+        operation="amend",
+        bill_id="119-21",
+        causative_text="Test text",
+        annotator="human:test",
+        confidence=0.9,
+    )
+    legal_diff.add_annotation(path, annotation)
+
+    # Serialize to JSON
+    json_str = legal_diff.to_json()
+    assert isinstance(json_str, str)
+    parsed = json.loads(json_str)
+    assert "tree_diff" in parsed
+    assert "annotations" in parsed
+
+    # Deserialize back
+    restored = LegalDiff.from_json(json_str)
+    assert isinstance(restored, LegalDiff)
+    assert restored.tree_diff.root_path == legal_diff.tree_diff.root_path
+
+    # Check annotations survived roundtrip
+    restored_anns = restored.get_annotations(path)
+    assert restored_anns is not None
+    assert len(restored_anns) == 1
+    assert restored_anns[0].operation == "amend"
+    assert restored_anns[0].source_bill.bill_id == "119-21"
+
+
+def test_annotation_types_json_roundtrip():
+    """Test JSON roundtrip for ChangeAnnotation and nested types"""
+    import json
+    from words_to_data import ChangeAnnotation, BillReference, AnnotationMetadata
+
+    # Test ChangeAnnotation roundtrip
+    annotation = ChangeAnnotation(
+        operation="add",
+        bill_id="119-21",
+        causative_text="Adding new subsection (c)",
+        annotator="model:claude-3",
+        confidence=0.85,
+        notes="AI-generated annotation",
+    )
+
+    ann_json = annotation.to_json()
+    parsed = json.loads(ann_json)
+    assert "operation" in parsed
+    assert "source_bill" in parsed
+    assert "metadata" in parsed
+
+    restored_ann = ChangeAnnotation.from_json(ann_json)
+    assert restored_ann.operation == annotation.operation
+    assert restored_ann.source_bill.bill_id == annotation.source_bill.bill_id
+    assert restored_ann.metadata.confidence == annotation.metadata.confidence
+
+    # Test BillReference roundtrip
+    bill_ref = BillReference("119-21", "Section 2(a)(1)")
+    bill_json = bill_ref.to_json()
+    restored_bill = BillReference.from_json(bill_json)
+    assert restored_bill.bill_id == bill_ref.bill_id
+    assert restored_bill.causative_text == bill_ref.causative_text
+
+    # Test AnnotationMetadata roundtrip
+    meta_json = annotation.metadata.to_json()
+    restored_meta = AnnotationMetadata.from_json(meta_json)
+    assert restored_meta.status == annotation.metadata.status
+    assert restored_meta.annotator == annotation.metadata.annotator
+    assert restored_meta.confidence == annotation.metadata.confidence

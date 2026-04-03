@@ -10,7 +10,7 @@ license = "MIT"
 [lib]
 name = "words_to_data"
 path = "src/lib.rs"
-crate-type = ["rlib", "cdylib"]  # rlib = Rust consumers, cdylib = Python
+crate-type = ["rlib", "cdylib"] # rlib = Rust consumers, cdylib = Python
 
 [dependencies]
 rayon = "1.11.0"
@@ -19,9 +19,14 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.148"
 similar = "2.7.0"
 thiserror = "2.0.17"
-time = { version = "0.3.44", features = ["serde"] }
-pyo3 = { version = "0.28", features = ["extension-module", "serde"], optional = true }
-pythonize = { version = "0.28", features = ["arbitrary_precision"], optional = true }
+time = { version = "0.3.44", features = ["serde", "formatting"] }
+pyo3 = { version = "0.28", features = [
+    "extension-module",
+    "serde",
+], optional = true }
+pythonize = { version = "0.28", features = [
+    "arbitrary_precision",
+], optional = true }
 
 [features]
 python = ["pyo3", "pythonize"]

@@ -8,7 +8,11 @@ from .words_to_data import (
     TextChange,
     AmendmentData,
     BillAmendment,
-    UscReference,
+    # legal_diff types
+    LegalDiff,
+    ChangeAnnotation,
+    BillReference,
+    AnnotationMetadata,
 )
 
 __version__ = "0.1.2"
@@ -22,5 +26,9 @@ __all__ = [
     "TextChange",
     "AmendmentData",
     "BillAmendment",
-    "UscReference",
+    # legal_diff types
+    "LegalDiff",
+    "ChangeAnnotation",
+    "BillReference",
+    "AnnotationMetadata",
 ]

@@ -4,14 +4,13 @@ use std::str::FromStr;
 ///
 /// This module handles parsing Public Laws and extracting bill-specific information:
 /// - Amending actions that reference USC sections
-/// - USC references from <ref> tags
 /// - Quoted content that represents new USC text
 use roxmltree::Node;
 
 use crate::{
     io::load_xml_file,
     uslm::{
-        AmendingAction, BillAmendment, ElementType, UscReference,
+        AmendingAction, BillAmendment, ElementType,
         parser::{ParseError, extract_number},
     },
 };
@@ -149,9 +148,8 @@ pub fn parse_bill_amendments(path: &str) -> Result<AmendmentData> {
 ///
 /// A vector of `BillAmendment` structures, one for each instruction element found.
 /// Each amendment contains:
-/// - The source path (bill location) from the `identifier` attribute
-/// - Target USC paths referenced in `<ref>` tags
 /// - Amending action types from `<amendingAction>` tags
+/// - The full readable text of the instruction element
 ///
 /// # Implementation Note
 ///
@@ -174,53 +172,33 @@ pub fn get_amendments(node: &Node) -> Vec<BillAmendment> {
     let nodes = node
         .descendants()
         .filter(|p| p.attribute("role").unwrap_or_default() == "instruction");
-    nodes
-        .map(|n| {
-            let source_path = n.attribute("identifier").unwrap();
-            get_amendment_data(&n, source_path)
-        })
-        .collect()
+    nodes.map(|n| get_amendment_data(&n)).collect()
 }
 
-fn get_amendment_data(node: &Node, source_path: &str) -> BillAmendment {
-    let mut target_paths: Vec<UscReference> = Vec::new();
+fn get_amendment_data(node: &Node) -> BillAmendment {
     let mut action_types: Vec<AmendingAction> = Vec::new();
 
-    // Find all <ref> and <amendingAction <tags>
+    // Find all <amendingAction> tags
     for descendant in node.descendants() {
-        match descendant.tag_name().name().to_lowercase().as_str() {
-            // <ref> tags tell you the USLM path to the target law
-            "ref" => {
-                if let Some(href) = descendant.attribute("href") {
-                    // Check if this is a USC reference
-                    if href.starts_with("/us/usc/") {
-                        let display_text = descendant
-                            .text()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| href.to_string());
-
-                        target_paths.push(UscReference {
-                            path: href.to_string(),
-                            display_text,
-                        });
-                    }
-                }
+        if descendant.tag_name().name().to_lowercase().as_str() == "amendingaction" {
+            let action_text = descendant
+                .attribute("type")
+                .expect("I expect that Amending Action tags are never empty, so I'll be surprised if this ever fails");
+            if let Ok(action) = AmendingAction::from_str(action_text) {
+                action_types.push(action);
             }
-            "amendingaction" => {
-                let action_text = descendant
-                    .attribute("type")
-                    .expect("I expect that Amending Action tags are never empty, so I'll be surprised if this ever fails");
-                if let Ok(action) = AmendingAction::from_str(action_text) {
-                    action_types.push(action);
-                }
-            }
-            _ => {}
         }
     }
 
     BillAmendment {
-        source_path: source_path.to_string(),
-        target_paths,
         action_types,
+        amending_text: node_text(node),
     }
+}
+
+fn node_text(node: &Node) -> String {
+    node.descendants()
+        .filter(|n| n.is_text())
+        .map(|n| n.text().unwrap_or(""))
+        .collect()
 }

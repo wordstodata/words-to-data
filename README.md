@@ -136,9 +136,8 @@ fn main() -> Result<(), Box< dyn std::error::Error>> {
     );
 
     for amendment in &data.amendments {
-        println!("\nAmendment at: {}", amendment.source_path);
-        println!("  USC sections modified: {}", amendment.target_paths.len());
-        println!("  Actions: {:?}", amendment.action_types);
+        println!("Actions: {:?}", amendment.action_types);
+        println!("Text: {}", &amendment.amending_text[..80.min(amendment.amending_text.len())]);
     }
 
     Ok(())
@@ -154,12 +153,8 @@ data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
 print(f"Bill {data.bill_id}: {len(data.amendments)} amendments found")
 
 for amendment in data.amendments:
-    print(f"\nAmendment at: {amendment.source_path}")
-    print(f"  USC sections modified: {len(amendment.target_paths)}")
-    print(f"  Actions: {amendment.action_types}")
-
-    for ref in amendment.target_paths:
-        print(f"    - {ref.display_text} ({ref.path})")
+    print(f"Actions: {amendment.action_types}")
+    print(f"Text: {amendment.amending_text[:80]}...")
 ```
 
 ## Core Concepts
