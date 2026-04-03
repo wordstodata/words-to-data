@@ -35,7 +35,9 @@ fn make_section_174a_annotation(annotator: &str) -> ChangeAnnotation {
             amendment_id: amendment.id.clone(),
             causative_text: amendment.amending_text,
         },
-        related_paths: vec![],
+        paths: vec![
+            "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a".to_string(),
+        ],
         metadata: AnnotationMetadata {
             status: AnnotationStatus::Pending,
             confidence: None,
@@ -50,7 +52,11 @@ fn make_section_174a_annotation(annotator: &str) -> ChangeAnnotation {
 }
 
 /// Helper to create a generic test annotation using real bill data
-fn make_test_annotation(operation: AmendingAction, annotator: &str) -> ChangeAnnotation {
+fn make_test_annotation(
+    operation: AmendingAction,
+    annotator: &str,
+    path: &str,
+) -> ChangeAnnotation {
     let data =
         parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").expect("Failed to parse bill");
     let amendment = get_section_174_amendment();
@@ -62,7 +68,7 @@ fn make_test_annotation(operation: AmendingAction, annotator: &str) -> ChangeAnn
             amendment_id: amendment.id.clone(),
             causative_text: amendment.amending_text,
         },
-        related_paths: vec![],
+        paths: vec![path.to_string()],
         metadata: AnnotationMetadata {
             status: AnnotationStatus::Pending,
             confidence: None,
@@ -104,28 +110,27 @@ fn should_create_legal_diff_with_empty_annotations() {
 fn should_add_annotation_to_path() {
     let tree_diff = make_test_tree_diff();
     let mut legal_diff = LegalDiff::new(&tree_diff);
-    let path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a".to_string();
     let annotation = make_section_174a_annotation("human:test");
+    let path = annotation.paths.first().unwrap().clone();
 
-    legal_diff.add_annotation(path.clone(), annotation);
+    legal_diff.add_annotation(annotation);
 
-    assert!(legal_diff.annotations.contains_key(&path));
-    assert_eq!(legal_diff.annotations.get(&path).unwrap().len(), 1);
+    assert!(!legal_diff.get_annotations(&path).is_empty());
+    assert_eq!(legal_diff.annotated_paths().len(), 1);
 }
 
 #[test]
 fn should_add_multiple_annotations_to_same_path() {
     let tree_diff = make_test_tree_diff();
     let mut legal_diff = LegalDiff::new(&tree_diff);
-    let path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a".to_string();
 
-    let annotation1 = make_test_annotation(AmendingAction::Strike, "human:test");
-    let annotation2 = make_test_annotation(AmendingAction::Insert, "human:test");
+    let annotation1 = make_test_annotation(AmendingAction::Strike, "human:test", "test1");
+    let annotation2 = make_test_annotation(AmendingAction::Insert, "human:test", "test2");
 
-    legal_diff.add_annotation(path.clone(), annotation1);
-    legal_diff.add_annotation(path.clone(), annotation2);
+    legal_diff.add_annotation(annotation1);
+    legal_diff.add_annotation(annotation2);
 
-    assert_eq!(legal_diff.annotations.get(&path).unwrap().len(), 2);
+    assert_eq!(legal_diff.annotations.len(), 2);
 }
 
 // =============================================================================
@@ -136,18 +141,13 @@ fn should_add_multiple_annotations_to_same_path() {
 fn should_get_annotations_for_existing_path() {
     let tree_diff = make_test_tree_diff();
     let mut legal_diff = LegalDiff::new(&tree_diff);
-    let path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a".to_string();
     let annotation = make_section_174a_annotation("human:test");
+    let path = annotation.paths.first().unwrap().clone();
 
-    legal_diff.add_annotation(path.clone(), annotation);
+    legal_diff.add_annotation(annotation);
 
     let retrieved = legal_diff.get_annotations(&path);
-    assert!(retrieved.is_some());
-    assert_eq!(retrieved.unwrap().len(), 1);
-    assert_eq!(
-        retrieved.unwrap()[0].operation,
-        AmendingAction::StrikeAndInsert
-    );
+    assert_eq!(retrieved.len(), 1);
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn should_return_none_for_unannotated_path() {
     let legal_diff = LegalDiff::new(&tree_diff);
 
     let retrieved = legal_diff.get_annotations("nonexistent/path");
-    assert!(retrieved.is_none());
+    assert!(retrieved.is_empty());
 }
 
 // =============================================================================
@@ -184,40 +184,6 @@ fn should_return_none_for_nonexistent_diff_node() {
 }
 
 // =============================================================================
-// LegalDiff::find_related_annotations tests
-// =============================================================================
-
-#[test]
-fn should_find_annotations_that_reference_path_in_related_paths() {
-    let tree_diff = make_test_tree_diff();
-    let mut legal_diff = LegalDiff::new(&tree_diff);
-
-    let source_path = "uscodedocument_26/title_26/section_1/paragraph_2".to_string();
-    let target_path = "uscodedocument_26/title_26/section_1/paragraph_3".to_string();
-
-    // Create annotation on source that references target
-    let mut annotation = make_test_annotation(AmendingAction::Redesignate, "human:test");
-    annotation.related_paths = vec![target_path.clone()];
-
-    legal_diff.add_annotation(source_path.clone(), annotation);
-
-    // Find annotations that reference target_path
-    let related = legal_diff.find_related_annotations(&target_path);
-    assert_eq!(related.len(), 1);
-    assert_eq!(related[0].0, &source_path);
-    assert_eq!(related[0].1.operation, AmendingAction::Redesignate);
-}
-
-#[test]
-fn should_return_empty_when_no_annotations_reference_path() {
-    let tree_diff = make_test_tree_diff();
-    let legal_diff = LegalDiff::new(&tree_diff);
-
-    let related = legal_diff.find_related_annotations("some/path");
-    assert!(related.is_empty());
-}
-
-// =============================================================================
 // LegalDiff::annotated_paths tests
 // =============================================================================
 
@@ -229,19 +195,17 @@ fn should_return_all_annotated_paths() {
     let path1 = "uscodedocument_26/title_26/section_174".to_string();
     let path2 = "uscodedocument_26/title_26/section_175".to_string();
 
-    legal_diff.add_annotation(
-        path1.clone(),
-        make_test_annotation(AmendingAction::Amend, "human:a"),
-    );
-    legal_diff.add_annotation(
-        path2.clone(),
-        make_test_annotation(AmendingAction::Add, "human:b"),
-    );
+    legal_diff.add_annotation(make_test_annotation(
+        AmendingAction::Amend,
+        "human:a",
+        &path1,
+    ));
+    legal_diff.add_annotation(make_test_annotation(AmendingAction::Add, "human:b", &path2));
 
-    let paths: Vec<&String> = legal_diff.annotated_paths().collect();
+    let paths = legal_diff.annotated_paths();
     assert_eq!(paths.len(), 2);
-    assert!(paths.contains(&&path1));
-    assert!(paths.contains(&&path2));
+    assert!(paths.contains(&path1));
+    assert!(paths.contains(&path2));
 }
 
 #[test]
@@ -249,7 +213,7 @@ fn should_return_empty_iterator_when_no_annotations() {
     let tree_diff = make_test_tree_diff();
     let legal_diff = LegalDiff::new(&tree_diff);
 
-    let paths: Vec<&String> = legal_diff.annotated_paths().collect();
+    let paths = legal_diff.annotated_paths();
     assert!(paths.is_empty());
 }
 
@@ -274,19 +238,16 @@ fn should_return_paths_with_changes_but_no_annotations() {
 fn should_exclude_annotated_paths_from_unannotated_list() {
     let tree_diff = make_test_tree_diff();
     let mut legal_diff = LegalDiff::new(&tree_diff);
-
-    let s174a_path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a".to_string();
+    let annotation = make_section_174a_annotation("human:test");
+    let path = annotation.paths.first().unwrap().clone();
 
     // Annotate section 174(a) with real annotation
-    legal_diff.add_annotation(
-        s174a_path.clone(),
-        make_section_174a_annotation("human:test"),
-    );
+    legal_diff.add_annotation(annotation);
 
     let unannotated = legal_diff.unannotated_paths();
 
     // Section 174(a) should no longer be in unannotated list
-    assert!(!unannotated.contains(&s174a_path));
+    assert!(!unannotated.contains(&path));
 }
 
 // =============================================================================
@@ -298,8 +259,7 @@ fn should_roundtrip_legal_diff_through_json() {
     let tree_diff = make_test_tree_diff();
     let mut legal_diff = LegalDiff::new(&tree_diff);
 
-    let path = "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a".to_string();
-    legal_diff.add_annotation(path.clone(), make_section_174a_annotation("human:test"));
+    legal_diff.add_annotation(make_section_174a_annotation("human:test"));
 
     // Serialize to JSON
     let json = serde_json::to_string(&legal_diff).expect("Failed to serialize");
@@ -309,10 +269,9 @@ fn should_roundtrip_legal_diff_through_json() {
 
     assert_eq!(restored.tree_diff.root_path, legal_diff.tree_diff.root_path);
     assert_eq!(restored.annotations.len(), 1);
-    assert!(restored.annotations.contains_key(&path));
 
     // Verify annotation survived serialization
-    let restored_annotation = &restored.annotations.get(&path).unwrap()[0];
+    let restored_annotation = restored.annotations.first().unwrap();
     assert_eq!(
         restored_annotation.operation,
         AmendingAction::StrikeAndInsert

@@ -351,10 +351,10 @@ class ChangeAnnotation:
         amendment_id: str,
         causative_text: str,
         annotator: str,
+        paths: list[str],
         confidence: float | None = None,
         notes: str | None = None,
         reasoning: str | None = None,
-        related_paths: list[str] | None = None,
     ) -> None:
         """Create a new change annotation.
 
@@ -364,10 +364,10 @@ class ChangeAnnotation:
             amendment_id: The amendment ID (content-hash) linking back to BillAmendment
             causative_text: Text of the amending instruction from the bill
             annotator: Identifier for who/what created this annotation
+            paths: Structural paths of related changes (for moves, redesignations)
             confidence: Confidence score for AI-generated annotations (0.0 - 1.0)
             notes: Freeform notes about the annotation
             reasoning: Explanation of how/why this annotation was determined
-            related_paths: Structural paths of related changes (for moves, redesignations)
         """
         ...
 
@@ -379,11 +379,6 @@ class ChangeAnnotation:
     @property
     def source_bill(self) -> BillReference:
         """Reference to the bill that enacted the change"""
-        ...
-
-    @property
-    def related_paths(self) -> list[str]:
-        """Structural paths of related changes (for moves, redesignations)"""
         ...
 
     @property
@@ -421,7 +416,7 @@ class LegalDiff:
         """All annotations as a dictionary (path -> list of annotation dicts)"""
         ...
 
-    def add_annotation(self, path: str, annotation: ChangeAnnotation) -> None:
+    def add_annotation(self, annotation: ChangeAnnotation) -> None:
         """Add an annotation for a specific structural path.
 
         Args:
@@ -449,17 +444,6 @@ class LegalDiff:
 
         Returns:
             The TreeDiff node, or None if not found
-        """
-        ...
-
-    def find_related_annotations(self, path: str) -> list[tuple[str, ChangeAnnotation]]:
-        """Find all annotations that reference a given path in their related_paths.
-
-        Args:
-            path: The path to search for in related_paths
-
-        Returns:
-            List of (source_path, annotation) tuples
         """
         ...
 

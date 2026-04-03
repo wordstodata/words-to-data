@@ -493,17 +493,17 @@ impl ChangeAnnotation {
 #[allow(clippy::too_many_arguments)]
 impl ChangeAnnotation {
     #[new]
-    #[pyo3(signature = (operation, bill_id, amendment_id, causative_text, annotator, confidence=None, notes=None, reasoning=None, related_paths=None))]
+    #[pyo3(signature = (operation, bill_id, amendment_id, causative_text, annotator, paths, confidence=None, notes=None, reasoning=None))]
     fn new(
         operation: &str,
         bill_id: &str,
         amendment_id: &str,
         causative_text: &str,
         annotator: &str,
+        paths: Vec<String>,
         confidence: Option<f32>,
         notes: Option<String>,
         reasoning: Option<String>,
-        related_paths: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let action = AmendingAction::from_str(operation)
             .map_err(|e| PyValueError::new_err(format!("Invalid operation: {}", e)))?;
@@ -527,7 +527,7 @@ impl ChangeAnnotation {
             inner: RustChangeAnnotation {
                 operation: action,
                 source_bill,
-                related_paths: related_paths.unwrap_or_default(),
+                paths,
                 metadata,
             },
         })
@@ -541,11 +541,6 @@ impl ChangeAnnotation {
     #[getter]
     fn source_bill(&self) -> BillReference {
         BillReference::from(&self.inner.source_bill)
-    }
-
-    #[getter]
-    fn related_paths(&self) -> Vec<String> {
-        self.inner.related_paths.clone()
     }
 
     #[getter]
@@ -615,16 +610,19 @@ impl LegalDiff {
     }
 
     /// Add an annotation for a specific structural path
-    fn add_annotation(&mut self, path: &str, annotation: &ChangeAnnotation) {
-        self.inner
-            .add_annotation(path.to_string(), annotation.inner.clone());
+    fn add_annotation(&mut self, annotation: &ChangeAnnotation) {
+        self.inner.add_annotation(annotation.inner.clone());
     }
 
     /// Get all annotations for a specific path
-    fn get_annotations(&self, path: &str) -> Option<Vec<ChangeAnnotation>> {
+    fn get_annotations(&self, path: &str) -> Vec<ChangeAnnotation> {
         self.inner
             .get_annotations(path)
-            .map(|anns| anns.iter().map(ChangeAnnotation::from).collect())
+            .into_iter()
+            .map(|annotation| ChangeAnnotation {
+                inner: annotation.clone(),
+            })
+            .collect()
     }
 
     /// Get the TreeDiff node for a specific path
@@ -632,18 +630,9 @@ impl LegalDiff {
         self.inner.get_diff_node(path).map(TreeDiff::from)
     }
 
-    /// Find all annotations that reference a given path in their related_paths
-    fn find_related_annotations(&self, path: &str) -> Vec<(String, ChangeAnnotation)> {
-        self.inner
-            .find_related_annotations(path)
-            .into_iter()
-            .map(|(p, ann)| (p.clone(), ChangeAnnotation::from(ann)))
-            .collect()
-    }
-
     /// Get all paths that have annotations
     fn annotated_paths(&self) -> Vec<String> {
-        self.inner.annotated_paths().cloned().collect()
+        self.inner.annotated_paths().iter().cloned().collect()
     }
 
     /// Get all paths in the TreeDiff that lack annotations
