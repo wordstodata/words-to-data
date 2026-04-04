@@ -1,8 +1,10 @@
-use std::str::FromStr;
+use std::{str::FromStr, thread};
 
 use words_to_data::{
     diff::TreeDiff,
-    legal_diff::{AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation, LegalDiff},
+    legal_diff::{
+        AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation, LegalDiff,
+    },
     uslm::{AmendingAction, bill_parser::parse_bill_amendments},
     utils::parse_uslm_xml,
 };
@@ -10,7 +12,6 @@ use words_to_data::{
 /// Load two USC XML files, compute and return the TreeDiff as a JSON string.
 ///
 /// Parsing large XML files (e.g. Title 26) is CPU-intensive, so this runs on
-/// a blocking thread to avoid stalling the async runtime.
 #[tauri::command]
 async fn load_usc_pair(
     old_path: String,
@@ -18,25 +19,25 @@ async fn load_usc_pair(
     new_path: String,
     new_date: String,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || {
-        let old = parse_uslm_xml(&old_path, &old_date).map_err(|e| e.to_string())?;
-        let new_doc = parse_uslm_xml(&new_path, &new_date).map_err(|e| e.to_string())?;
-        let diff = TreeDiff::from_elements(&old, &new_doc);
-        serde_json::to_string(&diff).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let old_handle =
+        thread::spawn(move || parse_uslm_xml(&old_path, &old_date).map_err(|e| e.to_string()));
+    let new_handle =
+        thread::spawn(move || parse_uslm_xml(&new_path, &new_date).map_err(|e| e.to_string()));
+
+    let old = old_handle.join().unwrap()?;
+    let new = new_handle.join().unwrap()?;
+    let diff = TreeDiff::from_elements(&old, &new);
+    serde_json::to_string(&diff).map_err(|e| e.to_string())
 }
 
 /// Parse a bill XML file and return the AmendmentData as a JSON string.
 #[tauri::command]
 async fn load_bill(path: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || {
+    let bill_handle = thread::spawn(move || {
         let data = parse_bill_amendments(&path).map_err(|e| e.to_string())?;
         serde_json::to_string(&data).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    });
+    bill_handle.join().unwrap()
 }
 
 /// Build a ChangeAnnotation from form fields and return it as a JSON string.
@@ -82,8 +83,7 @@ fn export_legal_diff(
     annotations_json: String,
     output_path: String,
 ) -> Result<(), String> {
-    let tree_diff: TreeDiff =
-        serde_json::from_str(&tree_diff_json).map_err(|e| e.to_string())?;
+    let tree_diff: TreeDiff = serde_json::from_str(&tree_diff_json).map_err(|e| e.to_string())?;
     let annotations: Vec<ChangeAnnotation> =
         serde_json::from_str(&annotations_json).map_err(|e| e.to_string())?;
     let mut legal_diff = LegalDiff::new(&tree_diff);

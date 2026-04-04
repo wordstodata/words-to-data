@@ -51,7 +51,6 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "time",
- "tokio",
  "words-to-data",
 ]
 
