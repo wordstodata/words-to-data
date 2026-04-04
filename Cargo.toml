@@ -1,5 +1,6 @@
 [workspace]
-members = [".", "annotator"]
+members = ["."]
+exclude = ["annotator"]
 resolver = "2"
 
 [package]
