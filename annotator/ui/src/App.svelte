@@ -19,6 +19,7 @@
   let loading = $state(false);
   let error = $state("");
   let nodeFilter = $state("");
+  let amendmentFilters = $state([""]);
 
   // ── annotation form ───────────────────────────────────────────────────────────
   let selectedAmendment = $state(null);
@@ -38,6 +39,16 @@
       : changedNodes,
   );
 
+  let filteredAmendments = $derived(
+    amendmentFilters.join("")
+      ? amendments.filter((n) =>
+          amendmentFilters.every((f) => {
+            return n.amending_text.includes(f);
+          }),
+        )
+      : amendments,
+  );
+
   let canAnnotate = $derived(
     selectedAmendment !== null &&
       causativeText.trim() !== "" &&
@@ -45,6 +56,14 @@
   );
 
   // ── helpers ───────────────────────────────────────────────────────────────────
+  function removeAmendmentFilter(index) {
+    amendmentFilters = amendmentFilters.filter((_, i) => i !== index);
+  }
+  function addAmendmentFilter() {
+    // We use the spread operator to create a new array reference.
+    // Svelte needs a new assignment to trigger a reactivity update.
+    amendmentFilters = [...amendmentFilters, ""];
+  }
   function extractChangedNodes(diff, results = []) {
     if (
       diff.changes.length > 0 ||
@@ -236,8 +255,23 @@
       {#if amendments.length === 0}
         <p class="hint">Load files to see amendments.</p>
       {:else}
+        <div class="input-group">
+          {#each amendmentFilters as _, i}
+            <div>
+              <input
+                bind:value={amendmentFilters[i]}
+                placeholder="Enter text..."
+              />
+            </div>
+          {/each}
+          <button class="btn-primary" onmousedown={addAmendmentFilter}>+</button
+          >
+          <button class="btn-danger" onmousedown={removeAmendmentFilter}
+            >-</button
+          >
+        </div>
         <ul class="amendment-list">
-          {#each amendments as amendment (amendment.id)}
+          {#each filteredAmendments as amendment (amendment.id)}
             <li
               class="amendment-item"
               class:selected={selectedAmendment?.id === amendment.id}
@@ -729,6 +763,17 @@
 
   .btn-primary:hover:not(:disabled) {
     background: #1d4ed8;
+  }
+
+  .btn-danger {
+    background: #eb2525;
+    color: white;
+    border-color: #eb2525;
+    font-weight: 500;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #d82d1d;
   }
 
   .btn-export {
