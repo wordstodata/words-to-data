@@ -1,32 +1,32 @@
 <script>
-  import { invoke } from '@tauri-apps/api/core';
-  import { open, save } from '@tauri-apps/plugin-dialog';
+  import { invoke } from "@tauri-apps/api/core";
+  import { open, save } from "@tauri-apps/plugin-dialog";
 
   // ── file inputs ──────────────────────────────────────────────────────────────
-  let oldPath = $state('');
-  let oldDate = $state('');
-  let newPath = $state('');
-  let newDate = $state('');
-  let billPath = $state('');
+  let oldPath = $state("../tests/test_data/usc/2025-07-18/usc26.xml");
+  let oldDate = $state("2025-07-18");
+  let newPath = $state("../tests/test_data/usc/2025-07-30/usc26.xml");
+  let newDate = $state("2025-07-30");
+  let billPath = $state("../tests/test_data/bills/hr-119-21.xml");
 
   // ── loaded data ───────────────────────────────────────────────────────────────
   let treeDiff = $state(null);
   let billData = $state(null);
-  let amendments = $state([]);    // Array<BillAmendment>
-  let changedNodes = $state([]);  // flat list of nodes with changes
+  let amendments = $state([]); // Array<BillAmendment>
+  let changedNodes = $state([]); // flat list of nodes with changes
 
   // ── ui state ─────────────────────────────────────────────────────────────────
   let loading = $state(false);
-  let error = $state('');
-  let nodeFilter = $state('');
+  let error = $state("");
+  let nodeFilter = $state("");
 
   // ── annotation form ───────────────────────────────────────────────────────────
   let selectedAmendment = $state(null);
   let selectedNodePaths = $state(new Set());
-  let causativeText = $state('');
-  let operation = $state('strike_and_insert');
-  let annotator = $state('human:user');
-  let notes = $state('');
+  let causativeText = $state("");
+  let operation = $state("strike_and_insert");
+  let annotator = $state("human:user");
+  let notes = $state("");
 
   // ── saved annotations ─────────────────────────────────────────────────────────
   let annotations = $state([]);
@@ -34,19 +34,23 @@
   // ── derived ───────────────────────────────────────────────────────────────────
   let filteredNodes = $derived(
     nodeFilter.trim()
-      ? changedNodes.filter(n => n.path.includes(nodeFilter.trim()))
-      : changedNodes
+      ? changedNodes.filter((n) => n.path.includes(nodeFilter.trim()))
+      : changedNodes,
   );
 
   let canAnnotate = $derived(
     selectedAmendment !== null &&
-    causativeText.trim() !== '' &&
-    selectedNodePaths.size > 0
+      causativeText.trim() !== "" &&
+      selectedNodePaths.size > 0,
   );
 
   // ── helpers ───────────────────────────────────────────────────────────────────
   function extractChangedNodes(diff, results = []) {
-    if (diff.changes.length > 0 || diff.added.length > 0 || diff.removed.length > 0) {
+    if (
+      diff.changes.length > 0 ||
+      diff.added.length > 0 ||
+      diff.removed.length > 0
+    ) {
       results.push({
         path: diff.root_path,
         fieldChanges: diff.changes.length,
@@ -67,34 +71,38 @@
   }
 
   function shortPath(path) {
-    const parts = path.split('/');
-    return parts.length > 3 ? '…/' + parts.slice(-3).join('/') : path;
+    const parts = path.split("/");
+    return parts.length > 3 ? "…/" + parts.slice(-3).join("/") : path;
   }
 
   // ── file picking ──────────────────────────────────────────────────────────────
   async function pickOldUsc() {
-    const p = await open({ multiple: false, title: 'Select Old USC XML' });
+    const p = await open({ multiple: false, title: "Select Old USC XML" });
     if (p) oldPath = p;
   }
 
   async function pickNewUsc() {
-    const p = await open({ multiple: false, title: 'Select New USC XML' });
+    const p = await open({ multiple: false, title: "Select New USC XML" });
     if (p) newPath = p;
   }
 
   async function pickBill() {
-    const p = await open({ multiple: false, title: 'Select Bill XML', filters: [{ name: 'XML', extensions: ['xml'] }] });
+    const p = await open({
+      multiple: false,
+      title: "Select Bill XML",
+      filters: [{ name: "XML", extensions: ["xml"] }],
+    });
     if (p) billPath = p;
   }
 
   // ── load ──────────────────────────────────────────────────────────────────────
   async function loadFiles() {
     if (!oldPath || !oldDate || !newPath || !newDate || !billPath) {
-      error = 'Fill in all file paths and dates before loading.';
+      error = "Fill in all file paths and dates before loading.";
       return;
     }
     loading = true;
-    error = '';
+    error = "";
     treeDiff = null;
     billData = null;
     amendments = [];
@@ -102,11 +110,11 @@
     annotations = [];
     selectedAmendment = null;
     selectedNodePaths = new Set();
-    causativeText = '';
+    causativeText = "";
     try {
       const [diffJson, billJson] = await Promise.all([
-        invoke('load_usc_pair', { oldPath, oldDate, newPath, newDate }),
-        invoke('load_bill', { path: billPath }),
+        invoke("load_usc_pair", { oldPath, oldDate, newPath, newDate }),
+        invoke("load_bill", { path: billPath }),
       ]);
       treeDiff = JSON.parse(diffJson);
       billData = JSON.parse(billJson);
@@ -135,7 +143,7 @@
   async function addAnnotation() {
     if (!canAnnotate) return;
     try {
-      const annJson = await invoke('create_annotation', {
+      const annJson = await invoke("create_annotation", {
         operation,
         billId: billData.bill_id,
         amendmentId: selectedAmendment.id,
@@ -146,9 +154,9 @@
       });
       annotations = [...annotations, JSON.parse(annJson)];
       // reset form fields (keep amendment selection for convenience)
-      causativeText = '';
+      causativeText = "";
       selectedNodePaths = new Set();
-      notes = '';
+      notes = "";
     } catch (e) {
       error = String(e);
     }
@@ -157,13 +165,13 @@
   async function exportAnnotations() {
     if (!treeDiff || annotations.length === 0) return;
     const outputPath = await save({
-      title: 'Save Legal Diff JSON',
-      defaultPath: 'legal_diff.json',
-      filters: [{ name: 'JSON', extensions: ['json'] }],
+      title: "Save Legal Diff JSON",
+      defaultPath: "legal_diff.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!outputPath) return;
     try {
-      await invoke('export_legal_diff', {
+      await invoke("export_legal_diff", {
         treeDiffJson: JSON.stringify(treeDiff),
         annotationsJson: JSON.stringify(annotations),
         outputPath,
@@ -175,7 +183,6 @@
 </script>
 
 <div class="app">
-
   <!-- ── toolbar ─────────────────────────────────────────────────────────────── -->
   <div class="toolbar">
     <span class="toolbar-title">USC Annotation Tool</span>
@@ -183,7 +190,11 @@
     <div class="field-group">
       <button onclick={pickOldUsc}>Browse…</button>
       <input placeholder="Old USC XML path" bind:value={oldPath} />
-      <input placeholder="Date (YYYY-MM-DD)" bind:value={oldDate} class="date-input" />
+      <input
+        placeholder="Date (YYYY-MM-DD)"
+        bind:value={oldDate}
+        class="date-input"
+      />
     </div>
 
     <span class="arrow">→</span>
@@ -191,7 +202,11 @@
     <div class="field-group">
       <button onclick={pickNewUsc}>Browse…</button>
       <input placeholder="New USC XML path" bind:value={newPath} />
-      <input placeholder="Date (YYYY-MM-DD)" bind:value={newDate} class="date-input" />
+      <input
+        placeholder="Date (YYYY-MM-DD)"
+        bind:value={newDate}
+        class="date-input"
+      />
     </div>
 
     <div class="field-group">
@@ -200,7 +215,7 @@
     </div>
 
     <button class="btn-primary" onclick={loadFiles} disabled={loading}>
-      {loading ? 'Loading…' : 'Generate Diff'}
+      {loading ? "Loading…" : "Generate Diff"}
     </button>
   </div>
 
@@ -210,7 +225,6 @@
 
   <!-- ── three panels ────────────────────────────────────────────────────────── -->
   <div class="panels">
-
     <!-- Left: amendment list -->
     <div class="panel panel-left">
       <div class="panel-header">
@@ -227,7 +241,7 @@
             <li
               class="amendment-item"
               class:selected={selectedAmendment?.id === amendment.id}
-              onclick={() => selectedAmendment = amendment}
+              onclick={() => (selectedAmendment = amendment)}
             >
               <div class="amendment-ops">
                 {#each amendment.action_types as op}
@@ -235,7 +249,10 @@
                 {/each}
               </div>
               <div class="amendment-preview">
-                {amendment.amending_text.slice(0, 100)}{amendment.amending_text.length > 100 ? '…' : ''}
+                {amendment.amending_text.slice(0, 100)}{amendment.amending_text
+                  .length > 100
+                  ? "…"
+                  : ""}
               </div>
             </li>
           {/each}
@@ -284,9 +301,14 @@
               <div class="node-path">{shortPath(node.path)}</div>
               <div class="node-preview">{node.preview}</div>
               <div class="node-badges">
-                {#if node.fieldChanges > 0}<span class="badge-change">~{node.fieldChanges}</span>{/if}
-                {#if node.added > 0}<span class="badge-add">+{node.added}</span>{/if}
-                {#if node.removed > 0}<span class="badge-remove">-{node.removed}</span>{/if}
+                {#if node.fieldChanges > 0}<span class="badge-change"
+                    >~{node.fieldChanges}</span
+                  >{/if}
+                {#if node.added > 0}<span class="badge-add">+{node.added}</span
+                  >{/if}
+                {#if node.removed > 0}<span class="badge-remove"
+                    >-{node.removed}</span
+                  >{/if}
               </div>
             </li>
           {/each}
@@ -295,7 +317,6 @@
         <p class="hint">Diff nodes with changes will appear here.</p>
       {/if}
     </div>
-
   </div>
 
   <!-- ── annotation bar ─────────────────────────────────────────────────────── -->
@@ -335,7 +356,7 @@
 
     <div class="ann-field">
       <label>Paths selected</label>
-      <span class="badge" title={[...selectedNodePaths].join('\n')}>
+      <span class="badge" title={[...selectedNodePaths].join("\n")}>
         {selectedNodePaths.size}
       </span>
     </div>
@@ -362,16 +383,20 @@
           <li class="annotation-entry">
             <span class="ann-index">#{i + 1}</span>
             <span class="ann-op op-tag">{ann.operation}</span>
-            <span class="ann-paths" title={ann.paths.join('\n')}>
-              {ann.paths.map(p => shortPath(p)).join(', ')}
+            <span class="ann-paths" title={ann.paths.join("\n")}>
+              {ann.paths.map((p) => shortPath(p)).join(", ")}
             </span>
-            <span class="ann-causative">"{ann.source_bill.causative_text.slice(0, 80)}{ann.source_bill.causative_text.length > 80 ? '…' : ''}"</span>
+            <span class="ann-causative"
+              >"{ann.source_bill.causative_text.slice(0, 80)}{ann.source_bill
+                .causative_text.length > 80
+                ? "…"
+                : ""}"</span
+            >
           </li>
         {/each}
       </ul>
     </div>
   {/if}
-
 </div>
 
 <style>
@@ -382,7 +407,10 @@
   }
 
   :global(body) {
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      sans-serif;
     font-size: 13px;
     background: #f1f5f9;
     color: #1e293b;
@@ -430,11 +458,18 @@
     min-width: 200px;
   }
 
-  .toolbar input::placeholder { color: #94a3b8; }
+  .toolbar input::placeholder {
+    color: #94a3b8;
+  }
 
-  .date-input { min-width: 110px !important; }
+  .date-input {
+    min-width: 110px !important;
+  }
 
-  .arrow { color: #94a3b8; font-size: 16px; }
+  .arrow {
+    color: #94a3b8;
+    font-size: 16px;
+  }
 
   .error-bar {
     background: #fef2f2;
@@ -461,9 +496,15 @@
     overflow: hidden;
   }
 
-  .panel-left  { flex: 0 0 22%; }
-  .panel-center { flex: 1; }
-  .panel-right { flex: 0 0 26%; }
+  .panel-left {
+    flex: 0 0 22%;
+  }
+  .panel-center {
+    flex: 1;
+  }
+  .panel-right {
+    flex: 0 0 26%;
+  }
 
   .panel-header {
     padding: 8px 12px;
@@ -501,8 +542,13 @@
     transition: background 0.1s;
   }
 
-  .amendment-item:hover { background: #f8fafc; }
-  .amendment-item.selected { background: #eff6ff; border-left: 3px solid #2563eb; }
+  .amendment-item:hover {
+    background: #f8fafc;
+  }
+  .amendment-item.selected {
+    background: #eff6ff;
+    border-left: 3px solid #2563eb;
+  }
 
   .amendment-ops {
     display: flex;
@@ -531,7 +577,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 12px;
-    font-family: 'Georgia', serif;
+    font-family: "Georgia", serif;
     font-size: 13px;
     line-height: 1.7;
     white-space: pre-wrap;
@@ -552,7 +598,9 @@
     font-weight: 500;
   }
 
-  .btn-capture:hover { background: #fde68a; }
+  .btn-capture:hover {
+    background: #fde68a;
+  }
 
   /* ── diff node list ─────────────────────────────────────────────────────── */
   .filter-input {
@@ -578,8 +626,13 @@
     transition: background 0.1s;
   }
 
-  .node-item:hover { background: #f8fafc; }
-  .node-item.selected { background: #eff6ff; border-left: 3px solid #2563eb; }
+  .node-item:hover {
+    background: #f8fafc;
+  }
+  .node-item.selected {
+    background: #eff6ff;
+    border-left: 3px solid #2563eb;
+  }
 
   .node-path {
     font-family: monospace;
@@ -622,9 +675,30 @@
     text-transform: uppercase;
   }
 
-  .badge-change { background: #fef3c7; color: #78350f; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: 600; }
-  .badge-add    { background: #dcfce7; color: #14532d; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: 600; }
-  .badge-remove { background: #fef2f2; color: #7f1d1d; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: 600; }
+  .badge-change {
+    background: #fef3c7;
+    color: #78350f;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .badge-add {
+    background: #dcfce7;
+    color: #14532d;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .badge-remove {
+    background: #fef2f2;
+    color: #7f1d1d;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 600;
+  }
 
   /* ── buttons ────────────────────────────────────────────────────────────── */
   button {
@@ -638,8 +712,13 @@
     transition: background 0.1s;
   }
 
-  button:hover:not(:disabled) { background: #e2e8f0; }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:hover:not(:disabled) {
+    background: #e2e8f0;
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 
   .btn-primary {
     background: #2563eb;
@@ -648,7 +727,9 @@
     font-weight: 500;
   }
 
-  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-primary:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
 
   .btn-export {
     background: #16a34a;
@@ -657,7 +738,9 @@
     font-weight: 500;
   }
 
-  .btn-export:hover:not(:disabled) { background: #15803d; }
+  .btn-export:hover:not(:disabled) {
+    background: #15803d;
+  }
 
   /* ── annotation bar ─────────────────────────────────────────────────────── */
   .annotation-bar {
@@ -695,9 +778,16 @@
     color: #1e293b;
   }
 
-  .causative-field { flex: 1; min-width: 240px; }
-  .causative-field input { width: 100%; }
-  .short-input { width: 140px; }
+  .causative-field {
+    flex: 1;
+    min-width: 240px;
+  }
+  .causative-field input {
+    width: 100%;
+  }
+  .short-input {
+    width: 140px;
+  }
 
   /* ── annotation log ─────────────────────────────────────────────────────── */
   .annotation-log {
@@ -708,7 +798,9 @@
     flex-shrink: 0;
   }
 
-  .annotation-list { list-style: none; }
+  .annotation-list {
+    list-style: none;
+  }
 
   .annotation-entry {
     display: flex;
@@ -720,7 +812,11 @@
     line-height: 1.4;
   }
 
-  .ann-index { color: #94a3b8; font-size: 11px; min-width: 24px; }
+  .ann-index {
+    color: #94a3b8;
+    font-size: 11px;
+    min-width: 24px;
+  }
 
   .ann-paths {
     font-family: monospace;
