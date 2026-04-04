@@ -1,13 +1,12 @@
 [workspace]
-members = ["."]
-exclude = ["annotator"]
+members = [".", "annotator"]
 resolver = "2"
 
 [package]
 name = "words-to-data"
 version = "0.1.2"
 edition = "2024"
-exclude = ["tests/"]
+exclude = ["tests/", "annotator/"]
 description = "Convert Legal Documents Into Diffable Data Structures"
 repository = "https://github.com/Scronkfinkle/words-to-data"
 license = "MIT"
