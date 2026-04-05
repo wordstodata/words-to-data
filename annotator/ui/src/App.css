@@ -151,9 +151,11 @@
 .panel-left {
   flex: 0 0 22%;
 }
+
 .panel-center {
   flex: 1;
 }
+
 .panel-right {
   flex: 0 0 26%;
 }
@@ -215,6 +217,7 @@
 .amendment-item:hover {
   background: #f8fafc;
 }
+
 .amendment-item.selected {
   background: #eff6ff;
   border-left: 3px solid #2563eb;
@@ -312,6 +315,7 @@
 .node-item:hover {
   background: #f8fafc;
 }
+
 .node-item.selected {
   background: #eff6ff;
   border-left: 3px solid #2563eb;
@@ -483,6 +487,7 @@
   font-size: 10px;
   font-weight: 600;
 }
+
 .badge-add {
   background: #dcfce7;
   color: #14532d;
@@ -491,6 +496,7 @@
   font-size: 10px;
   font-weight: 600;
 }
+
 .badge-remove {
   background: #fef2f2;
   color: #7f1d1d;
@@ -515,6 +521,7 @@ button {
 button:hover:not(:disabled) {
   background: #e2e8f0;
 }
+
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -594,9 +601,11 @@ button:disabled {
   flex: 1;
   min-width: 240px;
 }
+
 .causative-field input {
   width: 100%;
 }
+
 .short-input {
   width: 140px;
 }
