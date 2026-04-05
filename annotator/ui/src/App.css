@@ -332,6 +332,13 @@
   margin-bottom: 2px;
 }
 
+.node-header-badges {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .similarity-score {
   background: #16a34a;
   color: white;
@@ -457,6 +464,15 @@
 .badge-scores {
   background: #dcfce7;
   color: #166534;
+}
+
+.badge-annotated {
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .badge-change {

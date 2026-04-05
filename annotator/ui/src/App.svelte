@@ -33,6 +33,26 @@
   // ── saved annotations ─────────────────────────────────────────────────────────
   let annotations = $state([]);
 
+  // Annotation counts per amendment and per path
+  let annotationsByAmendment = $derived.by(() => {
+    const counts = new Map();
+    for (const ann of annotations) {
+      const id = ann.source_bill.amendment_id;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    return counts;
+  });
+
+  let annotationsByPath = $derived.by(() => {
+    const counts = new Map();
+    for (const ann of annotations) {
+      for (const path of ann.paths) {
+        counts.set(path, (counts.get(path) || 0) + 1);
+      }
+    }
+    return counts;
+  });
+
   // ── similarity scores ───────────────────────────────────────────────────────
   // Loaded from JSON: Array<{tree_diff_path, amendment_id, score, precision, recall, ...}>
   let similarityScores = $state([]);
@@ -496,6 +516,11 @@
               tabindex="0"
             >
               <div class="amendment-ops">
+                {#if annotationsByAmendment.get(amendment.id)}
+                  <span class="badge-annotated"
+                    >{annotationsByAmendment.get(amendment.id)}✓</span
+                  >
+                {/if}
                 {#if amendmentsWithScores.has(amendment.id)}
                   <span class="score-tag">📊</span>
                 {/if}
@@ -566,18 +591,25 @@
             >
               <div class="node-header">
                 <div class="node-path">{shortPath(node.path)}</div>
-                {#if similarity}
-                  <span
-                    class="similarity-score"
-                    title="Score: {similarity.score.toFixed(
-                      3,
-                    )}, Precision: {similarity.precision.toFixed(
-                      3,
-                    )}, Recall: {similarity.recall.toFixed(3)}"
-                  >
-                    {(similarity.score * 100).toFixed(0)}%
-                  </span>
-                {/if}
+                <div class="node-header-badges">
+                  {#if annotationsByPath.get(node.path)}
+                    <span class="badge-annotated"
+                      >{annotationsByPath.get(node.path)}✓</span
+                    >
+                  {/if}
+                  {#if similarity}
+                    <span
+                      class="similarity-score"
+                      title="Score: {similarity.score.toFixed(
+                        3,
+                      )}, Precision: {similarity.precision.toFixed(
+                        3,
+                      )}, Recall: {similarity.recall.toFixed(3)}"
+                    >
+                      {(similarity.score * 100).toFixed(0)}%
+                    </span>
+                  {/if}
+                </div>
               </div>
               {#if node.changes.length > 0}
                 <div class="node-changes">
