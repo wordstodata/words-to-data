@@ -133,15 +133,9 @@
       results.push({
         path: diff.root_path,
         fieldChanges: diff.changes.length,
-        added: diff.added.length,
-        removed: diff.removed.length,
+        added: diff.added,
+        removed: diff.removed,
         changes: diff.changes,
-        // Keep the first field change for a preview snippet
-        preview: diff.changes[0]
-          ? `${diff.changes[0].field_name}: "${diff.changes[0].old_value.slice(0, 60)}…"`
-          : diff.added.length > 0
-            ? `+${diff.added.length} added`
-            : `-${diff.removed.length} removed`,
       });
     }
     for (const child of diff.child_diffs) {
@@ -585,29 +579,37 @@
                   </span>
                 {/if}
               </div>
-              <div class="node-changes">
-                {#each node.changes as change}
-                  <div class="change-entry">
-                    <span class="field-name">{change.field_name}:</span>
-                    <span class="old-val">{change.old_value}</span>
-                    <span class="change-arrow">→</span>
-                    <span class="new-val">{change.new_value}</span>
-                  </div>
-                {/each}
-                {#if node.changes.length === 0}
-                  <div class="node-preview">{node.preview}</div>
-                {/if}
-              </div>
+              {#if node.changes.length > 0}
+                <div class="node-changes">
+                  {#each node.changes as change}
+                    <div class="change-entry">
+                      <span class="field-name">{change.field_name}:</span>
+                      <span class="old-val">{change.old_value}</span>
+                      <span class="change-arrow">→</span>
+                      <span class="new-val">{change.new_value}</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
               <div class="node-badges">
                 {#if node.fieldChanges > 0}<span class="badge-change"
                     >~{node.fieldChanges}</span
                   >{/if}
-                {#if node.added > 0}<span class="badge-add">+{node.added}</span
-                  >{/if}
-                {#if node.removed > 0}<span class="badge-remove"
-                    >-{node.removed}</span
-                  >{/if}
               </div>
+              {#if node.added.length > 0}
+                <div class="added-removed-list">
+                  {#each node.added as elem}
+                    <span class="badge-add">+{shortPath(elem.path)}</span>
+                  {/each}
+                </div>
+              {/if}
+              {#if node.removed.length > 0}
+                <div class="added-removed-list">
+                  {#each node.removed as elem}
+                    <span class="badge-remove">-{shortPath(elem.path)}</span>
+                  {/each}
+                </div>
+              {/if}
             </li>
           {/each}
         </ul>
