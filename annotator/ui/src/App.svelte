@@ -48,7 +48,9 @@
     return lookup;
   });
   // Set of amendment IDs that have similarity scores
-  let amendmentsWithScores = $derived(new Set(similarityScores.map(s => s.amendment_id)));
+  let amendmentsWithScores = $derived(
+    new Set(similarityScores.map((s) => s.amendment_id)),
+  );
 
   // ── derived ───────────────────────────────────────────────────────────────────
   let filteredNodes = $derived.by(() => {
@@ -58,7 +60,9 @@
 
     // Sort by similarity score if an amendment is selected and we have scores
     if (selectedAmendment && similarityByAmendment.has(selectedAmendment.id)) {
-      const scoresForAmendment = similarityByAmendment.get(selectedAmendment.id);
+      const scoresForAmendment = similarityByAmendment.get(
+        selectedAmendment.id,
+      );
       nodes = [...nodes].sort((a, b) => {
         const scoreA = scoresForAmendment.get(a.path)?.score ?? -1;
         const scoreB = scoresForAmendment.get(b.path)?.score ?? -1;
@@ -126,19 +130,19 @@
       diff.added.length > 0 ||
       diff.removed.length > 0
     ) {
-       results.push({
-          path: diff.root_path,
-          fieldChanges: diff.changes.length,
-          added: diff.added.length,
-          removed: diff.removed.length,
-          changes: diff.changes,
-          // Keep the first field change for a preview snippet
-          preview: diff.changes[0]
-            ? `${diff.changes[0].field_name}: "${diff.changes[0].old_value.slice(0, 60)}…"`
-            : diff.added.length > 0
-              ? `+${diff.added.length} added`
-              : `-${diff.removed.length} removed`,
-        });
+      results.push({
+        path: diff.root_path,
+        fieldChanges: diff.changes.length,
+        added: diff.added.length,
+        removed: diff.removed.length,
+        changes: diff.changes,
+        // Keep the first field change for a preview snippet
+        preview: diff.changes[0]
+          ? `${diff.changes[0].field_name}: "${diff.changes[0].old_value.slice(0, 60)}…"`
+          : diff.added.length > 0
+            ? `+${diff.added.length} added`
+            : `-${diff.removed.length} removed`,
+      });
     }
     for (const child of diff.child_diffs) {
       extractChangedNodes(child, results);
@@ -148,14 +152,19 @@
 
   function shortPath(path) {
     const parts = path.split("/");
-    return parts.length > 3 ? "…/" + parts.slice(-3).join("/") : path;
+    return parts.length > 6 ? "…/" + parts.slice(-6).join("/") : path;
   }
 
   function getSimilarityScore(nodePath) {
-    if (!selectedAmendment || !similarityByAmendment.has(selectedAmendment.id)) {
+    if (
+      !selectedAmendment ||
+      !similarityByAmendment.has(selectedAmendment.id)
+    ) {
       return null;
     }
-    return similarityByAmendment.get(selectedAmendment.id).get(nodePath) ?? null;
+    return (
+      similarityByAmendment.get(selectedAmendment.id).get(nodePath) ?? null
+    );
   }
 
   // ── file picking ──────────────────────────────────────────────────────────────
@@ -208,7 +217,13 @@
   // ── load ──────────────────────────────────────────────────────────────────────
   async function loadFiles() {
     const validBillPaths = billPaths.filter((p) => p.trim() !== "");
-    if (!oldPath || !oldDate || !newPath || !newDate || validBillPaths.length === 0) {
+    if (
+      !oldPath ||
+      !oldDate ||
+      !newPath ||
+      !newDate ||
+      validBillPaths.length === 0
+    ) {
       error = "Fill in all file paths and dates before loading.";
       return;
     }
@@ -395,13 +410,18 @@
           <button onclick={() => pickBill(i)}>Browse…</button>
           <input placeholder="Bill XML path" bind:value={billPaths[i]} />
           {#if billPaths.length > 1}
-            <button class="btn-small btn-danger" onclick={() => removeBillPath(i)}>-</button>
+            <button
+              class="btn-small btn-danger"
+              onclick={() => removeBillPath(i)}>-</button
+            >
           {/if}
         </div>
       {/each}
       <div class="bill-buttons">
         <button class="btn-small" onclick={addBillPath}>+ Add Bill</button>
-        <button class="btn-small" onclick={pickBillsMultiple}>+ Add Multiple…</button>
+        <button class="btn-small" onclick={pickBillsMultiple}
+          >+ Add Multiple…</button
+        >
       </div>
     </div>
 
@@ -410,13 +430,21 @@
     </button>
 
     <div class="workspace-buttons">
-      <button class="btn-workspace" onclick={saveWorkspace} disabled={!treeDiff}>
+      <button
+        class="btn-workspace"
+        onclick={saveWorkspace}
+        disabled={!treeDiff}
+      >
         Save Workspace
       </button>
       <button class="btn-workspace" onclick={loadWorkspace} disabled={loading}>
         Load Workspace
       </button>
-      <button class="btn-workspace" onclick={loadSimilarityScores} disabled={loading}>
+      <button
+        class="btn-workspace"
+        onclick={loadSimilarityScores}
+        disabled={loading}
+      >
         Load Scores
       </button>
       {#if similarityScores.length > 0}
@@ -437,7 +465,9 @@
         Bill Amendments
         {#if billsData.length > 0}
           <span class="badge">{amendments.length}</span>
-          <span class="badge badge-bills">{billsData.length} bill{billsData.length > 1 ? 's' : ''}</span>
+          <span class="badge badge-bills"
+            >{billsData.length} bill{billsData.length > 1 ? "s" : ""}</span
+          >
         {/if}
       </div>
       {#if amendments.length === 0}
@@ -465,7 +495,8 @@
               class:selected={selectedAmendment?.id === amendment.id}
               class:has-scores={amendmentsWithScores.has(amendment.id)}
               onclick={() => (selectedAmendment = amendment)}
-              onkeydown={(e) => e.key === "Enter" && (selectedAmendment = amendment)}
+              onkeydown={(e) =>
+                e.key === "Enter" && (selectedAmendment = amendment)}
               role="option"
               aria-selected={selectedAmendment?.id === amendment.id}
               tabindex="0"
@@ -475,7 +506,9 @@
                   <span class="score-tag">📊</span>
                 {/if}
                 {#if billsData.length > 1}
-                  <span class="bill-tag">{getBillIdForAmendment(amendment)}</span>
+                  <span class="bill-tag"
+                    >{getBillIdForAmendment(amendment)}</span
+                  >
                 {/if}
                 {#each amendment.action_types as op}
                   <span class="op-tag">{op}</span>
@@ -540,25 +573,32 @@
               <div class="node-header">
                 <div class="node-path">{shortPath(node.path)}</div>
                 {#if similarity}
-                  <span class="similarity-score" title="Score: {similarity.score.toFixed(3)}, Precision: {similarity.precision.toFixed(3)}, Recall: {similarity.recall.toFixed(3)}">
+                  <span
+                    class="similarity-score"
+                    title="Score: {similarity.score.toFixed(
+                      3,
+                    )}, Precision: {similarity.precision.toFixed(
+                      3,
+                    )}, Recall: {similarity.recall.toFixed(3)}"
+                  >
                     {(similarity.score * 100).toFixed(0)}%
                   </span>
                 {/if}
               </div>
-               <div class="node-changes">
-                 {#each node.changes as change}
-                   <div class="change-entry">
-                     <span class="field-name">{change.field_name}:</span>
-                     <span class="old-val">{change.old_value}</span>
-                     <span class="change-arrow">→</span>
-                     <span class="new-val">{change.new_value}</span>
-                   </div>
-                 {/each}
-                 {#if node.changes.length === 0}
-                   <div class="node-preview">{node.preview}</div>
-                 {/if}
-               </div>
-               <div class="node-badges">
+              <div class="node-changes">
+                {#each node.changes as change}
+                  <div class="change-entry">
+                    <span class="field-name">{change.field_name}:</span>
+                    <span class="old-val">{change.old_value}</span>
+                    <span class="change-arrow">→</span>
+                    <span class="new-val">{change.new_value}</span>
+                  </div>
+                {/each}
+                {#if node.changes.length === 0}
+                  <div class="node-preview">{node.preview}</div>
+                {/if}
+              </div>
+              <div class="node-badges">
                 {#if node.fieldChanges > 0}<span class="badge-change"
                     >~{node.fieldChanges}</span
                   >{/if}
@@ -610,7 +650,12 @@
 
     <div class="ann-field">
       <label for="notes">Notes</label>
-      <input id="notes" placeholder="Optional" bind:value={notes} class="short-input" />
+      <input
+        id="notes"
+        placeholder="Optional"
+        bind:value={notes}
+        class="short-input"
+      />
     </div>
 
     <div class="ann-field">
