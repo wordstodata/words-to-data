@@ -356,6 +356,53 @@ pub struct BillAmendment {
 
     /// The text of the change
     pub amending_text: String,
+
+    /// List of word-level changes that an amendment enacts
+    pub changes: Vec<BillDiff>,
+}
+
+/// Actions caused by a bill amendment
+///
+/// This is designed to exist as single entries for every logical
+/// amending action. For example, given the following amending text:
+/// ```
+///(B)
+/// in subsection (b)--
+///
+///   (i)
+///   by striking "specified research" and inserting "foreign research",
+///
+///
+///   (ii)
+///   by inserting "and which are attributable to foreign research (within the meaning of section 41(d)(4)(F))" before the period at the end, and
+/// ```
+/// we would annotate that with two Bill Diffs:
+/// ```
+/// {
+///  "removed": ["specified"],
+///  "added": ["foreign"]
+/// }
+/// ```
+/// and
+/// ```
+/// {
+///  "removed": [],
+///  "added": [
+///    "which",
+///    "attributable",
+///    "foreign",
+///    "research",
+///    "(within",
+///    "meaning",
+///    "section",
+///    "41(d)(4)(F))"
+///  ]
+///}
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct BillDiff {
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
 }
 
 /// Source Credit Attribution

@@ -210,6 +210,7 @@ fn get_amendment_data(node: &Node, bill_id: &str) -> BillAmendment {
         id,
         action_types,
         amending_text,
+        changes: Vec::new(),
     }
 }
 
