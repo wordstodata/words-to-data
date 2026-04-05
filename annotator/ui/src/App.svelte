@@ -8,12 +8,12 @@
   let oldDate = $state("2025-07-18");
   let newPath = $state("../tests/test_data/usc/2025-07-30/usc26.xml");
   let newDate = $state("2025-07-30");
-  let billPath = $state("../tests/test_data/bills/hr-119-21.xml");
+  let billPaths = $state(["../tests/test_data/bills/hr-119-21.xml"]);
 
   // ── loaded data ───────────────────────────────────────────────────────────────
   let treeDiff = $state(null);
-  let billData = $state(null);
-  let amendments = $state([]); // Array<BillAmendment>
+  let billsData = $state([]); // Array<AmendmentData>
+  let amendments = $state([]); // Array<BillAmendment> (flattened from all bills)
   let changedNodes = $state([]); // flat list of nodes with changes
 
   // ── ui state ─────────────────────────────────────────────────────────────────
@@ -65,6 +65,23 @@
     // Svelte needs a new assignment to trigger a reactivity update.
     amendmentFilters = [...amendmentFilters, ""];
   }
+  function addBillPath() {
+    billPaths = [...billPaths, ""];
+  }
+  function removeBillPath(index) {
+    if (billPaths.length > 1) {
+      billPaths = billPaths.filter((_, i) => i !== index);
+    }
+  }
+  function getBillIdForAmendment(amendment) {
+    // Find which bill this amendment belongs to by checking billsData
+    for (const bill of billsData) {
+      if (bill.amendments[amendment.id]) {
+        return bill.bill_id;
+      }
+    }
+    return "unknown";
+  }
   function extractChangedNodes(diff, results = []) {
     if (
       diff.changes.length > 0 ||
@@ -107,25 +124,39 @@
     if (p) newPath = p;
   }
 
-  async function pickBill() {
+  async function pickBill(index) {
     const p = await open({
       multiple: false,
       title: "Select Bill XML",
       filters: [{ name: "XML", extensions: ["xml"] }],
     });
-    if (p) billPath = p;
+    if (p) {
+      billPaths = billPaths.map((path, i) => (i === index ? p : path));
+    }
+  }
+
+  async function pickBillsMultiple() {
+    const paths = await open({
+      multiple: true,
+      title: "Select Bill XML Files",
+      filters: [{ name: "XML", extensions: ["xml"] }],
+    });
+    if (paths && paths.length > 0) {
+      billPaths = [...billPaths.filter((p) => p.trim() !== ""), ...paths];
+    }
   }
 
   // ── load ──────────────────────────────────────────────────────────────────────
   async function loadFiles() {
-    if (!oldPath || !oldDate || !newPath || !newDate || !billPath) {
+    const validBillPaths = billPaths.filter((p) => p.trim() !== "");
+    if (!oldPath || !oldDate || !newPath || !newDate || validBillPaths.length === 0) {
       error = "Fill in all file paths and dates before loading.";
       return;
     }
     loading = true;
     error = "";
     treeDiff = null;
-    billData = null;
+    billsData = [];
     amendments = [];
     changedNodes = [];
     annotations = [];
@@ -133,13 +164,14 @@
     selectedNodePaths = new Set();
     causativeText = "";
     try {
-      const [diffJson, billJson] = await Promise.all([
+      const [diffJson, billsJson] = await Promise.all([
         invoke("load_usc_pair", { oldPath, oldDate, newPath, newDate }),
-        invoke("load_bill", { path: billPath }),
+        invoke("load_bills", { paths: validBillPaths }),
       ]);
       treeDiff = JSON.parse(diffJson);
-      billData = JSON.parse(billJson);
-      amendments = Object.values(billData.amendments);
+      billsData = JSON.parse(billsJson);
+      // Flatten amendments from all bills into a single array
+      amendments = billsData.flatMap((bill) => Object.values(bill.amendments));
       changedNodes = extractChangedNodes(treeDiff);
     } catch (e) {
       error = String(e);
@@ -164,9 +196,10 @@
   async function addAnnotation() {
     if (!canAnnotate) return;
     try {
+      const billId = getBillIdForAmendment(selectedAmendment);
       const annJson = await invoke("create_annotation", {
         operation,
-        billId: billData.bill_id,
+        billId,
         amendmentId: selectedAmendment.id,
         causativeText: causativeText.trim(),
         paths: [...selectedNodePaths],
@@ -201,6 +234,72 @@
       error = String(e);
     }
   }
+
+  // ── workspace save/load ─────────────────────────────────────────────────────
+  async function saveWorkspace() {
+    if (!treeDiff) {
+      error = "Load files first before saving workspace.";
+      return;
+    }
+    const outputPath = await save({
+      title: "Save Workspace",
+      defaultPath: "workspace.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!outputPath) return;
+    try {
+      await invoke("save_workspace", {
+        treeDiffJson: JSON.stringify(treeDiff),
+        uscOldPath: oldPath,
+        uscOldDate: oldDate,
+        uscNewPath: newPath,
+        uscNewDate: newDate,
+        billsJson: JSON.stringify(billsData),
+        billPaths: billPaths.filter((p) => p.trim() !== ""),
+        annotationsJson: JSON.stringify(annotations),
+        outputPath,
+      });
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function loadWorkspace() {
+    const inputPath = await open({
+      title: "Load Workspace",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!inputPath) return;
+    loading = true;
+    error = "";
+    try {
+      const workspaceJson = await invoke("load_workspace", { path: inputPath });
+      const workspace = JSON.parse(workspaceJson);
+
+      // Restore all state from workspace
+      treeDiff = workspace.tree_diff;
+      oldPath = workspace.usc_old_path;
+      oldDate = workspace.usc_old_date;
+      newPath = workspace.usc_new_path;
+      newDate = workspace.usc_new_date;
+      billsData = workspace.bills;
+      billPaths = workspace.bill_paths;
+      annotations = workspace.annotations;
+
+      // Reconstruct derived state
+      amendments = billsData.flatMap((bill) => Object.values(bill.amendments));
+      changedNodes = extractChangedNodes(treeDiff);
+
+      // Reset selection state
+      selectedAmendment = null;
+      selectedNodePaths = new Set();
+      causativeText = "";
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
+  }
 </script>
 
 <div class="app">
@@ -230,14 +329,35 @@
       />
     </div>
 
-    <div class="field-group">
-      <button onclick={pickBill}>Browse…</button>
-      <input placeholder="Bill XML path" bind:value={billPath} />
+    <div class="bill-inputs">
+      <span class="bill-label">Bills:</span>
+      {#each billPaths as _, i}
+        <div class="bill-input-row">
+          <button onclick={() => pickBill(i)}>Browse…</button>
+          <input placeholder="Bill XML path" bind:value={billPaths[i]} />
+          {#if billPaths.length > 1}
+            <button class="btn-small btn-danger" onclick={() => removeBillPath(i)}>-</button>
+          {/if}
+        </div>
+      {/each}
+      <div class="bill-buttons">
+        <button class="btn-small" onclick={addBillPath}>+ Add Bill</button>
+        <button class="btn-small" onclick={pickBillsMultiple}>+ Add Multiple…</button>
+      </div>
     </div>
 
     <button class="btn-primary" onclick={loadFiles} disabled={loading}>
       {loading ? "Loading…" : "Generate Diff"}
     </button>
+
+    <div class="workspace-buttons">
+      <button class="btn-workspace" onclick={saveWorkspace} disabled={!treeDiff}>
+        Save Workspace
+      </button>
+      <button class="btn-workspace" onclick={loadWorkspace} disabled={loading}>
+        Load Workspace
+      </button>
+    </div>
   </div>
 
   {#if error}
@@ -250,8 +370,9 @@
     <div class="panel panel-left">
       <div class="panel-header">
         Bill Amendments
-        {#if billData}
+        {#if billsData.length > 0}
           <span class="badge">{amendments.length}</span>
+          <span class="badge badge-bills">{billsData.length} bill{billsData.length > 1 ? 's' : ''}</span>
         {/if}
       </div>
       {#if amendments.length === 0}
@@ -284,6 +405,9 @@
               tabindex="0"
             >
               <div class="amendment-ops">
+                {#if billsData.length > 1}
+                  <span class="bill-tag">{getBillIdForAmendment(amendment)}</span>
+                {/if}
                 {#each amendment.action_types as op}
                   <span class="op-tag">{op}</span>
                 {/each}
