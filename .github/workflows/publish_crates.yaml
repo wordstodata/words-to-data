@@ -26,22 +26,22 @@ jobs:
           components: rustfmt, clippy
 
       - name: Check formatting
-        run: cargo fmt -- --check
+        run: cargo fmt -p words-to-data -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy -p words-to-data --all-targets --all-features -- -D warnings
 
       - name: Build (Rust only)
-        run: cargo build --lib --verbose
+        run: cargo build -p words-to-data --lib --verbose
 
       - name: Unzip test files
         run: cd tests/test_data && tar xvf test_files.tar.xz
 
       - name: Run Rust tests
-        run: cargo test --verbose
+        run: cargo test -p words-to-data --verbose
 
       - name: Build with Python feature
-        run: cargo build --lib --features python --verbose
+        run: cargo build -p words-to-data --lib --features python --verbose
 
   publish:
     name: Publish to crates.io
@@ -58,9 +58,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Verify package can be published
-        run: cargo publish --dry-run
+        run: cargo publish -p words-to-data --dry-run
 
       - name: Publish to crates.io
-        run: cargo publish
+        run: cargo publish -p words-to-data
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
