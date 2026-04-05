@@ -4,18 +4,18 @@
 
 ## Overview
 
-`words_to_data` parses US Code titles and Public Laws (bills) from USLM XML format, providing structured access to legislative text and the ability to track changes between document versions.
+`words_to_data` parses US Code titles and Public Laws (bills) from USLM XML format, providing structured access to legislative text, the ability to track changes between document versions, and tools for annotating how bills amend existing law.
 
 Available for both **Rust** and **Python** with high-performance Rust core and ergonomic Python bindings via PyO3.
 
 ## Features
 
 - **Parse USC and Public Law documents** - Extract hierarchical structure from USLM XML files
+- **Rich text content** - Capture heading, chapeau, proviso, content, and continuation fields
 - **Bill amendment extraction** - Identify USC references and amending actions from bills
 - **Hierarchical diffing** - Compute word-level differences between document versions
-- **Parallel processing** - Parse multiple documents concurrently using Rayon (Rust only)
-- **Dual path system** - Track both structural paths and official USLM identifiers
-- **Rich text content** - Capture heading, chapeau, proviso, content, and continuation fields
+- **Legal diff annotations** - Link bill amendments to corresponding USC changes with verification status tracking
+- **Amendment similarity scoring** - Calculate similarity between bill amendments for analysis
 - **Python bindings** - Full API access from Python with PyO3
 
 ## Installation
@@ -26,7 +26,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-words-to-data = "0.1.2"
+words-to-data = "0.2.0"
 ```
 
 ### Python
@@ -195,6 +195,37 @@ The `TreeDiff` structure mirrors the element hierarchy and tracks:
 
 Diffs are computed using word-level granularity via the `similar` crate.
 
+### Legal Diff Annotations
+
+The `LegalDiff` structure wraps a `TreeDiff` and adds an annotation layer for linking code changes to their legislative source:
+
+- **ChangeAnnotation**: Links one or more diff paths to a bill amendment
+- **BillReference**: Identifies the bill and specific amendment text that caused a change
+- **AnnotationMetadata**: Tracks verification status, confidence scores, annotator identity, and reasoning
+- **AnnotationStatus**: `Pending`, `Verified`, `Disputed`, or `Rejected`
+
+This enables building training datasets for ML models that predict how bills will modify existing law.
+
+### Amendment Actions
+
+Bills can perform these operations on existing code:
+
+`Amend`, `Add`, `Delete`, `Insert`, `Redesignate`, `Repeal`, `Move`, `Strike`, `StrikeAndInsert`
+
+## Annotator Tool
+
+The `annotator/` directory contains a Tauri desktop application for manually creating training datasets. It allows annotators to:
+
+1. Load old and new USC XML versions alongside a bill
+2. Select amendments from the bill
+3. Highlight the specific text that causes each change
+4. Link amendments to affected code sections
+5. Export annotations as JSON
+
+See [annotator/README.md](annotator/README.md) for setup instructions.
+
+> **Note**: The annotator is an early prototype and may change significantly.
+
 ## API Documentation
 
 ### Rust
@@ -205,23 +236,18 @@ Generate and view the full API documentation:
 cargo doc --open
 ```
 
-### Python
+### Development
 
-Python type stubs are included for IDE autocomplete. Access help in Python:
+```bash
+# Run Rust tests
+cargo test
 
-```python
-from words_to_data import parse_uslm_xml, compute_diff, USLMElement, TreeDiff
+# Build and install Python bindings locally
+maturin develop
 
-help(parse_uslm_xml)
-help(USLMElement)
+# Run Python tests
+python -m pytest
 ```
-
-## Contributing
-
-Contributions welcome! This project uses:
-- **Rust** for the core library
-- **PyO3** for Python bindings
-- **GitHub Actions** for CI/CD
 
 ## License
 
