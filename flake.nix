@@ -23,6 +23,9 @@
         pkgs.git
         pkgs.git-lfs
 
+        # nicer commits
+        pkgs.commitizen
+
         # Annotation tool (Tauri desktop app)
         pkgs.nodejs
         pkgs.webkitgtk_4_1   # WebKit2GTK webview engine (libsoup3 variant)
