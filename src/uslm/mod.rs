@@ -361,6 +361,17 @@ pub struct BillAmendment {
     pub changes: Vec<BillDiff>,
 }
 
+impl BillAmendment {
+    pub fn update_changes(&self, changes: &[BillDiff]) -> Self {
+        BillAmendment {
+            id: self.id.clone(),
+            action_types: self.action_types.clone(),
+            amending_text: self.amending_text.clone(),
+            changes: changes.to_vec(),
+        }
+    }
+}
+
 /// Actions caused by a bill amendment
 ///
 /// This is designed to exist as single entries for every logical

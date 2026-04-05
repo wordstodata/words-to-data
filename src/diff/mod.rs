@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use time::Date;
 
-use crate::uslm::{ElementData, TextContentField, USLMElement};
+use crate::constants::STOP_WORDS;
+use crate::uslm::{
+    BillAmendment, ElementData, TextContentField, USLMElement, bill_parser::AmendmentData,
+};
 
 /// A change detected in a single text content field between two document versions
 ///
@@ -248,6 +251,187 @@ impl TreeDiff {
             child_vec[0].find(path)
         }
     }
+
+    /// Calculate the similarity of diffs in the TreeDiff with the amendment data from a bill
+    ///
+    /// Returns a hashmap with the key being the root_path in the tree diff and the value
+    /// being the similarity data
+    pub fn calculate_amendment_similarities(
+        &self,
+        data: &AmendmentData,
+    ) -> HashMap<String, AmendmentSimilarity> {
+        let mut result = HashMap::new();
+        self.calculate_similarities_recursive(&mut result, data);
+        result
+    }
+
+    fn calculate_similarities_recursive(
+        &self,
+        result: &mut HashMap<String, AmendmentSimilarity>,
+        data: &AmendmentData,
+    ) {
+        // Check if this TreeDiff has any changes
+        if !self.changes.is_empty() {
+            // Find the best matching amendment
+            for (amendment_id, amendment) in &data.amendments {
+                if amendment.changes.is_empty() {
+                    continue;
+                }
+
+                let similarity = self.calculate_match_with_amendment(amendment_id, amendment);
+
+                if similarity.score > 0.0 {
+                    // Insert or update if this is a better match
+                    let entry = result
+                        .entry(self.root_path.clone())
+                        .or_insert(similarity.clone());
+
+                    if similarity.score > entry.score {
+                        *entry = similarity;
+                    }
+                }
+            }
+        }
+
+        // Recurse into children
+        for child_diff in &self.child_diffs {
+            child_diff.calculate_similarities_recursive(result, data);
+        }
+    }
+
+    fn calculate_match_with_amendment(
+        &self,
+        amendment_id: &str,
+        amendment: &BillAmendment,
+    ) -> AmendmentSimilarity {
+        // Collect all changed words from this TreeDiff (deletions + insertions)
+        let tree_diff_words: HashSet<String> = self.collect_tree_diff_words();
+        let tree_diff_count = tree_diff_words.len();
+
+        // Find the best-matching BillDiff within this amendment
+        let mut best_score = 0.0_f32;
+        let mut best_precision = 0.0_f32;
+        let mut best_recall = 0.0_f32;
+        let mut best_matched = 0_i32;
+
+        for bill_diff in &amendment.changes {
+            // Collect words from this specific BillDiff
+            let mut bill_diff_words: HashSet<String> = HashSet::new();
+            for word in &bill_diff.removed {
+                let trimmed = word.trim();
+                if !trimmed.is_empty() && !is_stop_word(trimmed) {
+                    bill_diff_words.insert(trimmed.to_lowercase());
+                }
+            }
+            for word in &bill_diff.added {
+                let trimmed = word.trim();
+                if !trimmed.is_empty() && !is_stop_word(trimmed) {
+                    bill_diff_words.insert(trimmed.to_lowercase());
+                }
+            }
+
+            if bill_diff_words.is_empty() {
+                continue;
+            }
+
+            // Calculate intersection with this BillDiff
+            let matched_words: i32 = tree_diff_words
+                .iter()
+                .filter(|w| bill_diff_words.contains(*w))
+                .count() as i32;
+
+            let bill_diff_count = bill_diff_words.len();
+
+            // Calculate precision: how well this BillDiff explains TreeDiff
+            let precision = if tree_diff_count > 0 {
+                matched_words as f32 / tree_diff_count as f32
+            } else {
+                0.0
+            };
+
+            // Calculate recall: how much of this BillDiff is in TreeDiff
+            let recall = if bill_diff_count > 0 {
+                matched_words as f32 / bill_diff_count as f32
+            } else {
+                0.0
+            };
+
+            // Calculate F1 score for this BillDiff
+            let score = if precision + recall > 0.0 {
+                2.0 * precision * recall / (precision + recall)
+            } else {
+                0.0
+            };
+
+            // Keep the best match
+            if score > best_score {
+                best_score = score;
+                best_precision = precision;
+                best_recall = recall;
+                best_matched = matched_words;
+            }
+        }
+
+        AmendmentSimilarity {
+            tree_diff_path: self.root_path.clone(),
+            amendment_id: amendment_id.to_string(),
+            score: best_score,
+            precision: best_precision,
+            recall: best_recall,
+            matched_words: best_matched,
+            tree_diff_words: tree_diff_count as i32,
+        }
+    }
+
+    /// Collect all significant changed words from this TreeDiff
+    fn collect_tree_diff_words(&self) -> HashSet<String> {
+        let mut words = HashSet::new();
+        for field_change in &self.changes {
+            for text_change in &field_change.changes {
+                let word = text_change.value.trim();
+                // Skip empty strings and stop words (case-insensitive)
+                if word.is_empty() || is_stop_word(word) {
+                    continue;
+                }
+                match text_change.tag {
+                    TextChangeType::Delete | TextChangeType::Insert => {
+                        words.insert(word.to_lowercase());
+                    }
+                    TextChangeType::Equal => {}
+                }
+            }
+        }
+        words
+    }
+}
+
+/// Similarity between a TreeDiff and a bill amendment
+///
+/// Used to rank how likely a BillAmendment caused the changes at a TreeDiff location.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AmendmentSimilarity {
+    /// The structural path of the TreeDiff node
+    pub tree_diff_path: String,
+    /// The ID of the matched BillAmendment
+    pub amendment_id: String,
+    /// Primary ranking metric (precision-weighted F1)
+    pub score: f32,
+    /// How well the amendment explains the TreeDiff's changes
+    /// |TreeDiff ∩ Amendment| / |TreeDiff|
+    pub precision: f32,
+    /// How much of the amendment is represented in this TreeDiff
+    /// |TreeDiff ∩ Amendment| / |Amendment|
+    pub recall: f32,
+    /// Number of words that matched between TreeDiff and Amendment
+    pub matched_words: i32,
+    /// Total significant words in the TreeDiff's changes
+    pub tree_diff_words: i32,
+}
+
+/// Check if a word is a stop word (case-insensitive)
+fn is_stop_word(word: &str) -> bool {
+    let lower = word.to_lowercase();
+    STOP_WORDS.contains(&lower.as_str())
 }
 
 /// Compute field-level changes between two elements

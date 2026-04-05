@@ -8,6 +8,8 @@ from .words_to_data import (
     TextChange,
     AmendmentData,
     BillAmendment,
+    BillDiff,
+    AmendmentSimilarity,
     # legal_diff types
     LegalDiff,
     ChangeAnnotation,
@@ -26,6 +28,8 @@ __all__ = [
     "TextChange",
     "AmendmentData",
     "BillAmendment",
+    "BillDiff",
+    "AmendmentSimilarity",
     # legal_diff types
     "LegalDiff",
     "ChangeAnnotation",

@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pythonize::pythonize;
 use serde_json;
 
-use crate::diff::TreeDiff as RustTreeDiff;
+use crate::diff::{AmendmentSimilarity as RustAmendmentSimilarity, TreeDiff as RustTreeDiff};
 use crate::uslm::parser::ParseError;
 
 #[pyclass(from_py_object)]
@@ -320,6 +320,90 @@ impl TreeDiff {
         let inner: RustTreeDiff = serde_json::from_str(json_str)
             .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
         Ok(Self::from(&inner))
+    }
+
+    /// Calculate similarity between this TreeDiff and amendment data from a bill
+    ///
+    /// Returns a dictionary mapping TreeDiff paths to their best-matching amendment
+    fn calculate_amendment_similarities(
+        &self,
+        amendment_data: &AmendmentData,
+    ) -> PyResult<Vec<AmendmentSimilarity>> {
+        let similarities = self
+            .inner
+            .calculate_amendment_similarities(&amendment_data.inner);
+        Ok(similarities
+            .into_values()
+            .map(|s| AmendmentSimilarity { inner: s })
+            .collect())
+    }
+}
+
+// ============================================================================
+// AmendmentSimilarity
+// ============================================================================
+
+/// Similarity between a TreeDiff and a bill amendment
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct AmendmentSimilarity {
+    inner: RustAmendmentSimilarity,
+}
+
+#[pymethods]
+impl AmendmentSimilarity {
+    #[getter]
+    fn tree_diff_path(&self) -> String {
+        self.inner.tree_diff_path.clone()
+    }
+
+    #[getter]
+    fn amendment_id(&self) -> String {
+        self.inner.amendment_id.clone()
+    }
+
+    #[getter]
+    fn score(&self) -> f32 {
+        self.inner.score
+    }
+
+    #[getter]
+    fn precision(&self) -> f32 {
+        self.inner.precision
+    }
+
+    #[getter]
+    fn recall(&self) -> f32 {
+        self.inner.recall
+    }
+
+    #[getter]
+    fn matched_words(&self) -> i32 {
+        self.inner.matched_words
+    }
+
+    #[getter]
+    fn tree_diff_words(&self) -> i32 {
+        self.inner.tree_diff_words
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "AmendmentSimilarity(path='{}', score={:.3}, precision={:.3}, recall={:.3})",
+            self.inner.tree_diff_path, self.inner.score, self.inner.precision, self.inner.recall
+        )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: RustAmendmentSimilarity = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self { inner })
     }
 }
 
@@ -665,6 +749,60 @@ impl LegalDiff {
 // Bill parsing types
 // ============================================================================
 
+/// Word-level changes from a bill amendment instruction
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct BillDiff {
+    inner: crate::uslm::BillDiff,
+}
+
+impl BillDiff {
+    fn from(rust_diff: &crate::uslm::BillDiff) -> Self {
+        BillDiff {
+            inner: rust_diff.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl BillDiff {
+    #[new]
+    fn new(added: Vec<String>, removed: Vec<String>) -> Self {
+        BillDiff {
+            inner: crate::uslm::BillDiff { added, removed },
+        }
+    }
+
+    #[getter]
+    fn added(&self) -> Vec<String> {
+        self.inner.added.clone()
+    }
+
+    #[getter]
+    fn removed(&self) -> Vec<String> {
+        self.inner.removed.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BillDiff(added={:?}, removed={:?})",
+            self.inner.added, self.inner.removed
+        )
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: crate::uslm::BillDiff = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Self::from(&inner))
+    }
+}
+
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 struct BillAmendment {
@@ -700,6 +838,11 @@ impl BillAmendment {
         self.inner.amending_text.clone()
     }
 
+    #[getter]
+    fn changes(&self) -> Vec<BillDiff> {
+        self.inner.changes.iter().map(BillDiff::from).collect()
+    }
+
     fn __repr__(&self) -> String {
         let text_preview = if self.inner.amending_text.len() > 50 {
             format!("{}...", &self.inner.amending_text[..50])
@@ -707,11 +850,24 @@ impl BillAmendment {
             self.inner.amending_text.clone()
         };
         format!(
-            "BillAmendment(id='{}', action_types={:?}, amending_text='{}')",
+            "BillAmendment(id='{}', action_types={:?}, changes={}, amending_text='{}')",
             &self.inner.id[..12],
             self.action_types(),
+            self.inner.changes.len(),
             text_preview
         )
+    }
+
+    /// Create a new BillAmendment with updated changes
+    ///
+    /// Returns a new BillAmendment with the same id, action_types, and amending_text,
+    /// but with the provided changes.
+    fn update_changes(&self, changes: Vec<BillDiff>) -> BillAmendment {
+        let rust_changes: Vec<crate::uslm::BillDiff> =
+            changes.iter().map(|c| c.inner.clone()).collect();
+        BillAmendment {
+            inner: self.inner.update_changes(&rust_changes),
+        }
     }
 
     fn to_json(&self) -> PyResult<String> {
@@ -752,6 +908,22 @@ impl AmendmentData {
 
 #[pymethods]
 impl AmendmentData {
+    #[new]
+    fn new(bill_id: String, amendments: Vec<BillAmendment>) -> Self {
+        let amendments_map: std::collections::HashMap<String, crate::uslm::BillAmendment> =
+            amendments
+                .iter()
+                .map(|a| (a.inner.id.clone(), a.inner.clone()))
+                .collect();
+
+        let inner = crate::uslm::bill_parser::AmendmentData {
+            bill_id,
+            amendments: amendments_map,
+        };
+
+        Self::from(inner)
+    }
+
     #[getter]
     fn bill_id(&self) -> String {
         self.inner.bill_id.clone()
@@ -864,6 +1036,8 @@ fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TextChange>()?;
     m.add_class::<AmendmentData>()?;
     m.add_class::<BillAmendment>()?;
+    m.add_class::<BillDiff>()?;
+    m.add_class::<AmendmentSimilarity>()?;
     // legal_diff types
     m.add_class::<LegalDiff>()?;
     m.add_class::<ChangeAnnotation>()?;

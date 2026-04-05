@@ -8,7 +8,7 @@ version = "0.1.2"
 description = "Convert Legal Documents Into Diffable Data Structures"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = { text = "MIT" }
 
 [project.urls]
 Homepage = "https://www.wordstodata.com/"
@@ -19,4 +19,4 @@ Issues = "https://github.com/Scronkfinkle/words-to-data/issues"
 python-source = "python"
 module-name = "words_to_data.words_to_data"
 bindings = "pyo3"
-features = ["python"] # Enable python feature flag
+features = ["python"]                       # Enable python feature flag

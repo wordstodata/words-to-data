@@ -158,6 +158,19 @@ class TreeDiff:
         """
         ...
 
+    def calculate_amendment_similarities(
+        self, amendment_data: AmendmentData
+    ) -> list[AmendmentSimilarity]:
+        """Calculate similarity between this TreeDiff and amendment data from a bill.
+
+        Args:
+            amendment_data: The parsed amendment data from a bill
+
+        Returns:
+            List of AmendmentSimilarity objects for TreeDiff paths that match
+        """
+        ...
+
     def to_json(self) -> str:
         """Serialize the diff to a JSON string."""
         ...
@@ -165,6 +178,56 @@ class TreeDiff:
     @staticmethod
     def from_json(json_str: str) -> TreeDiff:
         """Deserialize a JSON string to a TreeDiff."""
+        ...
+
+class AmendmentSimilarity:
+    """Similarity between a TreeDiff and a bill amendment.
+
+    Used to rank how likely a BillAmendment caused the changes at a TreeDiff location.
+    """
+
+    @property
+    def tree_diff_path(self) -> str:
+        """The structural path of the TreeDiff node"""
+        ...
+
+    @property
+    def amendment_id(self) -> str:
+        """The ID of the matched BillAmendment"""
+        ...
+
+    @property
+    def score(self) -> float:
+        """Primary ranking metric (F1 score of best-matching BillDiff)"""
+        ...
+
+    @property
+    def precision(self) -> float:
+        """How well the amendment explains the TreeDiff's changes (0.0-1.0)"""
+        ...
+
+    @property
+    def recall(self) -> float:
+        """How much of the amendment is represented in this TreeDiff (0.0-1.0)"""
+        ...
+
+    @property
+    def matched_words(self) -> int:
+        """Number of words that matched between TreeDiff and Amendment"""
+        ...
+
+    @property
+    def tree_diff_words(self) -> int:
+        """Total significant words in the TreeDiff's changes"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> AmendmentSimilarity:
+        """Deserialize a JSON string to an AmendmentSimilarity."""
         ...
 
 def parse_uslm_xml(path: str, date: str) -> USLMElement:
@@ -194,6 +257,41 @@ def compute_diff(old_element: USLMElement, new_element: USLMElement) -> TreeDiff
     """
     ...
 
+class BillDiff:
+    """Word-level changes from a bill amendment instruction.
+
+    Each BillDiff represents one atomic change instruction, such as
+    "strike 'specified' and insert 'foreign'".
+    """
+
+    def __init__(self, added: list[str], removed: list[str]) -> None:
+        """Create a new BillDiff.
+
+        Args:
+            added: Words that were added by this instruction
+            removed: Words that were removed by this instruction
+        """
+        ...
+
+    @property
+    def added(self) -> list[str]:
+        """Words that were added by this instruction"""
+        ...
+
+    @property
+    def removed(self) -> list[str]:
+        """Words that were removed by this instruction"""
+        ...
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> BillDiff:
+        """Deserialize a JSON string to a BillDiff."""
+        ...
+
 class BillAmendment:
     """An amendment found in a bill that modifies the US Code"""
 
@@ -212,6 +310,25 @@ class BillAmendment:
         """The full readable text of the amending instruction"""
         ...
 
+    @property
+    def changes(self) -> list[BillDiff]:
+        """Word-level changes extracted from this amendment (populated externally)"""
+        ...
+
+    def update_changes(self, changes: list[BillDiff]) -> BillAmendment:
+        """Create a new BillAmendment with updated changes.
+
+        Returns a new BillAmendment with the same id, action_types, and amending_text,
+        but with the provided changes.
+
+        Args:
+            changes: The new list of BillDiff changes
+
+        Returns:
+            A new BillAmendment with the updated changes
+        """
+        ...
+
     def to_json(self) -> str:
         """Serialize the amendment to a JSON string."""
         ...
@@ -223,6 +340,15 @@ class BillAmendment:
 
 class AmendmentData:
     """Data extracted from a bill document"""
+
+    def __init__(self, bill_id: str, amendments: list[BillAmendment]) -> None:
+        """Create a new AmendmentData.
+
+        Args:
+            bill_id: The bill identifier (e.g., '119-21' for the 119th Congress, 21st law)
+            amendments: List of BillAmendment objects extracted from the bill
+        """
+        ...
 
     @property
     def bill_id(self) -> str:
