@@ -33,22 +33,60 @@
   // ── saved annotations ─────────────────────────────────────────────────────────
   let annotations = $state([]);
 
-  // ── derived ───────────────────────────────────────────────────────────────────
-  let filteredNodes = $derived(
-    nodeFilter.trim()
-      ? changedNodes.filter((n) => n.path.includes(nodeFilter.trim()))
-      : changedNodes,
-  );
+  // ── similarity scores ───────────────────────────────────────────────────────
+  // Loaded from JSON: Array<{tree_diff_path, amendment_id, score, precision, recall, ...}>
+  let similarityScores = $state([]);
+  // Lookup: amendment_id -> tree_diff_path -> score data
+  let similarityByAmendment = $derived.by(() => {
+    const lookup = new Map();
+    for (const s of similarityScores) {
+      if (!lookup.has(s.amendment_id)) {
+        lookup.set(s.amendment_id, new Map());
+      }
+      lookup.get(s.amendment_id).set(s.tree_diff_path, s);
+    }
+    return lookup;
+  });
+  // Set of amendment IDs that have similarity scores
+  let amendmentsWithScores = $derived(new Set(similarityScores.map(s => s.amendment_id)));
 
-  let filteredAmendments = $derived(
-    amendmentFilters.join("")
+  // ── derived ───────────────────────────────────────────────────────────────────
+  let filteredNodes = $derived.by(() => {
+    let nodes = nodeFilter.trim()
+      ? changedNodes.filter((n) => n.path.includes(nodeFilter.trim()))
+      : changedNodes;
+
+    // Sort by similarity score if an amendment is selected and we have scores
+    if (selectedAmendment && similarityByAmendment.has(selectedAmendment.id)) {
+      const scoresForAmendment = similarityByAmendment.get(selectedAmendment.id);
+      nodes = [...nodes].sort((a, b) => {
+        const scoreA = scoresForAmendment.get(a.path)?.score ?? -1;
+        const scoreB = scoresForAmendment.get(b.path)?.score ?? -1;
+        return scoreB - scoreA; // Descending
+      });
+    }
+    return nodes;
+  });
+
+  let filteredAmendments = $derived.by(() => {
+    let result = amendmentFilters.join("")
       ? amendments.filter((n) =>
           amendmentFilters.every((f) => {
             return n.amending_text.includes(f);
           }),
         )
-      : amendments,
-  );
+      : amendments;
+
+    // Sort amendments with similarity scores to the top
+    if (amendmentsWithScores.size > 0) {
+      result = [...result].sort((a, b) => {
+        const aHasScores = amendmentsWithScores.has(a.id) ? 1 : 0;
+        const bHasScores = amendmentsWithScores.has(b.id) ? 1 : 0;
+        return bHasScores - aHasScores;
+      });
+    }
+    return result;
+  });
 
   let canAnnotate = $derived(
     selectedAmendment !== null &&
@@ -113,6 +151,13 @@
     return parts.length > 3 ? "…/" + parts.slice(-3).join("/") : path;
   }
 
+  function getSimilarityScore(nodePath) {
+    if (!selectedAmendment || !similarityByAmendment.has(selectedAmendment.id)) {
+      return null;
+    }
+    return similarityByAmendment.get(selectedAmendment.id).get(nodePath) ?? null;
+  }
+
   // ── file picking ──────────────────────────────────────────────────────────────
   async function pickOldUsc() {
     const p = await open({ multiple: false, title: "Select Old USC XML" });
@@ -143,6 +188,20 @@
     });
     if (paths && paths.length > 0) {
       billPaths = [...billPaths.filter((p) => p.trim() !== ""), ...paths];
+    }
+  }
+
+  async function loadSimilarityScores() {
+    const inputPath = await open({
+      title: "Load Similarity Scores JSON",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!inputPath) return;
+    try {
+      const content = await invoke("read_json_file", { path: inputPath });
+      similarityScores = JSON.parse(content);
+    } catch (e) {
+      error = String(e);
     }
   }
 
@@ -357,6 +416,12 @@
       <button class="btn-workspace" onclick={loadWorkspace} disabled={loading}>
         Load Workspace
       </button>
+      <button class="btn-workspace" onclick={loadSimilarityScores} disabled={loading}>
+        Load Scores
+      </button>
+      {#if similarityScores.length > 0}
+        <span class="badge badge-scores">{similarityScores.length} scores</span>
+      {/if}
     </div>
   </div>
 
@@ -398,6 +463,7 @@
             <li
               class="amendment-item"
               class:selected={selectedAmendment?.id === amendment.id}
+              class:has-scores={amendmentsWithScores.has(amendment.id)}
               onclick={() => (selectedAmendment = amendment)}
               onkeydown={(e) => e.key === "Enter" && (selectedAmendment = amendment)}
               role="option"
@@ -405,6 +471,9 @@
               tabindex="0"
             >
               <div class="amendment-ops">
+                {#if amendmentsWithScores.has(amendment.id)}
+                  <span class="score-tag">📊</span>
+                {/if}
                 {#if billsData.length > 1}
                   <span class="bill-tag">{getBillIdForAmendment(amendment)}</span>
                 {/if}
@@ -456,9 +525,11 @@
         />
         <ul class="node-list" role="listbox" aria-multiselectable="true">
           {#each filteredNodes as node (node.path)}
+            {@const similarity = getSimilarityScore(node.path)}
             <li
               class="node-item"
               class:selected={selectedNodePaths.has(node.path)}
+              class:has-similarity={similarity !== null}
               onclick={() => toggleNode(node.path)}
               onkeydown={(e) => e.key === "Enter" && toggleNode(node.path)}
               role="option"
@@ -466,7 +537,14 @@
               tabindex="0"
               title={node.path}
             >
-              <div class="node-path">{shortPath(node.path)}</div>
+              <div class="node-header">
+                <div class="node-path">{shortPath(node.path)}</div>
+                {#if similarity}
+                  <span class="similarity-score" title="Score: {similarity.score.toFixed(3)}, Precision: {similarity.precision.toFixed(3)}, Recall: {similarity.recall.toFixed(3)}">
+                    {(similarity.score * 100).toFixed(0)}%
+                  </span>
+                {/if}
+              </div>
                <div class="node-changes">
                  {#each node.changes as change}
                    <div class="change-entry">

@@ -193,6 +193,17 @@ fn load_workspace(path: String) -> Result<String, String> {
     Ok(contents)
 }
 
+/// Read an arbitrary JSON file and return its contents.
+///
+/// Used for loading external data like similarity scores.
+#[tauri::command]
+fn read_json_file(path: String) -> Result<String, String> {
+    let contents = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    // Validate it's valid JSON by parsing it
+    let _: serde_json::Value = serde_json::from_str(&contents).map_err(|e| e.to_string())?;
+    Ok(contents)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -204,6 +215,7 @@ pub fn run() {
             export_legal_diff,
             save_workspace,
             load_workspace,
+            read_json_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
