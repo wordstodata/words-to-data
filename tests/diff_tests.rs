@@ -172,14 +172,16 @@ fn test_correct_matching_regex() {
 
     let diff: TreeDiff = TreeDiff::from_elements(&result_a, &result_b);
 
-    let s174a = diff.find("uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a/paragraph_2").unwrap();
+    let s174a = diff.find("uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45F/subsection_c/paragraph_1/subparagraph_A/clause_iii").unwrap();
     let mention_regex = s174a.mention_regex().unwrap();
     let section_regex = s174a.section_regex().unwrap();
-    let target = "According to Section 174 (a)(2) blah blah";
-    let mat = mention_regex.find(target).unwrap();
-    assert_eq!(mat.as_str(), "Section 174 (a)(2) ");
-    let mat = section_regex.find(target).unwrap();
-    assert_eq!(mat.as_str(), "Section 174 ");
+    dbg!(&mention_regex);
+    dbg!(&section_regex);
+    let target = "some preceding text Section 45F(c)(1)(A)(iii) is amended by inserting";
+    let mat = mention_regex.find(target).expect("Unable to find mention");
+    assert_eq!(mat.as_str(), "Section 45F(c)(1)(A)(iii) ");
+    let mat = section_regex.find(target).expect("Unable to find section");
+    assert_eq!(mat.as_str(), "Section 45F(");
 }
 
 #[test]
@@ -196,7 +198,7 @@ fn test_get_all_regexes() {
 }
 
 #[test]
-fn test_scan_for_mentions_should_find_section_174_mentions_in_bill() {
+fn test_scan_for_mentions_should_find_section_45f_mentions_in_bill() {
     // Parse USC documents and create TreeDiff
     let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
         .expect("Error running parser");
@@ -204,25 +206,24 @@ fn test_scan_for_mentions_should_find_section_174_mentions_in_bill() {
         .expect("Error running parser");
     let diff = TreeDiff::from_elements(&doc_old, &doc_new);
 
-    // Parse the bill that amends Section 174
+    // Parse the bill that amends Section 45F
     let amendment_data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
 
-    // Scan for mentions - this should find "Section 174" mentions in the amendment texts
+    // Scan for mentions - this should find "Section 45F" mentions in the amendment texts
     let mentions = diff.scan_for_mentions(&amendment_data);
 
-    // We expect at least one amendment to mention Section 174
+    // We expect at least one amendment to mention Section 45F
     assert!(
         !mentions.is_empty(),
-        "Should find at least one amendment mentioning Section 174"
+        "Should find at least one amendment mentioning Section 45F"
     );
 
-    // Check that the matched text includes "Section 174"
+    // Check that the matched text includes "Section 45F"
     let all_matches: Vec<&MentionMatch> = mentions.values().flatten().collect();
-    let has_section_174 = all_matches.iter().any(|m| m.matched_text.contains("174"));
-
+    let has_section_45f = all_matches.iter().any(|m| m.matched_text.contains("45F"));
     assert!(
-        has_section_174,
-        "Should find a match containing '174', got matches: {:?}",
+        has_section_45f,
+        "Should find a match containing '45F', got matches: {:?}",
         all_matches
     );
 }

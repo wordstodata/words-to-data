@@ -145,6 +145,8 @@ impl TreeDiff {
     pub fn mention_regex(&self) -> Option<Regex> {
         if self.root_path.contains("section") {
             let mut mreg = String::from(self.section_regex().unwrap().as_str());
+            // Remove \D matcher from section regex
+            mreg.truncate(mreg.len() - 2);
             let split: Vec<_> = self.root_path.split("/").collect();
             let mut started = false;
             for part in split {
@@ -172,7 +174,7 @@ impl TreeDiff {
                 let (part_name, part_num) = part.split_once("_").unwrap();
                 if part_name == "section" {
                     regex += part_num;
-                    regex += r"\s*";
+                    regex += r"\D";
                     return Some(Regex::from_str(regex.as_str()).unwrap());
                 }
             }
@@ -505,6 +507,7 @@ impl TreeDiff {
     /// # Returns
     ///
     /// A map from amendment_id to list of matches found in that amendment's text.
+    /// For each tree_diff_path, only the most specific (longest) match is kept.
     pub fn scan_for_mentions(&self, data: &AmendmentData) -> HashMap<String, Vec<MentionMatch>> {
         // Collect all regexes with their source paths recursively
         let regex_with_paths = self.collect_regexes_with_paths();
@@ -514,7 +517,7 @@ impl TreeDiff {
 
         for (amendment_id, amendment) in &data.amendments {
             let text = &amendment.amending_text;
-            let matches: Vec<MentionMatch> = regex_with_paths
+            let all_matches: Vec<MentionMatch> = regex_with_paths
                 .par_iter()
                 .filter_map(|(path, reg)| {
                     reg.find(text).map(|mat| MentionMatch {
@@ -523,6 +526,18 @@ impl TreeDiff {
                     })
                 })
                 .collect();
+
+            // Deduplicate: keep only the longest match per tree_diff_path
+            let mut best_by_path: HashMap<&str, &MentionMatch> = HashMap::new();
+            for m in &all_matches {
+                let dominated = best_by_path
+                    .get(m.tree_diff_path.as_str())
+                    .is_some_and(|existing| existing.matched_text.len() >= m.matched_text.len());
+                if !dominated {
+                    best_by_path.insert(&m.tree_diff_path, m);
+                }
+            }
+            let matches: Vec<MentionMatch> = best_by_path.into_values().cloned().collect();
 
             if !matches.is_empty() {
                 results.insert(amendment_id.clone(), matches);
