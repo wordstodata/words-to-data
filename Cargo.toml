@@ -9,7 +9,7 @@ edition = "2024"
 exclude = ["tests/", "annotator/"]
 description = "Convert Legal Documents Into Diffable Data Structures"
 repository = "https://github.com/Scronkfinkle/words-to-data"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [lib]
 name = "words_to_data"
