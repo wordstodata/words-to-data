@@ -547,6 +547,22 @@ impl TreeDiff {
         results
     }
 
+    /// Return a shallow copy of this TreeDiff without children.
+    ///
+    /// Useful when correlating a specific diff node with other data
+    /// without needing the full subtree.
+    pub fn shallow(&self) -> TreeDiff {
+        TreeDiff {
+            root_path: self.root_path.clone(),
+            changes: self.changes.clone(),
+            from_element: self.from_element.clone(),
+            to_element: self.to_element.clone(),
+            added: self.added.clone(),
+            removed: self.removed.clone(),
+            child_diffs: vec![],
+        }
+    }
+
     /// Recursively collect regexes with their source paths from this TreeDiff.
     fn collect_regexes_with_paths(&self) -> Vec<(String, Regex)> {
         let mut result = Vec::new();

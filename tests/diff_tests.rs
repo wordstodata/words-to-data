@@ -198,6 +198,37 @@ fn test_get_all_regexes() {
 }
 
 #[test]
+fn test_shallow_should_return_tree_diff_without_children() {
+    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+        .expect("Error running parser");
+    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+
+    // Find a node that has children
+    let s174 = diff
+        .find("uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174")
+        .expect("Section 174 should exist");
+    assert!(
+        !s174.child_diffs.is_empty(),
+        "Section 174 should have child diffs"
+    );
+
+    // Get a shallow copy
+    let shallow = s174.shallow();
+
+    // Shallow copy should have same data but no children
+    assert_eq!(shallow.root_path, s174.root_path);
+    assert_eq!(shallow.changes.len(), s174.changes.len());
+    assert_eq!(shallow.added.len(), s174.added.len());
+    assert_eq!(shallow.removed.len(), s174.removed.len());
+    assert!(
+        shallow.child_diffs.is_empty(),
+        "Shallow copy should have no children"
+    );
+}
+
+#[test]
 fn test_scan_for_mentions_should_find_section_45f_mentions_in_bill() {
     // Parse USC documents and create TreeDiff
     let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")

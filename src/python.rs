@@ -66,6 +66,16 @@ impl USLMElement {
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
     }
 
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
+    }
+
     #[staticmethod]
     fn from_json(json_str: &str) -> PyResult<Self> {
         let inner: crate::uslm::USLMElement = serde_json::from_str(json_str)
@@ -118,6 +128,16 @@ impl TextChange {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]
@@ -180,6 +200,16 @@ impl FieldChangeEvent {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]
@@ -302,6 +332,11 @@ impl TreeDiff {
         self.inner.find(path).map(TreeDiff::from)
     }
 
+    /// Return a shallow copy of this TreeDiff without children
+    fn shallow(&self) -> TreeDiff {
+        TreeDiff::from(&self.inner.shallow())
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "TreeDiff(path='{}', changes={}, added={}, removed={}, child_diffs={})",
@@ -316,6 +351,16 @@ impl TreeDiff {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]
@@ -419,6 +464,16 @@ impl AmendmentSimilarity {
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
     }
 
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
+    }
+
     #[staticmethod]
     fn from_json(json_str: &str) -> PyResult<Self> {
         let inner: RustAmendmentSimilarity = serde_json::from_str(json_str)
@@ -468,6 +523,16 @@ impl MentionMatch {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]
@@ -545,6 +610,16 @@ impl BillReference {
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
     }
 
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
+    }
+
     #[staticmethod]
     fn from_json(json_str: &str) -> PyResult<Self> {
         let inner: RustBillReference = serde_json::from_str(json_str)
@@ -619,6 +694,16 @@ impl AnnotationMetadata {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]
@@ -714,6 +799,16 @@ impl ChangeAnnotation {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]
@@ -818,6 +913,16 @@ impl LegalDiff {
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
     }
 
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
+    }
+
     #[staticmethod]
     fn from_json(json_str: &str) -> PyResult<Self> {
         let inner: RustLegalDiff = serde_json::from_str(json_str)
@@ -874,6 +979,16 @@ impl BillDiff {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]
@@ -956,6 +1071,16 @@ impl BillAmendment {
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
     }
 
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
+    }
+
     #[staticmethod]
     fn from_json(json_str: &str) -> PyResult<Self> {
         let inner: crate::uslm::BillAmendment = serde_json::from_str(json_str)
@@ -1026,6 +1151,16 @@ impl AmendmentData {
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    fn to_dict(&self) -> PyResult<Py<PyAny>> {
+        let data = serde_json::to_value(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+        Python::attach(|py| {
+            pythonize(py, &data)
+                .map(|obj| obj.unbind())
+                .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
+        })
     }
 
     #[staticmethod]

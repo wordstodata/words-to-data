@@ -126,6 +126,51 @@ def test_to_json_methods():
     assert "action_types" in parsed_amendment
 
 
+def test_to_dict_methods():
+    """Test that to_dict() returns Python dicts compatible with json.dumps"""
+    import json
+    from words_to_data import BillDiff
+
+    # Test BillDiff.to_dict()
+    bill_diff = BillDiff(["added", "words"], ["removed"])
+    d = bill_diff.to_dict()
+    assert isinstance(d, dict)
+    assert d["added"] == ["added", "words"]
+    assert d["removed"] == ["removed"]
+
+    # Test it works with json.dumps
+    json_str = json.dumps(d, indent=2)
+    assert isinstance(json_str, str)
+    parsed = json.loads(json_str)
+    assert parsed == d
+
+    # Test BillAmendment.to_dict()
+    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    amendment = data.amendments[0]
+    amendment_dict = amendment.to_dict()
+    assert isinstance(amendment_dict, dict)
+    assert "id" in amendment_dict
+    assert "amending_text" in amendment_dict
+    assert "action_types" in amendment_dict
+
+    # Test list of amendments with json.dumps
+    amendments_list = [a.to_dict() for a in data.amendments]
+    json_str = json.dumps(amendments_list, indent=2)
+    assert isinstance(json_str, str)
+
+    # Test TreeDiff.to_dict()
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+    diff_dict = diff.to_dict()
+    assert isinstance(diff_dict, dict)
+    assert "root_path" in diff_dict
+
+    # Test USLMElement.to_dict()
+    element_dict = new.to_dict()
+    assert isinstance(element_dict, dict)
+
+
 def test_from_json_roundtrip():
     """Test that from_json() can deserialize JSON produced by to_json()"""
 
@@ -353,6 +398,28 @@ def test_legal_diff_json_roundtrip():
     assert restored_anns[0].source_bill.bill_id == "119-21"
 
 
+def test_tree_diff_shallow():
+    """Test that shallow() returns a TreeDiff without children"""
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+
+    # Find a node with children
+    s174 = diff.find(
+        "uscodedocument_26/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+    )
+    assert s174 is not None
+    assert len(s174.child_diffs) > 0, "Section 174 should have child diffs"
+
+    # Get shallow copy
+    shallow = s174.shallow()
+
+    # Verify shallow copy has same data but no children
+    assert shallow.root_path == s174.root_path
+    assert len(shallow.changes) == len(s174.changes)
+    assert len(shallow.child_diffs) == 0, "Shallow copy should have no children"
+
+
 def test_annotation_types_json_roundtrip():
     """Test JSON roundtrip for ChangeAnnotation and nested types"""
     import json
@@ -382,7 +449,7 @@ def test_annotation_types_json_roundtrip():
     assert restored_ann.metadata.confidence == annotation.metadata.confidence
 
     # Test BillReference roundtrip
-        
+
     bill_ref = BillReference(bill_id="119-21", amendment_id="test", causative_text="Section 2(a)(1)")
     bill_json = bill_ref.to_json()
     restored_bill = BillReference.from_json(bill_json)
