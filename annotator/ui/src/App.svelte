@@ -2,6 +2,10 @@
   import { invoke } from "@tauri-apps/api/core";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import "./App.css";
+  import ReviewTab from "./ReviewTab.svelte";
+
+  // ── tab state ────────────────────────────────────────────────────────────────
+  let activeTab = $state("annotate");
 
   // ── file inputs ──────────────────────────────────────────────────────────────
   let oldPath = $state("../tests/test_data/usc/2025-07-18/usc26.xml");
@@ -33,6 +37,10 @@
   // ── saved annotations ─────────────────────────────────────────────────────────
   let annotations = $state([]);
 
+  // ── annotation review state ──────────────────────────────────────────────────
+  let statusFilter = $state("all");
+  let isLegalDiffLoaded = $state(false); // Track if we loaded a legal_diff vs workspace
+
   // Annotation counts per amendment and per path
   let annotationsByAmendment = $derived.by(() => {
     const counts = new Map();
@@ -51,6 +59,26 @@
       }
     }
     return counts;
+  });
+
+  // Status counts for annotation review
+  let statusCounts = $derived.by(() => {
+    const counts = { Pending: 0, Verified: 0, Disputed: 0, Rejected: 0 };
+    for (const ann of annotations) {
+      const status = ann.metadata?.status || "Pending";
+      if (counts[status] !== undefined) {
+        counts[status]++;
+      }
+    }
+    return counts;
+  });
+
+  // Filtered annotations based on status filter
+  let filteredAnnotations = $derived.by(() => {
+    if (statusFilter === "all") return annotations;
+    return annotations.filter(
+      (ann) => (ann.metadata?.status || "Pending") === statusFilter,
+    );
   });
 
   // ── similarity scores ───────────────────────────────────────────────────────
@@ -448,15 +476,101 @@
       selectedAmendment = null;
       selectedNodePaths = new Set();
       causativeText = "";
+      isLegalDiffLoaded = false;
     } catch (e) {
       error = String(e);
     } finally {
       loading = false;
     }
   }
+
+  async function loadLegalDiff() {
+    const inputPath = await open({
+      title: "Load Legal Diff",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!inputPath) return;
+    loading = true;
+    error = "";
+    try {
+      const legalDiffJson = await invoke("load_legal_diff", { path: inputPath });
+      const legalDiff = JSON.parse(legalDiffJson);
+
+      // Populate state from LegalDiff
+      treeDiff = legalDiff.tree_diff;
+      annotations = legalDiff.annotations || [];
+
+      // Convert amendments dict to array for UI
+      amendments = Object.values(legalDiff.amendments || {});
+
+      // Create a synthetic billsData structure for compatibility
+      // The amendments are stored flat in LegalDiff, so we create a single pseudo-bill
+      billsData = [
+        {
+          bill_id: "legal_diff",
+          amendments: legalDiff.amendments || {},
+        },
+      ];
+      billPaths = [];
+
+      // Extract changed nodes from the tree diff
+      changedNodes = extractChangedNodes(treeDiff);
+      mentionMatches = new Map();
+
+      // Reset selection state
+      selectedAmendment = null;
+      selectedNodePaths = new Set();
+      causativeText = "";
+      statusFilter = "all";
+      isLegalDiffLoaded = true;
+
+      // Clear USC paths since we loaded from a LegalDiff
+      oldPath = "";
+      oldDate = "";
+      newPath = "";
+      newDate = "";
+    } catch (e) {
+      error = String(e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  function updateAnnotationStatus(index, newStatus) {
+    // Create a new annotations array with the updated status
+    annotations = annotations.map((ann, i) => {
+      if (i === index) {
+        return {
+          ...ann,
+          metadata: {
+            ...ann.metadata,
+            status: newStatus,
+          },
+        };
+      }
+      return ann;
+    });
+  }
 </script>
 
 <div class="app">
+  <!-- ── tab bar ─────────────────────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button
+      class:active={activeTab === "annotate"}
+      onclick={() => (activeTab = "annotate")}
+    >
+      Annotate
+    </button>
+    <button
+      class:active={activeTab === "review"}
+      onclick={() => (activeTab = "review")}
+    >
+      Review
+    </button>
+  </div>
+
+  {#if activeTab === "annotate"}
   <!-- ── toolbar ─────────────────────────────────────────────────────────────── -->
   <div class="toolbar">
     <span class="toolbar-title">USC Annotation Tool</span>
@@ -520,6 +634,12 @@
       <button class="btn-workspace" onclick={loadWorkspace} disabled={loading}>
         Load Workspace
       </button>
+      <button class="btn-legal-diff" onclick={loadLegalDiff} disabled={loading}>
+        Load Legal Diff
+      </button>
+      {#if isLegalDiffLoaded}
+        <span class="badge badge-legal-diff">Review Mode</span>
+      {/if}
       <button
         class="btn-workspace"
         onclick={loadSimilarityScores}
@@ -815,24 +935,99 @@
   <!-- ── annotation log ────────────────────────────────────────────────────── -->
   {#if annotations.length > 0}
     <div class="annotation-log">
-      <div class="panel-header">Annotations ({annotations.length})</div>
+      <div class="panel-header">
+        Annotations ({annotations.length})
+        <div class="status-filter">
+          <select bind:value={statusFilter}>
+            <option value="all">All</option>
+            <option value="Pending">Pending</option>
+            <option value="Verified">Verified</option>
+            <option value="Disputed">Disputed</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+          <span class="status-counts">
+            Pending: {statusCounts.Pending} |
+            Verified: {statusCounts.Verified} |
+            Disputed: {statusCounts.Disputed} |
+            Rejected: {statusCounts.Rejected}
+          </span>
+        </div>
+      </div>
       <ul class="annotation-list">
-        {#each annotations as ann, i}
-          <li class="annotation-entry">
-            <span class="ann-index">#{i + 1}</span>
-            <span class="ann-op op-tag">{ann.operation}</span>
-            <span class="ann-paths" title={ann.paths.join("\n")}>
-              {ann.paths.map((p) => shortPath(p)).join(", ")}
-            </span>
-            <span class="ann-causative"
-              >"{ann.source_bill.causative_text.slice(0, 80)}{ann.source_bill
-                .causative_text.length > 80
-                ? "…"
-                : ""}"</span
-            >
+        {#each filteredAnnotations as ann, i}
+          {@const originalIndex = annotations.indexOf(ann)}
+          <li
+            class="annotation-entry"
+            class:ai-annotation={ann.metadata?.annotator?.startsWith("ai:")}
+            class:status-verified={ann.metadata?.status === "Verified"}
+            class:status-rejected={ann.metadata?.status === "Rejected"}
+            class:status-disputed={ann.metadata?.status === "Disputed"}
+          >
+            <div class="ann-main-row">
+              <span class="ann-index">#{originalIndex + 1}</span>
+              <span class="ann-op op-tag">{ann.operation}</span>
+              <span class="ann-paths" title={ann.paths.join("\n")}>
+                {ann.paths.map((p) => shortPath(p)).join(", ")}
+              </span>
+              <span class="ann-causative"
+                >"{ann.source_bill.causative_text.slice(0, 80)}{ann.source_bill
+                  .causative_text.length > 80
+                  ? "…"
+                  : ""}"</span
+              >
+
+              {#if ann.metadata?.confidence !== undefined && ann.metadata.confidence !== null}
+                <span
+                  class="confidence-badge"
+                  class:high-confidence={ann.metadata.confidence >= 0.8}
+                  class:medium-confidence={ann.metadata.confidence >= 0.5 &&
+                    ann.metadata.confidence < 0.8}
+                  class:low-confidence={ann.metadata.confidence < 0.5}
+                >
+                  {(ann.metadata.confidence * 100).toFixed(0)}%
+                </span>
+              {/if}
+
+              <select
+                class="status-select"
+                value={ann.metadata?.status || "Pending"}
+                onchange={(e) =>
+                  updateAnnotationStatus(originalIndex, e.target.value)}
+              >
+                <option value="Pending">Pending</option>
+                <option value="Verified">Verified</option>
+                <option value="Disputed">Disputed</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+            </div>
+
+            {#if ann.metadata?.reasoning}
+              <details class="ann-reasoning">
+                <summary>Reasoning</summary>
+                <p>{ann.metadata.reasoning}</p>
+              </details>
+            {/if}
+
+            {#if ann.metadata?.notes}
+              <div class="ann-notes">
+                <span class="notes-label">Notes:</span> {ann.metadata.notes}
+              </div>
+            {/if}
           </li>
         {/each}
       </ul>
     </div>
+  {/if}
+  {/if}
+
+  {#if activeTab === "review"}
+    <ReviewTab
+      bind:annotations
+      {treeDiff}
+      {amendments}
+      {changedNodes}
+      onLoadLegalDiff={loadLegalDiff}
+      onExport={exportAnnotations}
+    />
   {/if}
 </div>

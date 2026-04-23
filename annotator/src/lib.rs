@@ -255,6 +255,17 @@ fn read_json_file(path: String) -> Result<String, String> {
     Ok(contents)
 }
 
+/// Load a LegalDiff JSON file for review.
+///
+/// Validates the file is a valid LegalDiff and returns the raw JSON for frontend parsing.
+#[tauri::command]
+fn load_legal_diff(path: String) -> Result<String, String> {
+    let contents = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    // Validate it's a valid LegalDiff by parsing it
+    let _legal_diff: LegalDiff = serde_json::from_str(&contents).map_err(|e| e.to_string())?;
+    Ok(contents)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -268,6 +279,7 @@ pub fn run() {
             load_workspace,
             read_json_file,
             scan_amendments_for_mentions,
+            load_legal_diff,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
