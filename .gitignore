@@ -30,3 +30,5 @@ tests/test_data/usc/
 
 # folder to dump test scripts
 hacks/
+
+plans/
