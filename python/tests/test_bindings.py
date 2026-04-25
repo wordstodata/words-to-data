@@ -24,8 +24,8 @@ def test_merge_elements():
     title_26 = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
     assert len(title_9.children) == 1
     assert len(title_26.children) == 1
-    merged = title_26.merge_children(title_9)
-    assert len(merged.children) == 2
+    title_26.merge_children(title_9)
+    assert len(title_26.children) == 2
 
 def test_diffs():
     old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")

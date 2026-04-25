@@ -76,9 +76,9 @@ impl USLMElement {
         })
     }
 
-    fn merge_children(&self, other: &mut USLMElement) -> USLMElement {
-        let merged = self.inner.merge_children(&mut other.inner);
-        USLMElement::from(&merged)
+    fn merge_children(&mut self, other: &mut USLMElement) {
+        self.inner.merge_children(&mut other.inner);
+        self.children.append(&mut other.children.clone());
     }
 
     #[staticmethod]
