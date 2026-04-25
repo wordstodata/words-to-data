@@ -3,41 +3,44 @@
 from typing import Any, Literal
 
 class USLMElement:
-      """A hierarchical element in a USLM document tree"""
+    """A hierarchical element in a USLM document tree"""
 
-      @property
-      def data(self) -> dict[str, Any]:
-          """Element metadata and content"""
-          ...
+    @property
+    def data(self) -> dict[str, Any]:
+        """Element metadata and content"""
+        ...
 
-      @property
-      def children(self) -> list[USLMElement]:
-          """Child elements in document order"""
-          ...
+    @property
+    def children(self) -> list[USLMElement]:
+        """Child elements in document order"""
+        ...
 
-      def find(self, path: str) -> USLMElement | None:
-          """Find an element by its structural path.
+    def find(self, path: str) -> USLMElement | None:
+        """Find an element by its structural path.
 
-          Args:
-              path: The full structural path of the element
+        Args:
+            path: The full structural path of the element
 
-          Returns:
-              The matching element, or None if not found
-          """
-          ...
+        Returns:
+            The matching element, or None if not found
+        """
+        ...
 
-      def to_json(self) -> str:
-          """Serialize the element to a JSON string."""
-          ...
+    def to_json(self) -> str:
+        """Serialize the element to a JSON string."""
+        ...
 
-      def to_dict(self) -> dict[str, Any]:
-          """Serialize the element to a dictionary."""
-          ...
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the element to a dictionary."""
+        ...
 
-      @staticmethod
-      def from_json(json_str: str) -> USLMElement:
-          """Deserialize a JSON string to a USLMElement."""
-          ...
+    @staticmethod
+    def from_json(json_str: str) -> USLMElement:
+        """Deserialize a JSON string to a USLMElement."""
+        ...
+
+    def merge_children(self, other: USLMElement) -> USLMElement:
+        """Merge the children of two nodes into one, retains the caller's ElementData"""
 
 class TextChange:
     """A single word-level change within a text field"""

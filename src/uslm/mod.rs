@@ -654,4 +654,14 @@ impl USLMElement {
             child_vec[0].find(path)
         }
     }
+
+    /// Merge the children of two nodes into one, retains the caller's ElementData
+    pub fn merge_children(&self, other: &mut USLMElement) -> USLMElement {
+        let mut children = self.children.clone();
+        children.append(&mut other.children);
+        USLMElement {
+            data: self.data.clone(),
+            children,
+        }
+    }
 }
