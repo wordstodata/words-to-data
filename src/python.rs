@@ -1245,12 +1245,34 @@ fn parse_bill_amendments(path: &str) -> PyResult<AmendmentData> {
     Ok(AmendmentData::from(data))
 }
 
+/// Load and merge all USLM XML files from a folder into a single element.
+///
+/// Reads all .xml files from the folder, parses them in parallel, and merges
+/// all parsed elements' children into a single root element. Useful for loading
+/// a complete US Code title that may be split across multiple XML files.
+///
+/// Args:
+///     path: Path to directory containing USLM XML files
+///     date: Publication date in YYYY-MM-DD format
+///
+/// Returns:
+///     Merged USLMElement tree, or None if the folder is empty or unreadable
+#[pyfunction]
+fn load_uslm_folder(folder_path: &str, date: &str) -> PyResult<Option<USLMElement>> {
+    let result = crate::utils::load_uslm_folder(folder_path, date);
+    match result {
+        None => Ok(None),
+        Some(element) => Ok(Some(USLMElement::from(&element))),
+    }
+}
+
 /// Python module definition
 #[pymodule]
 fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_uslm_xml, m)?)?;
     m.add_function(wrap_pyfunction!(compute_diff, m)?)?;
     m.add_function(wrap_pyfunction!(parse_bill_amendments, m)?)?;
+    m.add_function(wrap_pyfunction!(load_uslm_folder, m)?)?;
     m.add_class::<USLMElement>()?;
     m.add_class::<TreeDiff>()?;
     m.add_class::<FieldChangeEvent>()?;

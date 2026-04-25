@@ -1,4 +1,7 @@
-use words_to_data::utils::date_str_to_date;
+use words_to_data::{
+    uslm::ElementType,
+    utils::{date_str_to_date, load_uslm_folder},
+};
 
 #[test]
 fn test_valid_date_parsing() {
@@ -122,4 +125,18 @@ fn test_zero_padded_values() {
     let date = result.unwrap();
     assert_eq!(date.month() as u8, 1);
     assert_eq!(date.day(), 5);
+}
+
+#[test]
+fn test_load_uslm_folder() {
+    let result = load_uslm_folder("tests/test_data/usc/2025-07-18/", "2025-07-18")
+        .expect("Should have loaded something");
+    assert_eq!(result.data.element_type, ElementType::USCodeDocument);
+    assert_eq!(result.children.len(), 57);
+    for child in result.children.iter() {
+        assert!(
+            child.data.element_type == ElementType::Title
+                || child.data.element_type == ElementType::Appendix
+        );
+    }
 }

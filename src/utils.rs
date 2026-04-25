@@ -1,7 +1,7 @@
 use crate::uslm::parser::ParseError;
 use crate::uslm::{USLMElement, parser::parse};
 use rayon::prelude::*;
-use std::fs;
+use std::fs::{self, read_dir};
 use std::path::{Path, PathBuf};
 
 // Re-export from io module for backward compatibility
@@ -11,6 +11,66 @@ pub use crate::io::{load_xml_file, read_json_file, write_json_file};
 pub use crate::date::date_str_to_date;
 
 type Result<T> = std::result::Result<T, ParseError>;
+
+/// Load and merge all USLM XML files from a folder into a single element
+///
+/// Reads all .xml files from the folder, parses them in parallel using Rayon,
+/// and merges all parsed elements' children into a single root element. This is
+/// useful for loading a complete US Code title that may be split across multiple
+/// XML files.
+///
+/// # Arguments
+///
+/// * `folder_path` - Path to directory containing USLM XML files
+/// * `date` - Publication date string in "YYYY-MM-DD" format
+///
+/// # Returns
+///
+/// `Some(USLMElement)` containing the merged tree if successful, or `None` if:
+/// - The folder cannot be read
+/// - The folder contains no XML files
+/// - Parsing fails for any file
+///
+/// # Examples
+///
+/// ```no_run
+/// use words_to_data::utils::load_uslm_folder;
+///
+/// let element = load_uslm_folder("usc_data/2025-07-18", "2025-07-18");
+/// if let Some(root) = element {
+///     println!("Loaded {} children", root.children.len());
+/// }
+/// ```
+pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<USLMElement> {
+    let paths = read_dir(folder_path);
+    if paths.is_err() {
+        return None;
+    }
+    let files: Vec<PathBuf> = paths
+        .unwrap()
+        .map(|path| path.unwrap().path())
+        .filter(|path_buf| {
+            let path = path_buf.to_str().unwrap();
+            // Only grab XML files
+            path_buf.is_file() && path.ends_with("xml")
+        })
+        .collect();
+    if files.is_empty() {
+        return None;
+    }
+    let mut parsed_files: Vec<USLMElement> = files
+        .par_iter()
+        .map(|file| parse_uslm_xml(file.to_str().unwrap(), date).unwrap())
+        .collect();
+    if parsed_files.is_empty() {
+        return None;
+    }
+    let mut first_elem = parsed_files.pop().unwrap();
+    for remaining in parsed_files.iter_mut() {
+        first_elem.merge_children_mut(remaining);
+    }
+    Some(first_elem)
+}
 
 /// Parse a USLM XML file into a USLMElement tree
 ///

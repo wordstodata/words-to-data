@@ -323,6 +323,22 @@ def parse_uslm_xml(path: str, date: str) -> USLMElement:
     """
     ...
 
+def load_uslm_folder(path: str, date: str) -> USLMElement | None:
+    """Load and merge all USLM XML files from a folder into a single element.
+
+    Reads all .xml files from the folder, parses them in parallel, and merges
+    all parsed elements' children into a single root element. Useful for loading
+    a complete US Code title that may be split across multiple XML files.
+
+    Args:
+        path: Path to directory containing USLM XML files
+        date: Publication date in YYYY-MM-DD format
+
+    Returns:
+        Merged USLMElement tree, or None if the folder is empty or unreadable
+    """
+    ...
+
 def compute_diff(old_element: USLMElement, new_element: USLMElement) -> TreeDiff:
     """Compute word-level diff between two USLM documents.
 

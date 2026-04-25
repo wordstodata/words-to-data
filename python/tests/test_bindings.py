@@ -4,12 +4,17 @@ from words_to_data import (
     parse_uslm_xml,
     USLMElement,
     parse_bill_amendments,
+    load_uslm_folder,
     AmendmentData,
     BillAmendment,
     FieldChangeEvent,
     TextChange,
 )
 
+
+def test_load_uslm_folder():
+    result = load_uslm_folder("tests/test_data/usc/2025-07-30", "2025-07-30")
+    assert len(result.children) == 57
 
 def test_uslm_elements():
     element = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
