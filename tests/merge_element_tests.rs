@@ -10,6 +10,6 @@ fn test_merge_elements() {
     assert_eq!(title_9.children.len(), 1);
     assert_eq!(title_26.children.len(), 1);
 
-    title_26.merge_children(&mut title_9.clone());
+    title_26.merge_children_mut(&mut title_9.clone());
     assert_eq!(title_26.children.len(), 2);
 }

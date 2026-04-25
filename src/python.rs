@@ -77,7 +77,7 @@ impl USLMElement {
     }
 
     fn merge_children(&mut self, other: &mut USLMElement) {
-        self.inner.merge_children(&mut other.inner);
+        self.inner.merge_children_mut(&mut other.inner);
         self.children.append(&mut other.children.clone());
     }
 

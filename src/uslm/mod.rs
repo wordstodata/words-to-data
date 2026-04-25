@@ -655,8 +655,8 @@ impl USLMElement {
         }
     }
 
-    /// Merge the children of two nodes into one, retains the caller's ElementData
-    pub fn merge_children(&mut self, other: &mut USLMElement) {
+    /// Merge the children of one node into another
+    pub fn merge_children_mut(&mut self, other: &mut USLMElement) {
         self.children.append(&mut other.children);
     }
 }
