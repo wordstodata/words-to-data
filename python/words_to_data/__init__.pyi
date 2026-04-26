@@ -720,5 +720,384 @@ class LegalDiff:
         """Deserialize a JSON string to a LegalDiff."""
         ...
 
+# ============================================================================
+# Dataset types
+# ============================================================================
+
+class DatasetMetadata:
+    """Metadata for a Dataset"""
+
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        author: str,
+        source_urls: list[str],
+        license: str,
+        version: str,
+    ) -> None:
+        """Create dataset metadata.
+
+        Args:
+            name: Name of the dataset
+            description: Description of the dataset
+            author: Author or organization
+            source_urls: URLs where source data was obtained
+            license: License for the dataset
+            version: Version string for the dataset
+        """
+        ...
+
+    @property
+    def name(self) -> str:
+        """Name of the dataset"""
+        ...
+
+    @property
+    def description(self) -> str:
+        """Description of the dataset"""
+        ...
+
+    @property
+    def author(self) -> str:
+        """Author or organization"""
+        ...
+
+    @property
+    def source_urls(self) -> list[str]:
+        """URLs where source data was obtained"""
+        ...
+
+    @property
+    def license(self) -> str:
+        """License for the dataset"""
+        ...
+
+    @property
+    def version(self) -> str:
+        """Version string for the dataset"""
+        ...
+
+
+class VersionSnapshot:
+    """A snapshot of a USLMElement at a specific point in time"""
+
+    def __init__(
+        self, date: str, element: USLMElement, label: str | None
+    ) -> None:
+        """Create a version snapshot.
+
+        Args:
+            date: Date in YYYY-MM-DD format
+            element: The element tree at this version
+            label: Optional human-readable label (e.g., "Pre-Tax Cuts Act")
+        """
+        ...
+
+    @property
+    def date(self) -> str:
+        """Date in YYYY-MM-DD format"""
+        ...
+
+    @property
+    def label(self) -> str | None:
+        """Optional human-readable label"""
+        ...
+
+    @property
+    def element(self) -> USLMElement:
+        """The element tree at this version"""
+        ...
+
+
+class SearchResult:
+    """A search result from Dataset.search_text"""
+
+    @property
+    def date(self) -> str:
+        """Version date where match was found"""
+        ...
+
+    @property
+    def path(self) -> str:
+        """Structural path of matching element"""
+        ...
+
+    @property
+    def field(self) -> str:
+        """Field name containing match (heading, content, etc.)"""
+        ...
+
+    @property
+    def snippet(self) -> str:
+        """Text snippet containing the match"""
+        ...
+
+
+class DiffAnnotations:
+    """Annotations for a specific version-pair diff"""
+
+    @property
+    def annotations(self) -> list[ChangeAnnotation]:
+        """Annotations linking changes to bills for this diff"""
+        ...
+
+    @property
+    def amendments(self) -> list[BillAmendment]:
+        """Amendments relevant to this diff"""
+        ...
+
+
+class Dataset:
+    """A versioned collection of legal documents with bill annotations"""
+
+    def __init__(self, metadata: DatasetMetadata) -> None:
+        """Create a new empty dataset with the given metadata.
+
+        Args:
+            metadata: Metadata describing the dataset
+        """
+        ...
+
+    @staticmethod
+    def load(path: str) -> Dataset:
+        """Load a dataset from a JSON file.
+
+        Args:
+            path: Path to the JSON file
+
+        Returns:
+            The loaded dataset
+
+        Raises:
+            OSError: If the file cannot be read
+            ValueError: If the JSON is invalid
+        """
+        ...
+
+    def save(self, path: str) -> None:
+        """Save the dataset to a JSON file.
+
+        Args:
+            path: Path where the JSON file will be written
+
+        Raises:
+            OSError: If the file cannot be written
+        """
+        ...
+
+    @property
+    def metadata(self) -> DatasetMetadata:
+        """Dataset metadata"""
+        ...
+
+    @property
+    def versions(self) -> list[VersionSnapshot]:
+        """Chronologically sorted version snapshots"""
+        ...
+
+    @property
+    def bills(self) -> list[AmendmentData]:
+        """Bills that caused changes in this dataset"""
+        ...
+
+    def get_diff_annotations(
+        self, from_date: str, to_date: str
+    ) -> DiffAnnotations | None:
+        """Get annotations for a specific version pair.
+
+        Args:
+            from_date: Date of the older version
+            to_date: Date of the newer version
+
+        Returns:
+            DiffAnnotations for the version pair, or None if not found
+        """
+        ...
+
+    def add_annotation(
+        self, from_date: str, to_date: str, annotation: ChangeAnnotation
+    ) -> None:
+        """Add an annotation for a specific version pair.
+
+        Args:
+            from_date: Date of the older version
+            to_date: Date of the newer version
+            annotation: The annotation to add
+        """
+        ...
+
+    def annotated_paths(self, from_date: str, to_date: str) -> list[str]:
+        """Get paths that have annotations for a version pair.
+
+        Args:
+            from_date: Date of the older version
+            to_date: Date of the newer version
+
+        Returns:
+            List of annotated paths
+        """
+        ...
+
+    def unannotated_paths(self, from_date: str, to_date: str) -> list[str]:
+        """Get paths with changes that lack annotations for a version pair.
+
+        Args:
+            from_date: Date of the older version
+            to_date: Date of the newer version
+
+        Returns:
+            List of unannotated paths
+
+        Raises:
+            ValueError: If either version is not found
+        """
+        ...
+
+    def add_version(self, snapshot: VersionSnapshot) -> None:
+        """Add a version snapshot, maintaining chronological order.
+
+        Args:
+            snapshot: The version snapshot to add
+        """
+        ...
+
+    def get_version(self, date: str) -> VersionSnapshot | None:
+        """Get a version snapshot by exact date.
+
+        Args:
+            date: Date in YYYY-MM-DD format
+
+        Returns:
+            The version snapshot, or None if not found
+        """
+        ...
+
+    def get_version_by_label(self, label: str) -> VersionSnapshot | None:
+        """Get a version snapshot by label.
+
+        Args:
+            label: The label to search for
+
+        Returns:
+            The version snapshot, or None if not found
+        """
+        ...
+
+    def next_version(self, date: str) -> VersionSnapshot | None:
+        """Get the version after the given date.
+
+        Args:
+            date: Date in YYYY-MM-DD format
+
+        Returns:
+            The next version snapshot, or None if at end
+        """
+        ...
+
+    def prev_version(self, date: str) -> VersionSnapshot | None:
+        """Get the version before the given date.
+
+        Args:
+            date: Date in YYYY-MM-DD format
+
+        Returns:
+            The previous version snapshot, or None if at start
+        """
+        ...
+
+    def compute_diff(self, from_date: str, to_date: str) -> TreeDiff:
+        """Compute diff between two versions by date.
+
+        Args:
+            from_date: Date of the older version
+            to_date: Date of the newer version
+
+        Returns:
+            TreeDiff between the two versions
+
+        Raises:
+            ValueError: If either version is not found
+        """
+        ...
+
+    def add_bill(self, bill: AmendmentData) -> None:
+        """Add a bill to the dataset.
+
+        Args:
+            bill: The bill's amendment data
+        """
+        ...
+
+    def get_bill(self, bill_id: str) -> AmendmentData | None:
+        """Get a bill by its ID.
+
+        Args:
+            bill_id: The bill identifier (e.g., "119-21")
+
+        Returns:
+            The amendment data, or None if not found
+        """
+        ...
+
+    def annotations_for_path(self, path: str) -> list[ChangeAnnotation]:
+        """Get all annotations that include the given path.
+
+        Args:
+            path: The structural path to search for
+
+        Returns:
+            List of annotations for this path
+        """
+        ...
+
+    def annotations_for_bill(self, bill_id: str) -> list[ChangeAnnotation]:
+        """Get all annotations associated with the given bill ID.
+
+        Args:
+            bill_id: The bill identifier
+
+        Returns:
+            List of annotations from this bill
+        """
+        ...
+
+    def search_text(self, query: str) -> list[SearchResult]:
+        """Search for text across all versions.
+
+        Args:
+            query: Text to search for (case-insensitive)
+
+        Returns:
+            List of search results
+        """
+        ...
+
+    def find_element(self, path: str) -> list[tuple[str, USLMElement]]:
+        """Find an element by path across all versions.
+
+        Args:
+            path: The structural path to search for
+
+        Returns:
+            List of (date, element) tuples for each version containing the path
+        """
+        ...
+
+    def to_json(self) -> str:
+        """Serialize the dataset to a JSON string."""
+        ...
+
+
+    def add_changes_to_amendment(self, amendment_id: str, bill_diff: BillDiff) -> None:
+        """"""
+        ...
+
+    @staticmethod
+    def from_json(json_str: str) -> Dataset:
+        """Deserialize a JSON string to a Dataset."""
+        ...
+
+
 __version__: str
 __all__: list[str]

@@ -6,6 +6,11 @@ use pyo3::prelude::*;
 use pythonize::pythonize;
 use serde_json;
 
+use crate::dataset::{
+    Dataset as RustDataset, DatasetError, DatasetMetadata as RustDatasetMetadata,
+    DiffAnnotations as RustDiffAnnotations, SearchResult as RustSearchResult,
+    VersionSnapshot as RustVersionSnapshot,
+};
 use crate::diff::{
     AmendmentSimilarity as RustAmendmentSimilarity, MentionMatch as RustMentionMatch,
     TreeDiff as RustTreeDiff,
@@ -1266,6 +1271,396 @@ fn load_uslm_folder(folder_path: &str, date: &str) -> PyResult<Option<USLMElemen
     }
 }
 
+// ============================================================================
+// Dataset types
+// ============================================================================
+
+fn dataset_error_to_py(err: DatasetError) -> PyErr {
+    match err {
+        DatasetError::Io(e) => PyOSError::new_err(format!("IO error: {}", e)),
+        DatasetError::Json(e) => PyValueError::new_err(format!("JSON error: {}", e)),
+        DatasetError::VersionNotFound(v) => {
+            PyValueError::new_err(format!("Version not found: {}", v))
+        }
+    }
+}
+
+/// Metadata for a Dataset
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct DatasetMetadata {
+    inner: RustDatasetMetadata,
+}
+
+#[pymethods]
+impl DatasetMetadata {
+    #[new]
+    fn new(
+        name: String,
+        description: String,
+        author: String,
+        source_urls: Vec<String>,
+        license: String,
+        version: String,
+    ) -> Self {
+        DatasetMetadata {
+            inner: RustDatasetMetadata {
+                name,
+                description,
+                author,
+                source_urls,
+                license,
+                version,
+            },
+        }
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    #[getter]
+    fn description(&self) -> String {
+        self.inner.description.clone()
+    }
+
+    #[getter]
+    fn author(&self) -> String {
+        self.inner.author.clone()
+    }
+
+    #[getter]
+    fn source_urls(&self) -> Vec<String> {
+        self.inner.source_urls.clone()
+    }
+
+    #[getter]
+    fn license(&self) -> String {
+        self.inner.license.clone()
+    }
+
+    #[getter]
+    fn version(&self) -> String {
+        self.inner.version.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("DatasetMetadata(name='{}')", self.inner.name)
+    }
+}
+
+/// A version snapshot in a Dataset
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct VersionSnapshot {
+    inner: RustVersionSnapshot,
+}
+
+impl VersionSnapshot {
+    fn from(rust: &RustVersionSnapshot) -> Self {
+        VersionSnapshot {
+            inner: rust.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl VersionSnapshot {
+    #[new]
+    fn new(date: String, element: &USLMElement, label: Option<String>) -> Self {
+        VersionSnapshot {
+            inner: RustVersionSnapshot {
+                date,
+                label,
+                element: element.inner.clone(),
+            },
+        }
+    }
+
+    #[getter]
+    fn date(&self) -> String {
+        self.inner.date.clone()
+    }
+
+    #[getter]
+    fn label(&self) -> Option<String> {
+        self.inner.label.clone()
+    }
+
+    #[getter]
+    fn element(&self) -> USLMElement {
+        USLMElement::from(&self.inner.element)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "VersionSnapshot(date='{}', label={:?})",
+            self.inner.date, self.inner.label
+        )
+    }
+}
+
+/// A search result from Dataset.search_text
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct SearchResult {
+    inner: RustSearchResult,
+}
+
+impl SearchResult {
+    fn from(rust: &RustSearchResult) -> Self {
+        SearchResult {
+            inner: rust.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl SearchResult {
+    #[getter]
+    fn date(&self) -> String {
+        self.inner.date.clone()
+    }
+
+    #[getter]
+    fn path(&self) -> String {
+        self.inner.path.clone()
+    }
+
+    #[getter]
+    fn field(&self) -> String {
+        self.inner.field.clone()
+    }
+
+    #[getter]
+    fn snippet(&self) -> String {
+        self.inner.snippet.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SearchResult(date='{}', path='{}', field='{}')",
+            self.inner.date, self.inner.path, self.inner.field
+        )
+    }
+}
+
+/// Annotations for a specific version-pair diff
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct DiffAnnotations {
+    inner: RustDiffAnnotations,
+}
+
+impl DiffAnnotations {
+    fn from(rust: &RustDiffAnnotations) -> Self {
+        DiffAnnotations {
+            inner: rust.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl DiffAnnotations {
+    #[getter]
+    fn annotations(&self) -> Vec<ChangeAnnotation> {
+        self.inner
+            .annotations
+            .iter()
+            .map(ChangeAnnotation::from)
+            .collect()
+    }
+
+    #[getter]
+    fn amendments(&self) -> Vec<BillAmendment> {
+        self.inner
+            .amendments
+            .values()
+            .map(BillAmendment::from)
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DiffAnnotations(annotations={}, amendments={})",
+            self.inner.annotations.len(),
+            self.inner.amendments.len()
+        )
+    }
+}
+
+/// A versioned collection of legal documents with bill annotations
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+struct Dataset {
+    inner: RustDataset,
+}
+
+#[pymethods]
+impl Dataset {
+    #[new]
+    fn new(metadata: &DatasetMetadata) -> Self {
+        Dataset {
+            inner: RustDataset::new(metadata.inner.clone()),
+        }
+    }
+
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let inner = RustDataset::load(path).map_err(dataset_error_to_py)?;
+        Ok(Dataset { inner })
+    }
+
+    fn save(&self, path: &str) -> PyResult<()> {
+        self.inner.save(path).map_err(dataset_error_to_py)
+    }
+
+    #[getter]
+    fn metadata(&self) -> DatasetMetadata {
+        DatasetMetadata {
+            inner: self.inner.metadata.clone(),
+        }
+    }
+
+    #[getter]
+    fn versions(&self) -> Vec<VersionSnapshot> {
+        self.inner
+            .versions
+            .iter()
+            .map(VersionSnapshot::from)
+            .collect()
+    }
+
+    #[getter]
+    fn bills(&self) -> Vec<AmendmentData> {
+        self.inner
+            .bills
+            .iter()
+            .map(|b| AmendmentData::from(b.clone()))
+            .collect()
+    }
+
+    fn get_diff_annotations(&self, from_date: &str, to_date: &str) -> Option<DiffAnnotations> {
+        self.inner
+            .get_diff_annotations(from_date, to_date)
+            .map(DiffAnnotations::from)
+    }
+
+    fn add_annotation(&mut self, from_date: &str, to_date: &str, annotation: &ChangeAnnotation) {
+        self.inner
+            .add_annotation(from_date, to_date, annotation.inner.clone());
+    }
+
+    fn annotated_paths(&self, from_date: &str, to_date: &str) -> Vec<String> {
+        self.inner.annotated_paths(from_date, to_date)
+    }
+
+    fn unannotated_paths(&self, from_date: &str, to_date: &str) -> PyResult<Vec<String>> {
+        self.inner
+            .unannotated_paths(from_date, to_date)
+            .map_err(dataset_error_to_py)
+    }
+
+    fn add_version(&mut self, snapshot: &VersionSnapshot) {
+        self.inner.add_version(snapshot.inner.clone());
+    }
+
+    fn get_version(&self, date: &str) -> Option<VersionSnapshot> {
+        self.inner.get_version(date).map(VersionSnapshot::from)
+    }
+
+    fn get_version_by_label(&self, label: &str) -> Option<VersionSnapshot> {
+        self.inner
+            .get_version_by_label(label)
+            .map(VersionSnapshot::from)
+    }
+
+    fn next_version(&self, date: &str) -> Option<VersionSnapshot> {
+        self.inner.next_version(date).map(VersionSnapshot::from)
+    }
+
+    fn prev_version(&self, date: &str) -> Option<VersionSnapshot> {
+        self.inner.prev_version(date).map(VersionSnapshot::from)
+    }
+
+    fn compute_diff(&self, from_date: &str, to_date: &str) -> PyResult<TreeDiff> {
+        let diff = self
+            .inner
+            .compute_diff(from_date, to_date)
+            .map_err(dataset_error_to_py)?;
+        Ok(TreeDiff::from(&diff))
+    }
+
+    fn add_bill(&mut self, bill: &AmendmentData) {
+        self.inner.add_bill(bill.inner.clone());
+    }
+
+    fn get_bill(&self, bill_id: &str) -> Option<AmendmentData> {
+        self.inner
+            .get_bill(bill_id)
+            .map(|b| AmendmentData::from(b.clone()))
+    }
+
+    fn annotations_for_path(&self, path: &str) -> Vec<ChangeAnnotation> {
+        self.inner
+            .annotations_for_path(path)
+            .into_iter()
+            .map(ChangeAnnotation::from)
+            .collect()
+    }
+
+    fn annotations_for_bill(&self, bill_id: &str) -> Vec<ChangeAnnotation> {
+        self.inner
+            .annotations_for_bill(bill_id)
+            .into_iter()
+            .map(ChangeAnnotation::from)
+            .collect()
+    }
+
+    fn search_text(&self, query: &str) -> Vec<SearchResult> {
+        self.inner
+            .search_text(query)
+            .iter()
+            .map(SearchResult::from)
+            .collect()
+    }
+
+    fn find_element(&self, path: &str) -> Vec<(String, USLMElement)> {
+        self.inner
+            .find_element(path)
+            .into_iter()
+            .map(|(date, elem)| (date.to_string(), USLMElement::from(elem)))
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Dataset(name='{}', versions={}, bills={})",
+            self.inner.metadata.name,
+            self.inner.versions.len(),
+            self.inner.bills.len()
+        )
+    }
+
+    pub fn add_changes_to_amendment(&mut self, amendment_id: &str, bill_diff: &BillDiff) {
+        self.inner
+            .add_changes_to_amendment(amendment_id, &bill_diff.inner.clone());
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
+    }
+
+    #[staticmethod]
+    fn from_json(json_str: &str) -> PyResult<Self> {
+        let inner: RustDataset = serde_json::from_str(json_str)
+            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
+        Ok(Dataset { inner })
+    }
+}
+
 /// Python module definition
 #[pymodule]
 fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1287,5 +1682,11 @@ fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ChangeAnnotation>()?;
     m.add_class::<BillReference>()?;
     m.add_class::<AnnotationMetadata>()?;
+    // dataset types
+    m.add_class::<Dataset>()?;
+    m.add_class::<DatasetMetadata>()?;
+    m.add_class::<VersionSnapshot>()?;
+    m.add_class::<SearchResult>()?;
+    m.add_class::<DiffAnnotations>()?;
     Ok(())
 }
