@@ -114,7 +114,7 @@ pub fn parse_bill_amendments_from_str(xml_str: &str) -> Result<AmendmentData> {
 /// ```
 /// use words_to_data::uslm::bill_parser::parse_bill_amendments;
 ///
-/// let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+/// let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 /// assert_eq!(data.bill_id, "119-21");
 /// assert!(!data.amendments.is_empty());
 /// ```

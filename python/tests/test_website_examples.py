@@ -137,7 +137,7 @@ def test_website_example_extract_amendments():
     If this fails, update the "Extract Amendments from a Bill" section in index.html.
     """
     # Code from website example
-    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
 
     # Verify bill_id matches website (shows "119-21")
     assert data.bill_id == "119-21", (
@@ -159,7 +159,7 @@ def test_website_example_amendment_structure():
     Tests that amendments have the structure shown in the website example.
     If this fails, update the amendment output section in index.html.
     """
-    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
 
     # Website shows action_types field for each amendment
     for amendment in data.amendments:
@@ -184,7 +184,7 @@ def test_website_example_amendment_output_format():
           USC sections modified: 1
           Actions: [Amend, Delete, Insert]
     """
-    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
 
     # The website example shows iterating over amendments
     for amendment in data.amendments[:5]:  # Just check first 5

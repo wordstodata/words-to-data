@@ -297,7 +297,7 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
 /// assert_eq!(usc.children[0].data.uslm_id.as_ref().unwrap(), "/us/usc/t7");
 ///
 /// // Parse a public law
-/// let bill = parse("tests/test_data/bills/hr-119-21.xml", "2025-07-04").unwrap();
+/// let bill = parse("tests/test_data/bills/pl-119-21.xml", "2025-07-04").unwrap();
 /// assert_eq!(bill.data.uslm_id.unwrap(), "/us/pl/119-21");
 /// ```
 ///

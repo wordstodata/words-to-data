@@ -127,7 +127,7 @@ for change in s174a_diff.changes:
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 fn main() -> Result<(), Box< dyn std::error::Error>> {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")?;
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")?;
 
     println!(
         "Bill {}: {} amendments found",
@@ -148,7 +148,7 @@ fn main() -> Result<(), Box< dyn std::error::Error>> {
 ```python
 from words_to_data import parse_bill_amendments
 
-data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
 
 print(f"Bill {data.bill_id}: {len(data.amendments)} amendments found")
 

@@ -198,7 +198,7 @@ fn website_example_diff_json_structure() {
 /// If this fails, update the "Extract Amendments from a Bill" section in index.html.
 #[test]
 fn website_example_extract_amendments() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
         .expect("Failed to parse bill amendments");
 
     // Verify bill_id matches website (shows "119-21")
@@ -221,7 +221,7 @@ fn website_example_extract_amendments() {
 /// If this fails, update the amendment output section in index.html.
 #[test]
 fn website_example_amendment_structure() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     // Verify amendments have the fields shown on website
     for amendment in data.amendments.values() {
@@ -259,7 +259,7 @@ fn website_download_links_files_exist() {
     let files = [
         "tests/test_data/usc/2025-07-18/usc26.xml",
         "tests/test_data/usc/2025-07-30/usc26.xml",
-        "tests/test_data/bills/hr-119-21.xml",
+        "tests/test_data/bills/pl-119-21.xml",
     ];
 
     for file in files {

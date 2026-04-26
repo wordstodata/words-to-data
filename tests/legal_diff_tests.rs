@@ -10,7 +10,7 @@ use words_to_data::{
 /// This is the amendment that strikes "specified research" and inserts "foreign research"
 fn get_section_174_amendment() -> BillAmendment {
     let data =
-        parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").expect("Failed to parse bill");
+        parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").expect("Failed to parse bill");
 
     data.amendments
         .into_values()
@@ -25,7 +25,7 @@ fn get_section_174_amendment() -> BillAmendment {
 /// This is the instruction that changes "specified research" to "foreign research" in 26 USC 174(a)
 fn make_section_174a_annotation(annotator: &str) -> ChangeAnnotation {
     let data =
-        parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").expect("Failed to parse bill");
+        parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").expect("Failed to parse bill");
     let amendment = get_section_174_amendment();
 
     ChangeAnnotation {
@@ -59,7 +59,7 @@ fn make_test_annotation(
     path: &str,
 ) -> ChangeAnnotation {
     let data =
-        parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").expect("Failed to parse bill");
+        parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").expect("Failed to parse bill");
     let amendment = get_section_174_amendment();
 
     ChangeAnnotation {

@@ -2,7 +2,7 @@ use words_to_data::uslm::bill_parser::{parse_bill_amendments, parse_bill_amendme
 
 #[test]
 fn should_parse_bill_and_extract_bill_id() {
-    let result = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml");
+    let result = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml");
     assert!(result.is_ok(), "Failed to parse bill: {:?}", result.err());
 
     let data = result.unwrap();
@@ -14,7 +14,7 @@ fn should_parse_bill_and_extract_bill_id() {
 
 #[test]
 fn should_extract_amendments_from_bill() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     assert!(
         !data.amendments.is_empty(),
@@ -24,7 +24,7 @@ fn should_extract_amendments_from_bill() {
 
 #[test]
 fn should_extract_action_types_from_amendments() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     // At least some amendments should have action types
     let amendments_with_actions: Vec<_> = data
@@ -41,7 +41,7 @@ fn should_extract_action_types_from_amendments() {
 
 #[test]
 fn should_extract_amending_text_from_amendments() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     // All amendments should have amending text
     for amendment in data.amendments.values() {
@@ -54,7 +54,7 @@ fn should_extract_amending_text_from_amendments() {
 
 #[test]
 fn should_find_amendments_with_multiple_action_types() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     // Find amendments with multiple actions
     let multi_action_amendments: Vec<_> = data
@@ -77,7 +77,7 @@ fn should_fail_for_nonexistent_file() {
 
 #[test]
 fn should_parse_bill_id_in_congress_number_format() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     // Bill ID should be in congress-number format
     assert!(
@@ -97,7 +97,7 @@ fn should_parse_bill_id_in_congress_number_format() {
 #[test]
 fn should_produce_same_result_from_str_and_file() {
     // Load XML manually
-    let xml_str = std::fs::read_to_string("tests/test_data/bills/hr-119-21.xml")
+    let xml_str = std::fs::read_to_string("tests/test_data/bills/pl-119-21.xml")
         .expect("Failed to read test file");
 
     // Parse from string
@@ -109,7 +109,7 @@ fn should_produce_same_result_from_str_and_file() {
     );
 
     // Parse from file
-    let from_file_result = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml");
+    let from_file_result = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml");
     assert!(from_file_result.is_ok());
 
     // Both should produce identical results
@@ -122,7 +122,7 @@ fn should_produce_same_result_from_str_and_file() {
 
 #[test]
 fn should_capture_amending_text_with_strike_and_insert_language() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     // Find amendments that contain typical strike/insert language
     let strike_insert_amendments: Vec<_> = data
@@ -140,7 +140,7 @@ fn should_capture_amending_text_with_strike_and_insert_language() {
 #[test]
 fn should_find_section_174_amendment_in_bill() {
     let data =
-        parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").expect("Failed to parse bill");
+        parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").expect("Failed to parse bill");
 
     let amendment = data
         .amendments
@@ -176,21 +176,21 @@ fn should_find_section_174_amendment_in_bill() {
 
 #[test]
 fn should_generate_deterministic_amendment_id() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
     let (id, amendment) = data.amendments.iter().next().unwrap();
 
     // ID should exist and be 64 chars (full SHA256 hex)
     assert_eq!(amendment.id.len(), 64);
 
     // Parsing again should produce same IDs
-    let data2 = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data2 = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
     let amendment2 = data2.amendments.get(id).unwrap();
     assert_eq!(amendment.id, amendment2.id);
 }
 
 #[test]
 fn should_store_amendments_in_hashmap_by_id() {
-    let data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml").unwrap();
+    let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
 
     // Should be able to look up by ID
     for (id, amendment) in &data.amendments {

@@ -128,7 +128,7 @@ def test_add_and_query_bills():
     )
     dataset = Dataset(metadata)
 
-    bill = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    bill = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
     dataset.add_bill(bill)
 
     assert len(dataset.bills) == 1

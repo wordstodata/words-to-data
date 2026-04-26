@@ -56,7 +56,7 @@ def test_diffs():
 
 def test_bill_parsing():
     # Parse bill amendments
-    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
 
     # Validate AmendmentData
     assert isinstance(data, AmendmentData)
@@ -122,7 +122,7 @@ def test_to_json_methods():
     assert "value" in parsed_text
 
     # Test AmendmentData.to_json() and nested types
-    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
     data_json = data.to_json()
     assert isinstance(data_json, str)
     parsed_data = json.loads(data_json)
@@ -157,7 +157,7 @@ def test_to_dict_methods():
     assert parsed == d
 
     # Test BillAmendment.to_dict()
-    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
     amendment = data.amendments[0]
     amendment_dict = amendment.to_dict()
     assert isinstance(amendment_dict, dict)
@@ -226,7 +226,7 @@ def test_from_json_roundtrip():
     assert restored_text.tag == text_change.tag
 
     # Test AmendmentData round-trip
-    data = parse_bill_amendments("tests/test_data/bills/hr-119-21.xml")
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
     data_json = data.to_json()
     restored_data = AmendmentData.from_json(data_json)
     assert isinstance(restored_data, AmendmentData)
