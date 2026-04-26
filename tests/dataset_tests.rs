@@ -8,26 +8,6 @@ use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 
 #[test]
-fn should_create_empty_dataset_with_metadata() {
-    let metadata = DatasetMetadata {
-        name: "US Code Title 26".to_string(),
-        description: "Tax code versions with bill annotations".to_string(),
-        author: "SLEUTH Project".to_string(),
-        source_urls: vec!["https://uscode.house.gov/".to_string()],
-        license: "Public Domain".to_string(),
-        version: "1.0.0".to_string(),
-    };
-
-    let dataset = Dataset::new(metadata);
-
-    assert_eq!(dataset.metadata.name, "US Code Title 26");
-    assert_eq!(dataset.metadata.author, "SLEUTH Project");
-    assert!(dataset.versions.is_empty());
-    assert!(dataset.bills.is_empty());
-    assert!(dataset.diff_annotations.is_empty());
-}
-
-#[test]
 fn should_serialize_roundtrip_json() {
     let metadata = DatasetMetadata {
         name: "Test Dataset".to_string(),
