@@ -493,6 +493,20 @@ def parse_bill_amendments(path: str) -> AmendmentData:
     """
     ...
 
+def parse_bill_amendments_from_str(xml_str: str) -> AmendmentData:
+    """Parse a Public Law bill XML string and extract amendments to the US Code.
+
+    Args:
+        xml_str: The Public Law XML content as a string
+
+    Returns:
+        AmendmentData containing the bill ID and all extracted amendments
+
+    Raises:
+        ValueError: If the XML is invalid or not a Public Law document
+    """
+    ...
+
 # ============================================================================
 # LegalDiff types
 # ============================================================================
@@ -1115,6 +1129,308 @@ class Dataset:
     @staticmethod
     def from_json(json_str: str) -> Dataset:
         """Deserialize a JSON string to a Dataset."""
+        ...
+
+    # Congress data methods
+
+    def add_member(self, member: Member) -> None:
+        """Add a Congress member to the dataset."""
+        ...
+
+    def get_member(self, bioguide_id: str) -> Member | None:
+        """Get a member by bioguide ID."""
+        ...
+
+    def add_sponsor_info(self, info: SponsorInfo) -> None:
+        """Add sponsor info for a bill."""
+        ...
+
+    def get_sponsor_info(self, bill_id: str) -> SponsorInfo | None:
+        """Get sponsor info by bill ID."""
+        ...
+
+    def add_roll_call(self, roll_call: RollCall) -> None:
+        """Add a roll call vote."""
+        ...
+
+    @property
+    def roll_calls(self) -> list[RollCall]:
+        """All roll call votes."""
+        ...
+
+    @property
+    def members(self) -> list[Member]:
+        """All Congress members."""
+        ...
+
+    @property
+    def sponsors(self) -> list[SponsorInfo]:
+        """All sponsor info records."""
+        ...
+
+    def load_bill_download(self, download: BillDownload) -> str:
+        """Load bill data from a BillDownload.
+
+        Parses XML and JSON, stores bill, sponsors, and members.
+
+        Args:
+            download: Downloaded bill data
+
+        Returns:
+            Canonical bill_id from parsed XML (e.g., "119-21")
+        """
+        ...
+
+
+# ============================================================================
+# Congress types
+# ============================================================================
+
+class Party:
+    """Political party affiliation"""
+
+    @staticmethod
+    def democrat() -> Party: ...
+
+    @staticmethod
+    def republican() -> Party: ...
+
+    @staticmethod
+    def independent() -> Party: ...
+
+    @staticmethod
+    def other(name: str) -> Party: ...
+
+    def is_democrat(self) -> bool: ...
+    def is_republican(self) -> bool: ...
+    def is_independent(self) -> bool: ...
+    def name(self) -> str: ...
+
+
+class Chamber:
+    """Congressional chamber"""
+
+    @staticmethod
+    def senate() -> Chamber: ...
+
+    @staticmethod
+    def house() -> Chamber: ...
+
+    def is_senate(self) -> bool: ...
+    def is_house(self) -> bool: ...
+
+
+class MemberTerm:
+    """A term of service for a Congress member"""
+
+    @property
+    def congress(self) -> int: ...
+
+    @property
+    def chamber(self) -> Chamber: ...
+
+    @property
+    def state(self) -> str: ...
+
+    @property
+    def district(self) -> int | None: ...
+
+    @property
+    def start_year(self) -> int: ...
+
+    @property
+    def end_year(self) -> int | None: ...
+
+
+class Member:
+    """A Congress member"""
+
+    def __init__(
+        self,
+        bioguide_id: str,
+        name: str,
+        first_name: str,
+        last_name: str,
+        party: Party,
+        state: str,
+        district: int | None,
+        chamber: Chamber,
+    ) -> None: ...
+
+    @property
+    def bioguide_id(self) -> str: ...
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def first_name(self) -> str: ...
+
+    @property
+    def last_name(self) -> str: ...
+
+    @property
+    def party(self) -> Party: ...
+
+    @property
+    def state(self) -> str: ...
+
+    @property
+    def district(self) -> int | None: ...
+
+    @property
+    def chamber(self) -> Chamber: ...
+
+    @property
+    def terms(self) -> list[MemberTerm]: ...
+
+
+class VotePosition:
+    """A vote position (yea/nay/present/not voting)"""
+
+    @staticmethod
+    def yea() -> VotePosition: ...
+
+    @staticmethod
+    def nay() -> VotePosition: ...
+
+    @staticmethod
+    def present() -> VotePosition: ...
+
+    @staticmethod
+    def not_voting() -> VotePosition: ...
+
+    def is_yea(self) -> bool: ...
+    def is_nay(self) -> bool: ...
+    def is_present(self) -> bool: ...
+    def is_not_voting(self) -> bool: ...
+
+
+class VoteResult:
+    """Result of a vote"""
+
+    @staticmethod
+    def passed() -> VoteResult: ...
+
+    @staticmethod
+    def failed() -> VoteResult: ...
+
+    @staticmethod
+    def unknown() -> VoteResult: ...
+
+    def is_passed(self) -> bool: ...
+    def is_failed(self) -> bool: ...
+
+
+class CosponsorRecord:
+    """A cosponsor of a bill"""
+
+    def __init__(self, bioguide_id: str, date: str, withdrawn: bool) -> None: ...
+
+    @property
+    def bioguide_id(self) -> str: ...
+
+    @property
+    def date(self) -> str: ...
+
+    @property
+    def withdrawn(self) -> bool: ...
+
+
+class SponsorInfo:
+    """Sponsor and cosponsor info for a bill"""
+
+    @property
+    def bill_id(self) -> str: ...
+
+    @property
+    def sponsor(self) -> str: ...
+
+    @property
+    def cosponsors(self) -> list[CosponsorRecord]: ...
+
+
+class RollCall:
+    """A roll call vote"""
+
+    @property
+    def congress(self) -> int: ...
+
+    @property
+    def session(self) -> int: ...
+
+    @property
+    def roll_number(self) -> int: ...
+
+    @property
+    def chamber(self) -> Chamber: ...
+
+    @property
+    def date(self) -> str: ...
+
+    @property
+    def bill_id(self) -> str | None: ...
+
+    @property
+    def result(self) -> VoteResult: ...
+
+
+class BillDownload:
+    """Raw downloaded data for a bill"""
+
+    def __init__(
+        self,
+        bill_id: str,
+        bill_xml: str,
+        sponsors_json: str,
+        cosponsors_json: str,
+        votes_json: str | None,
+        member_jsons: dict[str, str],
+    ) -> None: ...
+
+    @property
+    def bill_id(self) -> str: ...
+
+    @property
+    def bill_xml(self) -> str: ...
+
+    @property
+    def sponsors_json(self) -> str: ...
+
+    @property
+    def cosponsors_json(self) -> str: ...
+
+    @property
+    def votes_json(self) -> str | None: ...
+
+    @property
+    def member_jsons(self) -> dict[str, str]: ...
+
+
+class CongressClient:
+    """Client for downloading data from Congress.gov API"""
+
+    def __init__(self, api_key: str, cache_dir: str) -> None:
+        """Create a new Congress client.
+
+        Args:
+            api_key: Congress.gov API key
+            cache_dir: Directory for caching downloaded data
+        """
+        ...
+
+    @property
+    def api_key(self) -> str: ...
+
+    def download_bill(self, bill_id: str) -> BillDownload:
+        """Download all data for a bill.
+
+        Args:
+            bill_id: Bill identifier (e.g., "119-pl-21")
+
+        Returns:
+            BillDownload containing XML, JSON, and member data
+        """
         ...
 
 

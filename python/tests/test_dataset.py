@@ -9,6 +9,20 @@ from words_to_data import (
     parse_bill_amendments,
 )
 
+def test_dl():
+    from words_to_data import CongressClient
+    metadata = DatasetMetadata(
+        name="Test Dataset",
+        description="For testing",
+        author="Test Author",
+        source_urls=["https://example.com"],
+        license="MIT",
+        version="1.0.0",
+    )
+    dataset = Dataset(metadata)
+    client = CongressClient(api_key=os.environ["CONGRESS_API_KEY"], cache_dir="./cache")
+    download = client.download_bill("119-hr-1")
+    assert False
 
 def test_create_empty_dataset():
     metadata = DatasetMetadata(

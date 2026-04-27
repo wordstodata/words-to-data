@@ -2,6 +2,7 @@ from .words_to_data import (
     parse_uslm_xml,
     compute_diff,
     parse_bill_amendments,
+    parse_bill_amendments_from_str,
     load_uslm_folder,
     USLMElement,
     TreeDiff,
@@ -22,6 +23,18 @@ from .words_to_data import (
     DatasetMetadata,
     VersionSnapshot,
     SearchResult,
+    # congress types
+    Party,
+    Chamber,
+    MemberTerm,
+    Member,
+    VotePosition,
+    VoteResult,
+    CosponsorRecord,
+    SponsorInfo,
+    RollCall,
+    BillDownload,
+    CongressClient,
 )
 
 __version__ = "0.1.2"
@@ -29,6 +42,7 @@ __all__ = [
     "parse_uslm_xml",
     "compute_diff",
     "parse_bill_amendments",
+    "parse_bill_amendments_from_str",
     "load_uslm_folder",
     "USLMElement",
     "TreeDiff",
@@ -49,4 +63,16 @@ __all__ = [
     "DatasetMetadata",
     "VersionSnapshot",
     "SearchResult",
+    # congress types
+    "Party",
+    "Chamber",
+    "MemberTerm",
+    "Member",
+    "VotePosition",
+    "VoteResult",
+    "CosponsorRecord",
+    "SponsorInfo",
+    "RollCall",
+    "BillDownload",
+    "CongressClient",
 ]

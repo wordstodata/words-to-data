@@ -12,6 +12,7 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::fs;
 
+use crate::congress::{BillDownload, CosponsorRecord, Member, RollCall, SponsorInfo};
 use crate::diff::TreeDiff;
 use crate::legal_diff::ChangeAnnotation;
 use crate::uslm::bill_parser::AmendmentData;
@@ -68,6 +69,20 @@ pub struct Dataset {
     /// Annotations per version-pair
     #[serde_as(as = "Vec<(_, _)>")]
     pub diff_annotations: HashMap<VersionPair, Vec<ChangeAnnotation>>,
+
+    /// Congress members by bioguide ID
+    #[serde_as(as = "Vec<(_, _)>")]
+    #[serde(default)]
+    pub members: HashMap<String, Member>,
+
+    /// Sponsor info by bill ID
+    #[serde_as(as = "Vec<(_, _)>")]
+    #[serde(default)]
+    pub sponsors: HashMap<String, SponsorInfo>,
+
+    /// Roll call votes
+    #[serde(default)]
+    pub roll_calls: Vec<RollCall>,
 }
 
 impl Dataset {
@@ -78,6 +93,9 @@ impl Dataset {
             versions: Vec::new(),
             bills: Vec::new(),
             diff_annotations: HashMap::new(),
+            members: HashMap::new(),
+            sponsors: HashMap::new(),
+            roll_calls: Vec::new(),
         }
     }
 
@@ -336,5 +354,152 @@ impl Dataset {
         for child in &element.children {
             Self::search_element(child, date, query, results);
         }
+    }
+
+    // --- Congress data methods ---
+
+    /// Add a Congress member to the dataset
+    pub fn add_member(&mut self, member: Member) {
+        self.members.insert(member.bioguide_id.clone(), member);
+    }
+
+    /// Get a member by bioguide ID
+    pub fn get_member(&self, bioguide_id: &str) -> Option<&Member> {
+        self.members.get(bioguide_id)
+    }
+
+    /// Add sponsor info for a bill
+    pub fn add_sponsor_info(&mut self, info: SponsorInfo) {
+        self.sponsors.insert(info.bill_id.clone(), info);
+    }
+
+    /// Get sponsor info by bill ID
+    pub fn get_sponsor_info(&self, bill_id: &str) -> Option<&SponsorInfo> {
+        self.sponsors.get(bill_id)
+    }
+
+    /// Add a roll call vote
+    pub fn add_roll_call(&mut self, roll_call: RollCall) {
+        self.roll_calls.push(roll_call);
+    }
+
+    /// Get all roll call votes
+    pub fn roll_calls(&self) -> &[RollCall] {
+        &self.roll_calls
+    }
+
+    /// Get members who sponsored or cosponsored bills affecting a path
+    pub fn sponsors_for_path(&self, path: &str) -> Vec<&Member> {
+        let bill_ids: Vec<_> = self
+            .annotations_for_path(path)
+            .iter()
+            .map(|a| &a.source_bill.bill_id)
+            .collect();
+
+        let mut member_ids: Vec<&str> = Vec::new();
+
+        for bill_id in &bill_ids {
+            if let Some(info) = self.sponsors.get(*bill_id) {
+                member_ids.push(&info.sponsor);
+                for cosponsor in &info.cosponsors {
+                    member_ids.push(&cosponsor.bioguide_id);
+                }
+            }
+        }
+
+        member_ids
+            .into_iter()
+            .filter_map(|id| self.members.get(id))
+            .collect()
+    }
+
+    /// Get members who voted for bills affecting a path
+    pub fn members_who_voted_for_path(&self, path: &str) -> Vec<&Member> {
+        use crate::congress::VotePosition;
+
+        let bill_ids: Vec<_> = self
+            .annotations_for_path(path)
+            .iter()
+            .map(|a| &a.source_bill.bill_id)
+            .collect();
+
+        let mut member_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+        for roll in &self.roll_calls {
+            if let Some(ref roll_bill_id) = roll.bill_id
+                && bill_ids.contains(&roll_bill_id)
+            {
+                for (member_id, position) in &roll.votes {
+                    if *position == VotePosition::Yea {
+                        member_ids.insert(member_id);
+                    }
+                }
+            }
+        }
+
+        member_ids
+            .into_iter()
+            .filter_map(|id| self.members.get(id))
+            .collect()
+    }
+
+    /// Load bill data from a BillDownload (raw downloaded data)
+    ///
+    /// Parses the XML and JSON, stores bill, sponsors, and members.
+    /// Returns the canonical bill_id (from parsed XML, e.g., "119-21")
+    pub fn load_bill_download(&mut self, download: &BillDownload) -> Result<String, DatasetError> {
+        use crate::uslm::bill_parser;
+        use serde_json::Value;
+
+        // Parse bill XML to get AmendmentData
+        let bill =
+            bill_parser::parse_bill_amendments_from_str(&download.bill_xml).map_err(|e| {
+                DatasetError::Json(serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    e.to_string(),
+                )))
+            })?;
+        let bill_id = bill.bill_id.clone();
+        self.add_bill(bill);
+
+        // Parse sponsors JSON
+        let sponsors_v: Value = serde_json::from_str(&download.sponsors_json)?;
+        let sponsor_id = sponsors_v["bill"]["sponsors"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|s| s["bioguideId"].as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Parse cosponsors JSON
+        let cosponsors_v: Value = serde_json::from_str(&download.cosponsors_json)?;
+        let mut cosponsors = Vec::new();
+        if let Some(arr) = cosponsors_v["cosponsors"].as_array() {
+            for c in arr {
+                cosponsors.push(CosponsorRecord {
+                    bioguide_id: c["bioguideId"].as_str().unwrap_or("").to_string(),
+                    date: c["sponsorshipDate"].as_str().unwrap_or("").to_string(),
+                    withdrawn: c["sponsorshipWithdrawnDate"].as_str().is_some(),
+                });
+            }
+        }
+
+        // Use canonical bill_id from parsed XML
+        self.add_sponsor_info(SponsorInfo {
+            bill_id: bill_id.clone(),
+            sponsor: sponsor_id,
+            cosponsors,
+        });
+
+        // Parse and add members
+        for json in download.member_jsons.values() {
+            if let Ok(member) = Member::from_api_response(json) {
+                self.add_member(member);
+            }
+        }
+
+        // TODO: Parse votes_json when available
+
+        Ok(bill_id)
     }
 }

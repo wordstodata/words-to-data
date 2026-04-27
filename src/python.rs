@@ -6,6 +6,12 @@ use pyo3::prelude::*;
 use pythonize::pythonize;
 use serde_json;
 
+use crate::congress::{
+    BillDownload as RustBillDownload, Chamber as RustChamber, CongressClient as RustCongressClient,
+    CongressError, CosponsorRecord as RustCosponsorRecord, Member as RustMember,
+    MemberTerm as RustMemberTerm, Party as RustParty, RollCall as RustRollCall,
+    SponsorInfo as RustSponsorInfo, VotePosition as RustVotePosition, VoteResult as RustVoteResult,
+};
 use crate::dataset::{
     Dataset as RustDataset, DatasetError, DatasetMetadata as RustDatasetMetadata,
     SearchResult as RustSearchResult, VersionSnapshot as RustVersionSnapshot,
@@ -1249,6 +1255,23 @@ fn parse_bill_amendments(path: &str) -> PyResult<AmendmentData> {
     Ok(AmendmentData::from(data))
 }
 
+/// Parse a Public Law bill XML string and extract amendments to the US Code
+///
+/// Args:
+///     xml_str: The Public Law XML content as a string
+///
+/// Returns:
+///     AmendmentData containing the bill ID and all extracted amendments
+///
+/// Raises:
+///     ValueError: If the XML is invalid or not a Public Law document
+#[pyfunction]
+fn parse_bill_amendments_from_str(xml_str: &str) -> PyResult<AmendmentData> {
+    let data = crate::uslm::bill_parser::parse_bill_amendments_from_str(xml_str)
+        .map_err(parse_error_to_py)?;
+    Ok(AmendmentData::from(data))
+}
+
 /// Load and merge all USLM XML files from a folder into a single element.
 ///
 /// Reads all .xml files from the folder, parses them in parallel, and merges
@@ -1617,6 +1640,65 @@ impl Dataset {
             .add_changes_to_amendment(amendment_id, &bill_diff.inner.clone());
     }
 
+    // Congress data methods
+
+    fn add_member(&mut self, member: &Member) {
+        self.inner.add_member(member.inner.clone());
+    }
+
+    fn get_member(&self, bioguide_id: &str) -> Option<Member> {
+        self.inner
+            .get_member(bioguide_id)
+            .map(|m| Member { inner: m.clone() })
+    }
+
+    fn add_sponsor_info(&mut self, info: &SponsorInfo) {
+        self.inner.add_sponsor_info(info.inner.clone());
+    }
+
+    fn get_sponsor_info(&self, bill_id: &str) -> Option<SponsorInfo> {
+        self.inner
+            .get_sponsor_info(bill_id)
+            .map(|s| SponsorInfo { inner: s.clone() })
+    }
+
+    fn add_roll_call(&mut self, roll_call: &RollCall) {
+        self.inner.add_roll_call(roll_call.inner.clone());
+    }
+
+    #[getter]
+    fn roll_calls(&self) -> Vec<RollCall> {
+        self.inner
+            .roll_calls()
+            .iter()
+            .map(|r| RollCall { inner: r.clone() })
+            .collect()
+    }
+
+    #[getter]
+    fn members(&self) -> Vec<Member> {
+        self.inner
+            .members
+            .values()
+            .map(|m| Member { inner: m.clone() })
+            .collect()
+    }
+
+    #[getter]
+    fn sponsors(&self) -> Vec<SponsorInfo> {
+        self.inner
+            .sponsors
+            .values()
+            .map(|s| SponsorInfo { inner: s.clone() })
+            .collect()
+    }
+
+    fn load_bill_download(&mut self, download: &BillDownload) -> PyResult<String> {
+        self.inner
+            .load_bill_download(&download.inner)
+            .map_err(dataset_error_to_py)
+    }
+
     fn to_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
@@ -1630,12 +1712,582 @@ impl Dataset {
     }
 }
 
+// ============================================================================
+// Congress types
+// ============================================================================
+
+#[pyclass]
+struct Party {
+    inner: RustParty,
+}
+
+#[pymethods]
+impl Party {
+    #[staticmethod]
+    fn democrat() -> Self {
+        Party {
+            inner: RustParty::Democrat,
+        }
+    }
+
+    #[staticmethod]
+    fn republican() -> Self {
+        Party {
+            inner: RustParty::Republican,
+        }
+    }
+
+    #[staticmethod]
+    fn independent() -> Self {
+        Party {
+            inner: RustParty::Independent,
+        }
+    }
+
+    #[staticmethod]
+    fn other(name: String) -> Self {
+        Party {
+            inner: RustParty::Other(name),
+        }
+    }
+
+    fn is_democrat(&self) -> bool {
+        matches!(self.inner, RustParty::Democrat)
+    }
+
+    fn is_republican(&self) -> bool {
+        matches!(self.inner, RustParty::Republican)
+    }
+
+    fn is_independent(&self) -> bool {
+        matches!(self.inner, RustParty::Independent)
+    }
+
+    fn name(&self) -> String {
+        match &self.inner {
+            RustParty::Democrat => "Democrat".to_string(),
+            RustParty::Republican => "Republican".to_string(),
+            RustParty::Independent => "Independent".to_string(),
+            RustParty::Other(s) => s.clone(),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Party({})", self.name())
+    }
+}
+
+#[pyclass]
+struct Chamber {
+    inner: RustChamber,
+}
+
+#[pymethods]
+impl Chamber {
+    #[staticmethod]
+    fn senate() -> Self {
+        Chamber {
+            inner: RustChamber::Senate,
+        }
+    }
+
+    #[staticmethod]
+    fn house() -> Self {
+        Chamber {
+            inner: RustChamber::House,
+        }
+    }
+
+    fn is_senate(&self) -> bool {
+        matches!(self.inner, RustChamber::Senate)
+    }
+
+    fn is_house(&self) -> bool {
+        matches!(self.inner, RustChamber::House)
+    }
+
+    fn __repr__(&self) -> String {
+        match self.inner {
+            RustChamber::Senate => "Chamber(Senate)".to_string(),
+            RustChamber::House => "Chamber(House)".to_string(),
+        }
+    }
+}
+
+#[pyclass]
+struct MemberTerm {
+    inner: RustMemberTerm,
+}
+
+#[pymethods]
+impl MemberTerm {
+    #[getter]
+    fn congress(&self) -> u16 {
+        self.inner.congress
+    }
+
+    #[getter]
+    fn chamber(&self) -> Chamber {
+        Chamber {
+            inner: self.inner.chamber,
+        }
+    }
+
+    #[getter]
+    fn state(&self) -> String {
+        self.inner.state.clone()
+    }
+
+    #[getter]
+    fn district(&self) -> Option<u8> {
+        self.inner.district
+    }
+
+    #[getter]
+    fn start_year(&self) -> u16 {
+        self.inner.start_year
+    }
+
+    #[getter]
+    fn end_year(&self) -> Option<u16> {
+        self.inner.end_year
+    }
+}
+
+#[pyclass]
+struct Member {
+    inner: RustMember,
+}
+
+#[pymethods]
+impl Member {
+    #[new]
+    #[pyo3(signature = (bioguide_id, name, first_name, last_name, party, state, district, chamber))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        bioguide_id: String,
+        name: String,
+        first_name: String,
+        last_name: String,
+        party: &Party,
+        state: String,
+        district: Option<u8>,
+        chamber: &Chamber,
+    ) -> Self {
+        Member {
+            inner: RustMember {
+                bioguide_id,
+                name,
+                first_name,
+                last_name,
+                party: party.inner.clone(),
+                state,
+                district,
+                chamber: chamber.inner,
+                terms: vec![],
+            },
+        }
+    }
+
+    #[getter]
+    fn bioguide_id(&self) -> String {
+        self.inner.bioguide_id.clone()
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    #[getter]
+    fn first_name(&self) -> String {
+        self.inner.first_name.clone()
+    }
+
+    #[getter]
+    fn last_name(&self) -> String {
+        self.inner.last_name.clone()
+    }
+
+    #[getter]
+    fn party(&self) -> Party {
+        Party {
+            inner: self.inner.party.clone(),
+        }
+    }
+
+    #[getter]
+    fn state(&self) -> String {
+        self.inner.state.clone()
+    }
+
+    #[getter]
+    fn district(&self) -> Option<u8> {
+        self.inner.district
+    }
+
+    #[getter]
+    fn chamber(&self) -> Chamber {
+        Chamber {
+            inner: self.inner.chamber,
+        }
+    }
+
+    #[getter]
+    fn terms(&self) -> Vec<MemberTerm> {
+        self.inner
+            .terms
+            .iter()
+            .map(|t| MemberTerm { inner: t.clone() })
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Member(bioguide_id='{}', name='{}')",
+            self.inner.bioguide_id, self.inner.name
+        )
+    }
+}
+
+#[pyclass]
+struct VotePosition {
+    inner: RustVotePosition,
+}
+
+#[pymethods]
+impl VotePosition {
+    #[staticmethod]
+    fn yea() -> Self {
+        VotePosition {
+            inner: RustVotePosition::Yea,
+        }
+    }
+
+    #[staticmethod]
+    fn nay() -> Self {
+        VotePosition {
+            inner: RustVotePosition::Nay,
+        }
+    }
+
+    #[staticmethod]
+    fn present() -> Self {
+        VotePosition {
+            inner: RustVotePosition::Present,
+        }
+    }
+
+    #[staticmethod]
+    fn not_voting() -> Self {
+        VotePosition {
+            inner: RustVotePosition::NotVoting,
+        }
+    }
+
+    fn is_yea(&self) -> bool {
+        matches!(self.inner, RustVotePosition::Yea)
+    }
+
+    fn is_nay(&self) -> bool {
+        matches!(self.inner, RustVotePosition::Nay)
+    }
+
+    fn is_present(&self) -> bool {
+        matches!(self.inner, RustVotePosition::Present)
+    }
+
+    fn is_not_voting(&self) -> bool {
+        matches!(self.inner, RustVotePosition::NotVoting)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("VotePosition({:?})", self.inner)
+    }
+}
+
+#[pyclass]
+struct VoteResult {
+    inner: RustVoteResult,
+}
+
+#[pymethods]
+impl VoteResult {
+    #[staticmethod]
+    fn passed() -> Self {
+        VoteResult {
+            inner: RustVoteResult::Passed,
+        }
+    }
+
+    #[staticmethod]
+    fn failed() -> Self {
+        VoteResult {
+            inner: RustVoteResult::Failed,
+        }
+    }
+
+    #[staticmethod]
+    fn unknown() -> Self {
+        VoteResult {
+            inner: RustVoteResult::Unknown,
+        }
+    }
+
+    fn is_passed(&self) -> bool {
+        matches!(self.inner, RustVoteResult::Passed)
+    }
+
+    fn is_failed(&self) -> bool {
+        matches!(self.inner, RustVoteResult::Failed)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("VoteResult({:?})", self.inner)
+    }
+}
+
+#[pyclass]
+struct CosponsorRecord {
+    inner: RustCosponsorRecord,
+}
+
+#[pymethods]
+impl CosponsorRecord {
+    #[new]
+    fn new(bioguide_id: String, date: String, withdrawn: bool) -> Self {
+        CosponsorRecord {
+            inner: RustCosponsorRecord {
+                bioguide_id,
+                date,
+                withdrawn,
+            },
+        }
+    }
+
+    #[getter]
+    fn bioguide_id(&self) -> String {
+        self.inner.bioguide_id.clone()
+    }
+
+    #[getter]
+    fn date(&self) -> String {
+        self.inner.date.clone()
+    }
+
+    #[getter]
+    fn withdrawn(&self) -> bool {
+        self.inner.withdrawn
+    }
+
+    fn __repr__(&self) -> String {
+        format!("CosponsorRecord(bioguide_id='{}')", self.inner.bioguide_id)
+    }
+}
+
+#[pyclass]
+struct SponsorInfo {
+    inner: RustSponsorInfo,
+}
+
+#[pymethods]
+impl SponsorInfo {
+    #[getter]
+    fn bill_id(&self) -> String {
+        self.inner.bill_id.clone()
+    }
+
+    #[getter]
+    fn sponsor(&self) -> String {
+        self.inner.sponsor.clone()
+    }
+
+    #[getter]
+    fn cosponsors(&self) -> Vec<CosponsorRecord> {
+        self.inner
+            .cosponsors
+            .iter()
+            .map(|c| CosponsorRecord { inner: c.clone() })
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SponsorInfo(bill_id='{}', sponsor='{}')",
+            self.inner.bill_id, self.inner.sponsor
+        )
+    }
+}
+
+#[pyclass]
+struct RollCall {
+    inner: RustRollCall,
+}
+
+#[pymethods]
+impl RollCall {
+    #[getter]
+    fn congress(&self) -> u16 {
+        self.inner.congress
+    }
+
+    #[getter]
+    fn session(&self) -> u8 {
+        self.inner.session
+    }
+
+    #[getter]
+    fn roll_number(&self) -> u32 {
+        self.inner.roll_number
+    }
+
+    #[getter]
+    fn chamber(&self) -> Chamber {
+        Chamber {
+            inner: self.inner.chamber,
+        }
+    }
+
+    #[getter]
+    fn date(&self) -> String {
+        self.inner.date.clone()
+    }
+
+    #[getter]
+    fn bill_id(&self) -> Option<String> {
+        self.inner.bill_id.clone()
+    }
+
+    #[getter]
+    fn result(&self) -> VoteResult {
+        VoteResult {
+            inner: self.inner.result,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "RollCall(congress={}, roll_number={})",
+            self.inner.congress, self.inner.roll_number
+        )
+    }
+}
+
+#[pyclass]
+struct BillDownload {
+    inner: RustBillDownload,
+}
+
+#[pymethods]
+impl BillDownload {
+    #[new]
+    #[pyo3(signature = (bill_id, bill_xml, sponsors_json, cosponsors_json, votes_json, member_jsons))]
+    fn new(
+        bill_id: String,
+        bill_xml: String,
+        sponsors_json: String,
+        cosponsors_json: String,
+        votes_json: Option<String>,
+        member_jsons: std::collections::HashMap<String, String>,
+    ) -> Self {
+        BillDownload {
+            inner: RustBillDownload {
+                bill_id,
+                bill_xml,
+                sponsors_json,
+                cosponsors_json,
+                votes_json,
+                member_jsons,
+            },
+        }
+    }
+
+    #[getter]
+    fn bill_id(&self) -> String {
+        self.inner.bill_id.clone()
+    }
+
+    #[getter]
+    fn bill_xml(&self) -> String {
+        self.inner.bill_xml.clone()
+    }
+
+    #[getter]
+    fn sponsors_json(&self) -> String {
+        self.inner.sponsors_json.clone()
+    }
+
+    #[getter]
+    fn cosponsors_json(&self) -> String {
+        self.inner.cosponsors_json.clone()
+    }
+
+    #[getter]
+    fn votes_json(&self) -> Option<String> {
+        self.inner.votes_json.clone()
+    }
+
+    #[getter]
+    fn member_jsons(&self) -> std::collections::HashMap<String, String> {
+        self.inner.member_jsons.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("BillDownload(bill_id='{}')", self.inner.bill_id)
+    }
+}
+
+fn congress_error_to_py(err: CongressError) -> PyErr {
+    match err {
+        CongressError::Http(msg) => PyRuntimeError::new_err(format!("HTTP error: {}", msg)),
+        CongressError::Parse(msg) => PyValueError::new_err(format!("Parse error: {}", msg)),
+        CongressError::NotFound(what) => PyValueError::new_err(format!("Not found: {}", what)),
+        CongressError::RateLimited => PyRuntimeError::new_err("Rate limited by Congress.gov API"),
+        CongressError::InvalidApiKey => PyValueError::new_err("Invalid API key"),
+        CongressError::Io(e) => PyOSError::new_err(format!("IO error: {}", e)),
+        CongressError::Json(e) => PyValueError::new_err(format!("JSON error: {}", e)),
+    }
+}
+
+#[pyclass]
+struct CongressClient {
+    inner: RustCongressClient,
+}
+
+#[pymethods]
+impl CongressClient {
+    #[new]
+    fn new(api_key: String, cache_dir: String) -> Self {
+        CongressClient {
+            inner: RustCongressClient::new(api_key, std::path::PathBuf::from(cache_dir)),
+        }
+    }
+
+    #[getter]
+    fn api_key(&self) -> String {
+        self.inner.api_key().to_string()
+    }
+
+    fn download_bill(&self, bill_id: &str) -> PyResult<BillDownload> {
+        let download = self
+            .inner
+            .download_bill(bill_id)
+            .map_err(congress_error_to_py)?;
+        Ok(BillDownload { inner: download })
+    }
+
+    fn __repr__(&self) -> String {
+        "CongressClient(...)".to_string()
+    }
+}
+
 /// Python module definition
 #[pymodule]
 fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_uslm_xml, m)?)?;
     m.add_function(wrap_pyfunction!(compute_diff, m)?)?;
     m.add_function(wrap_pyfunction!(parse_bill_amendments, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_bill_amendments_from_str, m)?)?;
     m.add_function(wrap_pyfunction!(load_uslm_folder, m)?)?;
     m.add_class::<USLMElement>()?;
     m.add_class::<TreeDiff>()?;
@@ -1656,5 +2308,17 @@ fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DatasetMetadata>()?;
     m.add_class::<VersionSnapshot>()?;
     m.add_class::<SearchResult>()?;
+    // congress types
+    m.add_class::<Party>()?;
+    m.add_class::<Chamber>()?;
+    m.add_class::<MemberTerm>()?;
+    m.add_class::<Member>()?;
+    m.add_class::<VotePosition>()?;
+    m.add_class::<VoteResult>()?;
+    m.add_class::<CosponsorRecord>()?;
+    m.add_class::<SponsorInfo>()?;
+    m.add_class::<RollCall>()?;
+    m.add_class::<BillDownload>()?;
+    m.add_class::<CongressClient>()?;
     Ok(())
 }
