@@ -313,8 +313,9 @@ impl TreeDiff {
             .added
             .iter()
             .map(|elem| {
-                let data = serde_json::to_value(elem)
-                    .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+                let data = serde_json::to_value(elem).map_err(|e| {
+                    PyRuntimeError::new_err(format!("JSON serialization error: {}", e))
+                })?;
                 pythonize(py, &data)
                     .map(|obj| obj.unbind())
                     .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
@@ -328,8 +329,9 @@ impl TreeDiff {
             .removed
             .iter()
             .map(|elem| {
-                let data = serde_json::to_value(elem)
-                    .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+                let data = serde_json::to_value(elem).map_err(|e| {
+                    PyRuntimeError::new_err(format!("JSON serialization error: {}", e))
+                })?;
                 pythonize(py, &data)
                     .map(|obj| obj.unbind())
                     .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
