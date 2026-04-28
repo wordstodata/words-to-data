@@ -1155,15 +1155,6 @@ class Dataset:
         """Get sponsor info by bill ID."""
         ...
 
-    def add_roll_call(self, roll_call: RollCall) -> None:
-        """Add a roll call vote."""
-        ...
-
-    @property
-    def roll_calls(self) -> list[RollCall]:
-        """All roll call votes."""
-        ...
-
     @property
     def members(self) -> list[Member]:
         """All Congress members."""
@@ -1291,43 +1282,6 @@ class Member:
     def terms(self) -> list[MemberTerm]: ...
 
 
-class VotePosition:
-    """A vote position (yea/nay/present/not voting)"""
-
-    @staticmethod
-    def yea() -> VotePosition: ...
-
-    @staticmethod
-    def nay() -> VotePosition: ...
-
-    @staticmethod
-    def present() -> VotePosition: ...
-
-    @staticmethod
-    def not_voting() -> VotePosition: ...
-
-    def is_yea(self) -> bool: ...
-    def is_nay(self) -> bool: ...
-    def is_present(self) -> bool: ...
-    def is_not_voting(self) -> bool: ...
-
-
-class VoteResult:
-    """Result of a vote"""
-
-    @staticmethod
-    def passed() -> VoteResult: ...
-
-    @staticmethod
-    def failed() -> VoteResult: ...
-
-    @staticmethod
-    def unknown() -> VoteResult: ...
-
-    def is_passed(self) -> bool: ...
-    def is_failed(self) -> bool: ...
-
-
 class CosponsorRecord:
     """A cosponsor of a bill"""
 
@@ -1354,31 +1308,6 @@ class SponsorInfo:
 
     @property
     def cosponsors(self) -> list[CosponsorRecord]: ...
-
-
-class RollCall:
-    """A roll call vote"""
-
-    @property
-    def congress(self) -> int: ...
-
-    @property
-    def session(self) -> int: ...
-
-    @property
-    def roll_number(self) -> int: ...
-
-    @property
-    def chamber(self) -> Chamber: ...
-
-    @property
-    def date(self) -> str: ...
-
-    @property
-    def bill_id(self) -> str | None: ...
-
-    @property
-    def result(self) -> VoteResult: ...
 
 
 class BillDownload:

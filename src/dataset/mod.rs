@@ -12,7 +12,7 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::fs;
 
-use crate::congress::{BillDownload, CosponsorRecord, Member, RollCall, SponsorInfo};
+use crate::congress::{BillDownload, CosponsorRecord, Member, SponsorInfo};
 use crate::diff::TreeDiff;
 use crate::legal_diff::ChangeAnnotation;
 use crate::uslm::bill_parser::AmendmentData;
@@ -79,10 +79,6 @@ pub struct Dataset {
     #[serde_as(as = "Vec<(_, _)>")]
     #[serde(default)]
     pub sponsors: HashMap<String, SponsorInfo>,
-
-    /// Roll call votes
-    #[serde(default)]
-    pub roll_calls: Vec<RollCall>,
 }
 
 impl Dataset {
@@ -95,7 +91,6 @@ impl Dataset {
             diff_annotations: HashMap::new(),
             members: HashMap::new(),
             sponsors: HashMap::new(),
-            roll_calls: Vec::new(),
         }
     }
 
@@ -378,16 +373,6 @@ impl Dataset {
         self.sponsors.get(bill_id)
     }
 
-    /// Add a roll call vote
-    pub fn add_roll_call(&mut self, roll_call: RollCall) {
-        self.roll_calls.push(roll_call);
-    }
-
-    /// Get all roll call votes
-    pub fn roll_calls(&self) -> &[RollCall] {
-        &self.roll_calls
-    }
-
     /// Get members who sponsored or cosponsored bills affecting a path
     pub fn sponsors_for_path(&self, path: &str) -> Vec<&Member> {
         let bill_ids: Vec<_> = self
@@ -403,36 +388,6 @@ impl Dataset {
                 member_ids.push(&info.sponsor);
                 for cosponsor in &info.cosponsors {
                     member_ids.push(&cosponsor.bioguide_id);
-                }
-            }
-        }
-
-        member_ids
-            .into_iter()
-            .filter_map(|id| self.members.get(id))
-            .collect()
-    }
-
-    /// Get members who voted for bills affecting a path
-    pub fn members_who_voted_for_path(&self, path: &str) -> Vec<&Member> {
-        use crate::congress::VotePosition;
-
-        let bill_ids: Vec<_> = self
-            .annotations_for_path(path)
-            .iter()
-            .map(|a| &a.source_bill.bill_id)
-            .collect();
-
-        let mut member_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
-
-        for roll in &self.roll_calls {
-            if let Some(ref roll_bill_id) = roll.bill_id
-                && bill_ids.contains(&roll_bill_id)
-            {
-                for (member_id, position) in &roll.votes {
-                    if *position == VotePosition::Yea {
-                        member_ids.insert(member_id);
-                    }
                 }
             }
         }

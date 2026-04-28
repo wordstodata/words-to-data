@@ -1,9 +1,6 @@
 use std::time::Duration;
 
-use super::{
-    BillDownload, Chamber, CongressError, CosponsorRecord, Member, ResponseCache, RollCall,
-    SponsorInfo, VotePosition, VoteResult,
-};
+use super::{BillDownload, CongressError, CosponsorRecord, Member, ResponseCache, SponsorInfo};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -115,75 +112,6 @@ impl CongressClient {
             bill_id,
             sponsor,
             cosponsors,
-        })
-    }
-
-    pub fn get_roll_call(
-        &self,
-        congress: u16,
-        chamber: Chamber,
-        session: u8,
-        roll_number: u32,
-    ) -> Result<RollCall, CongressError> {
-        let chamber_str = match chamber {
-            Chamber::Senate => "senate",
-            Chamber::House => "house",
-        };
-
-        // Note: Congress.gov API only has vote data for 118th Congress onwards
-        let endpoint = format!(
-            "vote/{}/{}/{}/{}",
-            congress, chamber_str, session, roll_number
-        );
-        let json = self.fetch(&endpoint, "json")?;
-        let v: Value = serde_json::from_str(&json)?;
-
-        let vote = &v["vote"];
-
-        let date = vote["date"].as_str().unwrap_or("").to_string();
-
-        let bill_id = vote["bill"].as_object().map(|b| {
-            let congress = b.get("congress").and_then(|v| v.as_u64()).unwrap_or(0);
-            let bill_type = b.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let number = b.get("number").and_then(|v| v.as_u64()).unwrap_or(0);
-            format!("{}-{}-{}", congress, bill_type, number)
-        });
-
-        let result_str = vote["result"].as_str().unwrap_or("");
-        let result = match result_str.to_lowercase().as_str() {
-            s if s.contains("passed") || s.contains("agreed") => VoteResult::Passed,
-            s if s.contains("failed") || s.contains("rejected") => VoteResult::Failed,
-            _ => VoteResult::Unknown,
-        };
-
-        let mut votes = HashMap::new();
-        if let Some(positions) = vote["positions"].as_array() {
-            for pos in positions {
-                let member_id = pos["member"]["bioguideId"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                let vote_cast = pos["votePosition"]
-                    .as_str()
-                    .unwrap_or("Not Voting")
-                    .parse::<VotePosition>()
-                    .unwrap_or(VotePosition::NotVoting);
-
-                if !member_id.is_empty() {
-                    votes.insert(member_id, vote_cast);
-                }
-            }
-        }
-
-        Ok(RollCall {
-            congress,
-            session,
-            roll_number,
-            chamber,
-            date,
-            bill_id,
-            result,
-            votes,
         })
     }
 

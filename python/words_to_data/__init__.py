@@ -28,11 +28,8 @@ from .words_to_data import (
     Chamber,
     MemberTerm,
     Member,
-    VotePosition,
-    VoteResult,
     CosponsorRecord,
     SponsorInfo,
-    RollCall,
     BillDownload,
     CongressClient,
 )
@@ -68,11 +65,8 @@ __all__ = [
     "Chamber",
     "MemberTerm",
     "Member",
-    "VotePosition",
-    "VoteResult",
     "CosponsorRecord",
     "SponsorInfo",
-    "RollCall",
     "BillDownload",
     "CongressClient",
 ]

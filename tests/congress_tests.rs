@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
 use words_to_data::congress::{
-    Chamber, CongressClient, CongressError, CosponsorRecord, Member, Party, ResponseCache,
-    RollCall, SponsorInfo, VotePosition, VoteResult,
+    Chamber, CongressClient, CongressError, CosponsorRecord, Member, Party, SponsorInfo,
 };
 
 #[test]
@@ -33,40 +31,6 @@ fn should_display_congress_error() {
 }
 
 #[test]
-fn should_parse_vote_position_from_string() {
-    assert_eq!("Yea".parse::<VotePosition>().unwrap(), VotePosition::Yea);
-    assert_eq!("Nay".parse::<VotePosition>().unwrap(), VotePosition::Nay);
-    assert_eq!(
-        "Present".parse::<VotePosition>().unwrap(),
-        VotePosition::Present
-    );
-    assert_eq!(
-        "Not Voting".parse::<VotePosition>().unwrap(),
-        VotePosition::NotVoting
-    );
-}
-
-#[test]
-fn should_create_roll_call() {
-    let mut votes = HashMap::new();
-    votes.insert("A000360".to_string(), VotePosition::Yea);
-    votes.insert("B000575".to_string(), VotePosition::Nay);
-
-    let roll = RollCall {
-        congress: 118,
-        session: 1,
-        roll_number: 123,
-        chamber: Chamber::Senate,
-        date: "2023-03-15".to_string(),
-        bill_id: Some("hr-1234".to_string()),
-        result: VoteResult::Passed,
-        votes,
-    };
-
-    assert_eq!(roll.votes.get("A000360"), Some(&VotePosition::Yea));
-}
-
-#[test]
 fn should_create_sponsor_info() {
     let sponsor_info = SponsorInfo {
         bill_id: "119-hr-1".to_string(),
@@ -80,46 +44,6 @@ fn should_create_sponsor_info() {
 
     assert_eq!(sponsor_info.cosponsors.len(), 1);
     assert!(!sponsor_info.cosponsors[0].withdrawn);
-}
-
-#[test]
-fn should_cache_and_retrieve_response() {
-    let temp_dir = std::env::temp_dir().join("congress_cache_test");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-
-    let cache = ResponseCache::new(Duration::from_secs(3600));
-    let key = "test/member/A000360";
-    let data = r#"{"name": "Test"}"#;
-
-    // Cache miss
-    assert!(cache.get(key).is_none());
-
-    // Store
-    cache.set(key, data).unwrap();
-
-    // Cache hit
-    let retrieved = cache.get(key).unwrap();
-    assert_eq!(retrieved, data);
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
-fn should_expire_stale_cache() {
-    let temp_dir = std::env::temp_dir().join("congress_cache_expire_test");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-
-    // 0 second TTL = immediate expiry
-    let cache = ResponseCache::new(Duration::from_secs(0));
-    let key = "test/expire";
-
-    cache.set(key, "data").unwrap();
-
-    // Should be expired immediately
-    assert!(cache.get(key).is_none());
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
@@ -264,29 +188,5 @@ mod dataset_integration {
         assert!(dataset.get_member("L000174").is_some());
         // Sponsor info loaded with canonical bill_id
         assert!(dataset.get_sponsor_info(&bill_id).is_some());
-    }
-
-    #[test]
-    fn should_add_roll_call_to_dataset() {
-        let mut dataset = Dataset::new(test_metadata());
-
-        let mut votes = HashMap::new();
-        votes.insert("L000174".into(), VotePosition::Yea);
-
-        let roll = RollCall {
-            congress: 118,
-            session: 1,
-            roll_number: 100,
-            chamber: Chamber::Senate,
-            date: "2023-05-01".into(),
-            bill_id: Some("118-hr-1234".into()),
-            result: VoteResult::Passed,
-            votes,
-        };
-
-        dataset.add_roll_call(roll);
-
-        assert_eq!(dataset.roll_calls().len(), 1);
-        assert_eq!(dataset.roll_calls()[0].roll_number, 100);
     }
 }

@@ -9,8 +9,7 @@ use serde_json;
 use crate::congress::{
     BillDownload as RustBillDownload, Chamber as RustChamber, CongressClient as RustCongressClient,
     CongressError, CosponsorRecord as RustCosponsorRecord, Member as RustMember,
-    MemberTerm as RustMemberTerm, Party as RustParty, RollCall as RustRollCall,
-    SponsorInfo as RustSponsorInfo, VotePosition as RustVotePosition, VoteResult as RustVoteResult,
+    MemberTerm as RustMemberTerm, Party as RustParty, SponsorInfo as RustSponsorInfo,
 };
 use crate::dataset::{
     Dataset as RustDataset, DatasetError, DatasetMetadata as RustDatasetMetadata,
@@ -1666,19 +1665,6 @@ impl Dataset {
             .map(|s| SponsorInfo { inner: s.clone() })
     }
 
-    fn add_roll_call(&mut self, roll_call: &RollCall) {
-        self.inner.add_roll_call(roll_call.inner.clone());
-    }
-
-    #[getter]
-    fn roll_calls(&self) -> Vec<RollCall> {
-        self.inner
-            .roll_calls()
-            .iter()
-            .map(|r| RollCall { inner: r.clone() })
-            .collect()
-    }
-
     #[getter]
     fn members(&self) -> Vec<Member> {
         self.inner
@@ -1955,103 +1941,6 @@ impl Member {
 }
 
 #[pyclass]
-struct VotePosition {
-    inner: RustVotePosition,
-}
-
-#[pymethods]
-impl VotePosition {
-    #[staticmethod]
-    fn yea() -> Self {
-        VotePosition {
-            inner: RustVotePosition::Yea,
-        }
-    }
-
-    #[staticmethod]
-    fn nay() -> Self {
-        VotePosition {
-            inner: RustVotePosition::Nay,
-        }
-    }
-
-    #[staticmethod]
-    fn present() -> Self {
-        VotePosition {
-            inner: RustVotePosition::Present,
-        }
-    }
-
-    #[staticmethod]
-    fn not_voting() -> Self {
-        VotePosition {
-            inner: RustVotePosition::NotVoting,
-        }
-    }
-
-    fn is_yea(&self) -> bool {
-        matches!(self.inner, RustVotePosition::Yea)
-    }
-
-    fn is_nay(&self) -> bool {
-        matches!(self.inner, RustVotePosition::Nay)
-    }
-
-    fn is_present(&self) -> bool {
-        matches!(self.inner, RustVotePosition::Present)
-    }
-
-    fn is_not_voting(&self) -> bool {
-        matches!(self.inner, RustVotePosition::NotVoting)
-    }
-
-    fn __repr__(&self) -> String {
-        format!("VotePosition({:?})", self.inner)
-    }
-}
-
-#[pyclass]
-struct VoteResult {
-    inner: RustVoteResult,
-}
-
-#[pymethods]
-impl VoteResult {
-    #[staticmethod]
-    fn passed() -> Self {
-        VoteResult {
-            inner: RustVoteResult::Passed,
-        }
-    }
-
-    #[staticmethod]
-    fn failed() -> Self {
-        VoteResult {
-            inner: RustVoteResult::Failed,
-        }
-    }
-
-    #[staticmethod]
-    fn unknown() -> Self {
-        VoteResult {
-            inner: RustVoteResult::Unknown,
-        }
-    }
-
-    fn is_passed(&self) -> bool {
-        matches!(self.inner, RustVoteResult::Passed)
-    }
-
-    fn is_failed(&self) -> bool {
-        matches!(self.inner, RustVoteResult::Failed)
-    }
-
-    fn __repr__(&self) -> String {
-        format!("VoteResult({:?})", self.inner)
-    }
-}
-
-#[pyclass]
 struct CosponsorRecord {
     inner: RustCosponsorRecord,
 }
@@ -2119,60 +2008,6 @@ impl SponsorInfo {
         format!(
             "SponsorInfo(bill_id='{}', sponsor='{}')",
             self.inner.bill_id, self.inner.sponsor
-        )
-    }
-}
-
-#[pyclass]
-struct RollCall {
-    inner: RustRollCall,
-}
-
-#[pymethods]
-impl RollCall {
-    #[getter]
-    fn congress(&self) -> u16 {
-        self.inner.congress
-    }
-
-    #[getter]
-    fn session(&self) -> u8 {
-        self.inner.session
-    }
-
-    #[getter]
-    fn roll_number(&self) -> u32 {
-        self.inner.roll_number
-    }
-
-    #[getter]
-    fn chamber(&self) -> Chamber {
-        Chamber {
-            inner: self.inner.chamber,
-        }
-    }
-
-    #[getter]
-    fn date(&self) -> String {
-        self.inner.date.clone()
-    }
-
-    #[getter]
-    fn bill_id(&self) -> Option<String> {
-        self.inner.bill_id.clone()
-    }
-
-    #[getter]
-    fn result(&self) -> VoteResult {
-        VoteResult {
-            inner: self.inner.result,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "RollCall(congress={}, roll_number={})",
-            self.inner.congress, self.inner.roll_number
         )
     }
 }
@@ -2317,11 +2152,8 @@ fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Chamber>()?;
     m.add_class::<MemberTerm>()?;
     m.add_class::<Member>()?;
-    m.add_class::<VotePosition>()?;
-    m.add_class::<VoteResult>()?;
     m.add_class::<CosponsorRecord>()?;
     m.add_class::<SponsorInfo>()?;
-    m.add_class::<RollCall>()?;
     m.add_class::<BillDownload>()?;
     m.add_class::<CongressClient>()?;
     Ok(())
