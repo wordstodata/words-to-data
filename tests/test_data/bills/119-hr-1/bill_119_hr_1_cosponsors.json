@@ -1,0 +1,15 @@
+{
+    "cosponsors": [],
+    "pagination": {
+        "count": 0,
+        "countIncludingWithdrawnCosponsors": 0
+    },
+    "request": {
+        "billNumber": "1",
+        "billType": "hr",
+        "billUrl": "https://api.congress.gov/v3/bill/119/hr/1?format=json",
+        "congress": "119",
+        "contentType": "application/json",
+        "format": "json"
+    }
+}
