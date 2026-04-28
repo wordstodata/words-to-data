@@ -1281,9 +1281,10 @@ fn dataset_error_to_py(err: DatasetError) -> PyErr {
         DatasetError::VersionNotFound(v) => {
             PyValueError::new_err(format!("Version not found: {}", v))
         }
-        DatasetError::FolderLoadFailed(p) => {
-            PyOSError::new_err(format!("Failed to load folder '{}': empty or unreadable", p))
-        }
+        DatasetError::FolderLoadFailed(p) => PyOSError::new_err(format!(
+            "Failed to load folder '{}': empty or unreadable",
+            p
+        )),
     }
 }
 
