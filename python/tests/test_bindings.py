@@ -410,6 +410,30 @@ def test_legal_diff_json_roundtrip():
     assert restored_anns[0].source_bill.bill_id == "119-21"
 
 
+def test_repr_methods():
+    """Regression: BillAmendment repr panicked on short IDs; TextChange repr cloned value twice."""
+    element = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    assert repr(element).startswith("USLMElement(")
+
+    old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+    new = parse_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+    diff = compute_diff(old, new)
+    assert repr(diff).startswith("TreeDiff(")
+
+    s174a = diff.find(
+        "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a"
+    )
+    assert repr(s174a.changes[0]).startswith("FieldChangeEvent(")
+
+    text_change = s174a.changes[0].changes[0]
+    r = repr(text_change)
+    assert r.startswith("TextChange(")
+    assert len(r) < 200
+
+    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    assert repr(data.amendments[0]).startswith("BillAmendment(")
+
+
 def test_tree_diff_shallow():
     """Test that shallow() returns a TreeDiff without children"""
     old = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
