@@ -13,4 +13,7 @@ pub enum DatasetError {
 
     #[error("Version not found: {0}")]
     VersionNotFound(String),
+
+    #[error("Failed to load folder '{0}': folder is empty or unreadable")]
+    FolderLoadFailed(String),
 }

@@ -1095,6 +1095,9 @@ class Dataset:
             folder_path: Path to directory containing USLM XML files
             date: Publication date in YYYY-MM-DD format
             label: Optional human-readable label for this version
+
+        Raises:
+            OSError: If the folder is empty or cannot be read
         """
         ...
 
