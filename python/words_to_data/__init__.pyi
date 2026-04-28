@@ -39,7 +39,7 @@ class USLMElement:
         """Deserialize a JSON string to a USLMElement."""
         ...
 
-    def merge_children(self, other: USLMElement) -> USLMElement:
+    def merge_children(self, other: USLMElement) -> None:
         """Merge the children of two nodes into one, retains the caller's ElementData"""
 
 class TextChange:
@@ -677,14 +677,14 @@ class LegalDiff:
         """
         ...
 
-    def get_annotations(self, path: str) -> list[ChangeAnnotation] | None:
+    def get_annotations(self, path: str) -> list[ChangeAnnotation]:
         """Get all annotations for a specific path.
 
         Args:
             path: The structural path to look up
 
         Returns:
-            List of annotations for the path, or None if no annotations exist
+            List of annotations for the path (empty if none exist)
         """
         ...
 
