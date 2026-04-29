@@ -141,6 +141,47 @@ def test_add_and_query_bills():
     assert not_found is None
 
 
+def test_add_uslm_folder_invalid_path_raises_os_error():
+    """Regression: add_uslm_folder previously panicked (expect()) on bad paths."""
+    import pytest
+
+    metadata = DatasetMetadata(
+        name="Test",
+        description="Test",
+        author="Test",
+        source_urls=[],
+        license="MIT",
+        version="1.0.0",
+    )
+    dataset = Dataset(metadata)
+
+    with pytest.raises(OSError):
+        dataset.add_uslm_folder("/nonexistent/path/that/does/not/exist", "2025-01-01")
+
+
+def test_version_matches_cargo_toml():
+    """Cargo.toml is the source of truth; pyproject.toml and __version__ must agree."""
+    import tomllib
+    import words_to_data
+    from pathlib import Path
+
+    repo_root = Path(__file__).parent.parent.parent
+    with open(repo_root / "Cargo.toml", "rb") as f:
+        cargo = tomllib.load(f)
+    with open(repo_root / "pyproject.toml", "rb") as f:
+        pyproject = tomllib.load(f)
+
+    cargo_version = cargo["package"]["version"]
+    assert pyproject["project"]["version"] == cargo_version, (
+        f"pyproject.toml version {pyproject['project']['version']!r} "
+        f"does not match Cargo.toml version {cargo_version!r}"
+    )
+    assert words_to_data.__version__ == cargo_version, (
+        f"words_to_data.__version__ {words_to_data.__version__!r} "
+        f"does not match Cargo.toml version {cargo_version!r}"
+    )
+
+
 def test_search_text():
     metadata = DatasetMetadata(
         name="Test",

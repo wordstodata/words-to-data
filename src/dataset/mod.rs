@@ -285,13 +285,20 @@ impl Dataset {
     /// * `folder_path` - Path to directory containing USLM XML files
     /// * `date` - Publication date string in "YYYY-MM-DD" format
     /// * `label` - Optional label for the snapshot
-    pub fn add_uslm_folder(&mut self, folder_path: &str, date: &str, label: Option<String>) {
-        let result = load_uslm_folder(folder_path, date).expect("Error loading element in dir");
+    pub fn add_uslm_folder(
+        &mut self,
+        folder_path: &str,
+        date: &str,
+        label: Option<String>,
+    ) -> Result<(), DatasetError> {
+        let element = load_uslm_folder(folder_path, date)
+            .ok_or_else(|| DatasetError::FolderLoadFailed(folder_path.to_string()))?;
         self.add_version(VersionSnapshot {
             date: date.to_string(),
             label,
-            element: result,
+            element,
         });
+        Ok(())
     }
 
     /// Search for text across all versions

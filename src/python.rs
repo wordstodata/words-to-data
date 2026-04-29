@@ -1254,6 +1254,10 @@ fn dataset_error_to_py(err: DatasetError) -> PyErr {
         DatasetError::VersionNotFound(v) => {
             PyValueError::new_err(format!("Version not found: {}", v))
         }
+        DatasetError::FolderLoadFailed(p) => PyOSError::new_err(format!(
+            "Failed to load folder '{}': empty or unreadable",
+            p
+        )),
     }
 }
 
@@ -1572,8 +1576,15 @@ impl Dataset {
 
     /// Load all USLM XML files from a folder and add as a merged version snapshot
     #[pyo3(signature = (folder_path, date, label=None))]
-    fn add_uslm_folder(&mut self, folder_path: &str, date: &str, label: Option<String>) {
-        self.inner.add_uslm_folder(folder_path, date, label);
+    fn add_uslm_folder(
+        &mut self,
+        folder_path: &str,
+        date: &str,
+        label: Option<String>,
+    ) -> PyResult<()> {
+        self.inner
+            .add_uslm_folder(folder_path, date, label)
+            .map_err(dataset_error_to_py)
     }
 
     fn __repr__(&self) -> String {
