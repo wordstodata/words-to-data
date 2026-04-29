@@ -124,10 +124,11 @@ impl TextChange {
     }
 
     fn __repr__(&self) -> String {
+        let value = &self.inner.value;
         format!(
             "TextChange(tag='{}', value='{}')",
             self.tag(),
-            &self.value()[..self.value().len().min(20)]
+            &value[..value.len().min(20)]
         )
     }
 
@@ -1033,7 +1034,7 @@ impl BillAmendment {
         };
         format!(
             "BillAmendment(id='{}', action_types={:?}, changes={}, amending_text='{}')",
-            &self.inner.id[..12],
+            &self.inner.id[..self.inner.id.len().min(12)],
             self.action_types(),
             self.inner.changes.len(),
             text_preview
