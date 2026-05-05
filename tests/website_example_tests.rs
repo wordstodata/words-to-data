@@ -29,7 +29,7 @@ fn website_example_parse_usc_document() {
 
     // Verify the chapeau value matches what's shown on the website
     // Note: The actual XML uses curly apostrophe (') not ASCII apostrophe (')
-    let expected_chapeau = "In the case of a taxpayer’s specified research or experimental expenditures for any taxable year—";
+    let expected_chapeau = "In the case of a taxpayer's specified research or experimental expenditures for any taxable year—";
 
     assert_eq!(
         s174a.data.chapeau.as_deref(),
@@ -117,14 +117,14 @@ fn website_example_compute_diff() {
 
     // Verify old value matches website
     // Note: The actual XML uses curly apostrophe (') not ASCII apostrophe (')
-    let expected_old = "In the case of a taxpayer’s specified research or experimental expenditures for any taxable year—";
+    let expected_old = "In the case of a taxpayer's specified research or experimental expenditures for any taxable year—";
     assert_eq!(
         chapeau_change.old_value, expected_old,
         "Old chapeau value doesn't match website example"
     );
 
     // Verify new value matches website
-    let expected_new = "In the case of a taxpayer’s foreign research or experimental expenditures for any taxable year—";
+    let expected_new = "In the case of a taxpayer's foreign research or experimental expenditures for any taxable year—";
     assert_eq!(
         chapeau_change.new_value, expected_new,
         "New chapeau value doesn't match website example"

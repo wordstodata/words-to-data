@@ -29,9 +29,7 @@ def test_website_example_parse_usc_document():
 
     assert s174a is not None, "§174(a) not found - website example path may need updating"
 
-    # Verify the chapeau value matches what's shown on the website
-    # Note: The actual XML uses curly apostrophe (') not ASCII apostrophe (')
-    expected_chapeau = "In the case of a taxpayer’s specified research or experimental expenditures for any taxable year—"
+    expected_chapeau = "In the case of a taxpayer's specified research or experimental expenditures for any taxable year—"
 
     assert s174a.data["chapeau"] == expected_chapeau, (
         f"Chapeau value doesn't match website example. Update index.html if this changed.\n"
@@ -73,14 +71,14 @@ def test_website_example_compute_diff():
     assert chapeau_change is not None, "Chapeau change should exist as shown on website"
 
     # Verify old value matches website
-    expected_old = "In the case of a taxpayer’s specified research or experimental expenditures for any taxable year—"
+    expected_old = "In the case of a taxpayer's specified research or experimental expenditures for any taxable year—"
     assert chapeau_change.old_value == expected_old, (
         f"Old chapeau value doesn't match website example.\n"
         f"Got: {chapeau_change.old_value}"
     )
 
     # Verify new value matches website
-    expected_new = "In the case of a taxpayer’s foreign research or experimental expenditures for any taxable year—"
+    expected_new = "In the case of a taxpayer's foreign research or experimental expenditures for any taxable year—"
     assert chapeau_change.new_value == expected_new, (
         f"New chapeau value doesn't match website example.\n"
         f"Got: {chapeau_change.new_value}"
@@ -108,8 +106,8 @@ def test_website_example_diff_output_format():
 
     # Website shows this output format:
     # chapeau Changed:
-    #   Old: In the case of a taxpayer’s specified...
-    #   New: In the case of a taxpayer’s foreign...
+    #   Old: In the case of a taxpayer's specified...
+    #   New: In the case of a taxpayer's foreign...
     #   Number of word-level changes: 2
     for change in s174a_diff.changes:
         # This is the exact loop from the website example

@@ -46,11 +46,11 @@ def test_diffs():
     assert field_change.field_name == "chapeau"
     assert (
         field_change.old_value
-        == "In the case of a taxpayer’s specified research or experimental expenditures for any taxable year—"
+        == "In the case of a taxpayer's specified research or experimental expenditures for any taxable year—"
     )
     assert (
         field_change.new_value
-        == "In the case of a taxpayer’s foreign research or experimental expenditures for any taxable year—"
+        == "In the case of a taxpayer's foreign research or experimental expenditures for any taxable year—"
     )
 
 
