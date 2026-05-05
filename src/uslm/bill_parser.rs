@@ -12,10 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     io::load_xml_file,
-    uslm::{
-        AmendingAction, BillAmendment, ElementType,
-        parser::{ParseError, extract_number, normalize_quotes},
-    },
+    uslm::{AmendingAction, BillAmendment, parser::{ParseError, normalize_quotes}},
 };
 
 /// Data extracted from a bill document
@@ -47,6 +44,7 @@ pub type Result<T> = std::result::Result<T, ParseError>;
 ///
 /// # Arguments
 ///
+/// * `bill_id` - The bill identifier (e.g., "119-21" for the 119th Congress, 21st law)
 /// * `xml_str` - The Public Law XML content as a string
 ///
 /// # Returns
@@ -60,34 +58,19 @@ pub type Result<T> = std::result::Result<T, ParseError>;
 /// use words_to_data::uslm::bill_parser::parse_bill_amendments_from_str;
 ///
 /// let xml = std::fs::read_to_string("bill.xml").unwrap();
-/// let data = parse_bill_amendments_from_str(&xml).unwrap();
+/// let data = parse_bill_amendments_from_str("119-21", &xml).unwrap();
 /// ```
 ///
 /// # Errors
 ///
-/// Returns `ParseError` if:
-/// - The XML is malformed
-/// - No `<pLaw>` element is found
-/// - Required elements are missing from the XML structure
-pub fn parse_bill_amendments_from_str(xml_str: &str) -> Result<AmendmentData> {
+/// Returns `ParseError` if the XML is malformed.
+pub fn parse_bill_amendments_from_str(bill_id: &str, xml_str: &str) -> Result<AmendmentData> {
     let doc = roxmltree::Document::parse(xml_str)?;
-    let plaw_node = doc.descendants().find(|n| n.has_tag_name("pLaw"));
-    match plaw_node {
-        None => Err(ParseError::UnableToParseElement(
-            "Could not find public law document".to_string(),
-        )),
-        Some(node) => {
-            // Extract bill_id
-            let element_type = ElementType::from_str(node.tag_name().name())?;
-            let number = extract_number(element_type, &node)?;
-            let bill_id = number.value;
-            let amendments = get_amendments(&node, &bill_id);
-            Ok(AmendmentData {
-                bill_id,
-                amendments,
-            })
-        }
-    }
+    let amendments = get_amendments(&doc.root(), bill_id);
+    Ok(AmendmentData {
+        bill_id: bill_id.to_string(),
+        amendments,
+    })
 }
 
 /// Parse a bill XML file and extract all amendments to the United States Code
@@ -102,6 +85,7 @@ pub fn parse_bill_amendments_from_str(xml_str: &str) -> Result<AmendmentData> {
 ///
 /// # Arguments
 ///
+/// * `bill_id` - The bill identifier (e.g., "119-21" for the 119th Congress, 21st law)
 /// * `path` - Path to the Public Law XML file
 ///
 /// # Returns
@@ -114,7 +98,7 @@ pub fn parse_bill_amendments_from_str(xml_str: &str) -> Result<AmendmentData> {
 /// ```
 /// use words_to_data::uslm::bill_parser::parse_bill_amendments;
 ///
-/// let data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
+/// let data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml").unwrap();
 /// assert_eq!(data.bill_id, "119-21");
 /// assert!(!data.amendments.is_empty());
 /// ```
@@ -133,9 +117,9 @@ pub fn parse_bill_amendments_from_str(xml_str: &str) -> Result<AmendmentData> {
 /// This is a simplified amendment extraction. The parser uses a naive approach
 /// that may not capture all nuances of complex legislative language. Future
 /// versions may implement more sophisticated bill parsing logic.
-pub fn parse_bill_amendments(path: &str) -> Result<AmendmentData> {
+pub fn parse_bill_amendments(bill_id: &str, path: &str) -> Result<AmendmentData> {
     let xml_str = load_xml_file(path)?;
-    parse_bill_amendments_from_str(&xml_str)
+    parse_bill_amendments_from_str(bill_id, &xml_str)
 }
 
 /// Compute a content-based amendment ID

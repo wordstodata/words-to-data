@@ -1,0 +1,123 @@
+{
+    "pagination": {
+        "count": 6
+    },
+    "request": {
+        "billNumber": "1",
+        "billType": "hr",
+        "billUrl": "https://api.congress.gov/v3/bill/119/hr/1?format=json",
+        "congress": "119",
+        "contentType": "application/json",
+        "format": "json"
+    },
+    "textVersions": [
+        {
+            "date": null,
+            "formats": [
+                {
+                    "type": "Formatted Text",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1enr.htm"
+                },
+                {
+                    "type": "PDF",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1enr.pdf"
+                },
+                {
+                    "type": "Formatted XML",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1enr.xml"
+                }
+            ],
+            "type": "Enrolled Bill"
+        },
+        {
+            "date": "2025-07-01T04:00:00Z",
+            "formats": [
+                {
+                    "type": "Formatted Text",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1eas.htm"
+                },
+                {
+                    "type": "PDF",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1eas.pdf"
+                },
+                {
+                    "type": "Formatted XML",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1eas.xml"
+                }
+            ],
+            "type": "Engrossed Amendment Senate"
+        },
+        {
+            "date": "2025-06-28T04:00:00Z",
+            "formats": [
+                {
+                    "type": "Formatted Text",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1pcs.htm"
+                },
+                {
+                    "type": "PDF",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1pcs.pdf"
+                },
+                {
+                    "type": "Formatted XML",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1pcs.xml"
+                }
+            ],
+            "type": "Placed on Calendar Senate"
+        },
+        {
+            "date": "2025-05-22T04:00:00Z",
+            "formats": [
+                {
+                    "type": "Formatted Text",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1eh.htm"
+                },
+                {
+                    "type": "PDF",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1eh.pdf"
+                },
+                {
+                    "type": "Formatted XML",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1eh.xml"
+                }
+            ],
+            "type": "Engrossed in House"
+        },
+        {
+            "date": "2025-05-20T04:00:00Z",
+            "formats": [
+                {
+                    "type": "Formatted Text",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1rh.htm"
+                },
+                {
+                    "type": "PDF",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1rh.pdf"
+                },
+                {
+                    "type": "Formatted XML",
+                    "url": "https://www.congress.gov/119/bills/hr1/BILLS-119hr1rh.xml"
+                }
+            ],
+            "type": "Reported in House"
+        },
+        {
+            "date": "2025-07-05T03:59:59Z",
+            "formats": [
+                {
+                    "type": "Formatted Text",
+                    "url": "https://www.congress.gov/119/plaws/publ21/PLAW-119publ21.htm"
+                },
+                {
+                    "type": "PDF",
+                    "url": "https://www.congress.gov/119/plaws/publ21/PLAW-119publ21.pdf"
+                },
+                {
+                    "type": "United States Legislative Markup",
+                    "url": "https://www.congress.gov/119/plaws/publ21/PLAW-119publ21_uslm.xml"
+                }
+            ],
+            "type": "Public Law"
+        }
+    ]
+}

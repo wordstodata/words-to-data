@@ -186,7 +186,8 @@ fn should_compute_diff_between_versions() {
 fn should_add_and_query_bills() {
     let mut dataset = make_test_dataset();
 
-    let bill = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").unwrap();
+    let bill = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+        .unwrap();
     let bill_id = bill.bill_id.clone();
 
     dataset.add_bill(bill);

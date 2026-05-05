@@ -32,7 +32,10 @@ fn test_parse_usc_title_7() {
 
 #[test]
 fn test_parse_public_law() {
-    let result = parse("tests/test_data/bills/pl-119-21.xml", "2025-07-04");
+    let result = parse(
+        "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml",
+        "2025-07-04",
+    );
     assert!(
         result.is_ok(),
         "Failed to parse Public Law: {:?}",

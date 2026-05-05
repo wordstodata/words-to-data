@@ -56,7 +56,7 @@ def test_diffs():
 
 def test_bill_parsing():
     # Parse bill amendments
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
 
     # Validate AmendmentData
     assert isinstance(data, AmendmentData)
@@ -64,7 +64,7 @@ def test_bill_parsing():
     assert len(data.amendments) > 0
 
     # Validate BillAmendment
-    amendment = data.amendments[0]
+    amendment = next(iter(data.amendments.values()))
     assert isinstance(amendment, BillAmendment)
     assert len(amendment.amending_text) > 0
     assert len(amendment.action_types) > 0
@@ -122,7 +122,7 @@ def test_to_json_methods():
     assert "value" in parsed_text
 
     # Test AmendmentData.to_json() and nested types
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
     data_json = data.to_json()
     assert isinstance(data_json, str)
     parsed_data = json.loads(data_json)
@@ -130,7 +130,7 @@ def test_to_json_methods():
     assert "amendments" in parsed_data
 
     # Test BillAmendment.to_json()
-    amendment = data.amendments[0]
+    amendment = next(iter(data.amendments.values()))
     amendment_json = amendment.to_json()
     assert isinstance(amendment_json, str)
     parsed_amendment = json.loads(amendment_json)
@@ -157,8 +157,8 @@ def test_to_dict_methods():
     assert parsed == d
 
     # Test BillAmendment.to_dict()
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
-    amendment = data.amendments[0]
+    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+    amendment = next(iter(data.amendments.values()))
     amendment_dict = amendment.to_dict()
     assert isinstance(amendment_dict, dict)
     assert "id" in amendment_dict
@@ -166,7 +166,7 @@ def test_to_dict_methods():
     assert "action_types" in amendment_dict
 
     # Test list of amendments with json.dumps
-    amendments_list = [a.to_dict() for a in data.amendments]
+    amendments_list = [a.to_dict() for a in data.amendments.values()]
     json_str = json.dumps(amendments_list, indent=2)
     assert isinstance(json_str, str)
 
@@ -226,7 +226,7 @@ def test_from_json_roundtrip():
     assert restored_text.tag == text_change.tag
 
     # Test AmendmentData round-trip
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
     data_json = data.to_json()
     restored_data = AmendmentData.from_json(data_json)
     assert isinstance(restored_data, AmendmentData)
@@ -234,7 +234,7 @@ def test_from_json_roundtrip():
     assert len(restored_data.amendments) == len(data.amendments)
 
     # Test BillAmendment round-trip
-    amendment = data.amendments[0]
+    amendment = next(iter(data.amendments.values()))
     amendment_json = amendment.to_json()
     restored_amendment = BillAmendment.from_json(amendment_json)
     assert isinstance(restored_amendment, BillAmendment)
@@ -430,8 +430,9 @@ def test_repr_methods():
     assert r.startswith("TextChange(")
     assert len(r) < 200
 
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
-    assert repr(data.amendments[0]).startswith("BillAmendment(")
+    data = parse_bill_amendments("119-hr-1","tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+    first_amendment = next(iter(data.amendments.values()))
+    assert repr(first_amendment).startswith("BillAmendment(")
 
 def test_merge_children_returns_none():
     """Regression: stub said -> USLMElement but the method has no return value."""

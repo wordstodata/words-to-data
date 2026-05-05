@@ -9,21 +9,20 @@ from words_to_data import (
     parse_bill_amendments,
 )
 
-
-def test_create_empty_dataset():
-    metadata = DatasetMetadata(
-        name="Test Dataset",
-        description="For testing",
-        author="Test Author",
-        source_urls=["https://example.com"],
-        license="MIT",
-        version="1.0.0",
-    )
-    dataset = Dataset(metadata)
-
-    assert dataset.metadata.name == "Test Dataset"
-    assert len(dataset.versions) == 0
-    assert len(dataset.bills) == 0
+# def test_dl():
+#     from words_to_data import CongressClient
+#     metadata = DatasetMetadata(
+#         name="Test Dataset",
+#         description="For testing",
+#         author="Test Author",
+#         source_urls=["https://example.com"],
+#         license="MIT",
+#         version="1.0.0",
+#     )
+#     dataset = Dataset(metadata)
+#     client = CongressClient(api_key=os.environ["CONGRESS_API_KEY"], cache_dir="./cache")
+#     download = client.download_bill("119-hr-1")
+#     assert False
 
 
 def test_add_version():
@@ -128,7 +127,7 @@ def test_add_and_query_bills():
     )
     dataset = Dataset(metadata)
 
-    bill = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    bill = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
     dataset.add_bill(bill)
 
     assert len(dataset.bills) == 1

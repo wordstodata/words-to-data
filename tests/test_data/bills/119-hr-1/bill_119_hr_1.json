@@ -1,0 +1,146 @@
+{
+    "bill": {
+        "actions": {
+            "count": 59,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/actions?format=json"
+        },
+        "amendments": {
+            "count": 493,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/amendments?format=json"
+        },
+        "cboCostEstimates": [
+            {
+                "description": "As passed by the House of Representatives on May 22, 2025",
+                "pubDate": "2025-06-04T14:00:00Z",
+                "title": "Estimated Budgetary Effects of H.R. 1, the One Big Beautiful Bill Act",
+                "url": "https://www.cbo.gov/publication/61461"
+            },
+            {
+                "description": "As passed by the House of Representatives on May 22, 2025",
+                "pubDate": "2025-06-17T18:00:00Z",
+                "title": "H.R. 1, One Big Beautiful Bill Act (Dynamic Estimate)",
+                "url": "https://www.cbo.gov/publication/61486"
+            },
+            {
+                "description": "CBO and the staff of the Joint Committee on Taxation have estimated the effects of the amendment relative to the baseline used for budget enforcement for consideration in the Senate.",
+                "pubDate": "2025-06-28T23:32:00Z",
+                "title": "Information About the Budgetary Effects of an Amendment in the Nature of a Substitute to H.R. 1, the One Big Beautiful Bill Act, as posted on the website of the Senate Committee on the Budget on June 27, 2025",
+                "url": "https://www.cbo.gov/publication/61536"
+            },
+            {
+                "description": "As posted on the website of the Senate Committee on the Budget on June 27, 2025",
+                "pubDate": "2025-06-29T03:29:00Z",
+                "title": "Estimated Budgetary Effects of an Amendment in the Nature of a Substitute to H.R. 1, the One Big Beautiful Bill Act, Relative to the Budget Enforcement Baseline for Consideration in the Senate",
+                "url": "https://www.cbo.gov/publication/61533"
+            },
+            {
+                "description": "As posted on the website of the Senate Committee on the Budget on June 27, 2025",
+                "pubDate": "2025-06-29T14:31:00Z",
+                "title": "Estimated Budgetary Effects of an Amendment in the Nature of a Substitute to H.R. 1, the One Big Beautiful Bill Act, Relative to CBO&#039;s January 2025 Baseline",
+                "url": "https://www.cbo.gov/publication/61534"
+            },
+            {
+                "description": "As posted on the website of the Senate Committee on the Budget on June 27, 2025",
+                "pubDate": "2025-06-29T14:43:00Z",
+                "title": "Estimated Budgetary Effects of Title VII, Finance, Within an Amendment in the Nature of a Substitute to H.R. 1",
+                "url": "https://www.cbo.gov/publication/61535"
+            },
+            {
+                "description": "As passed by the Senate on July 1, 2025",
+                "pubDate": "2025-07-02T01:45:00Z",
+                "title": "Information Concerning the Budgetary Effects of H.R. 1, as Passed by the Senate on July 1, 2025",
+                "url": "https://www.cbo.gov/publication/61537"
+            },
+            {
+                "description": "Public Law 119-21 as enacted on July 4, 2025",
+                "pubDate": "2025-07-21T18:15:00Z",
+                "title": "Estimated Budgetary Effects of Public Law 119-21, to Provide for Reconciliation Pursuant to Title II of H. Con. Res. 14, Relative to the Budget Enforcement Baseline for Consideration in the Senate",
+                "url": "https://www.cbo.gov/publication/61569"
+            },
+            {
+                "description": "Public Law 119-21 as enacted on July 4, 2025",
+                "pubDate": "2025-07-21T18:29:00Z",
+                "title": "Estimated Budgetary Effects of Public Law 119-21, to Provide for Reconciliation Pursuant to Title II of H. Con. Res. 14, Relative to CBO’s January 2025 Baseline",
+                "url": "https://www.cbo.gov/publication/61570"
+            }
+        ],
+        "committeeReports": [
+            {
+                "citation": "H. Rept. 119-106,Book 1",
+                "url": "https://api.congress.gov/v3/committee-report/119/HRPT/106?format=json"
+            },
+            {
+                "citation": "H. Rept. 119-106,Book 2",
+                "url": "https://api.congress.gov/v3/committee-report/119/HRPT/106?format=json"
+            }
+        ],
+        "committees": {
+            "count": 1,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/committees?format=json"
+        },
+        "congress": 119,
+        "introducedDate": "2025-05-20",
+        "latestAction": {
+            "actionDate": "2025-07-04",
+            "text": "Became Public Law No: 119-21."
+        },
+        "laws": [
+            {
+                "number": "119-21",
+                "type": "Public Law"
+            }
+        ],
+        "legislationUrl": "https://www.congress.gov/bill/119th-congress/house-bill/1",
+        "number": "1",
+        "originChamber": "House",
+        "originChamberCode": "H",
+        "policyArea": {
+            "name": "Economics and Public Finance"
+        },
+        "relatedBills": {
+            "count": 28,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/relatedbills?format=json"
+        },
+        "sponsors": [
+            {
+                "bioguideId": "A000375",
+                "district": 19,
+                "firstName": "Jodey",
+                "fullName": "Rep. Arrington, Jodey C. [R-TX-19]",
+                "isByRequest": "N",
+                "lastName": "Arrington",
+                "middleName": "C.",
+                "party": "R",
+                "state": "TX",
+                "url": "https://api.congress.gov/v3/member/A000375?format=json"
+            }
+        ],
+        "subjects": {
+            "count": 240,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/subjects?format=json"
+        },
+        "summaries": {
+            "count": 5,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/summaries?format=json"
+        },
+        "textVersions": {
+            "count": 6,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/text?format=json"
+        },
+        "title": "An act to provide for reconciliation pursuant to title II of H. Con. Res. 14.",
+        "titles": {
+            "count": 11,
+            "url": "https://api.congress.gov/v3/bill/119/hr/1/titles?format=json"
+        },
+        "type": "HR",
+        "updateDate": "2026-04-24T23:42:11Z",
+        "updateDateIncludingText": "2026-04-24T23:42:11Z"
+    },
+    "request": {
+        "billNumber": "1",
+        "billType": "hr",
+        "congress": "119",
+        "contentType": "application/json",
+        "format": "json"
+    }
+}

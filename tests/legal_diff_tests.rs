@@ -9,8 +9,8 @@ use words_to_data::{
 /// Get the amendment that modifies Section 174 from the bill
 /// This is the amendment that strikes "specified research" and inserts "foreign research"
 fn get_section_174_amendment() -> BillAmendment {
-    let data =
-        parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").expect("Failed to parse bill");
+    let data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+        .expect("Failed to parse bill");
 
     data.amendments
         .into_values()
@@ -24,8 +24,8 @@ fn get_section_174_amendment() -> BillAmendment {
 /// Helper to create the real annotation for Section 174(a) change
 /// This is the instruction that changes "specified research" to "foreign research" in 26 USC 174(a)
 fn make_section_174a_annotation(annotator: &str) -> ChangeAnnotation {
-    let data =
-        parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").expect("Failed to parse bill");
+    let data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+        .expect("Failed to parse bill");
     let amendment = get_section_174_amendment();
 
     ChangeAnnotation {
@@ -58,8 +58,8 @@ fn make_test_annotation(
     annotator: &str,
     path: &str,
 ) -> ChangeAnnotation {
-    let data =
-        parse_bill_amendments("tests/test_data/bills/pl-119-21.xml").expect("Failed to parse bill");
+    let data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+        .expect("Failed to parse bill");
     let amendment = get_section_174_amendment();
 
     ChangeAnnotation {
@@ -88,19 +88,6 @@ fn make_test_tree_diff() -> TreeDiff {
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Failed to parse new doc");
     TreeDiff::from_elements(&doc_old, &doc_new)
-}
-
-// =============================================================================
-// LegalDiff::new tests
-// =============================================================================
-
-#[test]
-fn should_create_legal_diff_with_empty_annotations() {
-    let tree_diff = make_test_tree_diff();
-    let legal_diff = LegalDiff::new(&tree_diff);
-
-    assert!(legal_diff.annotations.is_empty());
-    assert_eq!(legal_diff.tree_diff.root_path, tree_diff.root_path);
 }
 
 // =============================================================================

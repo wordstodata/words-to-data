@@ -12,7 +12,7 @@
   let oldDate = $state("2025-07-18");
   let newPath = $state("../tests/test_data/usc/2025-07-30/usc26.xml");
   let newDate = $state("2025-07-30");
-  let billPaths = $state(["../tests/test_data/bills/pl-119-21.xml"]);
+  let billPaths = $state(["../tests/test_data/bills/119-hr-1/bill_119_hr_1.xml"]);
 
   // ── loaded data ───────────────────────────────────────────────────────────────
   let treeDiff = $state(null);

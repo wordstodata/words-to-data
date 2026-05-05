@@ -1,0 +1,68 @@
+{
+  "member": {
+    "bioguideId": "L000174",
+    "birthYear": "1940",
+    "cosponsoredLegislation": {
+      "count": 7568,
+      "url": "https://api.congress.gov/v3/member/L000174/cosponsored-legislation?format=json"
+    },
+    "depiction": {
+      "attribution": "Image courtesy of the Member",
+      "imageUrl": "https://www.congress.gov/img/member/l000174_200.jpg"
+    },
+    "directOrderName": "Patrick J. Leahy",
+    "firstName": "Patrick",
+    "honorificName": "Mr.",
+    "invertedOrderName": "Leahy, Patrick J.",
+    "lastName": "Leahy",
+    "middleName": "J.",
+    "officialWebsiteUrl": "https://www.leahy.senate.gov/",
+    "partyHistory": [
+      {
+        "partyAbbreviation": "D",
+        "partyName": "Democratic",
+        "startYear": 1975
+      }
+    ],
+    "sponsoredLegislation": {
+      "count": 1537,
+      "url": "https://api.congress.gov/v3/member/L000174/sponsored-legislation?format=json"
+    },
+    "state": "Vermont",
+    "terms": [
+      {
+        "chamber": "Senate",
+        "congress": 94,
+        "endYear": 1977,
+        "memberType": "Senator",
+        "startYear": 1975,
+        "stateCode": "VT",
+        "stateName": "Vermont"
+      },
+      {
+        "chamber": "Senate",
+        "congress": 95,
+        "endYear": 1979,
+        "memberType": "Senator",
+        "startYear": 1977,
+        "stateCode": "VT",
+        "stateName": "Vermont"
+      },
+      {
+        "chamber": "Senate",
+        "congress": 117,
+        "endYear": 2023,
+        "memberType": "Senator",
+        "startYear": 2021,
+        "stateCode": "VT",
+        "stateName": "Vermont"
+      }
+    ],
+    "updateDate": "2024-03-22T17:21:17Z"
+  },
+  "request": {
+    "bioguideId": "L000174",
+    "contentType": "application/json",
+    "format": "json"
+  }
+}

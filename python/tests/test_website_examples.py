@@ -137,7 +137,7 @@ def test_website_example_extract_amendments():
     If this fails, update the "Extract Amendments from a Bill" section in index.html.
     """
     # Code from website example
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
 
     # Verify bill_id matches website (shows "119-21")
     assert data.bill_id == "119-21", (
@@ -159,10 +159,10 @@ def test_website_example_amendment_structure():
     Tests that amendments have the structure shown in the website example.
     If this fails, update the amendment output section in index.html.
     """
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
 
     # Website shows action_types field for each amendment
-    for amendment in data.amendments:
+    for amendment in data.amendments.values():
         # action_types should be accessible
         _ = amendment.action_types
 
@@ -170,7 +170,7 @@ def test_website_example_amendment_structure():
         assert len(amendment.amending_text) > 0, "Amendments should have amending_text"
 
     # Website shows some amendments have multiple action types
-    has_multiple_actions = any(len(a.action_types) > 1 for a in data.amendments)
+    has_multiple_actions = any(len(a.action_types) > 1 for a in data.amendments.values())
     assert has_multiple_actions, (
         "Some amendments should have multiple action types as shown on website"
     )
@@ -184,10 +184,10 @@ def test_website_example_amendment_output_format():
           USC sections modified: 1
           Actions: [Amend, Delete, Insert]
     """
-    data = parse_bill_amendments("tests/test_data/bills/pl-119-21.xml")
+    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
 
     # The website example shows iterating over amendments
-    for amendment in data.amendments[:5]:  # Just check first 5
+    for amendment in list(data.amendments.values())[:5]:  # Just check first 5
         # These are the fields accessed in the website example
         output_source = f"Amendment at: (source_path would be here)"
         output_actions = f"  Actions: {amendment.action_types}"
