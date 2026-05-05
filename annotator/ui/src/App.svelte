@@ -39,7 +39,7 @@
 
   // ── annotation review state ──────────────────────────────────────────────────
   let statusFilter = $state("all");
-  let isLegalDiffLoaded = $state(false); // Track if we loaded a legal_diff vs workspace
+  let isDatasetLoaded = $state(false); // Track if we loaded a Dataset
 
   // Annotation counts per amendment and per path
   let annotationsByAmendment = $derived.by(() => {
@@ -396,48 +396,29 @@
     }
   }
 
-  async function exportAnnotations() {
-    if (!treeDiff || annotations.length === 0) return;
-    const outputPath = await save({
-      title: "Save Legal Diff JSON",
-      defaultPath: "legal_diff.json",
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    });
-    if (!outputPath) return;
-    try {
-      await invoke("export_legal_diff", {
-        treeDiffJson: JSON.stringify(treeDiff),
-        annotationsJson: JSON.stringify(annotations),
-        billsJson: JSON.stringify(billsData),
-        outputPath,
-      });
-    } catch (e) {
-      error = String(e);
-    }
-  }
-
-  // ── workspace save/load ─────────────────────────────────────────────────────
-  async function saveWorkspace() {
+  async function saveDataset() {
     if (!treeDiff) {
-      error = "Load files first before saving workspace.";
+      error = "Load files first before saving dataset.";
+      return;
+    }
+    if (!oldPath || !newPath || !oldDate || !newDate) {
+      error = "File paths and dates are required to save dataset.";
       return;
     }
     const outputPath = await save({
-      title: "Save Workspace",
-      defaultPath: "workspace.json",
+      title: "Save Dataset JSON",
+      defaultPath: "dataset.json",
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!outputPath) return;
     try {
-      await invoke("save_workspace", {
-        treeDiffJson: JSON.stringify(treeDiff),
+      await invoke("save_dataset", {
         uscOldPath: oldPath,
         uscOldDate: oldDate,
         uscNewPath: newPath,
         uscNewDate: newDate,
-        billsJson: JSON.stringify(billsData),
-        billPaths: billPaths.filter((p) => p.trim() !== ""),
         annotationsJson: JSON.stringify(annotations),
+        billsJson: JSON.stringify(billsData),
         outputPath,
       });
     } catch (e) {
@@ -445,27 +426,24 @@
     }
   }
 
-  async function loadWorkspace() {
+  async function loadDataset() {
     const inputPath = await open({
-      title: "Load Workspace",
+      title: "Load Dataset",
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!inputPath) return;
     loading = true;
     error = "";
     try {
-      const workspaceJson = await invoke("load_workspace", { path: inputPath });
-      const workspace = JSON.parse(workspaceJson);
+      const responseJson = await invoke("load_dataset", { path: inputPath });
+      const response = JSON.parse(responseJson);
 
-      // Restore all state from workspace
-      treeDiff = workspace.tree_diff;
-      oldPath = workspace.usc_old_path;
-      oldDate = workspace.usc_old_date;
-      newPath = workspace.usc_new_path;
-      newDate = workspace.usc_new_date;
-      billsData = workspace.bills;
-      billPaths = workspace.bill_paths;
-      annotations = workspace.annotations;
+      // Populate state from Dataset
+      treeDiff = response.tree_diff;
+      annotations = response.annotations || [];
+      billsData = response.bills || [];
+      oldDate = response.from_date;
+      newDate = response.to_date;
 
       // Reconstruct derived state
       amendments = billsData.flatMap((bill) => Object.values(bill.amendments));
@@ -476,59 +454,13 @@
       selectedAmendment = null;
       selectedNodePaths = new Set();
       causativeText = "";
-      isLegalDiffLoaded = false;
-    } catch (e) {
-      error = String(e);
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function loadLegalDiff() {
-    const inputPath = await open({
-      title: "Load Legal Diff",
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    });
-    if (!inputPath) return;
-    loading = true;
-    error = "";
-    try {
-      const legalDiffJson = await invoke("load_legal_diff", { path: inputPath });
-      const legalDiff = JSON.parse(legalDiffJson);
-
-      // Populate state from LegalDiff
-      treeDiff = legalDiff.tree_diff;
-      annotations = legalDiff.annotations || [];
-
-      // Convert amendments dict to array for UI
-      amendments = Object.values(legalDiff.amendments || {});
-
-      // Create a synthetic billsData structure for compatibility
-      // The amendments are stored flat in LegalDiff, so we create a single pseudo-bill
-      billsData = [
-        {
-          bill_id: "legal_diff",
-          amendments: legalDiff.amendments || {},
-        },
-      ];
-      billPaths = [];
-
-      // Extract changed nodes from the tree diff
-      changedNodes = extractChangedNodes(treeDiff);
-      mentionMatches = new Map();
-
-      // Reset selection state
-      selectedAmendment = null;
-      selectedNodePaths = new Set();
-      causativeText = "";
       statusFilter = "all";
-      isLegalDiffLoaded = true;
+      isDatasetLoaded = true;
 
-      // Clear USC paths since we loaded from a LegalDiff
+      // Clear file paths since we loaded from a Dataset
       oldPath = "";
-      oldDate = "";
       newPath = "";
-      newDate = "";
+      billPaths = [];
     } catch (e) {
       error = String(e);
     } finally {
@@ -626,19 +558,16 @@
     <div class="workspace-buttons">
       <button
         class="btn-workspace"
-        onclick={saveWorkspace}
+        onclick={saveDataset}
         disabled={!treeDiff}
       >
-        Save Workspace
+        Save Dataset
       </button>
-      <button class="btn-workspace" onclick={loadWorkspace} disabled={loading}>
-        Load Workspace
+      <button class="btn-workspace" onclick={loadDataset} disabled={loading}>
+        Load Dataset
       </button>
-      <button class="btn-legal-diff" onclick={loadLegalDiff} disabled={loading}>
-        Load Legal Diff
-      </button>
-      {#if isLegalDiffLoaded}
-        <span class="badge badge-legal-diff">Review Mode</span>
+      {#if isDatasetLoaded}
+        <span class="badge badge-dataset">Dataset Loaded</span>
       {/if}
       <button
         class="btn-workspace"
@@ -925,10 +854,10 @@
 
     <button
       class="btn-export"
-      onclick={exportAnnotations}
-      disabled={annotations.length === 0}
+      onclick={saveDataset}
+      disabled={!treeDiff || !oldPath || !newPath || annotations.length === 0}
     >
-      Export ({annotations.length})
+      Save ({annotations.length})
     </button>
   </div>
 
@@ -1026,8 +955,8 @@
       {treeDiff}
       {amendments}
       {changedNodes}
-      onLoadLegalDiff={loadLegalDiff}
-      onExport={exportAnnotations}
+      onLoadDataset={loadDataset}
+      onSaveDataset={saveDataset}
     />
   {/if}
 </div>

@@ -12,9 +12,9 @@ use serde_with::serde_as;
 use std::collections::HashMap;
 use std::fs;
 
+use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillDownload, CosponsorRecord, Member, SponsorInfo};
 use crate::diff::TreeDiff;
-use crate::legal_diff::ChangeAnnotation;
 use crate::uslm::bill_parser::AmendmentData;
 use crate::uslm::parser::ParseError;
 use crate::uslm::{BillDiff, USLMElement};

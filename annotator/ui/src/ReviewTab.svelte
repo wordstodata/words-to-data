@@ -4,8 +4,8 @@
     treeDiff,
     amendments,
     changedNodes = [],
-    onLoadLegalDiff,
-    onExport,
+    onLoadDataset,
+    onSaveDataset,
   } = $props();
 
   // Build a lookup map from path to diff info
@@ -121,15 +121,15 @@
 
 <div class="review-tab">
   <div class="review-toolbar">
-    <button class="btn-legal-diff" onclick={onLoadLegalDiff}>
-      Load Legal Diff
+    <button class="btn-dataset" onclick={onLoadDataset}>
+      Load Dataset
     </button>
     <button
       class="btn-export"
-      onclick={onExport}
+      onclick={onSaveDataset}
       disabled={annotations.length === 0}
     >
-      Export ({annotations.length})
+      Save ({annotations.length})
     </button>
 
     <div class="toolbar-separator"></div>
@@ -163,7 +163,7 @@
     {#if annotations.length === 0}
       <div class="empty-state">
         <p>No annotations loaded.</p>
-        <p>Click "Load Legal Diff" to import annotations for review.</p>
+        <p>Click "Load Dataset" to import annotations for review.</p>
       </div>
     {:else if filteredAnnotations.length === 0}
       <div class="empty-state">

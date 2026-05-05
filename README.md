@@ -195,10 +195,11 @@ The `TreeDiff` structure mirrors the element hierarchy and tracks:
 
 Diffs are computed using word-level granularity via the `similar` crate.
 
-### Legal Diff Annotations
+### Dataset and Annotations
 
-The `LegalDiff` structure wraps a `TreeDiff` and adds an annotation layer for linking code changes to their legislative source:
+The `Dataset` structure stores versioned legal documents with bill annotations:
 
+- **VersionSnapshot**: A document tree at a specific point in time
 - **ChangeAnnotation**: Links one or more diff paths to a bill amendment
 - **BillReference**: Identifies the bill and specific amendment text that caused a change
 - **AnnotationMetadata**: Tracks verification status, confidence scores, annotator identity, and reasoning

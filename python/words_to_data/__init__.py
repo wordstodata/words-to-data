@@ -13,8 +13,7 @@ from .words_to_data import (
     BillDiff,
     AmendmentSimilarity,
     MentionMatch,
-    # legal_diff types
-    LegalDiff,
+    # annotation types
     ChangeAnnotation,
     BillReference,
     AnnotationMetadata,
@@ -50,8 +49,7 @@ __all__ = [
     "BillDiff",
     "AmendmentSimilarity",
     "MentionMatch",
-    # legal_diff types
-    "LegalDiff",
+    # annotation types
     "ChangeAnnotation",
     "BillReference",
     "AnnotationMetadata",

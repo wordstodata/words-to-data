@@ -1,9 +1,9 @@
 use std::fs::File;
 use std::io::BufReader;
 
+use words_to_data::annotation::ChangeAnnotation;
 use words_to_data::dataset::{Dataset, DatasetMetadata, VersionSnapshot};
 use words_to_data::diff::TreeDiff;
-use words_to_data::legal_diff::ChangeAnnotation;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 

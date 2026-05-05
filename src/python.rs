@@ -542,13 +542,12 @@ impl MentionMatch {
 }
 
 // ============================================================================
-// LegalDiff types
+// Annotation types
 // ============================================================================
 
-use crate::legal_diff::{
+use crate::annotation::{
     AnnotationMetadata as RustAnnotationMetadata, AnnotationStatus as RustAnnotationStatus,
     BillReference as RustBillReference, ChangeAnnotation as RustChangeAnnotation,
-    LegalDiff as RustLegalDiff,
 };
 use crate::uslm::AmendingAction;
 use std::str::FromStr;
@@ -811,114 +810,6 @@ impl ChangeAnnotation {
     }
 }
 
-/// A legal diff combining word-level changes with semantic annotations
-#[pyclass(from_py_object)]
-#[derive(Clone)]
-struct LegalDiff {
-    inner: RustLegalDiff,
-}
-
-impl LegalDiff {
-    fn from(rust_diff: &RustLegalDiff) -> Self {
-        LegalDiff {
-            inner: rust_diff.clone(),
-        }
-    }
-}
-
-#[pymethods]
-impl LegalDiff {
-    #[new]
-    fn new(tree_diff: &TreeDiff) -> Self {
-        let rust_legal_diff = RustLegalDiff::new(&tree_diff.inner);
-        LegalDiff {
-            inner: rust_legal_diff,
-        }
-    }
-
-    #[getter]
-    fn tree_diff(&self) -> TreeDiff {
-        TreeDiff::from(&self.inner.tree_diff)
-    }
-
-    #[getter]
-    fn annotations_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let data = serde_json::to_value(&self.inner.annotations)
-            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
-        pythonize(py, &data)
-            .map(|obj| obj.unbind())
-            .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
-    }
-
-    #[getter]
-    fn amendments_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let data = serde_json::to_value(&self.inner.amendments)
-            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
-        pythonize(py, &data)
-            .map(|obj| obj.unbind())
-            .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
-    }
-
-    /// Add an annotation for a specific structural path
-    fn add_annotation(&mut self, annotation: &ChangeAnnotation) {
-        self.inner.add_annotation(annotation.inner.clone());
-    }
-
-    /// Get all annotations for a specific path
-    fn get_annotations(&self, path: &str) -> Vec<ChangeAnnotation> {
-        self.inner
-            .get_annotations(path)
-            .into_iter()
-            .map(|annotation| ChangeAnnotation {
-                inner: annotation.clone(),
-            })
-            .collect()
-    }
-
-    /// Get the TreeDiff node for a specific path
-    fn get_diff_node(&self, path: &str) -> Option<TreeDiff> {
-        self.inner.get_diff_node(path).map(TreeDiff::from)
-    }
-
-    /// Get all paths that have annotations
-    fn annotated_paths(&self) -> Vec<String> {
-        self.inner.annotated_paths().iter().cloned().collect()
-    }
-
-    /// Get all paths in the TreeDiff that lack annotations
-    fn unannotated_paths(&self) -> Vec<String> {
-        self.inner.unannotated_paths()
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "LegalDiff(root_path='{}', annotations={})",
-            self.inner.tree_diff.root_path,
-            self.inner.annotations.len()
-        )
-    }
-
-    fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
-            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
-    }
-
-    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let data = serde_json::to_value(&self.inner)
-            .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
-        pythonize(py, &data)
-            .map(|obj| obj.unbind())
-            .map_err(|e| PyRuntimeError::new_err(format!("Conversion error: {}", e)))
-    }
-
-    #[staticmethod]
-    fn from_json(json_str: &str) -> PyResult<Self> {
-        let inner: RustLegalDiff = serde_json::from_str(json_str)
-            .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
-        Ok(Self::from(&inner))
-    }
-}
-
 // ============================================================================
 // Bill parsing types
 // ============================================================================
@@ -1026,17 +917,20 @@ impl BillAmendment {
     }
 
     fn __repr__(&self) -> String {
-        let text_preview = if self.inner.amending_text.len() > 50 {
-            format!("{}...", &self.inner.amending_text[..50])
+        let text_preview: String = self.inner.amending_text.chars().take(50).collect();
+        let ellipsis = if self.inner.amending_text.chars().count() > 50 {
+            "..."
         } else {
-            self.inner.amending_text.clone()
+            ""
         };
+        let id_preview: String = self.inner.id.chars().take(12).collect();
         format!(
-            "BillAmendment(id='{}', action_types={:?}, changes={}, amending_text='{}')",
-            &self.inner.id[..self.inner.id.len().min(12)],
+            "BillAmendment(id='{}', action_types={:?}, changes={}, amending_text='{}{}')",
+            id_preview,
             self.action_types(),
             self.inner.changes.len(),
-            text_preview
+            text_preview,
+            ellipsis
         )
     }
 
@@ -2116,8 +2010,7 @@ fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BillDiff>()?;
     m.add_class::<AmendmentSimilarity>()?;
     m.add_class::<MentionMatch>()?;
-    // legal_diff types
-    m.add_class::<LegalDiff>()?;
+    // annotation types
     m.add_class::<ChangeAnnotation>()?;
     m.add_class::<BillReference>()?;
     m.add_class::<AnnotationMetadata>()?;

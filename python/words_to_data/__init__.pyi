@@ -514,7 +514,7 @@ def parse_bill_amendments_from_str(bill_id: str, xml_str: str) -> AmendmentData:
     ...
 
 # ============================================================================
-# LegalDiff types
+# Annotation types
 # ============================================================================
 
 class BillReference:
@@ -660,84 +660,6 @@ class ChangeAnnotation:
     @staticmethod
     def from_json(json_str: str) -> ChangeAnnotation:
         """Deserialize a JSON string to a ChangeAnnotation."""
-        ...
-
-class LegalDiff:
-    """A legal diff combining word-level changes with semantic annotations"""
-
-    def __init__(self, tree_diff: TreeDiff) -> None:
-        """Create a new LegalDiff from an existing TreeDiff with no annotations.
-
-        Args:
-            tree_diff: The underlying word-level diff
-        """
-        ...
-
-    @property
-    def tree_diff(self) -> TreeDiff:
-        """The underlying word-level diffs"""
-        ...
-
-    @property
-    def annotations_dict(self) -> dict[str, list[dict[str, Any]]]:
-        """All annotations as a dictionary (path -> list of annotation dicts)"""
-        ...
-
-    @property
-    def amendments_dict(self) -> dict[str, dict[str, Any]]:
-        """The amendments that were annotated, keyed by amendment_id"""
-        ...
-
-    def add_annotation(self, annotation: ChangeAnnotation) -> None:
-        """Add an annotation for a specific structural path.
-
-        Args:
-            path: The structural path to annotate
-            annotation: The annotation to add
-        """
-        ...
-
-    def get_annotations(self, path: str) -> list[ChangeAnnotation]:
-        """Get all annotations for a specific path.
-
-        Args:
-            path: The structural path to look up
-
-        Returns:
-            List of annotations for the path (empty if none exist)
-        """
-        ...
-
-    def get_diff_node(self, path: str) -> TreeDiff | None:
-        """Get the TreeDiff node for a specific path.
-
-        Args:
-            path: The structural path to look up
-
-        Returns:
-            The TreeDiff node, or None if not found
-        """
-        ...
-
-    def annotated_paths(self) -> list[str]:
-        """Get all paths that have annotations."""
-        ...
-
-    def unannotated_paths(self) -> list[str]:
-        """Get all paths in the TreeDiff that lack annotations."""
-        ...
-
-    def to_json(self) -> str:
-        """Serialize to a JSON string."""
-        ...
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to a dictionary."""
-        ...
-
-    @staticmethod
-    def from_json(json_str: str) -> LegalDiff:
-        """Deserialize a JSON string to a LegalDiff."""
         ...
 
 # ============================================================================
