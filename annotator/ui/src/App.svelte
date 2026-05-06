@@ -16,7 +16,7 @@
 
   // ── loaded data ───────────────────────────────────────────────────────────────
   let treeDiff = $state(null);
-  let billsData = $state([]); // Array<AmendmentData>
+  let billsData = $state([]); // Array<Bill>
   let amendments = $state([]); // Array<BillAmendment> (flattened from all bills)
   let changedNodes = $state([]); // flat list of nodes with changes
 

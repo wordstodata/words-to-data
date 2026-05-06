@@ -185,12 +185,12 @@ class TreeDiff:
         ...
 
     def calculate_amendment_similarities(
-        self, amendment_data: AmendmentData
+        self, bill: Bill
     ) -> list[AmendmentSimilarity]:
-        """Calculate similarity between this TreeDiff and amendment data from a bill.
+        """Calculate similarity between this TreeDiff and bill data.
 
         Args:
-            amendment_data: The parsed amendment data from a bill
+            bill: The parsed bill data
 
         Returns:
             List of AmendmentSimilarity objects for TreeDiff paths that match
@@ -198,7 +198,7 @@ class TreeDiff:
         ...
 
     def scan_for_mentions(
-        self, amendment_data: AmendmentData
+        self, bill: Bill
     ) -> dict[str, list[MentionMatch]]:
         """Scan all amendment texts for mentions of changed sections.
 
@@ -206,7 +206,7 @@ class TreeDiff:
         in each amendment's amending_text.
 
         Args:
-            amendment_data: The parsed amendment data from a bill
+            bill: The parsed bill data
 
         Returns:
             Dictionary mapping amendment_id to list of MentionMatch objects
@@ -443,11 +443,11 @@ class BillAmendment:
         """Deserialize a JSON string to a BillAmendment."""
         ...
 
-class AmendmentData:
+class Bill:
     """Data extracted from a bill document"""
 
     def __init__(self, bill_id: str, amendments: list[BillAmendment]) -> None:
-        """Create a new AmendmentData.
+        """Create a new Bill.
 
         Args:
             bill_id: The bill identifier (e.g., '119-21' for the 119th Congress, 21st law)
@@ -470,19 +470,19 @@ class AmendmentData:
         ...
 
     def to_json(self) -> str:
-        """Serialize the amendment data to a JSON string."""
+        """Serialize the bill to a JSON string."""
         ...
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the amendment data to a dictionary."""
+        """Serialize the bill to a dictionary."""
         ...
 
     @staticmethod
-    def from_json(json_str: str) -> AmendmentData:
-        """Deserialize a JSON string to an AmendmentData."""
+    def from_json(json_str: str) -> Bill:
+        """Deserialize a JSON string to a Bill."""
         ...
 
-def parse_bill_amendments(bill_id: str, path: str) -> AmendmentData:
+def parse_bill_amendments(bill_id: str, path: str) -> Bill:
     """Parse a Public Law bill and extract amendments to the US Code.
 
     Args:
@@ -490,7 +490,7 @@ def parse_bill_amendments(bill_id: str, path: str) -> AmendmentData:
         path: Path to the Public Law XML file
 
     Returns:
-        AmendmentData containing the bill ID and all extracted amendments
+        Bill containing the bill ID and all extracted amendments
 
     Raises:
         ValueError: If the XML is invalid
@@ -498,7 +498,7 @@ def parse_bill_amendments(bill_id: str, path: str) -> AmendmentData:
     """
     ...
 
-def parse_bill_amendments_from_str(bill_id: str, xml_str: str) -> AmendmentData:
+def parse_bill_amendments_from_str(bill_id: str, xml_str: str) -> Bill:
     """Parse a Public Law bill XML string and extract amendments to the US Code.
 
     Args:
@@ -506,7 +506,7 @@ def parse_bill_amendments_from_str(bill_id: str, xml_str: str) -> AmendmentData:
         xml_str: The Public Law XML content as a string
 
     Returns:
-        AmendmentData containing the bill ID and all extracted amendments
+        Bill containing the bill ID and all extracted amendments
 
     Raises:
         ValueError: If the XML is invalid
@@ -825,7 +825,7 @@ class Dataset:
         ...
 
     @property
-    def bills(self) -> list[AmendmentData]:
+    def bills(self) -> list[Bill]:
         """Bills that caused changes in this dataset"""
         ...
 
@@ -949,22 +949,22 @@ class Dataset:
         """
         ...
 
-    def add_bill(self, bill: AmendmentData) -> None:
+    def add_bill(self, bill: Bill) -> None:
         """Add a bill to the dataset.
 
         Args:
-            bill: The bill's amendment data
+            bill: The bill data
         """
         ...
 
-    def get_bill(self, bill_id: str) -> AmendmentData | None:
+    def get_bill(self, bill_id: str) -> Bill | None:
         """Get a bill by its ID.
 
         Args:
             bill_id: The bill identifier (e.g., "119-21")
 
         Returns:
-            The amendment data, or None if not found
+            The bill data, or None if not found
         """
         ...
 

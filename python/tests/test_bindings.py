@@ -5,7 +5,7 @@ from words_to_data import (
     USLMElement,
     parse_bill_amendments,
     load_uslm_folder,
-    AmendmentData,
+    Bill,
     BillAmendment,
     FieldChangeEvent,
     TextChange,
@@ -56,15 +56,15 @@ def test_diffs():
 
 def test_bill_parsing():
     # Parse bill amendments
-    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+    bill = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
 
-    # Validate AmendmentData
-    assert isinstance(data, AmendmentData)
-    assert data.bill_id == "119-21"
-    assert len(data.amendments) > 0
+    # Validate Bill
+    assert isinstance(bill, Bill)
+    assert bill.bill_id == "119-21"
+    assert len(bill.amendments) > 0
 
     # Validate BillAmendment
-    amendment = next(iter(data.amendments.values()))
+    amendment = next(iter(bill.amendments.values()))
     assert isinstance(amendment, BillAmendment)
     assert len(amendment.amending_text) > 0
     assert len(amendment.action_types) > 0
@@ -121,16 +121,16 @@ def test_to_json_methods():
     parsed_text = json.loads(text_json)
     assert "value" in parsed_text
 
-    # Test AmendmentData.to_json() and nested types
-    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
-    data_json = data.to_json()
-    assert isinstance(data_json, str)
-    parsed_data = json.loads(data_json)
-    assert "bill_id" in parsed_data
-    assert "amendments" in parsed_data
+    # Test Bill.to_json() and nested types
+    bill = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+    bill_json = bill.to_json()
+    assert isinstance(bill_json, str)
+    parsed_bill = json.loads(bill_json)
+    assert "bill_id" in parsed_bill
+    assert "amendments" in parsed_bill
 
     # Test BillAmendment.to_json()
-    amendment = next(iter(data.amendments.values()))
+    amendment = next(iter(bill.amendments.values()))
     amendment_json = amendment.to_json()
     assert isinstance(amendment_json, str)
     parsed_amendment = json.loads(amendment_json)
@@ -157,8 +157,8 @@ def test_to_dict_methods():
     assert parsed == d
 
     # Test BillAmendment.to_dict()
-    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
-    amendment = next(iter(data.amendments.values()))
+    bill = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+    amendment = next(iter(bill.amendments.values()))
     amendment_dict = amendment.to_dict()
     assert isinstance(amendment_dict, dict)
     assert "id" in amendment_dict
@@ -166,7 +166,7 @@ def test_to_dict_methods():
     assert "action_types" in amendment_dict
 
     # Test list of amendments with json.dumps
-    amendments_list = [a.to_dict() for a in data.amendments.values()]
+    amendments_list = [a.to_dict() for a in bill.amendments.values()]
     json_str = json.dumps(amendments_list, indent=2)
     assert isinstance(json_str, str)
 
@@ -225,16 +225,16 @@ def test_from_json_roundtrip():
     assert restored_text.value == text_change.value
     assert restored_text.tag == text_change.tag
 
-    # Test AmendmentData round-trip
-    data = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
-    data_json = data.to_json()
-    restored_data = AmendmentData.from_json(data_json)
-    assert isinstance(restored_data, AmendmentData)
-    assert restored_data.bill_id == data.bill_id
-    assert len(restored_data.amendments) == len(data.amendments)
+    # Test Bill round-trip
+    bill = parse_bill_amendments("119-21", "tests/test_data/bills/119-hr-1/bill_119_hr_1.xml")
+    bill_json = bill.to_json()
+    restored_bill = Bill.from_json(bill_json)
+    assert isinstance(restored_bill, Bill)
+    assert restored_bill.bill_id == bill.bill_id
+    assert len(restored_bill.amendments) == len(bill.amendments)
 
     # Test BillAmendment round-trip
-    amendment = next(iter(data.amendments.values()))
+    amendment = next(iter(bill.amendments.values()))
     amendment_json = amendment.to_json()
     restored_amendment = BillAmendment.from_json(amendment_json)
     assert isinstance(restored_amendment, BillAmendment)

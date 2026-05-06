@@ -8,9 +8,7 @@ use similar::{ChangeTag, TextDiff};
 use time::Date;
 
 use crate::constants::STOP_WORDS;
-use crate::uslm::{
-    BillAmendment, ElementData, TextContentField, USLMElement, bill_parser::AmendmentData,
-};
+use crate::uslm::{BillAmendment, ElementData, TextContentField, USLMElement, bill_parser::Bill};
 
 /// A change detected in a single text content field between two document versions
 ///
@@ -354,7 +352,7 @@ impl TreeDiff {
     /// being the similarity data
     pub fn calculate_amendment_similarities(
         &self,
-        data: &AmendmentData,
+        data: &Bill,
     ) -> HashMap<String, AmendmentSimilarity> {
         let mut result = HashMap::new();
         self.calculate_similarities_recursive(&mut result, data);
@@ -364,7 +362,7 @@ impl TreeDiff {
     fn calculate_similarities_recursive(
         &self,
         result: &mut HashMap<String, AmendmentSimilarity>,
-        data: &AmendmentData,
+        data: &Bill,
     ) {
         // Check if this TreeDiff has any changes
         if !self.changes.is_empty() {
@@ -508,13 +506,13 @@ impl TreeDiff {
     ///
     /// # Arguments
     ///
-    /// * `data` - Amendment data from a parsed bill
+    /// * `data` - Bill data from a parsed bill
     ///
     /// # Returns
     ///
     /// A map from amendment_id to list of matches found in that amendment's text.
     /// For each tree_diff_path, only the most specific (longest) match is kept.
-    pub fn scan_for_mentions(&self, data: &AmendmentData) -> HashMap<String, Vec<MentionMatch>> {
+    pub fn scan_for_mentions(&self, data: &Bill) -> HashMap<String, Vec<MentionMatch>> {
         // Collect all regexes with their source paths recursively
         let regex_with_paths = self.collect_regexes_with_paths();
 

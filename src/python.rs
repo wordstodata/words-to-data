@@ -375,13 +375,8 @@ impl TreeDiff {
     /// Calculate similarity between this TreeDiff and amendment data from a bill
     ///
     /// Returns a dictionary mapping TreeDiff paths to their best-matching amendment
-    fn calculate_amendment_similarities(
-        &self,
-        amendment_data: &AmendmentData,
-    ) -> PyResult<Vec<AmendmentSimilarity>> {
-        let similarities = self
-            .inner
-            .calculate_amendment_similarities(&amendment_data.inner);
+    fn calculate_amendment_similarities(&self, bill: &Bill) -> PyResult<Vec<AmendmentSimilarity>> {
+        let similarities = self.inner.calculate_amendment_similarities(&bill.inner);
         Ok(similarities
             .into_values()
             .map(|s| AmendmentSimilarity { inner: s })
@@ -396,9 +391,9 @@ impl TreeDiff {
     /// Returns a dictionary mapping amendment_id to list of MentionMatch objects.
     fn scan_for_mentions(
         &self,
-        amendment_data: &AmendmentData,
+        bill: &Bill,
     ) -> PyResult<std::collections::HashMap<String, Vec<MentionMatch>>> {
-        let mentions = self.inner.scan_for_mentions(&amendment_data.inner);
+        let mentions = self.inner.scan_for_mentions(&bill.inner);
         Ok(mentions
             .into_iter()
             .map(|(k, v)| (k, v.iter().map(MentionMatch::from).collect()))
@@ -968,20 +963,20 @@ impl BillAmendment {
 }
 
 /// Data extracted from a bill document
-#[pyclass(from_py_object)]
+#[pyclass(name = "Bill", from_py_object)]
 #[derive(Clone)]
-struct AmendmentData {
-    inner: crate::uslm::bill_parser::AmendmentData,
+struct Bill {
+    inner: crate::uslm::bill_parser::Bill,
 }
 
-impl AmendmentData {
-    fn from(rust_data: crate::uslm::bill_parser::AmendmentData) -> Self {
-        AmendmentData { inner: rust_data }
+impl Bill {
+    fn from(rust_data: crate::uslm::bill_parser::Bill) -> Self {
+        Bill { inner: rust_data }
     }
 }
 
 #[pymethods]
-impl AmendmentData {
+impl Bill {
     #[new]
     fn new(bill_id: String, amendments: Vec<BillAmendment>) -> Self {
         let amendments_map: std::collections::HashMap<String, crate::uslm::BillAmendment> =
@@ -990,7 +985,7 @@ impl AmendmentData {
                 .map(|a| (a.inner.id.clone(), a.inner.clone()))
                 .collect();
 
-        let inner = crate::uslm::bill_parser::AmendmentData {
+        let inner = crate::uslm::bill_parser::Bill {
             bill_id,
             amendments: amendments_map,
         };
@@ -1021,7 +1016,7 @@ impl AmendmentData {
 
     fn __repr__(&self) -> String {
         format!(
-            "AmendmentData(bill_id='{}', amendments={})",
+            "Bill(bill_id='{}', amendments={})",
             self.inner.bill_id,
             self.inner.amendments.len()
         )
@@ -1042,7 +1037,7 @@ impl AmendmentData {
 
     #[staticmethod]
     fn from_json(json_str: &str) -> PyResult<Self> {
-        let inner: crate::uslm::bill_parser::AmendmentData = serde_json::from_str(json_str)
+        let inner: crate::uslm::bill_parser::Bill = serde_json::from_str(json_str)
             .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
         Ok(Self::from(inner))
     }
@@ -1107,16 +1102,16 @@ fn compute_diff(old_element: &USLMElement, new_element: &USLMElement) -> PyResul
 ///     path: Path to the Public Law XML file
 ///
 /// Returns:
-///     AmendmentData containing the bill ID and all extracted amendments
+///     Bill containing the bill ID and all extracted amendments
 ///
 /// Raises:
 ///     ValueError: If the XML is invalid
 ///     OSError: If the file cannot be read
 #[pyfunction]
-fn parse_bill_amendments(bill_id: &str, path: &str) -> PyResult<AmendmentData> {
+fn parse_bill_amendments(bill_id: &str, path: &str) -> PyResult<Bill> {
     let data = crate::uslm::bill_parser::parse_bill_amendments(bill_id, path)
         .map_err(parse_error_to_py)?;
-    Ok(AmendmentData::from(data))
+    Ok(Bill::from(data))
 }
 
 /// Parse a Public Law bill XML string and extract amendments to the US Code
@@ -1126,15 +1121,15 @@ fn parse_bill_amendments(bill_id: &str, path: &str) -> PyResult<AmendmentData> {
 ///     xml_str: The Public Law XML content as a string
 ///
 /// Returns:
-///     AmendmentData containing the bill ID and all extracted amendments
+///     Bill containing the bill ID and all extracted amendments
 ///
 /// Raises:
 ///     ValueError: If the XML is invalid
 #[pyfunction]
-fn parse_bill_amendments_from_str(bill_id: &str, xml_str: &str) -> PyResult<AmendmentData> {
+fn parse_bill_amendments_from_str(bill_id: &str, xml_str: &str) -> PyResult<Bill> {
     let data = crate::uslm::bill_parser::parse_bill_amendments_from_str(bill_id, xml_str)
         .map_err(parse_error_to_py)?;
-    Ok(AmendmentData::from(data))
+    Ok(Bill::from(data))
 }
 
 /// Load and merge all USLM XML files from a folder into a single element.
@@ -1380,11 +1375,11 @@ impl Dataset {
     }
 
     #[getter]
-    fn bills(&self) -> Vec<AmendmentData> {
+    fn bills(&self) -> Vec<Bill> {
         self.inner
             .bills
             .iter()
-            .map(|b| AmendmentData::from(b.clone()))
+            .map(|b| Bill::from(b.clone()))
             .collect()
     }
 
@@ -1439,14 +1434,12 @@ impl Dataset {
         Ok(TreeDiff::from(&diff))
     }
 
-    fn add_bill(&mut self, bill: &AmendmentData) {
+    fn add_bill(&mut self, bill: &Bill) {
         self.inner.add_bill(bill.inner.clone());
     }
 
-    fn get_bill(&self, bill_id: &str) -> Option<AmendmentData> {
-        self.inner
-            .get_bill(bill_id)
-            .map(|b| AmendmentData::from(b.clone()))
+    fn get_bill(&self, bill_id: &str) -> Option<Bill> {
+        self.inner.get_bill(bill_id).map(|b| Bill::from(b.clone()))
     }
 
     fn annotations_for_path(&self, path: &str) -> Vec<ChangeAnnotation> {
@@ -2005,7 +1998,7 @@ fn words_to_data(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TreeDiff>()?;
     m.add_class::<FieldChangeEvent>()?;
     m.add_class::<TextChange>()?;
-    m.add_class::<AmendmentData>()?;
+    m.add_class::<Bill>()?;
     m.add_class::<BillAmendment>()?;
     m.add_class::<BillDiff>()?;
     m.add_class::<AmendmentSimilarity>()?;

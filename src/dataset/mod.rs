@@ -15,7 +15,7 @@ use std::fs;
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillDownload, CosponsorRecord, Member, SponsorInfo};
 use crate::diff::TreeDiff;
-use crate::uslm::bill_parser::AmendmentData;
+use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
 use crate::uslm::{BillDiff, USLMElement};
 use crate::utils::{load_uslm_folder, parse_uslm_xml};
@@ -64,7 +64,7 @@ pub struct Dataset {
     pub versions: Vec<VersionSnapshot>,
 
     /// Bills that caused changes in this dataset
-    pub bills: Vec<AmendmentData>,
+    pub bills: Vec<Bill>,
 
     /// Annotations per version-pair
     #[serde_as(as = "Vec<(_, _)>")]
@@ -157,12 +157,12 @@ impl Dataset {
     }
 
     /// Add a bill to the dataset
-    pub fn add_bill(&mut self, bill: AmendmentData) {
+    pub fn add_bill(&mut self, bill: Bill) {
         self.bills.push(bill);
     }
 
     /// Get a bill by its ID
-    pub fn get_bill(&self, bill_id: &str) -> Option<&AmendmentData> {
+    pub fn get_bill(&self, bill_id: &str) -> Option<&Bill> {
         self.bills.iter().find(|b| b.bill_id == bill_id)
     }
 

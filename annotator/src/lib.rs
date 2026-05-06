@@ -7,7 +7,7 @@ use words_to_data::{
     diff::{MentionMatch, TreeDiff},
     uslm::{
         AmendingAction,
-        bill_parser::{AmendmentData, parse_bill_amendments},
+        bill_parser::{Bill, parse_bill_amendments},
     },
     utils::parse_uslm_xml,
 };
@@ -22,7 +22,7 @@ pub struct DatasetLoadResponse {
     pub annotations: Vec<ChangeAnnotation>,
 
     /// All bills from the dataset
-    pub bills: Vec<AmendmentData>,
+    pub bills: Vec<Bill>,
 
     /// Version dates
     pub from_date: String,
@@ -41,7 +41,7 @@ fn scan_amendments_for_mentions(
     bills_json: String,
 ) -> Result<String, String> {
     let tree_diff: TreeDiff = serde_json::from_str(&tree_diff_json).map_err(|e| e.to_string())?;
-    let bills: Vec<AmendmentData> = serde_json::from_str(&bills_json).map_err(|e| e.to_string())?;
+    let bills: Vec<Bill> = serde_json::from_str(&bills_json).map_err(|e| e.to_string())?;
 
     // Aggregate results across all bills
     let mut results: std::collections::HashMap<String, Vec<MentionMatch>> =
@@ -170,7 +170,7 @@ fn save_dataset(
 ) -> Result<(), String> {
     let annotations: Vec<ChangeAnnotation> =
         serde_json::from_str(&annotations_json).map_err(|e| e.to_string())?;
-    let bills: Vec<AmendmentData> = serde_json::from_str(&bills_json).map_err(|e| e.to_string())?;
+    let bills: Vec<Bill> = serde_json::from_str(&bills_json).map_err(|e| e.to_string())?;
 
     // Reload USC files to get full elements
     let old_element = parse_uslm_xml(&usc_old_path, &usc_old_date).map_err(|e| e.to_string())?;
