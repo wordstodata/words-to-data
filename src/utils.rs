@@ -60,7 +60,11 @@ pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<USLMElement> {
     }
     let mut parsed_files: Vec<USLMElement> = files
         .par_iter()
-        .map(|file| parse_uslm_xml(file.to_str().unwrap(), date).unwrap())
+        .map(|file| {
+            let pwd = file.to_str().unwrap();
+            let err = format!("Failed to parse {}", pwd);
+            parse_uslm_xml(pwd, date).expect(err.as_str())
+        })
         .collect();
     if parsed_files.is_empty() {
         return None;

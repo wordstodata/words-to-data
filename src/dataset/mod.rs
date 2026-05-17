@@ -17,11 +17,11 @@ use crate::congress::{
     BillDownload, BillVotes, CosponsorRecord, HouseRollCall, Member, SponsorInfo, VotePosition,
 };
 use crate::diff::TreeDiff;
+use crate::intern::StringInterner;
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
 use crate::uslm::{BillDiff, USLMElement};
 use crate::utils::{load_uslm_folder, parse_uslm_xml};
-
 /// Metadata describing a dataset
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetMetadata {
@@ -87,6 +87,9 @@ pub struct Dataset {
     #[serde_as(as = "Vec<(_, _)>")]
     #[serde(default)]
     pub bill_votes: HashMap<String, BillVotes>,
+
+    #[serde(skip)]
+    interner: StringInterner,
 }
 
 impl Dataset {
@@ -100,6 +103,7 @@ impl Dataset {
             members: HashMap::new(),
             sponsors: HashMap::new(),
             bill_votes: HashMap::new(),
+            interner: StringInterner::new(),
         }
     }
 
@@ -285,7 +289,8 @@ impl Dataset {
         date: &str,
         label: Option<String>,
     ) -> Result<(), ParseError> {
-        let result = parse_uslm_xml(xml_path, date)?;
+        let mut result = parse_uslm_xml(xml_path, date)?;
+        result.intern_strings(&mut self.interner);
         self.add_version(VersionSnapshot {
             date: date.to_string(),
             label,
@@ -313,8 +318,9 @@ impl Dataset {
         date: &str,
         label: Option<String>,
     ) -> Result<(), DatasetError> {
-        let element = load_uslm_folder(folder_path, date)
+        let mut element = load_uslm_folder(folder_path, date)
             .ok_or_else(|| DatasetError::FolderLoadFailed(folder_path.to_string()))?;
+        element.intern_strings(&mut self.interner);
         self.add_version(VersionSnapshot {
             date: date.to_string(),
             label,
@@ -355,9 +361,9 @@ impl Dataset {
             {
                 results.push(SearchResult {
                     date: date.to_string(),
-                    path: element.data.path.clone(),
+                    path: element.data.path.to_string(),
                     field: field_name.to_string(),
-                    snippet: text.clone(),
+                    snippet: text.to_string(),
                 });
             }
         }

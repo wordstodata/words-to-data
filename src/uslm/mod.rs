@@ -1,8 +1,10 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use time::Date;
+
+use crate::intern::StringInterner;
 
 pub mod bill_parser;
 pub mod parser;
@@ -481,7 +483,7 @@ pub struct ElementData {
     ///
     /// uscode/title_26/subtitle_k/chapter_100/subchapter_c/section_9834/level_1
     ///
-    pub path: String,
+    pub path: Arc<str>,
 
     /// The type of this element in the legislative hierarchy
     pub element_type: ElementType,
@@ -494,30 +496,30 @@ pub struct ElementData {
 
     // Display
     /// The raw number or identifier value (e.g., "174", "a", "1")
-    pub number_value: String,
+    pub number_value: Arc<str>,
 
     /// The formatted display version of the number (may include prefixes/suffixes)
-    pub number_display: String,
+    pub number_display: Arc<str>,
 
     /// A human-readable name for this element (e.g., "Section 174")
-    pub verbose_name: String,
+    pub verbose_name: Arc<str>,
 
     // Content Fields
     // These are the fields that we need to diff upon
     /// The heading or title text of the element
-    pub heading: Option<String>,
+    pub heading: Option<Arc<str>>,
 
     /// The words at the start of the element that appear before any enumerated items
-    pub chapeau: Option<String>,
+    pub chapeau: Option<Arc<str>>,
 
     /// A clause imposing a qualification, condition, or restriction
-    pub proviso: Option<String>,
+    pub proviso: Option<Arc<str>>,
 
     /// The main text content of the element
-    pub content: Option<String>,
+    pub content: Option<Arc<str>>,
 
     /// Text content that appears after all child elements
-    pub continuation: Option<String>,
+    pub continuation: Option<Arc<str>>,
 
     // Metadata
     /// The USLM-standard identifier path for this element
@@ -531,12 +533,12 @@ pub struct ElementData {
     ///
     /// Structural-only elements like Level will have None here, as they are not part
     /// of the USLM identifier scheme.
-    pub uslm_id: Option<String>,
+    pub uslm_id: Option<Arc<str>>,
 
     /// The USLM `id` attribute for an element
     ///
     /// Takes the form of a UUID, not guaranteed to exist
-    pub uslm_uuid: Option<String>,
+    pub uslm_uuid: Option<Arc<str>>,
 
     /// Source credits and references for this element
     pub source_credits: Vec<SourceCredit>,
@@ -554,7 +556,7 @@ impl ElementData {
     ///
     /// Returns `Some(String)` if the field has content, or `None` if the field
     /// is empty for this element.
-    pub fn get_text_content(&self, field: TextContentField) -> Option<String> {
+    pub fn get_text_content(&self, field: TextContentField) -> Option<Arc<str>> {
         match field {
             TextContentField::Heading => self.heading.clone(),
             TextContentField::Chapeau => self.chapeau.clone(),
@@ -562,6 +564,25 @@ impl ElementData {
             TextContentField::Content => self.content.clone(),
             TextContentField::Continuation => self.continuation.clone(),
         }
+    }
+
+    pub fn intern_strings(&mut self, interner: &mut StringInterner) {
+        // Required fields
+        self.path = interner.intern(&self.path);
+        self.number_value = interner.intern(&self.number_value);
+        self.number_display = interner.intern(&self.number_display);
+        self.verbose_name = interner.intern(&self.verbose_name);
+
+        // Optional text content fields
+        self.heading = interner.intern_option(&self.heading);
+        self.chapeau = interner.intern_option(&self.chapeau);
+        self.proviso = interner.intern_option(&self.proviso);
+        self.content = interner.intern_option(&self.content);
+        self.continuation = interner.intern_option(&self.continuation);
+
+        // Optional metadata fields
+        self.uslm_id = interner.intern_option(&self.uslm_id);
+        self.uslm_uuid = interner.intern_option(&self.uslm_uuid);
     }
 }
 
@@ -634,10 +655,10 @@ impl USLMElement {
     /// assert!(missing.is_none());
     /// ```
     pub fn find(&self, path: &str) -> Option<&USLMElement> {
-        if path == self.data.path.as_str() {
+        if *path == *self.data.path {
             return Some(self);
         }
-        let remaining_path = path.strip_prefix(self.data.path.as_str())?;
+        let remaining_path = path.strip_prefix(self.data.path.as_ref())?;
         let next_step: Vec<&str> = remaining_path.split("/").collect();
         assert!(next_step.len() > 1);
 
@@ -658,5 +679,12 @@ impl USLMElement {
     /// Merge the children of one node into another
     pub fn merge_children_mut(&mut self, other: &mut USLMElement) {
         self.children.append(&mut other.children);
+    }
+
+    pub fn intern_strings(&mut self, interner: &mut StringInterner) {
+        self.data.intern_strings(interner);
+        for child in self.children.iter_mut() {
+            child.intern_strings(interner);
+        }
     }
 }

@@ -19,7 +19,7 @@ crate-type = ["rlib", "cdylib"] # rlib = Rust consumers, cdylib = Python
 [dependencies]
 rayon = "1.11.0"
 roxmltree = "0.21.1"
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.148"
 similar = "2.7.0"
 thiserror = "2.0.17"
