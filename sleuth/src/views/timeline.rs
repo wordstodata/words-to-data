@@ -1,6 +1,6 @@
-//! Timeline scrubber pane
+//! Version navigation bar
 
-use iced::widget::{button, column, container, row, slider, text};
+use iced::widget::{button, container, row, text};
 use iced::{Element, Length};
 
 use crate::message::Message;
@@ -8,16 +8,16 @@ use crate::state::AppState;
 use crate::theme::colors;
 
 impl AppState {
-    /// Bottom panel: timeline with scrubber
+    /// Bottom bar: version arrows and info
     pub fn view_timeline(&self) -> Element<Message> {
         let Some(ref dataset) = self.dataset else {
-            return container(text("")).height(Length::Fixed(56.0)).into();
+            return container(text("")).height(Length::Fixed(36.0)).into();
         };
 
         let version_count = dataset.versions.len();
         if version_count == 0 {
             return container(text("No versions"))
-                .height(Length::Fixed(56.0))
+                .height(Length::Fixed(36.0))
                 .into();
         }
 
@@ -27,7 +27,6 @@ impl AppState {
             .map(|v| v.date.as_str())
             .unwrap_or("--");
 
-        // Version label
         let version_label = dataset
             .versions
             .get(self.selected_version_index)
@@ -53,7 +52,6 @@ impl AppState {
         .size(12)
         .color(colors::TEXT_SECONDARY);
 
-        // Navigation buttons
         let prev_btn = button(text("◀").size(12))
             .padding([4, 8])
             .on_press(Message::PrevVersion);
@@ -62,32 +60,14 @@ impl AppState {
             .padding([4, 8])
             .on_press(Message::NextVersion);
 
-        // Slider (only if >1 version)
-        let timeline_row: Element<Message> = if version_count > 1 {
-            let max = (version_count - 1) as u32;
-            let current = self.selected_version_index as u32;
-            let scrubber = slider(0..=max, current, |v| Message::VersionChange(v as usize))
-                .width(Length::Fill);
-
-            row![prev_btn, scrubber, next_btn]
-                .spacing(8)
-                .align_y(iced::Alignment::Center)
-                .into()
-        } else {
-            row![prev_btn, next_btn]
-                .spacing(8)
-                .align_y(iced::Alignment::Center)
-                .into()
-        };
-
-        let content = column![info, timeline_row]
-            .spacing(4)
-            .align_x(iced::Alignment::Center);
+        let content = row![prev_btn, info, next_btn]
+            .spacing(12)
+            .align_y(iced::Alignment::Center);
 
         container(content)
             .width(Length::Fill)
-            .height(Length::Fixed(56.0))
-            .padding(8)
+            .height(Length::Fixed(36.0))
+            .padding(4)
             .center_x(Length::Fill)
             .style(|_| container::Style {
                 background: Some(colors::PAPER_DARK.into()),
