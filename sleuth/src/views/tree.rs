@@ -141,7 +141,7 @@ impl AppState {
         element: &'a words_to_data::uslm::USLMElement,
         depth: usize,
     ) -> Element<'a, Message> {
-        let path = &element.data.path;
+        let path = &element.data.path.to_string();
         let is_expanded = self.tree_expanded.contains(path);
         let is_selected = self.selected_path.as_ref() == Some(path);
         let has_children = !element.children.is_empty();

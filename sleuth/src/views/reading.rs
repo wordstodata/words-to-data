@@ -68,7 +68,9 @@ impl AppState {
 
         // Continuation after children (same indent as parent)
         if let Some(ref continuation) = element.data.continuation {
-            let cont_block = text(continuation).size(14.0).color(colors::TEXT_PRIMARY);
+            let cont_block = text(continuation.to_string())
+                .size(14.0)
+                .color(colors::TEXT_PRIMARY);
             out.push(
                 container(cont_block)
                     .padding(Padding::default().left(indent))
@@ -156,7 +158,7 @@ impl AppState {
                 let blame_col = column![stripe, label].spacing(2);
 
                 // Clickable blame button
-                let path_clone = path.clone();
+                let path_clone = path.to_string();
                 let blame_btn = button(blame_col)
                     .padding(2)
                     .style(move |_, status| {
@@ -210,7 +212,7 @@ impl AppState {
                         );
                         let label = text(bill_id.clone()).size(10).color(colors::TEXT_SECONDARY);
                         let blame_col = column![stripe, label].spacing(2);
-                        let path_clone = path.clone();
+                        let path_clone = path.to_string();
                         let blame_btn = button(blame_col)
                             .padding(2)
                             .style(move |_, status| {

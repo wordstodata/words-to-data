@@ -3,7 +3,7 @@
 use iced::Task;
 use iced::keyboard::{Key, key::Named};
 
-use words_to_data::dataset::Dataset;
+use words_to_data::dataset::{Dataset, Format};
 
 use crate::message::{Message, ViewMode};
 use crate::state::AppState;
@@ -123,7 +123,7 @@ impl AppState {
             Message::FileSelected(path) => {
                 self.show_loader = false;
                 let path_str = path.to_string_lossy().to_string();
-                match Dataset::load(&path_str) {
+                match Dataset::load(&path_str, Format::Compact) {
                     Ok(dataset) => Task::done(Message::DatasetLoaded(Box::new(dataset))),
                     Err(e) => Task::done(Message::DatasetError(e.to_string())),
                 }
@@ -131,7 +131,7 @@ impl AppState {
             Message::FilePickerCancelled => Task::none(),
             Message::LoadDataset(path) => {
                 self.show_loader = false;
-                match Dataset::load(&path) {
+                match Dataset::load(&path, Format::Compact) {
                     Ok(dataset) => Task::done(Message::DatasetLoaded(Box::new(dataset))),
                     Err(e) => Task::done(Message::DatasetError(e.to_string())),
                 }
@@ -140,7 +140,7 @@ impl AppState {
                 // Auto-expand root and first level
                 if let Some(version) = dataset.versions.first() {
                     let root_path = version.element.data.path.clone();
-                    self.tree_expanded.insert(root_path);
+                    self.tree_expanded.insert(root_path.to_string());
                 }
                 self.dataset = Some(*dataset);
                 self.selected_version_index = 0;
