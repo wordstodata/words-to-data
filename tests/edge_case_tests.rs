@@ -56,9 +56,9 @@ fn test_parse_smallest_file() {
 
     let root = result.unwrap();
     // Root is now uscode container, first child is the title
-    assert_eq!(root.data.path, "uscode");
+    assert_eq!(root.data.path.as_ref(), "uscode");
     let title = &root.children[0];
-    assert_eq!(title.data.uslm_id.as_ref().unwrap(), "/us/usc/t9");
+    assert_eq!(title.data.uslm_id.as_deref().unwrap(), "/us/usc/t9");
 
     // Should have at least some content
     assert!(
@@ -75,9 +75,9 @@ fn test_parse_large_file() {
 
     let root = result.unwrap();
     // Root is now uscode container, first child is the title
-    assert_eq!(root.data.path, "uscode");
+    assert_eq!(root.data.path.as_ref(), "uscode");
     let title = &root.children[0];
-    assert_eq!(title.data.uslm_id.as_ref().unwrap(), "/us/usc/t7");
+    assert_eq!(title.data.uslm_id.as_deref().unwrap(), "/us/usc/t7");
 
     // Count elements to verify complete parsing
     fn count_elements(elem: &words_to_data::uslm::USLMElement) -> usize {

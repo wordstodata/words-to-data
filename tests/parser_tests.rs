@@ -14,7 +14,7 @@ fn test_parse_usc_title_7() {
 
     let root = result.unwrap();
     // Root is now uscode container
-    assert_eq!(root.data.path, "uscode");
+    assert_eq!(root.data.path.as_ref(), "uscode");
     assert!(
         root.data.uslm_id.is_none(),
         "USCode container has no uslm_id"
@@ -25,11 +25,11 @@ fn test_parse_usc_title_7() {
     assert!(!root.children.is_empty());
     let title = &root.children[0];
     assert_eq!(
-        title.data.uslm_id.as_ref().unwrap(),
+        title.data.uslm_id.as_deref().unwrap(),
         "/us/usc/t7",
         "First child (Title) should have uslm_id /us/usc/t7"
     );
-    assert_eq!(title.data.path, "uscode/title_7");
+    assert_eq!(title.data.path.as_ref(), "uscode/title_7");
 }
 
 #[test]
@@ -44,8 +44,8 @@ fn test_parse_public_law() {
     let root = result.unwrap();
     // Check that the root path is in USLM format
     // Note: XML uses "119-21" format (with hyphen)
-    let uslm_id = root.data.uslm_id.unwrap();
-    assert_eq!(uslm_id, "/us/pl/119-21");
+    let uslm_id = root.data.uslm_id.as_ref().unwrap();
+    assert_eq!(uslm_id.as_ref(), "/us/pl/119-21");
 
     // Check that children have structural format paths
     for child in &root.children {
@@ -94,8 +94,8 @@ fn test_appendix_vs_regular_titles(#[case] regular: &str, #[case] appendix: &str
         .unwrap_or_else(|_| panic!("Failed to parse usc{}.xml", appendix));
 
     // Both roots are uscode containers
-    assert_eq!(regular_root.data.path, "uscode");
-    assert_eq!(appendix_root.data.path, "uscode");
+    assert_eq!(regular_root.data.path.as_ref(), "uscode");
+    assert_eq!(appendix_root.data.path.as_ref(), "uscode");
 
     // Both should be USC documents
     assert!(matches!(

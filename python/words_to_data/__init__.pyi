@@ -788,26 +788,28 @@ class Dataset:
         ...
 
     @staticmethod
-    def load(path: str) -> Dataset:
-        """Load a dataset from a JSON file.
+    def load(path: str, format: Literal["compact", "json"] = "compact") -> Dataset:
+        """Load a dataset from file.
 
         Args:
-            path: Path to the JSON file
+            path: Path to the file
+            format: "compact" (default, smaller/faster) or "json" (raw, for debugging)
 
         Returns:
             The loaded dataset
 
         Raises:
             OSError: If the file cannot be read
-            ValueError: If the JSON is invalid
+            ValueError: If the format is invalid or file is malformed
         """
         ...
 
-    def save(self, path: str) -> None:
-        """Save the dataset to a JSON file.
+    def save(self, path: str, format: Literal["compact", "json"] = "compact") -> None:
+        """Save the dataset to file.
 
         Args:
-            path: Path where the JSON file will be written
+            path: Path where the file will be written
+            format: "compact" (default, smaller/faster) or "json" (raw, for debugging)
 
         Raises:
             OSError: If the file cannot be written

@@ -4,7 +4,7 @@
 //! If any of these tests fail, the README examples need to be updated.
 
 use words_to_data::{
-    dataset::{Dataset, DatasetMetadata},
+    dataset::{Dataset, DatasetMetadata, Format},
     uslm::bill_parser::parse_bill_amendments,
 };
 
@@ -69,7 +69,7 @@ fn readme_example_dataset_workflow() {
     // Save dataset (to temp file)
     let temp_path = std::env::temp_dir().join("readme_test_dataset.json");
     dataset
-        .save(temp_path.to_str().unwrap())
+        .save(temp_path.to_str().unwrap(), Format::Compact)
         .expect("Failed to save dataset");
 
     // Cleanup

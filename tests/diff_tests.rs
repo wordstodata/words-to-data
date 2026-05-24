@@ -56,7 +56,7 @@ fn test_diff_generation_across_titles(#[case] title: &str) {
 
     // The diff may or may not have changes depending on the title
     // Just verify the diff structure is valid
-    assert_eq!(diff.root_path, tree1.data.path);
+    assert_eq!(diff.root_path, tree1.data.path.as_ref());
 }
 
 #[test]

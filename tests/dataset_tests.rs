@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 
 use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, VersionSnapshot};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format, VersionSnapshot};
 use words_to_data::diff::TreeDiff;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
@@ -146,10 +146,12 @@ fn should_save_and_load_file() {
     let path = "/tmp/dataset_test_save_load.json";
 
     // Save
-    dataset.save(path).expect("save should succeed");
+    dataset
+        .save(path, Format::Compact)
+        .expect("save should succeed");
 
     // Load
-    let loaded = Dataset::load(path).expect("load should succeed");
+    let loaded = Dataset::load(path, Format::Compact).expect("load should succeed");
 
     assert_eq!(loaded.metadata.name, "Test");
     assert_eq!(loaded.versions.len(), 1);

@@ -14,9 +14,20 @@ use crate::congress::{
     VotePosition as RustVotePosition,
 };
 use crate::dataset::{
-    Dataset as RustDataset, DatasetError, DatasetMetadata as RustDatasetMetadata,
+    Dataset as RustDataset, DatasetError, DatasetMetadata as RustDatasetMetadata, Format,
     SearchResult as RustSearchResult, VersionSnapshot as RustVersionSnapshot,
 };
+
+fn parse_format(format: &str) -> PyResult<Format> {
+    match format.to_lowercase().as_str() {
+        "compact" => Ok(Format::Compact),
+        "json" => Ok(Format::Json),
+        _ => Err(PyValueError::new_err(format!(
+            "Unknown format '{}'. Use 'compact' or 'json'.",
+            format
+        ))),
+    }
+}
 use crate::diff::{
     AmendmentSimilarity as RustAmendmentSimilarity, MentionMatch as RustMentionMatch,
     TreeDiff as RustTreeDiff,
@@ -1350,14 +1361,28 @@ impl Dataset {
         }
     }
 
+    /// Load dataset from file
+    ///
+    /// Args:
+    ///     path: File path to load from
+    ///     format: "compact" (default, smaller/faster) or "json" (raw, for debugging)
     #[staticmethod]
-    fn load(path: &str) -> PyResult<Self> {
-        let inner = RustDataset::load(path).map_err(dataset_error_to_py)?;
+    #[pyo3(signature = (path, format="compact"))]
+    fn load(path: &str, format: &str) -> PyResult<Self> {
+        let fmt = parse_format(format)?;
+        let inner = RustDataset::load(path, fmt).map_err(dataset_error_to_py)?;
         Ok(Dataset { inner })
     }
 
-    fn save(&self, path: &str) -> PyResult<()> {
-        self.inner.save(path).map_err(dataset_error_to_py)
+    /// Save dataset to file
+    ///
+    /// Args:
+    ///     path: File path to save to
+    ///     format: "compact" (default, smaller/faster) or "json" (raw, for debugging)
+    #[pyo3(signature = (path, format="compact"))]
+    fn save(&self, path: &str, format: &str) -> PyResult<()> {
+        let fmt = parse_format(format)?;
+        self.inner.save(path, fmt).map_err(dataset_error_to_py)
     }
 
     #[getter]

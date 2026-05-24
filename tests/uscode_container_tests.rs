@@ -14,7 +14,7 @@ fn should_parse_title_with_uscode_root() {
 
     // Root should be uscode container
     assert_eq!(element.data.element_type, ElementType::USCodeDocument);
-    assert_eq!(element.data.path, "uscode");
+    assert_eq!(element.data.path.as_ref(), "uscode");
 
     // Document type should indicate this is a USCode container
     match &element.data.document_type {
@@ -28,5 +28,5 @@ fn should_parse_title_with_uscode_root() {
     assert!(!element.children.is_empty());
     let title = &element.children[0];
     assert_eq!(title.data.element_type, ElementType::Title);
-    assert_eq!(title.data.path, "uscode/title_7");
+    assert_eq!(title.data.path.as_ref(), "uscode/title_7");
 }
