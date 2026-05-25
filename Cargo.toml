@@ -23,7 +23,7 @@ serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.148"
 similar = "2.7.0"
 thiserror = "2.0.17"
-time = { version = "0.3.44", features = ["serde", "formatting"] }
+time = { version = "0.3.44", features = ["serde", "formatting", "parsing"] }
 pyo3 = { version = "0.28", features = [
     "extension-module",
     "serde",
@@ -31,6 +31,7 @@ pyo3 = { version = "0.28", features = [
 pythonize = { version = "0.28", features = [
     "arbitrary_precision",
 ], optional = true }
+rusqlite = { version = "0.35", features = ["bundled", "serialize"] }
 sha2 = "0.11.0"
 hex = "0.4.3"
 regex = "1.12.3"

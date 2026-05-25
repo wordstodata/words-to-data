@@ -8,16 +8,17 @@ mod error;
 pub use error::DatasetError;
 
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
-use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{
     BillDownload, BillVotes, CosponsorRecord, HouseRollCall, Member, SponsorInfo, VotePosition,
 };
 use crate::diff::TreeDiff;
-use crate::intern::StringInterner;
+use crate::storage::{
+    DatasetReader, DatasetWriter, InMemoryStorage, SqliteStorage, Storage, VersionInfo,
+};
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
 use crate::uslm::{BillDiff, USLMElement};
@@ -31,10 +32,12 @@ pub enum Format {
     Compact,
     /// Raw JSON with full data (larger, for debugging/interop)
     Json,
+    /// SQLite database (scalable, supports lazy loading)
+    Sqlite,
 }
 
 /// Metadata describing a dataset
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DatasetMetadata {
     pub name: String,
     pub description: String,
@@ -68,235 +71,152 @@ pub struct SearchResult {
 pub type VersionPair = (String, String);
 
 /// A collection of versioned legal documents with bill annotations
-#[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Dataset {
-    pub metadata: DatasetMetadata,
-
-    /// Chronologically sorted version snapshots
-    pub versions: Vec<VersionSnapshot>,
-
-    /// Bills that caused changes in this dataset
-    #[serde_as(as = "Vec<(_, _)>")]
-    pub bills: HashMap<String, Bill>,
-
-    /// Annotations per version-pair
-    #[serde_as(as = "Vec<(_, _)>")]
-    pub diff_annotations: HashMap<VersionPair, Vec<ChangeAnnotation>>,
-
-    /// Congress members by bioguide ID
-    #[serde_as(as = "Vec<(_, _)>")]
-    #[serde(default)]
-    pub members: HashMap<String, Member>,
-
-    /// Sponsor info by bill ID
-    #[serde_as(as = "Vec<(_, _)>")]
-    #[serde(default)]
-    pub sponsors: HashMap<String, SponsorInfo>,
-
-    /// Roll call votes by bill ID
-    #[serde_as(as = "Vec<(_, _)>")]
-    #[serde(default)]
-    pub bill_votes: HashMap<String, BillVotes>,
-
-    #[serde(skip)]
-    interner: StringInterner,
+///
+/// Generic over storage backend. Use `Dataset<InMemoryStorage>` for in-memory
+/// or `Dataset<SqliteStorage>` for database-backed storage.
+pub struct Dataset<S: Storage> {
+    storage: S,
 }
 
-impl Dataset {
-    /// Create a new empty dataset with the given metadata
-    pub fn new(metadata: DatasetMetadata) -> Self {
-        Dataset {
-            metadata,
-            versions: Vec::new(),
-            bills: HashMap::new(),
-            diff_annotations: HashMap::new(),
-            members: HashMap::new(),
-            sponsors: HashMap::new(),
-            bill_votes: HashMap::new(),
-            interner: StringInterner::new(),
-        }
+impl<S: Storage> Dataset<S> {
+    /// Create a dataset with the given storage backend
+    pub fn with_storage(storage: S) -> Self {
+        Self { storage }
     }
 
-    /// Add a version snapshot, maintaining chronological order by date
-    pub fn add_version(&mut self, snapshot: VersionSnapshot) {
-        let pos = self
-            .versions
-            .binary_search_by(|v| v.date.cmp(&snapshot.date))
-            .unwrap_or_else(|pos| pos);
-        self.versions.insert(pos, snapshot);
+    /// Get reference to underlying storage
+    pub fn storage(&self) -> &S {
+        &self.storage
     }
 
-    /// Get a version snapshot by exact date
-    pub fn get_version(&self, date: &str) -> Option<&VersionSnapshot> {
-        self.versions.iter().find(|v| v.date == date)
+    /// Get mutable reference to underlying storage
+    pub fn storage_mut(&mut self) -> &mut S {
+        &mut self.storage
     }
 
-    /// Get a version snapshot by label
-    pub fn get_version_by_label(&self, label: &str) -> Option<&VersionSnapshot> {
-        self.versions
-            .iter()
-            .find(|v| v.label.as_deref() == Some(label))
+    // --- Delegate DatasetReader methods ---
+
+    pub fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
+        self.storage.list_versions()
     }
 
-    /// Get the version after the given date
-    pub fn next_version(&self, date: &str) -> Option<&VersionSnapshot> {
-        let pos = self.versions.iter().position(|v| v.date == date)?;
-        self.versions.get(pos + 1)
+    pub fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.get_version(date)
     }
 
-    /// Get the version before the given date
-    pub fn prev_version(&self, date: &str) -> Option<&VersionSnapshot> {
-        let pos = self.versions.iter().position(|v| v.date == date)?;
-        if pos == 0 {
-            None
-        } else {
-            self.versions.get(pos - 1)
-        }
+    pub fn get_version_by_label(
+        &self,
+        label: &str,
+    ) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.get_version_by_label(label)
     }
 
-    /// Save dataset to file
-    ///
-    /// # Arguments
-    /// * `path` - File path to save to
-    /// * `format` - Serialization format (Compact or Json)
-    pub fn save(&self, path: &str, format: Format) -> Result<(), DatasetError> {
-        match format {
-            Format::Compact => {
-                use crate::compact::DatasetCompact;
-                let compact = DatasetCompact::from_dataset(self);
-                let json = serde_json::to_string(&compact)?;
-                fs::write(path, json)?;
-            }
-            Format::Json => {
-                let json = serde_json::to_string_pretty(self)?;
-                fs::write(path, json)?;
-            }
-        }
-        Ok(())
+    pub fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.next_version(date)
     }
 
-    /// Load dataset from file
-    ///
-    /// # Arguments
-    /// * `path` - File path to load from
-    /// * `format` - Serialization format (Compact or Json)
-    pub fn load(path: &str, format: Format) -> Result<Self, DatasetError> {
-        match format {
-            Format::Compact => {
-                use crate::compact::DatasetCompact;
-                let json = fs::read_to_string(path)?;
-                let compact: DatasetCompact = serde_json::from_str(&json)?;
-                Ok(compact.into_dataset())
-            }
-            Format::Json => {
-                let json = fs::read_to_string(path)?;
-                let mut dataset: Dataset = serde_json::from_str(&json)?;
-                dataset.intern_strings();
-                Ok(dataset)
-            }
-        }
+    pub fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.prev_version(date)
     }
 
-    /// Create dataset from parts (used by compact loader)
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_parts(
-        metadata: DatasetMetadata,
-        versions: Vec<VersionSnapshot>,
-        bills: HashMap<String, Bill>,
-        diff_annotations: HashMap<VersionPair, Vec<ChangeAnnotation>>,
-        members: HashMap<String, Member>,
-        sponsors: HashMap<String, SponsorInfo>,
-        bill_votes: HashMap<String, BillVotes>,
-        interner: StringInterner,
-    ) -> Self {
-        Self {
-            metadata,
-            versions,
-            bills,
-            diff_annotations,
-            members,
-            sponsors,
-            bill_votes,
-            interner,
-        }
+    pub fn get_bill(&self, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
+        self.storage.get_bill(bill_id)
     }
 
-    pub fn intern_strings(&mut self) {
-        for version in self.versions.iter_mut() {
-            version.element.intern_strings(&mut self.interner);
-        }
+    pub fn get_annotations(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
+        self.storage.get_annotations(from, to)
     }
 
-    /// Compute diff between two versions by date
+    pub fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
+        self.storage.get_member(bioguide_id)
+    }
+
+    pub fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
+        self.storage.get_sponsor_info(bill_id)
+    }
+
+    pub fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
+        self.storage.get_bill_votes(bill_id)
+    }
+
     pub fn compute_diff(&self, from_date: &str, to_date: &str) -> Result<TreeDiff, DatasetError> {
-        let from = self
-            .get_version(from_date)
-            .ok_or_else(|| DatasetError::VersionNotFound(from_date.to_string()))?;
-        let to = self
-            .get_version(to_date)
-            .ok_or_else(|| DatasetError::VersionNotFound(to_date.to_string()))?;
-        Ok(TreeDiff::from_elements(&from.element, &to.element))
+        self.storage.compute_diff(from_date, to_date)
     }
 
-    /// Add a bill to the dataset
-    pub fn add_bill(&mut self, bill: Bill) {
-        self.bills.insert(bill.bill_id.clone(), bill);
+    pub fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
+        self.storage.search_text(query)
     }
 
-    /// Get a bill by its ID
-    pub fn get_bill(&self, bill_id: &str) -> Option<&Bill> {
-        self.bills.get(bill_id)
+    pub fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        self.storage.annotations_for_path(path)
     }
 
-    pub fn add_changes_to_amendment(&mut self, amendment_id: &str, bill_diff: &BillDiff) {
-        for bill in self.bills.values_mut() {
-            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
-                amendment.changes.push(bill_diff.clone());
-                return;
-            }
-        }
+    pub fn annotations_for_bill(
+        &self,
+        bill_id: &str,
+    ) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        self.storage.annotations_for_bill(bill_id)
     }
 
-    /// Get annotations for a specific version pair
-    pub fn get_annotations(&self, from: &str, to: &str) -> Option<&Vec<ChangeAnnotation>> {
-        self.diff_annotations
-            .get(&(from.to_string(), to.to_string()))
+    pub fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+        self.storage.find_element(path)
     }
 
-    /// Get mutable annotations for a specific version pair
-    pub fn get_annotations_mut(&mut self, from: &str, to: &str) -> &mut Vec<ChangeAnnotation> {
-        self.diff_annotations
-            .entry((from.to_string(), to.to_string()))
-            .or_default()
+    pub fn votes_by_member(
+        &self,
+        bioguide_id: &str,
+    ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
+        self.storage.votes_by_member(bioguide_id)
     }
 
-    /// Add an annotation for a specific version pair
-    pub fn add_annotation(&mut self, from: &str, to: &str, annotation: ChangeAnnotation) {
-        self.get_annotations_mut(from, to).push(annotation);
+    // --- Delegate DatasetWriter methods ---
+
+    pub fn metadata(&self) -> &DatasetMetadata {
+        self.storage.metadata()
     }
 
-    /// Get all annotations that include the given path (searches all version pairs)
-    pub fn annotations_for_path(&self, path: &str) -> Vec<&ChangeAnnotation> {
-        self.diff_annotations
-            .values()
-            .flatten()
-            .filter(|a| a.paths.iter().any(|p| p == path))
-            .collect()
+    pub fn set_metadata(&mut self, metadata: DatasetMetadata) {
+        self.storage.set_metadata(metadata)
     }
 
-    /// Get all annotations associated with the given bill ID (searches all version pairs)
-    pub fn annotations_for_bill(&self, bill_id: &str) -> Vec<&ChangeAnnotation> {
-        self.diff_annotations
-            .values()
-            .flatten()
-            .filter(|a| a.source_bill.bill_id == bill_id)
-            .collect()
+    pub fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError> {
+        self.storage.add_version(snapshot)
+    }
+
+    pub fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
+        self.storage.add_bill(bill)
+    }
+
+    pub fn add_annotation(
+        &mut self,
+        from: &str,
+        to: &str,
+        annotation: ChangeAnnotation,
+    ) -> Result<(), DatasetError> {
+        self.storage.add_annotation(from, to, annotation)
+    }
+
+    pub fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
+        self.storage.add_member(member)
+    }
+
+    pub fn add_sponsor_info(&mut self, info: SponsorInfo) -> Result<(), DatasetError> {
+        self.storage.add_sponsor_info(info)
+    }
+
+    pub fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
+        self.storage.add_bill_votes(votes)
     }
 
     /// Get paths that have annotations for a version pair
     pub fn annotated_paths(&self, from: &str, to: &str) -> Vec<String> {
         self.get_annotations(from, to)
+            .ok()
+            .flatten()
             .map(|annotations| {
                 annotations
                     .iter()
@@ -331,199 +251,114 @@ impl Dataset {
             Self::collect_paths_with_changes(child, paths);
         }
     }
+}
 
-    /// Find an element by path across all versions
-    ///
-    /// Returns tuples of (date, element) for each version containing the path
-    pub fn find_element(&self, path: &str) -> Vec<(&str, &USLMElement)> {
-        self.versions
-            .iter()
-            .filter_map(|v| v.element.find(path).map(|e| (v.date.as_str(), e)))
-            .collect()
+// --- InMemoryStorage-specific methods ---
+
+impl Clone for Dataset<InMemoryStorage> {
+    fn clone(&self) -> Self {
+        Self {
+            storage: self.storage.clone(),
+        }
+    }
+}
+
+impl Dataset<InMemoryStorage> {
+    /// Create a new in-memory dataset with the given metadata
+    pub fn new(metadata: DatasetMetadata) -> Self {
+        Self::with_storage(InMemoryStorage::new(metadata))
     }
 
-    /// Parse a USLM XML file into a USLMElement tree and add it to the dataset as a snapshot
-    ///
-    /// # Arguments
-    ///
-    /// * `xml_path` - Path to the USLM XML file
-    /// * `date` - Publication date string in "YYYY-MM-DD" format
-    /// * `label` - Optional label for the snapshot
-    ///
-    /// # Returns
-    ///
-    /// The OK(()), or a `ParseError` if parsing fails.
+    /// Add changes to an amendment in any bill
+    pub fn add_changes_to_amendment(&mut self, amendment_id: &str, bill_diff: &BillDiff) {
+        for bill in self.storage.bills.values_mut() {
+            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
+                amendment.changes.push(bill_diff.clone());
+                return;
+            }
+        }
+    }
+
+    /// Parse a USLM XML file and add it as a version
     pub fn add_uslm_xml(
         &mut self,
         xml_path: &str,
         date: &str,
         label: Option<String>,
     ) -> Result<(), ParseError> {
-        let mut result = parse_uslm_xml(xml_path, date)?;
-        result.intern_strings(&mut self.interner);
+        let result = parse_uslm_xml(xml_path, date)?;
         self.add_version(VersionSnapshot {
             date: date.to_string(),
             label,
             element: result,
-        });
-        Ok(())
+        })
+        .map_err(|e| ParseError::Io(std::io::Error::other(e)))
     }
 
-    /// Load and merge all USLM XML files from a folder into a single element and add it to
-    /// the dataset as a snapshot
-    ///
-    /// Reads all .xml files from the folder, parses them in parallel using Rayon,
-    /// and merges all parsed elements' children into a single root element. This is
-    /// useful for loading a complete US Code title that may be split across multiple
-    /// XML files.
-    ///
-    /// # Arguments
-    ///
-    /// * `folder_path` - Path to directory containing USLM XML files
-    /// * `date` - Publication date string in "YYYY-MM-DD" format
-    /// * `label` - Optional label for the snapshot
+    /// Load and merge all USLM XML files from a folder
     pub fn add_uslm_folder(
         &mut self,
         folder_path: &str,
         date: &str,
         label: Option<String>,
     ) -> Result<(), DatasetError> {
-        let mut element = load_uslm_folder(folder_path, date)
+        let element = load_uslm_folder(folder_path, date)
             .ok_or_else(|| DatasetError::FolderLoadFailed(folder_path.to_string()))?;
-        element.intern_strings(&mut self.interner);
         self.add_version(VersionSnapshot {
             date: date.to_string(),
             label,
             element,
-        });
+        })
+    }
+
+    /// Save to file in specified format
+    pub fn save(&self, path: &str, format: Format) -> Result<(), DatasetError> {
+        match format {
+            Format::Compact => {
+                use crate::compact::DatasetCompact;
+                let compact = DatasetCompact::from_storage(self.storage());
+                let json = serde_json::to_string(&compact)?;
+                fs::write(path, json)?;
+            }
+            Format::Json => {
+                let json = serde_json::to_string_pretty(self.storage())?;
+                fs::write(path, json)?;
+            }
+            Format::Sqlite => {
+                let mut sqlite = SqliteStorage::open(path)?;
+                sqlite.save_from_memory(self.storage())?;
+            }
+        }
         Ok(())
     }
 
-    /// Search for text across all versions
-    pub fn search_text(&self, query: &str) -> Vec<SearchResult> {
-        let query_lower = query.to_lowercase();
-        let mut results = Vec::new();
-
-        for version in &self.versions {
-            Self::search_element(&version.element, &version.date, &query_lower, &mut results);
-        }
-
-        results
-    }
-
-    fn search_element(
-        element: &USLMElement,
-        date: &str,
-        query: &str,
-        results: &mut Vec<SearchResult>,
-    ) {
-        let fields = [
-            ("heading", &element.data.heading),
-            ("chapeau", &element.data.chapeau),
-            ("content", &element.data.content),
-            ("proviso", &element.data.proviso),
-            ("continuation", &element.data.continuation),
-        ];
-
-        for (field_name, field_value) in fields {
-            if let Some(text) = field_value
-                && text.to_lowercase().contains(query)
-            {
-                results.push(SearchResult {
-                    date: date.to_string(),
-                    path: element.data.path.to_string(),
-                    field: field_name.to_string(),
-                    snippet: text.to_string(),
-                });
+    /// Load from file in specified format
+    pub fn load(path: &str, format: Format) -> Result<Self, DatasetError> {
+        match format {
+            Format::Compact => {
+                use crate::compact::DatasetCompact;
+                let json = fs::read_to_string(path)?;
+                let compact: DatasetCompact = serde_json::from_str(&json)?;
+                Ok(Self::with_storage(compact.into_storage()))
+            }
+            Format::Json => {
+                let json = fs::read_to_string(path)?;
+                let mut storage: InMemoryStorage = serde_json::from_str(&json)?;
+                storage.intern_strings();
+                Ok(Self::with_storage(storage))
+            }
+            Format::Sqlite => {
+                let sqlite = SqliteStorage::open(path)?;
+                Ok(Self::with_storage(sqlite.to_memory()?))
             }
         }
-
-        for child in &element.children {
-            Self::search_element(child, date, query, results);
-        }
     }
 
-    // --- Congress data methods ---
-
-    /// Add a Congress member to the dataset
-    pub fn add_member(&mut self, member: Member) {
-        self.members.insert(member.bioguide_id.clone(), member);
-    }
-
-    /// Get a member by bioguide ID
-    pub fn get_member(&self, bioguide_id: &str) -> Option<&Member> {
-        self.members.get(bioguide_id)
-    }
-
-    /// Add sponsor info for a bill
-    pub fn add_sponsor_info(&mut self, info: SponsorInfo) {
-        self.sponsors.insert(info.bill_id.clone(), info);
-    }
-
-    /// Get sponsor info by bill ID
-    pub fn get_sponsor_info(&self, bill_id: &str) -> Option<&SponsorInfo> {
-        self.sponsors.get(bill_id)
-    }
-
-    /// Add votes for a bill
-    pub fn add_bill_votes(&mut self, votes: BillVotes) {
-        self.bill_votes.insert(votes.bill_id.clone(), votes);
-    }
-
-    /// Get votes for a bill
-    pub fn get_bill_votes(&self, bill_id: &str) -> Option<&BillVotes> {
-        self.bill_votes.get(bill_id)
-    }
-
-    /// Get all roll calls where a member voted, with their position
-    pub fn votes_by_member(&self, bioguide_id: &str) -> Vec<(&HouseRollCall, VotePosition)> {
-        let mut results = Vec::new();
-        for bill_votes in self.bill_votes.values() {
-            for roll_call in &bill_votes.roll_calls {
-                for mv in &roll_call.member_votes {
-                    if mv.bioguide_id == bioguide_id {
-                        results.push((roll_call, mv.position));
-                    }
-                }
-            }
-        }
-        results
-    }
-
-    /// Get members who sponsored or cosponsored bills affecting a path
-    pub fn sponsors_for_path(&self, path: &str) -> Vec<&Member> {
-        let bill_ids: Vec<_> = self
-            .annotations_for_path(path)
-            .iter()
-            .map(|a| &a.source_bill.bill_id)
-            .collect();
-
-        let mut member_ids: Vec<&str> = Vec::new();
-
-        for bill_id in &bill_ids {
-            if let Some(info) = self.sponsors.get(*bill_id) {
-                member_ids.push(&info.sponsor);
-                for cosponsor in &info.cosponsors {
-                    member_ids.push(&cosponsor.bioguide_id);
-                }
-            }
-        }
-
-        member_ids
-            .into_iter()
-            .filter_map(|id| self.members.get(id))
-            .collect()
-    }
-
-    /// Load bill data from a BillDownload (raw downloaded data)
-    ///
-    /// Parses the XML and JSON, stores bill, sponsors, and members.
-    /// Returns the canonical bill_id (from parsed XML, e.g., "119-21")
+    /// Load bill data from a BillDownload
     pub fn load_bill_download(&mut self, download: &BillDownload) -> Result<String, DatasetError> {
         use crate::uslm::bill_parser;
         use serde_json::Value;
 
-        // Parse bill XML to get AmendmentData
         let bill =
             bill_parser::parse_bill_amendments_from_str(&download.bill_id, &download.bill_xml)
                 .map_err(|e| {
@@ -533,9 +368,9 @@ impl Dataset {
                     )))
                 })?;
         let bill_id = bill.bill_id.clone();
-        self.add_bill(bill);
+        self.add_bill(bill)?;
 
-        // Parse bill metadata JSON to extract sponsor
+        // Parse sponsor from metadata
         let sponsors_v: Value = serde_json::from_str(&download.bill_metadata_json)?;
         let sponsor_id = sponsors_v["bill"]["sponsors"]
             .as_array()
@@ -544,7 +379,7 @@ impl Dataset {
             .unwrap_or("")
             .to_string();
 
-        // Parse cosponsors JSON
+        // Parse cosponsors
         let cosponsors_v: Value = serde_json::from_str(&download.cosponsors_json)?;
         let mut cosponsors = Vec::new();
         if let Some(arr) = cosponsors_v["cosponsors"].as_array() {
@@ -557,30 +392,161 @@ impl Dataset {
             }
         }
 
-        // Use canonical bill_id from parsed XML
         self.add_sponsor_info(SponsorInfo {
             bill_id: bill_id.clone(),
             sponsor: sponsor_id,
             cosponsors,
-        });
+        })?;
 
         // Parse and add members
         for json in download.member_jsons.values() {
             if let Ok(member) = Member::from_api_response(json) {
-                self.add_member(member);
+                self.add_member(member)?;
             }
         }
 
-        // Parse votes_json if available
+        // Parse votes
         if let Some(ref votes_json) = download.votes_json
             && let Ok(roll_calls) = serde_json::from_str::<Vec<HouseRollCall>>(votes_json)
         {
             self.add_bill_votes(BillVotes {
                 bill_id: bill_id.clone(),
                 roll_calls,
-            });
+            })?;
         }
 
         Ok(bill_id)
     }
 }
+
+// --- SqliteStorage-specific methods ---
+
+impl Dataset<SqliteStorage> {
+    /// Open a SQLite-backed dataset
+    pub fn open_sqlite<P: AsRef<Path>>(path: P) -> Result<Self, DatasetError> {
+        Ok(Self::with_storage(SqliteStorage::open(path)?))
+    }
+
+    /// Create a new SQLite-backed dataset in memory
+    pub fn new_sqlite(metadata: DatasetMetadata) -> Result<Self, DatasetError> {
+        Ok(Self::with_storage(SqliteStorage::new_with_metadata(
+            metadata,
+        )?))
+    }
+}
+
+// --- Implement traits for Dataset<S> ---
+
+impl<S: Storage> DatasetReader for Dataset<S> {
+    fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
+        self.storage.list_versions()
+    }
+
+    fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.get_version(date)
+    }
+
+    fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
+        self.storage.get_bill(id)
+    }
+
+    fn get_annotations(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
+        self.storage.get_annotations(from, to)
+    }
+
+    fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
+        self.storage.get_member(bioguide_id)
+    }
+
+    fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
+        self.storage.get_sponsor_info(bill_id)
+    }
+
+    fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
+        self.storage.get_bill_votes(bill_id)
+    }
+
+    fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
+        self.storage.compute_diff(from, to)
+    }
+
+    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
+        self.storage.search_text(query)
+    }
+
+    fn get_version_by_label(&self, label: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.get_version_by_label(label)
+    }
+
+    fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.next_version(date)
+    }
+
+    fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+        self.storage.prev_version(date)
+    }
+
+    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        self.storage.annotations_for_path(path)
+    }
+
+    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        self.storage.annotations_for_bill(bill_id)
+    }
+
+    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+        self.storage.find_element(path)
+    }
+
+    fn votes_by_member(
+        &self,
+        bioguide_id: &str,
+    ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
+        self.storage.votes_by_member(bioguide_id)
+    }
+}
+
+impl<S: Storage> DatasetWriter for Dataset<S> {
+    fn metadata(&self) -> &DatasetMetadata {
+        self.storage.metadata()
+    }
+
+    fn set_metadata(&mut self, metadata: DatasetMetadata) {
+        self.storage.set_metadata(metadata)
+    }
+
+    fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError> {
+        self.storage.add_version(snapshot)
+    }
+
+    fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
+        self.storage.add_bill(bill)
+    }
+
+    fn add_annotation(
+        &mut self,
+        from: &str,
+        to: &str,
+        annotation: ChangeAnnotation,
+    ) -> Result<(), DatasetError> {
+        self.storage.add_annotation(from, to, annotation)
+    }
+
+    fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
+        self.storage.add_member(member)
+    }
+
+    fn add_sponsor_info(&mut self, info: SponsorInfo) -> Result<(), DatasetError> {
+        self.storage.add_sponsor_info(info)
+    }
+
+    fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
+        self.storage.add_bill_votes(votes)
+    }
+}
+
+impl<S: Storage> Storage for Dataset<S> {}

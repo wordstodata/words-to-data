@@ -11,5 +11,6 @@ pub mod intern;
 pub mod io;
 #[cfg(feature = "python")]
 pub mod python;
+pub mod storage;
 pub mod uslm;
 pub mod utils;

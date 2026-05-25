@@ -11,6 +11,9 @@ pub enum DatasetError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("SQLite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+
     #[error("Version not found: {0}")]
     VersionNotFound(String),
 
