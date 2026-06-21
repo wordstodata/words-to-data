@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 
 use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Format, VersionSnapshot};
+use words_to_data::dataset::{Dataset, DatasetMetadata, VersionSnapshot};
 use words_to_data::storage::{DatasetReader, InMemoryStorage, SqliteStorage};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
@@ -47,13 +47,14 @@ fn should_save_and_load_sqlite_format() {
 
     println!("SAVING");
     // Save as SQLite
-    dataset
-        .save(path, Format::Sqlite)
-        .expect("save should succeed");
+    dataset.save_to_sqlite(path).expect("save should succeed");
 
     // Load from SQLite
     println!("LOADING");
-    let loaded = Dataset::load(path, Format::Sqlite).expect("load should succeed");
+    let loaded = Dataset::open_sqlite(path)
+        .expect("open should succeed")
+        .to_memory()
+        .expect("to_memory should succeed");
 
     assert_eq!(loaded.metadata().name, "SQLite Test");
     assert_eq!(loaded.storage().versions.len(), 2);
@@ -104,8 +105,8 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
 
     let path = "/tmp/test_dataset_full.db";
 
-    dataset.save(path, Format::Sqlite).unwrap();
-    let loaded = Dataset::load(path, Format::Sqlite).unwrap();
+    dataset.save_to_sqlite(path).unwrap();
+    let loaded = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
 
     // Verify bill
     assert_eq!(loaded.storage().bills.len(), 1);
@@ -132,22 +133,22 @@ fn should_support_incremental_save_sqlite() {
         dataset
             .add_version(make_snapshot("2024-01-01", Some("V1")))
             .unwrap();
-        dataset.save(path, Format::Sqlite).unwrap();
+        dataset.save_to_sqlite(path).unwrap();
     }
 
     // Load, add another version, save again
     {
-        let mut dataset = Dataset::load(path, Format::Sqlite).unwrap();
+        let mut dataset = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
         assert_eq!(dataset.storage().versions.len(), 1);
 
         dataset
             .add_version(make_snapshot("2024-06-01", Some("V2")))
             .unwrap();
-        dataset.save(path, Format::Sqlite).unwrap();
+        dataset.save_to_sqlite(path).unwrap();
     }
 
     // Verify both versions present
-    let loaded = Dataset::load(path, Format::Sqlite).unwrap();
+    let loaded = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
     assert_eq!(loaded.storage().versions.len(), 2);
     assert_eq!(loaded.storage().versions[0].label, Some("V1".to_string()));
     assert_eq!(loaded.storage().versions[1].label, Some("V2".to_string()));
@@ -176,7 +177,7 @@ fn should_query_via_trait_interface() {
     }
 
     let path = "/tmp/test_trait_query.db";
-    dataset.save(path, Format::Sqlite).unwrap();
+    dataset.save_to_sqlite(path).unwrap();
 
     // Query via trait - works for both Dataset and SqliteStorage
     fn check_reader(reader: &impl DatasetReader) {
@@ -238,7 +239,7 @@ fn should_load_window_with_two_versions() {
     }
 
     let path = "/tmp/test_load_window.db";
-    dataset.save(path, Format::Sqlite).unwrap();
+    dataset.save_to_sqlite(path).unwrap();
 
     // Load window with just 2 versions (returns InMemoryStorage)
     let storage = SqliteStorage::open(path).unwrap();
@@ -284,7 +285,7 @@ fn should_query_annotations_for_path_via_trait() {
     }
 
     let path = "/tmp/test_ann_path.db";
-    dataset.save(path, Format::Sqlite).unwrap();
+    dataset.save_to_sqlite(path).unwrap();
 
     // Test via trait - should work for both
     fn check_annotations_for_path(reader: &impl DatasetReader) {

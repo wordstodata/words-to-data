@@ -24,7 +24,11 @@ use crate::uslm::parser::ParseError;
 use crate::uslm::{BillDiff, USLMElement};
 use crate::utils::{load_uslm_folder, parse_uslm_xml};
 
-/// Serialization format for datasets
+/// On-disk serialization format for in-memory datasets.
+///
+/// SQLite is a backend, not a serialization format. To work with SQLite-backed
+/// datasets, use [`Dataset::open_sqlite`] / [`Dataset::new_sqlite`] (lazy access)
+/// or [`Dataset::save_to_sqlite`] (dump in-memory data to a SQLite file).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Format {
     /// Compact format with deduplicated string table (smaller, faster)
@@ -32,8 +36,6 @@ pub enum Format {
     Compact,
     /// Raw JSON with full data (larger, for debugging/interop)
     Json,
-    /// SQLite database (scalable, supports lazy loading)
-    Sqlite,
 }
 
 /// Metadata describing a dataset
@@ -324,10 +326,6 @@ impl Dataset<InMemoryStorage> {
                 let json = serde_json::to_string_pretty(self.storage())?;
                 fs::write(path, json)?;
             }
-            Format::Sqlite => {
-                let mut sqlite = SqliteStorage::open(path)?;
-                sqlite.save_from_memory(self.storage())?;
-            }
         }
         Ok(())
     }
@@ -347,11 +345,17 @@ impl Dataset<InMemoryStorage> {
                 storage.intern_strings();
                 Ok(Self::with_storage(storage))
             }
-            Format::Sqlite => {
-                let sqlite = SqliteStorage::open(path)?;
-                Ok(Self::with_storage(sqlite.to_memory()?))
-            }
         }
+    }
+
+    /// Dump this in-memory dataset to a SQLite file at `path`.
+    ///
+    /// To then query the file lazily (without re-loading into memory),
+    /// use [`Dataset::open_sqlite`].
+    pub fn save_to_sqlite<P: AsRef<Path>>(&self, path: P) -> Result<(), DatasetError> {
+        let mut sqlite = SqliteStorage::open(path)?;
+        sqlite.save_from_memory(self.storage())?;
+        Ok(())
     }
 
     /// Load bill data from a BillDownload
@@ -432,6 +436,21 @@ impl Dataset<SqliteStorage> {
         Ok(Self::with_storage(SqliteStorage::new_with_metadata(
             metadata,
         )?))
+    }
+
+    /// Materialize the full SQLite dataset as an in-memory dataset.
+    pub fn to_memory(&self) -> Result<Dataset<InMemoryStorage>, DatasetError> {
+        Ok(Dataset::with_storage(self.storage.to_memory()?))
+    }
+
+    /// Load just the version pair `[from, to]` (and any annotations between them)
+    /// into an in-memory dataset, without materializing the rest of the database.
+    pub fn load_window(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Dataset<InMemoryStorage>, DatasetError> {
+        Ok(Dataset::with_storage(self.storage.load_window(from, to)?))
     }
 }
 
