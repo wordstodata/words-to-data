@@ -54,8 +54,15 @@ mod dataset_integration {
         }
     }
     #[test]
+    /// This test does NOT require networking or an API key, the data is cached and should pass
     fn test_download_bill_parsing() {
-        let client = CongressClient::new("".to_string(), Some(TEST_CONGRESS_CACHE_DIR.to_string()));
+        // Never expire the cache: the fixtures are committed and must be read
+        // regardless of their on-disk age (and never deleted by a read).
+        let client = CongressClient::with_ttl(
+            "".to_string(),
+            Some(TEST_CONGRESS_CACHE_DIR.to_string()),
+            None,
+        );
 
         let download = client.download_bill("119-hr-1").unwrap();
 
