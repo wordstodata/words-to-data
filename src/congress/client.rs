@@ -320,7 +320,7 @@ impl CongressClient {
                 None
             })
             .ok_or_else(|| {
-                CongressError::NotFound(format!("No XML format for bill {}", &text_endpoint))
+                CongressError::NotFound(format!("No XML format for bill {}", text_endpoint))
             })?;
         // Fetch XML from URL
         let mut response = self

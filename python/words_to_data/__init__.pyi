@@ -1303,6 +1303,20 @@ class CongressClient:
         """
         ...
 
+    @staticmethod
+    def with_ttl(
+        api_key: str, cache_dir: str | None = None, ttl_secs: int | None = None
+    ) -> "CongressClient":
+        """Create a client with an explicit cache TTL in seconds.
+
+        Args:
+            api_key: Congress.gov API key
+            cache_dir: Optional cache directory path. Defaults to XDG cache dir.
+            ttl_secs: Cache time-to-live in seconds. ``None`` means entries never
+                expire, e.g. when reading from committed test fixtures.
+        """
+        ...
+
     @property
     def api_key(self) -> str: ...
 

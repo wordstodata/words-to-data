@@ -607,7 +607,7 @@ impl BillReference {
     fn __repr__(&self) -> String {
         format!(
             "BillReference(bill_id='{}', amendment_id='{}')",
-            self.inner.bill_id, &self.inner.amendment_id
+            self.inner.bill_id, self.inner.amendment_id
         )
     }
 
@@ -2334,6 +2334,19 @@ impl CongressClient {
     fn new(api_key: String, cache_dir: Option<String>) -> Self {
         CongressClient {
             inner: RustCongressClient::new(api_key, cache_dir),
+        }
+    }
+
+    /// Build a client with an explicit cache TTL in seconds.
+    ///
+    /// Pass `ttl_secs=None` to make cached entries never expire, e.g. when
+    /// reading from committed test fixtures.
+    #[staticmethod]
+    #[pyo3(signature = (api_key, cache_dir=None, ttl_secs=None))]
+    fn with_ttl(api_key: String, cache_dir: Option<String>, ttl_secs: Option<u64>) -> Self {
+        let ttl = ttl_secs.map(std::time::Duration::from_secs);
+        CongressClient {
+            inner: RustCongressClient::with_ttl(api_key, cache_dir, ttl),
         }
     }
 
