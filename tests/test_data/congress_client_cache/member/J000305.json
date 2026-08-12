@@ -10,7 +10,7 @@
         "bioguideId": "J000305",
         "birthYear": "1989",
         "cosponsoredLegislation": {
-            "count": 1351,
+            "count": 1352,
             "url": "https://api.congress.gov/v3/member/J000305/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 76,
+            "count": 77,
             "url": "https://api.congress.gov/v3/member/J000305/sponsored-legislation"
         },
         "state": "California",

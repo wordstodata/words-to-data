@@ -10,7 +10,7 @@
         "bioguideId": "G000583",
         "birthYear": "1975",
         "cosponsoredLegislation": {
-            "count": 3184,
+            "count": 3192,
             "url": "https://api.congress.gov/v3/member/G000583/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 200,
+            "count": 202,
             "url": "https://api.congress.gov/v3/member/G000583/sponsored-legislation"
         },
         "state": "New Jersey",

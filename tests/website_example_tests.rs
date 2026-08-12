@@ -305,11 +305,11 @@ fn website_example_dataset_workflow() {
         )
         .expect("add version");
 
-    assert_eq!(dataset.versions.len(), 2);
+    assert_eq!(dataset.storage().versions.len(), 2);
 
     // Add bill
     let bill = parse_bill_amendments("119-21", PL_XML_PATH).expect("parse bill");
-    dataset.add_bill(bill);
+    dataset.add_bill(bill).unwrap();
 
     // Compute diff via dataset
     let diff = dataset

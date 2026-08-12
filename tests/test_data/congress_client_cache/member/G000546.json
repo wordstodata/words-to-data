@@ -10,7 +10,7 @@
         "bioguideId": "G000546",
         "birthYear": "1963",
         "cosponsoredLegislation": {
-            "count": 2057,
+            "count": 2058,
             "url": "https://api.congress.gov/v3/member/G000546/cosponsored-legislation"
         },
         "currentMember": true,
@@ -60,7 +60,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 270,
+            "count": 271,
             "url": "https://api.congress.gov/v3/member/G000546/sponsored-legislation"
         },
         "state": "Missouri",

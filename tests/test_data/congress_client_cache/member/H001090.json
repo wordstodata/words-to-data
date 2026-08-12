@@ -10,7 +10,7 @@
         "bioguideId": "H001090",
         "birthYear": "1986",
         "cosponsoredLegislation": {
-            "count": 1887,
+            "count": 1888,
             "url": "https://api.congress.gov/v3/member/H001090/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 153,
+            "count": 154,
             "url": "https://api.congress.gov/v3/member/H001090/sponsored-legislation"
         },
         "state": "California",

@@ -10,7 +10,7 @@
         "bioguideId": "M001241",
         "birthYear": "1976",
         "cosponsoredLegislation": {
-            "count": 340,
+            "count": 345,
             "url": "https://api.congress.gov/v3/member/M001241/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 24,
+            "count": 25,
             "url": "https://api.congress.gov/v3/member/M001241/sponsored-legislation"
         },
         "state": "California",

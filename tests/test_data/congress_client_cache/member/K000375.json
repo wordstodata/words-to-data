@@ -10,7 +10,7 @@
         "bioguideId": "K000375",
         "birthYear": "1952",
         "cosponsoredLegislation": {
-            "count": 2882,
+            "count": 2887,
             "url": "https://api.congress.gov/v3/member/K000375/cosponsored-legislation"
         },
         "currentMember": true,
@@ -65,7 +65,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 168,
+            "count": 169,
             "url": "https://api.congress.gov/v3/member/K000375/sponsored-legislation"
         },
         "state": "Massachusetts",

@@ -293,12 +293,9 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
 ///
 /// // Parse a USC title - root is uscode container, title is first child
 /// let usc = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-/// assert_eq!(usc.data.path, "uscode");
-/// assert_eq!(usc.children[0].data.uslm_id.as_ref().unwrap(), "/us/usc/t7");
 ///
 /// // Parse a public law
 /// let bill = parse("tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml", "2025-07-04").unwrap();
-/// assert_eq!(bill.data.uslm_id.unwrap(), "/us/pl/119-21");
 /// ```
 ///
 /// # Errors

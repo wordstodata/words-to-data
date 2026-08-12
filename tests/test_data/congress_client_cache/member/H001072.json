@@ -55,7 +55,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 146,
+            "count": 147,
             "url": "https://api.congress.gov/v3/member/H001072/sponsored-legislation"
         },
         "state": "Arkansas",

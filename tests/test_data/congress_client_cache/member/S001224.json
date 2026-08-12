@@ -10,7 +10,7 @@
         "bioguideId": "S001224",
         "birthYear": "1953",
         "cosponsoredLegislation": {
-            "count": 584,
+            "count": 585,
             "url": "https://api.congress.gov/v3/member/S001224/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 83,
+            "count": 84,
             "url": "https://api.congress.gov/v3/member/S001224/sponsored-legislation"
         },
         "state": "Texas",

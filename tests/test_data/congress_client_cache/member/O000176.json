@@ -10,7 +10,7 @@
         "bioguideId": "O000176",
         "birthYear": "1982",
         "cosponsoredLegislation": {
-            "count": 257,
+            "count": 259,
             "url": "https://api.congress.gov/v3/member/O000176/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 13,
+            "count": 15,
             "url": "https://api.congress.gov/v3/member/O000176/sponsored-legislation"
         },
         "state": "Maryland",

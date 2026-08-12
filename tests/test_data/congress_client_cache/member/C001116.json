@@ -10,7 +10,7 @@
         "bioguideId": "C001116",
         "birthYear": "1963",
         "cosponsoredLegislation": {
-            "count": 531,
+            "count": 532,
             "url": "https://api.congress.gov/v3/member/C001116/cosponsored-legislation"
         },
         "currentMember": true,

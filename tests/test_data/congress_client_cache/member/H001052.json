@@ -10,7 +10,7 @@
         "bioguideId": "H001052",
         "birthYear": "1957",
         "cosponsoredLegislation": {
-            "count": 1893,
+            "count": 1895,
             "url": "https://api.congress.gov/v3/member/H001052/cosponsored-legislation"
         },
         "currentMember": true,

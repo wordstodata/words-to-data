@@ -10,7 +10,7 @@
         "bioguideId": "M001232",
         "birthYear": "1964",
         "cosponsoredLegislation": {
-            "count": 403,
+            "count": 406,
             "url": "https://api.congress.gov/v3/member/M001232/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 27,
+            "count": 28,
             "url": "https://api.congress.gov/v3/member/M001232/sponsored-legislation"
         },
         "state": "Maryland",

@@ -10,7 +10,7 @@
         "bioguideId": "J000298",
         "birthYear": "1965",
         "cosponsoredLegislation": {
-            "count": 3101,
+            "count": 3110,
             "url": "https://api.congress.gov/v3/member/J000298/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 188,
+            "count": 189,
             "url": "https://api.congress.gov/v3/member/J000298/sponsored-legislation"
         },
         "state": "Washington",

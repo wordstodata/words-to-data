@@ -10,7 +10,7 @@
         "bioguideId": "W000822",
         "birthYear": "1945",
         "cosponsoredLegislation": {
-            "count": 4029,
+            "count": 4042,
             "url": "https://api.congress.gov/v3/member/W000822/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 199,
+            "count": 201,
             "url": "https://api.congress.gov/v3/member/W000822/sponsored-legislation"
         },
         "state": "New Jersey",

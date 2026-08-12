@@ -10,7 +10,7 @@
         "bioguideId": "S001229",
         "birthYear": "1965",
         "cosponsoredLegislation": {
-            "count": 190,
+            "count": 193,
             "url": "https://api.congress.gov/v3/member/S001229/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 15,
+            "count": 16,
             "url": "https://api.congress.gov/v3/member/S001229/sponsored-legislation"
         },
         "state": "Indiana",

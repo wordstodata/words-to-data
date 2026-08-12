@@ -10,7 +10,7 @@
         "bioguideId": "L000273",
         "birthYear": "1959",
         "cosponsoredLegislation": {
-            "count": 848,
+            "count": 850,
             "url": "https://api.congress.gov/v3/member/L000273/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 99,
+            "count": 100,
             "url": "https://api.congress.gov/v3/member/L000273/sponsored-legislation"
         },
         "state": "New Mexico",

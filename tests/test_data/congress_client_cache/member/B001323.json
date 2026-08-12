@@ -10,7 +10,7 @@
         "bioguideId": "B001323",
         "birthYear": "1977",
         "cosponsoredLegislation": {
-            "count": 176,
+            "count": 178,
             "url": "https://api.congress.gov/v3/member/B001323/cosponsored-legislation"
         },
         "currentMember": true,
@@ -74,7 +74,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 33,
+            "count": 34,
             "url": "https://api.congress.gov/v3/member/B001323/sponsored-legislation"
         },
         "state": "Alaska",

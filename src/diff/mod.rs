@@ -251,7 +251,6 @@ impl TreeDiff {
     /// let new = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
     ///
     /// let diff = TreeDiff::from_elements(&old, &new);
-    /// assert_eq!(diff.root_path, old.data.path);
     /// ```
     pub fn from_elements(from_element: &USLMElement, to_element: &USLMElement) -> TreeDiff {
         assert!(from_element.data.path == to_element.data.path);

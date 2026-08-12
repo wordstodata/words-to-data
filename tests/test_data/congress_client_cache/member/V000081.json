@@ -10,7 +10,7 @@
         "bioguideId": "V000081",
         "birthYear": "1953",
         "cosponsoredLegislation": {
-            "count": 5680,
+            "count": 5685,
             "url": "https://api.congress.gov/v3/member/V000081/cosponsored-legislation"
         },
         "currentMember": true,
@@ -64,7 +64,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 504,
+            "count": 505,
             "url": "https://api.congress.gov/v3/member/V000081/sponsored-legislation"
         },
         "state": "New York",

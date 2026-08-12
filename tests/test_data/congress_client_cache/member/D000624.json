@@ -10,7 +10,7 @@
         "bioguideId": "D000624",
         "birthYear": "1953",
         "cosponsoredLegislation": {
-            "count": 3042,
+            "count": 3050,
             "url": "https://api.congress.gov/v3/member/D000624/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 264,
+            "count": 266,
             "url": "https://api.congress.gov/v3/member/D000624/sponsored-legislation"
         },
         "state": "Michigan",

@@ -10,7 +10,7 @@
         "bioguideId": "B001292",
         "birthYear": "1950",
         "cosponsoredLegislation": {
-            "count": 2508,
+            "count": 2511,
             "url": "https://api.congress.gov/v3/member/B001292/cosponsored-legislation"
         },
         "currentMember": true,
@@ -76,7 +76,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 258,
+            "count": 259,
             "url": "https://api.congress.gov/v3/member/B001292/sponsored-legislation"
         },
         "state": "Virginia",

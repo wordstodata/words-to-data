@@ -6,12 +6,43 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+/// Custom serializer for HashMap with tuple keys (JSON doesn't support non-string keys)
+mod tuple_key_map {
+    use super::*;
+    use crate::annotation::ChangeAnnotation;
+    use crate::dataset::VersionPair;
+
+    pub fn serialize<S>(
+        map: &HashMap<VersionPair, Vec<ChangeAnnotation>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize as Vec of (key, value) pairs
+        let vec: Vec<_> = map.iter().collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<HashMap<VersionPair, Vec<ChangeAnnotation>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Deserialize as Vec of (key, value) pairs
+        let vec: Vec<(VersionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
+        Ok(vec.into_iter().collect())
+    }
+}
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, Member, SponsorInfo};
-use crate::dataset::{Dataset, DatasetMetadata, VersionPair, VersionSnapshot};
+use crate::dataset::{DatasetMetadata, VersionPair, VersionSnapshot};
 use crate::intern::StringInterner;
+use crate::storage::InMemoryStorage;
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::{DocumentType, ElementData, ElementType, RefPair, SourceCredit, USLMElement};
 
@@ -150,7 +181,7 @@ pub struct DatasetCompact {
     #[serde(default)]
     pub bills: HashMap<String, Bill>,
     /// Annotations per version-pair (stored as-is)
-    #[serde(default)]
+    #[serde(default, with = "tuple_key_map")]
     pub diff_annotations: HashMap<VersionPair, Vec<ChangeAnnotation>>,
     /// Congress members (stored as-is)
     #[serde(default)]
@@ -164,11 +195,11 @@ pub struct DatasetCompact {
 }
 
 impl DatasetCompact {
-    /// Convert from Dataset
-    pub fn from_dataset(dataset: &Dataset) -> Self {
+    /// Convert from InMemoryStorage
+    pub fn from_storage(storage: &InMemoryStorage) -> Self {
         let mut table = StringTable::new();
 
-        let versions: Vec<VersionSnapshotCompact> = dataset
+        let versions: Vec<VersionSnapshotCompact> = storage
             .versions
             .iter()
             .map(|v| Self::compact_version(v, &mut table))
@@ -176,13 +207,13 @@ impl DatasetCompact {
 
         Self {
             string_table: table,
-            metadata: dataset.metadata.clone(),
+            metadata: storage.metadata.clone(),
             versions,
-            bills: dataset.bills.clone(),
-            diff_annotations: dataset.diff_annotations.clone(),
-            members: dataset.members.clone(),
-            sponsors: dataset.sponsors.clone(),
-            bill_votes: dataset.bill_votes.clone(),
+            bills: storage.bills.clone(),
+            diff_annotations: storage.diff_annotations.clone(),
+            members: storage.members.clone(),
+            sponsors: storage.sponsors.clone(),
+            bill_votes: storage.bill_votes.clone(),
         }
     }
 
@@ -238,8 +269,8 @@ impl DatasetCompact {
         }
     }
 
-    /// Convert to Dataset
-    pub fn into_dataset(self) -> Dataset {
+    /// Convert to InMemoryStorage
+    pub fn into_storage(self) -> InMemoryStorage {
         let mut interner = StringInterner::new();
 
         // Pre-populate interner from string table (single pass)
@@ -253,7 +284,7 @@ impl DatasetCompact {
             .map(|v| Self::expand_version(v, &self.string_table, &mut interner))
             .collect();
 
-        Dataset::from_parts(
+        InMemoryStorage::from_parts(
             self.metadata,
             versions,
             self.bills,

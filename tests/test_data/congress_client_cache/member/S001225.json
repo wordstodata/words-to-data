@@ -10,7 +10,7 @@
         "bioguideId": "S001225",
         "birthYear": "1976",
         "cosponsoredLegislation": {
-            "count": 655,
+            "count": 665,
             "url": "https://api.congress.gov/v3/member/S001225/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 23,
+            "count": 24,
             "url": "https://api.congress.gov/v3/member/S001225/sponsored-legislation"
         },
         "state": "Illinois",

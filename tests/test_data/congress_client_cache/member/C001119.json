@@ -10,7 +10,7 @@
         "bioguideId": "C001119",
         "birthYear": "1972",
         "cosponsoredLegislation": {
-            "count": 2176,
+            "count": 2183,
             "url": "https://api.congress.gov/v3/member/C001119/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 116,
+            "count": 117,
             "url": "https://api.congress.gov/v3/member/C001119/sponsored-legislation"
         },
         "state": "Minnesota",

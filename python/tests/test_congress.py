@@ -42,7 +42,9 @@ def test_dataset_member_integration():
 
 def test_dataset_load_bill_download():
     """Test loading BillDownload into Dataset."""
-    client = CongressClient("", "tests/test_data/congress_client_cache")
+    # Never expire the cache: the fixtures are committed and must be read
+    # regardless of their on-disk age.
+    client = CongressClient.with_ttl("", "tests/test_data/congress_client_cache", None)
     download = client.download_bill("119-hr-1")
 
     meta = DatasetMetadata(

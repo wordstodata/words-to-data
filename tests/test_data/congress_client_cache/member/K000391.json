@@ -10,7 +10,7 @@
         "bioguideId": "K000391",
         "birthYear": "1973",
         "cosponsoredLegislation": {
-            "count": 2545,
+            "count": 2552,
             "url": "https://api.congress.gov/v3/member/K000391/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 163,
+            "count": 165,
             "url": "https://api.congress.gov/v3/member/K000391/sponsored-legislation"
         },
         "state": "Illinois",

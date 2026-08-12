@@ -10,7 +10,7 @@
         "bioguideId": "S001216",
         "birthYear": "1968",
         "cosponsoredLegislation": {
-            "count": 1263,
+            "count": 1269,
             "url": "https://api.congress.gov/v3/member/S001216/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 102,
+            "count": 103,
             "url": "https://api.congress.gov/v3/member/S001216/sponsored-legislation"
         },
         "state": "Washington",

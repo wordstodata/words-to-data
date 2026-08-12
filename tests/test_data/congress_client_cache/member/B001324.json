@@ -10,7 +10,7 @@
         "bioguideId": "B001324",
         "birthYear": "1974",
         "cosponsoredLegislation": {
-            "count": 426,
+            "count": 429,
             "url": "https://api.congress.gov/v3/member/B001324/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 28,
+            "count": 29,
             "url": "https://api.congress.gov/v3/member/B001324/sponsored-legislation"
         },
         "state": "Missouri",

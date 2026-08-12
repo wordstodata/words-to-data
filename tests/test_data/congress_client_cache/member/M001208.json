@@ -10,7 +10,7 @@
         "bioguideId": "M001208",
         "birthYear": "1960",
         "cosponsoredLegislation": {
-            "count": 1337,
+            "count": 1338,
             "url": "https://api.congress.gov/v3/member/M001208/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 70,
+            "count": 71,
             "url": "https://api.congress.gov/v3/member/M001208/sponsored-legislation"
         },
         "state": "Georgia",

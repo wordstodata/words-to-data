@@ -10,7 +10,7 @@
         "bioguideId": "K000398",
         "birthYear": "1968",
         "cosponsoredLegislation": {
-            "count": 670,
+            "count": 671,
             "url": "https://api.congress.gov/v3/member/K000398/cosponsored-legislation"
         },
         "currentMember": true,

@@ -10,7 +10,7 @@
         "bioguideId": "T000460",
         "birthYear": "1951",
         "cosponsoredLegislation": {
-            "count": 4384,
+            "count": 4388,
             "url": "https://api.congress.gov/v3/member/T000460/cosponsored-legislation"
         },
         "currentMember": true,
@@ -60,7 +60,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 362,
+            "count": 363,
             "url": "https://api.congress.gov/v3/member/T000460/sponsored-legislation"
         },
         "state": "California",

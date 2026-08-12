@@ -10,7 +10,7 @@
         "bioguideId": "T000478",
         "birthYear": "1961",
         "cosponsoredLegislation": {
-            "count": 1813,
+            "count": 1820,
             "url": "https://api.congress.gov/v3/member/T000478/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 223,
+            "count": 224,
             "url": "https://api.congress.gov/v3/member/T000478/sponsored-legislation"
         },
         "state": "New York",

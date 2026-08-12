@@ -10,7 +10,7 @@
         "bioguideId": "P000034",
         "birthYear": "1951",
         "cosponsoredLegislation": {
-            "count": 6696,
+            "count": 6700,
             "url": "https://api.congress.gov/v3/member/P000034/cosponsored-legislation"
         },
         "currentMember": true,
@@ -60,7 +60,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 578,
+            "count": 579,
             "url": "https://api.congress.gov/v3/member/P000034/sponsored-legislation"
         },
         "state": "New Jersey",

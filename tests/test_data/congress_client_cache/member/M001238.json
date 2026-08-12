@@ -10,7 +10,7 @@
         "bioguideId": "M001238",
         "birthYear": "1990",
         "cosponsoredLegislation": {
-            "count": 563,
+            "count": 571,
             "url": "https://api.congress.gov/v3/member/M001238/cosponsored-legislation"
         },
         "currentMember": true,
@@ -60,7 +60,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 7,
+            "count": 8,
             "url": "https://api.congress.gov/v3/member/M001238/sponsored-legislation"
         },
         "state": "Delaware",

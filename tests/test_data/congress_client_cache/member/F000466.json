@@ -10,7 +10,7 @@
         "bioguideId": "F000466",
         "birthYear": "1973",
         "cosponsoredLegislation": {
-            "count": 5510,
+            "count": 5522,
             "url": "https://api.congress.gov/v3/member/F000466/cosponsored-legislation"
         },
         "currentMember": true,
@@ -55,7 +55,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 247,
+            "count": 248,
             "url": "https://api.congress.gov/v3/member/F000466/sponsored-legislation"
         },
         "state": "Pennsylvania",
