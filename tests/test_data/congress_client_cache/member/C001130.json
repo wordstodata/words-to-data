@@ -10,7 +10,7 @@
         "bioguideId": "C001130",
         "birthYear": "1981",
         "cosponsoredLegislation": {
-            "count": 937,
+            "count": 943,
             "url": "https://api.congress.gov/v3/member/C001130/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 42,
+            "count": 43,
             "url": "https://api.congress.gov/v3/member/C001130/sponsored-legislation"
         },
         "state": "Texas",

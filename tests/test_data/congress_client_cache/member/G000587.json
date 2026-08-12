@@ -10,7 +10,7 @@
         "bioguideId": "G000587",
         "birthYear": "1950",
         "cosponsoredLegislation": {
-            "count": 1761,
+            "count": 1765,
             "url": "https://api.congress.gov/v3/member/G000587/cosponsored-legislation"
         },
         "currentMember": true,
@@ -65,7 +65,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 86,
+            "count": 88,
             "url": "https://api.congress.gov/v3/member/G000587/sponsored-legislation"
         },
         "state": "Texas",

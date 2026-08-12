@@ -10,7 +10,7 @@
         "bioguideId": "D000626",
         "birthYear": "1970",
         "cosponsoredLegislation": {
-            "count": 846,
+            "count": 849,
             "url": "https://api.congress.gov/v3/member/D000626/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 153,
+            "count": 154,
             "url": "https://api.congress.gov/v3/member/D000626/sponsored-legislation"
         },
         "state": "Ohio",

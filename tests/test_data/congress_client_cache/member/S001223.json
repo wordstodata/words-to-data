@@ -10,7 +10,7 @@
         "bioguideId": "S001223",
         "birthYear": "1986",
         "cosponsoredLegislation": {
-            "count": 489,
+            "count": 492,
             "url": "https://api.congress.gov/v3/member/S001223/cosponsored-legislation"
         },
         "currentMember": true,
@@ -64,7 +64,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 61,
+            "count": 62,
             "url": "https://api.congress.gov/v3/member/S001223/sponsored-legislation"
         },
         "state": "Ohio",

@@ -4,7 +4,7 @@
 //! If any of these tests fail, the README examples need to be updated.
 
 use words_to_data::{
-    dataset::{Dataset, DatasetMetadata},
+    dataset::{Dataset, DatasetMetadata, Format},
     uslm::bill_parser::parse_bill_amendments,
 };
 
@@ -44,7 +44,7 @@ fn readme_example_dataset_workflow() {
 
     // Add bill
     let bill = parse_bill_amendments("119-21", PL_XML_PATH).expect("Failed to parse bill");
-    dataset.add_bill(bill);
+    let _ = dataset.add_bill(bill);
 
     // Compute diff
     let diff = dataset
@@ -69,7 +69,7 @@ fn readme_example_dataset_workflow() {
     // Save dataset (to temp file)
     let temp_path = std::env::temp_dir().join("readme_test_dataset.json");
     dataset
-        .save(temp_path.to_str().unwrap())
+        .save(temp_path.to_str().unwrap(), Format::Compact)
         .expect("Failed to save dataset");
 
     // Cleanup
@@ -105,13 +105,17 @@ fn readme_example_dataset_workflow_results() {
         .unwrap();
 
     let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
-    dataset.add_bill(bill);
+    dataset.add_bill(bill).unwrap();
 
     // Verify versions added
-    assert_eq!(dataset.versions.len(), 2, "README shows 2 versions");
+    assert_eq!(
+        dataset.storage().versions.len(),
+        2,
+        "README shows 2 versions"
+    );
 
     // Verify bill added
-    assert_eq!(dataset.bills.len(), 1, "README shows 1 bill");
+    assert_eq!(dataset.storage().bills.len(), 1, "README shows 1 bill");
 
     // Verify diff works and has changes
     let diff = dataset.compute_diff("2025-07-18", "2025-07-30").unwrap();

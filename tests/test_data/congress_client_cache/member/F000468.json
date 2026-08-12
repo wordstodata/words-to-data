@@ -10,7 +10,7 @@
         "bioguideId": "F000468",
         "birthYear": "1975",
         "cosponsoredLegislation": {
-            "count": 1201,
+            "count": 1204,
             "url": "https://api.congress.gov/v3/member/F000468/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 57,
+            "count": 58,
             "url": "https://api.congress.gov/v3/member/F000468/sponsored-legislation"
         },
         "state": "Texas",

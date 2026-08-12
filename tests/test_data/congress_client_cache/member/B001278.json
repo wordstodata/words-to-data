@@ -10,7 +10,7 @@
         "bioguideId": "B001278",
         "birthYear": "1954",
         "cosponsoredLegislation": {
-            "count": 4062,
+            "count": 4072,
             "url": "https://api.congress.gov/v3/member/B001278/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 282,
+            "count": 285,
             "url": "https://api.congress.gov/v3/member/B001278/sponsored-legislation"
         },
         "state": "Oregon",

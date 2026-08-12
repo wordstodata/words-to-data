@@ -17,7 +17,8 @@ fn test_parse_heading_field() {
         title
             .data
             .get_text_content(TextContentField::Heading)
-            .unwrap(),
+            .unwrap()
+            .as_ref(),
         "ARBITRATION"
     );
 }
@@ -148,7 +149,8 @@ fn test_parse_chapter_heading() {
         chapter
             .data
             .get_text_content(TextContentField::Heading)
-            .unwrap(),
+            .unwrap()
+            .as_ref(),
         "GENERAL PROVISIONS"
     );
 }

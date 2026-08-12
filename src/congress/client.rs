@@ -18,8 +18,18 @@ pub struct CongressClient {
 
 impl CongressClient {
     pub fn new(api_key: String, cache_dir: Option<String>) -> Self {
+        Self::with_ttl(
+            api_key,
+            cache_dir,
+            Some(Duration::from_secs(DEFAULT_TTL_SECS)),
+        )
+    }
+
+    /// Build a client with an explicit cache TTL. Pass `None` to make cached
+    /// entries never expire, e.g. when reading from committed test fixtures.
+    pub fn with_ttl(api_key: String, cache_dir: Option<String>, ttl: Option<Duration>) -> Self {
         let cache_path = cache_dir.map(std::path::PathBuf::from);
-        let cache = ResponseCache::new(Duration::from_secs(DEFAULT_TTL_SECS), cache_path);
+        let cache = ResponseCache::new(ttl, cache_path);
         let agent = ureq::Agent::new_with_defaults();
 
         Self {
@@ -310,7 +320,7 @@ impl CongressClient {
                 None
             })
             .ok_or_else(|| {
-                CongressError::NotFound(format!("No XML format for bill {}", &text_endpoint))
+                CongressError::NotFound(format!("No XML format for bill {}", text_endpoint))
             })?;
         // Fetch XML from URL
         let mut response = self

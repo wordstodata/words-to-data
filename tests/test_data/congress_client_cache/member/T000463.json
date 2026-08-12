@@ -10,7 +10,7 @@
         "bioguideId": "T000463",
         "birthYear": "1960",
         "cosponsoredLegislation": {
-            "count": 2145,
+            "count": 2146,
             "url": "https://api.congress.gov/v3/member/T000463/cosponsored-legislation"
         },
         "currentMember": true,
@@ -65,7 +65,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 191,
+            "count": 192,
             "url": "https://api.congress.gov/v3/member/T000463/sponsored-legislation"
         },
         "state": "Ohio",

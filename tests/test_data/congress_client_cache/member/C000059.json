@@ -10,7 +10,7 @@
         "bioguideId": "C000059",
         "birthYear": "1953",
         "cosponsoredLegislation": {
-            "count": 5190,
+            "count": 5193,
             "url": "https://api.congress.gov/v3/member/C000059/cosponsored-legislation"
         },
         "currentMember": true,
@@ -60,7 +60,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 283,
+            "count": 284,
             "url": "https://api.congress.gov/v3/member/C000059/sponsored-legislation"
         },
         "state": "California",

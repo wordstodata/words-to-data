@@ -10,7 +10,7 @@
         "bioguideId": "G000576",
         "birthYear": "1955",
         "cosponsoredLegislation": {
-            "count": 1983,
+            "count": 1992,
             "url": "https://api.congress.gov/v3/member/G000576/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 182,
+            "count": 183,
             "url": "https://api.congress.gov/v3/member/G000576/sponsored-legislation"
         },
         "state": "Wisconsin",

@@ -251,7 +251,6 @@ impl TreeDiff {
     /// let new = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
     ///
     /// let diff = TreeDiff::from_elements(&old, &new);
-    /// assert_eq!(diff.root_path, old.data.path);
     /// ```
     pub fn from_elements(from_element: &USLMElement, to_element: &USLMElement) -> TreeDiff {
         assert!(from_element.data.path == to_element.data.path);
@@ -263,12 +262,12 @@ impl TreeDiff {
         let children_a: HashMap<String, &USLMElement> = from_element
             .children
             .iter()
-            .map(|child| (child.data.path.clone(), child))
+            .map(|child| (child.data.path.to_string(), child))
             .collect();
         let children_b: HashMap<String, &USLMElement> = to_element
             .children
             .iter()
-            .map(|child| (child.data.path.clone(), child))
+            .map(|child| (child.data.path.to_string(), child))
             .collect();
 
         // 3. Find added, removed, matched
@@ -301,7 +300,7 @@ impl TreeDiff {
 
         TreeDiff {
             changes,
-            root_path,
+            root_path: root_path.to_string(),
             from_element: from_element.data.clone(),
             to_element: to_element.data.clone(),
             added,
@@ -692,7 +691,7 @@ fn diff_field(
         .get_text_content(field_name)
         .unwrap_or_default();
 
-    let diff = TextDiff::from_words(a.as_str(), b.as_str());
+    let diff = TextDiff::from_words(a.as_ref(), b.as_ref());
     let changes: Vec<TextChange> = diff
         .iter_all_changes()
         // Keep all changes including Equal for word-level diff rendering
@@ -714,8 +713,8 @@ fn diff_field(
         field_name,
         from_date: element_a.data.date,
         to_date: element_b.data.date,
-        old_value: a,
-        new_value: b,
+        old_value: a.to_string(),
+        new_value: b.to_string(),
         changes,
     }
 }

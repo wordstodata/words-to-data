@@ -10,7 +10,7 @@
         "bioguideId": "T000481",
         "birthYear": "1976",
         "cosponsoredLegislation": {
-            "count": 3278,
+            "count": 3291,
             "url": "https://api.congress.gov/v3/member/T000481/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 139,
+            "count": 140,
             "url": "https://api.congress.gov/v3/member/T000481/sponsored-legislation"
         },
         "state": "Michigan",

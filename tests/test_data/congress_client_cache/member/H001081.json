@@ -10,7 +10,7 @@
         "bioguideId": "H001081",
         "birthYear": "1973",
         "cosponsoredLegislation": {
-            "count": 2830,
+            "count": 2839,
             "url": "https://api.congress.gov/v3/member/H001081/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 125,
+            "count": 126,
             "url": "https://api.congress.gov/v3/member/H001081/sponsored-legislation"
         },
         "state": "Connecticut",

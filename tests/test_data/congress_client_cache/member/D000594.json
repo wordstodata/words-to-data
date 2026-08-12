@@ -10,7 +10,7 @@
         "bioguideId": "D000594",
         "birthYear": "1974",
         "cosponsoredLegislation": {
-            "count": 461,
+            "count": 464,
             "url": "https://api.congress.gov/v3/member/D000594/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 61,
+            "count": 62,
             "url": "https://api.congress.gov/v3/member/D000594/sponsored-legislation"
         },
         "state": "Texas",

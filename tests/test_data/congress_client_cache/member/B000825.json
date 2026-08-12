@@ -10,7 +10,7 @@
         "bioguideId": "B000825",
         "birthYear": "1986",
         "cosponsoredLegislation": {
-            "count": 892,
+            "count": 893,
             "url": "https://api.congress.gov/v3/member/B000825/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 151,
+            "count": 152,
             "url": "https://api.congress.gov/v3/member/B000825/sponsored-legislation"
         },
         "state": "Colorado",

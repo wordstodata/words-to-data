@@ -10,7 +10,7 @@
         "bioguideId": "O000173",
         "birthYear": "1982",
         "cosponsoredLegislation": {
-            "count": 2195,
+            "count": 2199,
             "url": "https://api.congress.gov/v3/member/O000173/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 123,
+            "count": 124,
             "url": "https://api.congress.gov/v3/member/O000173/sponsored-legislation"
         },
         "state": "Minnesota",

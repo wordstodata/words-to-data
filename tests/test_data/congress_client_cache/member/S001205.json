@@ -10,7 +10,7 @@
         "bioguideId": "S001205",
         "birthYear": "1959",
         "cosponsoredLegislation": {
-            "count": 2203,
+            "count": 2208,
             "url": "https://api.congress.gov/v3/member/S001205/cosponsored-legislation"
         },
         "currentMember": true,
@@ -73,7 +73,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 112,
+            "count": 113,
             "url": "https://api.congress.gov/v3/member/S001205/sponsored-legislation"
         },
         "state": "Pennsylvania",

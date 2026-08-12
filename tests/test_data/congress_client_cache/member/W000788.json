@@ -10,7 +10,7 @@
         "bioguideId": "W000788",
         "birthYear": "1978",
         "cosponsoredLegislation": {
-            "count": 1932,
+            "count": 1937,
             "url": "https://api.congress.gov/v3/member/W000788/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 152,
+            "count": 153,
             "url": "https://api.congress.gov/v3/member/W000788/sponsored-legislation"
         },
         "state": "Georgia",

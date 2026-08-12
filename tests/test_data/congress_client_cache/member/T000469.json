@@ -10,7 +10,7 @@
         "bioguideId": "T000469",
         "birthYear": "1949",
         "cosponsoredLegislation": {
-            "count": 4617,
+            "count": 4627,
             "url": "https://api.congress.gov/v3/member/T000469/cosponsored-legislation"
         },
         "currentMember": true,

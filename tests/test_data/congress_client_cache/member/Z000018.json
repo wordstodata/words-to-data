@@ -10,7 +10,7 @@
         "bioguideId": "Z000018",
         "birthYear": "1961",
         "cosponsoredLegislation": {
-            "count": 705,
+            "count": 707,
             "url": "https://api.congress.gov/v3/member/Z000018/cosponsored-legislation"
         },
         "currentMember": true,

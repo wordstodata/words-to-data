@@ -10,7 +10,7 @@
         "bioguideId": "B001302",
         "birthYear": "1958",
         "cosponsoredLegislation": {
-            "count": 1464,
+            "count": 1465,
             "url": "https://api.congress.gov/v3/member/B001302/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 933,
+            "count": 934,
             "url": "https://api.congress.gov/v3/member/B001302/sponsored-legislation"
         },
         "state": "Arizona",

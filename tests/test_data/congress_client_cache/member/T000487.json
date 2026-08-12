@@ -10,7 +10,7 @@
         "bioguideId": "T000487",
         "birthYear": "1976",
         "cosponsoredLegislation": {
-            "count": 1647,
+            "count": 1655,
             "url": "https://api.congress.gov/v3/member/T000487/cosponsored-legislation"
         },
         "currentMember": true,
@@ -74,7 +74,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 71,
+            "count": 74,
             "url": "https://api.congress.gov/v3/member/T000487/sponsored-legislation"
         },
         "state": "Hawaii",

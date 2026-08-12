@@ -10,13 +10,13 @@
         "bioguideId": "F000483",
         "birthYear": "1966",
         "cosponsoredLegislation": {
-            "count": 296,
+            "count": 298,
             "url": "https://api.congress.gov/v3/member/F000483/cosponsored-legislation"
         },
         "currentMember": true,
         "depiction": {
             "attribution": "Image courtesy of the Member",
-            "imageUrl": "https://www.congress.gov/img/member/677427070b34857ecc9090a1_200.jpg"
+            "imageUrl": "https://www.congress.gov/img/member/6a0f0dcb69b12040cf77e337_200.jpg"
         },
         "directOrderName": "Laura Friedman",
         "district": 30,
@@ -76,7 +76,7 @@
                 "stateName": "California"
             }
         ],
-        "updateDate": "2025-09-24T07:40:20Z"
+        "updateDate": "2026-05-21T15:05:48Z"
     },
     "request": {
         "bioguideId": "f000483",

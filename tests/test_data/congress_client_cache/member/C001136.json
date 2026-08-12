@@ -10,7 +10,7 @@
         "bioguideId": "C001136",
         "birthYear": "1963",
         "cosponsoredLegislation": {
-            "count": 201,
+            "count": 204,
             "url": "https://api.congress.gov/v3/member/C001136/cosponsored-legislation"
         },
         "currentMember": true,
@@ -75,7 +75,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 13,
+            "count": 14,
             "url": "https://api.congress.gov/v3/member/C001136/sponsored-legislation"
         },
         "state": "New Jersey",

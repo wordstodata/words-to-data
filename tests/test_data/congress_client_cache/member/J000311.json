@@ -10,7 +10,7 @@
         "bioguideId": "J000311",
         "birthYear": "1988",
         "cosponsoredLegislation": {
-            "count": 109,
+            "count": 111,
             "url": "https://api.congress.gov/v3/member/J000311/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 7,
+            "count": 8,
             "url": "https://api.congress.gov/v3/member/J000311/sponsored-legislation"
         },
         "state": "Georgia",

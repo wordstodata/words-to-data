@@ -10,7 +10,7 @@
         "bioguideId": "A000380",
         "birthYear": "1987",
         "cosponsoredLegislation": {
-            "count": 605,
+            "count": 607,
             "url": "https://api.congress.gov/v3/member/A000380/cosponsored-legislation"
         },
         "currentMember": true,
@@ -62,7 +62,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 25,
+            "count": 26,
             "url": "https://api.congress.gov/v3/member/A000380/sponsored-legislation"
         },
         "state": "Rhode Island",

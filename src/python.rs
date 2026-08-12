@@ -14,9 +14,21 @@ use crate::congress::{
     VotePosition as RustVotePosition,
 };
 use crate::dataset::{
-    Dataset as RustDataset, DatasetError, DatasetMetadata as RustDatasetMetadata,
+    Dataset as RustDataset, DatasetError, DatasetMetadata as RustDatasetMetadata, Format,
     SearchResult as RustSearchResult, VersionSnapshot as RustVersionSnapshot,
 };
+use crate::storage::InMemoryStorage;
+
+fn parse_format(format: &str) -> PyResult<Format> {
+    match format.to_lowercase().as_str() {
+        "compact" => Ok(Format::Compact),
+        "json" => Ok(Format::Json),
+        _ => Err(PyValueError::new_err(format!(
+            "Unknown format '{}'. Use 'compact' or 'json'.",
+            format
+        ))),
+    }
+}
 use crate::diff::{
     AmendmentSimilarity as RustAmendmentSimilarity, MentionMatch as RustMentionMatch,
     TreeDiff as RustTreeDiff,
@@ -595,7 +607,7 @@ impl BillReference {
     fn __repr__(&self) -> String {
         format!(
             "BillReference(bill_id='{}', amendment_id='{}')",
-            self.inner.bill_id, &self.inner.amendment_id
+            self.inner.bill_id, self.inner.amendment_id
         )
     }
 
@@ -712,10 +724,14 @@ struct ChangeAnnotation {
 }
 
 impl ChangeAnnotation {
-    fn from(rust_ann: &RustChangeAnnotation) -> Self {
+    fn from_ref(rust_ann: &RustChangeAnnotation) -> Self {
         ChangeAnnotation {
             inner: rust_ann.clone(),
         }
+    }
+
+    fn from(rust_ann: RustChangeAnnotation) -> Self {
+        ChangeAnnotation { inner: rust_ann }
     }
 }
 
@@ -803,7 +819,7 @@ impl ChangeAnnotation {
     fn from_json(json_str: &str) -> PyResult<Self> {
         let inner: RustChangeAnnotation = serde_json::from_str(json_str)
             .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
-        Ok(Self::from(&inner))
+        Ok(Self::from(inner))
     }
 }
 
@@ -1170,6 +1186,7 @@ fn dataset_error_to_py(err: DatasetError) -> PyErr {
             "Failed to load folder '{}': empty or unreadable",
             p
         )),
+        DatasetError::Sqlite(e) => PyRuntimeError::new_err(format!("SQLite error: {}", e)),
     }
 }
 
@@ -1246,10 +1263,14 @@ struct VersionSnapshot {
 }
 
 impl VersionSnapshot {
-    fn from(rust: &RustVersionSnapshot) -> Self {
+    fn from_ref(rust: &RustVersionSnapshot) -> Self {
         VersionSnapshot {
             inner: rust.clone(),
         }
+    }
+
+    fn from(rust: RustVersionSnapshot) -> Self {
+        VersionSnapshot { inner: rust }
     }
 }
 
@@ -1338,7 +1359,7 @@ impl SearchResult {
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 struct Dataset {
-    inner: RustDataset,
+    inner: RustDataset<InMemoryStorage>,
 }
 
 #[pymethods]
@@ -1350,35 +1371,51 @@ impl Dataset {
         }
     }
 
+    /// Load dataset from file
+    ///
+    /// Args:
+    ///     path: File path to load from
+    ///     format: "compact" (default, smaller/faster) or "json" (raw, for debugging)
     #[staticmethod]
-    fn load(path: &str) -> PyResult<Self> {
-        let inner = RustDataset::load(path).map_err(dataset_error_to_py)?;
+    #[pyo3(signature = (path, format="compact"))]
+    fn load(path: &str, format: &str) -> PyResult<Self> {
+        let fmt = parse_format(format)?;
+        let inner = RustDataset::load(path, fmt).map_err(dataset_error_to_py)?;
         Ok(Dataset { inner })
     }
 
-    fn save(&self, path: &str) -> PyResult<()> {
-        self.inner.save(path).map_err(dataset_error_to_py)
+    /// Save dataset to file
+    ///
+    /// Args:
+    ///     path: File path to save to
+    ///     format: "compact" (default, smaller/faster) or "json" (raw, for debugging)
+    #[pyo3(signature = (path, format="compact"))]
+    fn save(&self, path: &str, format: &str) -> PyResult<()> {
+        let fmt = parse_format(format)?;
+        self.inner.save(path, fmt).map_err(dataset_error_to_py)
     }
 
     #[getter]
     fn metadata(&self) -> DatasetMetadata {
         DatasetMetadata {
-            inner: self.inner.metadata.clone(),
+            inner: self.inner.metadata().clone(),
         }
     }
 
     #[getter]
     fn versions(&self) -> Vec<VersionSnapshot> {
         self.inner
+            .storage()
             .versions
             .iter()
-            .map(VersionSnapshot::from)
+            .map(VersionSnapshot::from_ref)
             .collect()
     }
 
     #[getter]
     fn bills(&self) -> std::collections::HashMap<String, Bill> {
         self.inner
+            .storage()
             .bills
             .iter()
             .map(|(k, v)| (k.clone(), Bill::from(v.clone())))
@@ -1390,26 +1427,45 @@ impl Dataset {
         &self,
     ) -> std::collections::HashMap<(String, String), Vec<ChangeAnnotation>> {
         self.inner
+            .storage()
             .diff_annotations
             .iter()
             .map(|((from, to), annotations)| {
                 (
                     (from.clone(), to.clone()),
-                    annotations.iter().map(ChangeAnnotation::from).collect(),
+                    annotations.iter().map(ChangeAnnotation::from_ref).collect(),
                 )
             })
             .collect()
     }
 
-    fn get_annotations(&self, from_date: &str, to_date: &str) -> Option<Vec<ChangeAnnotation>> {
+    fn get_annotations(
+        &self,
+        from_date: &str,
+        to_date: &str,
+    ) -> PyResult<Option<Vec<ChangeAnnotation>>> {
         self.inner
             .get_annotations(from_date, to_date)
-            .map(|annotations| annotations.iter().map(ChangeAnnotation::from).collect())
+            .map(|opt| {
+                opt.map(|annotations| {
+                    annotations
+                        .into_iter()
+                        .map(ChangeAnnotation::from)
+                        .collect()
+                })
+            })
+            .map_err(dataset_error_to_py)
     }
 
-    fn add_annotation(&mut self, from_date: &str, to_date: &str, annotation: &ChangeAnnotation) {
+    fn add_annotation(
+        &mut self,
+        from_date: &str,
+        to_date: &str,
+        annotation: &ChangeAnnotation,
+    ) -> PyResult<()> {
         self.inner
-            .add_annotation(from_date, to_date, annotation.inner.clone());
+            .add_annotation(from_date, to_date, annotation.inner.clone())
+            .map_err(dataset_error_to_py)
     }
 
     fn annotated_paths(&self, from_date: &str, to_date: &str) -> Vec<String> {
@@ -1422,26 +1478,38 @@ impl Dataset {
             .map_err(dataset_error_to_py)
     }
 
-    fn add_version(&mut self, snapshot: &VersionSnapshot) {
-        self.inner.add_version(snapshot.inner.clone());
+    fn add_version(&mut self, snapshot: &VersionSnapshot) -> PyResult<()> {
+        self.inner
+            .add_version(snapshot.inner.clone())
+            .map_err(dataset_error_to_py)
     }
 
-    fn get_version(&self, date: &str) -> Option<VersionSnapshot> {
-        self.inner.get_version(date).map(VersionSnapshot::from)
+    fn get_version(&self, date: &str) -> PyResult<Option<VersionSnapshot>> {
+        self.inner
+            .get_version(date)
+            .map(|opt| opt.map(VersionSnapshot::from))
+            .map_err(dataset_error_to_py)
     }
 
-    fn get_version_by_label(&self, label: &str) -> Option<VersionSnapshot> {
+    fn get_version_by_label(&self, label: &str) -> PyResult<Option<VersionSnapshot>> {
         self.inner
             .get_version_by_label(label)
-            .map(VersionSnapshot::from)
+            .map(|opt| opt.map(VersionSnapshot::from))
+            .map_err(dataset_error_to_py)
     }
 
-    fn next_version(&self, date: &str) -> Option<VersionSnapshot> {
-        self.inner.next_version(date).map(VersionSnapshot::from)
+    fn next_version(&self, date: &str) -> PyResult<Option<VersionSnapshot>> {
+        self.inner
+            .next_version(date)
+            .map(|opt| opt.map(VersionSnapshot::from))
+            .map_err(dataset_error_to_py)
     }
 
-    fn prev_version(&self, date: &str) -> Option<VersionSnapshot> {
-        self.inner.prev_version(date).map(VersionSnapshot::from)
+    fn prev_version(&self, date: &str) -> PyResult<Option<VersionSnapshot>> {
+        self.inner
+            .prev_version(date)
+            .map(|opt| opt.map(VersionSnapshot::from))
+            .map_err(dataset_error_to_py)
     }
 
     fn compute_diff(&self, from_date: &str, to_date: &str) -> PyResult<TreeDiff> {
@@ -1452,44 +1520,50 @@ impl Dataset {
         Ok(TreeDiff::from(&diff))
     }
 
-    fn add_bill(&mut self, bill: &Bill) {
-        self.inner.add_bill(bill.inner.clone());
+    fn add_bill(&mut self, bill: &Bill) -> PyResult<()> {
+        self.inner
+            .add_bill(bill.inner.clone())
+            .map_err(dataset_error_to_py)
     }
 
-    fn get_bill(&self, bill_id: &str) -> Option<Bill> {
-        self.inner.get_bill(bill_id).map(|b| Bill::from(b.clone()))
+    fn get_bill(&self, bill_id: &str) -> PyResult<Option<Bill>> {
+        self.inner
+            .get_bill(bill_id)
+            .map(|opt| opt.map(|b| Bill::from(b.clone())))
+            .map_err(dataset_error_to_py)
     }
 
-    fn annotations_for_path(&self, path: &str) -> Vec<ChangeAnnotation> {
+    fn annotations_for_path(&self, path: &str) -> PyResult<Vec<ChangeAnnotation>> {
         self.inner
             .annotations_for_path(path)
-            .into_iter()
-            .map(ChangeAnnotation::from)
-            .collect()
+            .map(|anns| anns.into_iter().map(ChangeAnnotation::from).collect())
+            .map_err(dataset_error_to_py)
     }
 
-    fn annotations_for_bill(&self, bill_id: &str) -> Vec<ChangeAnnotation> {
+    fn annotations_for_bill(&self, bill_id: &str) -> PyResult<Vec<ChangeAnnotation>> {
         self.inner
             .annotations_for_bill(bill_id)
-            .into_iter()
-            .map(ChangeAnnotation::from)
-            .collect()
+            .map(|anns| anns.into_iter().map(ChangeAnnotation::from).collect())
+            .map_err(dataset_error_to_py)
     }
 
-    fn search_text(&self, query: &str) -> Vec<SearchResult> {
+    fn search_text(&self, query: &str) -> PyResult<Vec<SearchResult>> {
         self.inner
             .search_text(query)
-            .iter()
-            .map(SearchResult::from)
-            .collect()
+            .map(|results| results.iter().map(SearchResult::from).collect())
+            .map_err(dataset_error_to_py)
     }
 
-    fn find_element(&self, path: &str) -> Vec<(String, USLMElement)> {
+    fn find_element(&self, path: &str) -> PyResult<Vec<(String, USLMElement)>> {
         self.inner
             .find_element(path)
-            .into_iter()
-            .map(|(date, elem)| (date.to_string(), USLMElement::from(elem)))
-            .collect()
+            .map(|results| {
+                results
+                    .into_iter()
+                    .map(|(date, elem)| (date.to_string(), USLMElement::from(&elem)))
+                    .collect()
+            })
+            .map_err(dataset_error_to_py)
     }
 
     /// Parse a USLM XML file and add it as a version snapshot
@@ -1516,9 +1590,9 @@ impl Dataset {
     fn __repr__(&self) -> String {
         format!(
             "Dataset(name='{}', versions={}, bills={})",
-            self.inner.metadata.name,
-            self.inner.versions.len(),
-            self.inner.bills.len()
+            self.inner.metadata().name,
+            self.inner.storage().versions.len(),
+            self.inner.storage().bills.len()
         )
     }
 
@@ -1529,29 +1603,36 @@ impl Dataset {
 
     // Congress data methods
 
-    fn add_member(&mut self, member: &Member) {
-        self.inner.add_member(member.inner.clone());
+    fn add_member(&mut self, member: &Member) -> PyResult<()> {
+        self.inner
+            .add_member(member.inner.clone())
+            .map_err(dataset_error_to_py)
     }
 
-    fn get_member(&self, bioguide_id: &str) -> Option<Member> {
+    fn get_member(&self, bioguide_id: &str) -> PyResult<Option<Member>> {
         self.inner
             .get_member(bioguide_id)
-            .map(|m| Member { inner: m.clone() })
+            .map(|opt| opt.map(|m| Member { inner: m.clone() }))
+            .map_err(dataset_error_to_py)
     }
 
-    fn add_sponsor_info(&mut self, info: &SponsorInfo) {
-        self.inner.add_sponsor_info(info.inner.clone());
+    fn add_sponsor_info(&mut self, info: &SponsorInfo) -> PyResult<()> {
+        self.inner
+            .add_sponsor_info(info.inner.clone())
+            .map_err(dataset_error_to_py)
     }
 
-    fn get_sponsor_info(&self, bill_id: &str) -> Option<SponsorInfo> {
+    fn get_sponsor_info(&self, bill_id: &str) -> PyResult<Option<SponsorInfo>> {
         self.inner
             .get_sponsor_info(bill_id)
-            .map(|s| SponsorInfo { inner: s.clone() })
+            .map(|opt| opt.map(|s| SponsorInfo { inner: s.clone() }))
+            .map_err(dataset_error_to_py)
     }
 
     #[getter]
     fn members(&self) -> std::collections::HashMap<String, Member> {
         self.inner
+            .storage()
             .members
             .iter()
             .map(|(k, v)| (k.clone(), Member { inner: v.clone() }))
@@ -1561,38 +1642,47 @@ impl Dataset {
     #[getter]
     fn sponsors(&self) -> std::collections::HashMap<String, SponsorInfo> {
         self.inner
+            .storage()
             .sponsors
             .iter()
             .map(|(k, v)| (k.clone(), SponsorInfo { inner: v.clone() }))
             .collect()
     }
 
-    fn add_bill_votes(&mut self, votes: &BillVotes) {
-        self.inner.add_bill_votes(votes.inner.clone());
+    fn add_bill_votes(&mut self, votes: &BillVotes) -> PyResult<()> {
+        self.inner
+            .add_bill_votes(votes.inner.clone())
+            .map_err(dataset_error_to_py)
     }
 
-    fn get_bill_votes(&self, bill_id: &str) -> Option<BillVotes> {
+    fn get_bill_votes(&self, bill_id: &str) -> PyResult<Option<BillVotes>> {
         self.inner
             .get_bill_votes(bill_id)
-            .map(|v| BillVotes { inner: v.clone() })
+            .map(|opt| opt.map(|v| BillVotes { inner: v.clone() }))
+            .map_err(dataset_error_to_py)
     }
 
-    fn votes_by_member(&self, bioguide_id: &str) -> Vec<(HouseRollCall, VotePosition)> {
+    fn votes_by_member(&self, bioguide_id: &str) -> PyResult<Vec<(HouseRollCall, VotePosition)>> {
         self.inner
             .votes_by_member(bioguide_id)
-            .into_iter()
-            .map(|(rc, pos)| {
-                (
-                    HouseRollCall { inner: rc.clone() },
-                    VotePosition { inner: pos },
-                )
+            .map(|results| {
+                results
+                    .into_iter()
+                    .map(|(rc, pos)| {
+                        (
+                            HouseRollCall { inner: rc.clone() },
+                            VotePosition { inner: pos },
+                        )
+                    })
+                    .collect()
             })
-            .collect()
+            .map_err(dataset_error_to_py)
     }
 
     #[getter]
     fn all_bill_votes(&self) -> std::collections::HashMap<String, BillVotes> {
         self.inner
+            .storage()
             .bill_votes
             .iter()
             .map(|(k, v)| (k.clone(), BillVotes { inner: v.clone() }))
@@ -1606,15 +1696,17 @@ impl Dataset {
     }
 
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
+        serde_json::to_string(self.inner.storage())
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))
     }
 
     #[staticmethod]
     fn from_json(json_str: &str) -> PyResult<Self> {
-        let inner: RustDataset = serde_json::from_str(json_str)
+        let storage: InMemoryStorage = serde_json::from_str(json_str)
             .map_err(|e| PyValueError::new_err(format!("JSON deserialization error: {}", e)))?;
-        Ok(Dataset { inner })
+        Ok(Dataset {
+            inner: RustDataset::with_storage(storage),
+        })
     }
 }
 
@@ -2242,6 +2334,19 @@ impl CongressClient {
     fn new(api_key: String, cache_dir: Option<String>) -> Self {
         CongressClient {
             inner: RustCongressClient::new(api_key, cache_dir),
+        }
+    }
+
+    /// Build a client with an explicit cache TTL in seconds.
+    ///
+    /// Pass `ttl_secs=None` to make cached entries never expire, e.g. when
+    /// reading from committed test fixtures.
+    #[staticmethod]
+    #[pyo3(signature = (api_key, cache_dir=None, ttl_secs=None))]
+    fn with_ttl(api_key: String, cache_dir: Option<String>, ttl_secs: Option<u64>) -> Self {
+        let ttl = ttl_secs.map(std::time::Duration::from_secs);
+        CongressClient {
+            inner: RustCongressClient::with_ttl(api_key, cache_dir, ttl),
         }
     }
 

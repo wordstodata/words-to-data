@@ -10,7 +10,7 @@ fn test_find_root_in_real_document() {
     assert!(result.is_some(), "Should find root");
 
     let found = result.unwrap();
-    assert_eq!(found.data.path, "uscode");
+    assert_eq!(found.data.path.as_ref(), "uscode");
     assert_eq!(found.data.element_type, ElementType::USCodeDocument);
 }
 
@@ -24,7 +24,7 @@ fn test_find_title_element() {
     assert!(result.is_some(), "Should find title");
 
     let found = result.unwrap();
-    assert_eq!(found.data.path, "uscode/title_9");
+    assert_eq!(found.data.path.as_ref(), "uscode/title_9");
     assert_eq!(found.data.element_type, ElementType::Title);
 }
 
@@ -39,7 +39,7 @@ fn test_find_chapter_element() {
 
     let found = result.unwrap();
     assert_eq!(found.data.element_type, ElementType::Chapter);
-    assert_eq!(found.data.number_value, "1");
+    assert_eq!(found.data.number_value.as_ref(), "1");
 }
 
 // Find section element
@@ -66,7 +66,7 @@ fn test_find_subsection_element() {
 
     let found = result.unwrap();
     assert_eq!(found.data.element_type, ElementType::Subsection);
-    assert_eq!(found.data.number_value, "a");
+    assert_eq!(found.data.number_value.as_ref(), "a");
 }
 
 // Find paragraph element (very deep navigation)
@@ -172,7 +172,7 @@ fn test_find_deeply_nested_structure() {
 
     if let Some(found) = result {
         assert_eq!(found.data.element_type, ElementType::Subparagraph);
-        assert_eq!(found.data.number_value, "A");
+        assert_eq!(found.data.number_value.as_ref(), "A");
     }
     // If this specific path doesn't exist, that's OK - we're testing the navigation works
 }

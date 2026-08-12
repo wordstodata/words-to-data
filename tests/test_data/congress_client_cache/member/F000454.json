@@ -10,7 +10,7 @@
         "bioguideId": "F000454",
         "birthYear": "1955",
         "cosponsoredLegislation": {
-            "count": 2591,
+            "count": 2593,
             "url": "https://api.congress.gov/v3/member/F000454/cosponsored-legislation"
         },
         "currentMember": true,
@@ -52,7 +52,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 275,
+            "count": 276,
             "url": "https://api.congress.gov/v3/member/F000454/sponsored-legislation"
         },
         "state": "Illinois",

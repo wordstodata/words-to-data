@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 394,
+            "count": 396,
             "url": "https://api.congress.gov/v3/member/I000056/sponsored-legislation"
         },
         "state": "California",

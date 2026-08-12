@@ -10,7 +10,7 @@
         "bioguideId": "S001230",
         "birthYear": "1986",
         "cosponsoredLegislation": {
-            "count": 340,
+            "count": 346,
             "url": "https://api.congress.gov/v3/member/S001230/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 32,
+            "count": 33,
             "url": "https://api.congress.gov/v3/member/S001230/sponsored-legislation"
         },
         "state": "Virginia",

@@ -10,7 +10,7 @@
         "bioguideId": "M000312",
         "birthYear": "1959",
         "cosponsoredLegislation": {
-            "count": 11833,
+            "count": 11837,
             "url": "https://api.congress.gov/v3/member/M000312/cosponsored-legislation"
         },
         "currentMember": true,
@@ -64,7 +64,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 434,
+            "count": 435,
             "url": "https://api.congress.gov/v3/member/M000312/sponsored-legislation"
         },
         "state": "Massachusetts",

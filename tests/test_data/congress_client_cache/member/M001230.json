@@ -10,7 +10,7 @@
         "bioguideId": "M001230",
         "birthYear": "1982",
         "cosponsoredLegislation": {
-            "count": 207,
+            "count": 210,
             "url": "https://api.congress.gov/v3/member/M001230/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 21,
+            "count": 22,
             "url": "https://api.congress.gov/v3/member/M001230/sponsored-legislation"
         },
         "state": "Pennsylvania",

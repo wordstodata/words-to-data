@@ -7,11 +7,13 @@ use super::CongressError;
 
 pub struct ResponseCache {
     cache_dir: PathBuf,
-    ttl: Duration,
+    /// Time-to-live for cached entries. `None` means entries never expire,
+    /// which is what committed test fixtures rely on.
+    ttl: Option<Duration>,
 }
 
 impl ResponseCache {
-    pub fn new(ttl: Duration, cache_dir: Option<PathBuf>) -> Self {
+    pub fn new(ttl: Option<Duration>, cache_dir: Option<PathBuf>) -> Self {
         let cache_dir =
             cache_dir.unwrap_or_else(|| dirs::cache_dir().unwrap().join("words_to_data/"));
         Self { cache_dir, ttl }
@@ -30,15 +32,16 @@ impl ResponseCache {
             return None;
         }
 
-        // Check TTL
-        let metadata = fs::metadata(&path).ok()?;
-        let modified = metadata.modified().ok()?;
-        let age = SystemTime::now().duration_since(modified).ok()?;
+        // Check TTL. A read is non-destructive: an expired entry is treated as a
+        // cache miss but is never deleted, so committed fixtures survive reads.
+        if let Some(ttl) = self.ttl {
+            let metadata = fs::metadata(&path).ok()?;
+            let modified = metadata.modified().ok()?;
+            let age = SystemTime::now().duration_since(modified).ok()?;
 
-        if age > self.ttl {
-            // Expired
-            let _ = fs::remove_file(&path);
-            return None;
+            if age > ttl {
+                return None;
+            }
         }
 
         let mut file = fs::File::open(&path).ok()?;

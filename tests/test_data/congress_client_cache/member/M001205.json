@@ -10,7 +10,7 @@
         "bioguideId": "M001205",
         "birthYear": "1950",
         "cosponsoredLegislation": {
-            "count": 940,
+            "count": 943,
             "url": "https://api.congress.gov/v3/member/M001205/cosponsored-legislation"
         },
         "currentMember": true,
@@ -55,7 +55,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 96,
+            "count": 98,
             "url": "https://api.congress.gov/v3/member/M001205/sponsored-legislation"
         },
         "state": "West Virginia",

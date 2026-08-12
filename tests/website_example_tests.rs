@@ -53,13 +53,15 @@ fn website_example_parse_usc_json_structure() {
     let s174a = title_26.find(s174a_path).unwrap();
 
     // Verify key fields shown in website JSON output
-    assert_eq!(s174a.data.path, s174a_path);
+    assert_eq!(s174a.data.path.as_ref(), s174a_path);
     assert_eq!(
-        s174a.data.number_value, "a",
+        s174a.data.number_value.as_ref(),
+        "a",
         "number_value should be 'a' as shown on website"
     );
     assert_eq!(
-        s174a.data.number_display, "(a)",
+        s174a.data.number_display.as_ref(),
+        "(a)",
         "number_display should be '(a)' as shown on website"
     );
     assert_eq!(
@@ -303,11 +305,11 @@ fn website_example_dataset_workflow() {
         )
         .expect("add version");
 
-    assert_eq!(dataset.versions.len(), 2);
+    assert_eq!(dataset.storage().versions.len(), 2);
 
     // Add bill
     let bill = parse_bill_amendments("119-21", PL_XML_PATH).expect("parse bill");
-    dataset.add_bill(bill);
+    dataset.add_bill(bill).unwrap();
 
     // Compute diff via dataset
     let diff = dataset

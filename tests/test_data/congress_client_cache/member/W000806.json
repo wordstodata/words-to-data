@@ -10,7 +10,7 @@
         "bioguideId": "W000806",
         "birthYear": "1949",
         "cosponsoredLegislation": {
-            "count": 1325,
+            "count": 1328,
             "url": "https://api.congress.gov/v3/member/W000806/cosponsored-legislation"
         },
         "currentMember": true,

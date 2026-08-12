@@ -10,7 +10,7 @@
         "bioguideId": "F000477",
         "birthYear": "1956",
         "cosponsoredLegislation": {
-            "count": 757,
+            "count": 761,
             "url": "https://api.congress.gov/v3/member/F000477/cosponsored-legislation"
         },
         "currentMember": true,
@@ -74,7 +74,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 33,
+            "count": 35,
             "url": "https://api.congress.gov/v3/member/F000477/sponsored-legislation"
         },
         "state": "North Carolina",

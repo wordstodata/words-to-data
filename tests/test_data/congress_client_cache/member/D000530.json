@@ -10,7 +10,7 @@
         "bioguideId": "D000530",
         "birthYear": "1984",
         "cosponsoredLegislation": {
-            "count": 976,
+            "count": 983,
             "url": "https://api.congress.gov/v3/member/D000530/cosponsored-legislation"
         },
         "currentMember": true,
@@ -64,7 +64,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 51,
+            "count": 52,
             "url": "https://api.congress.gov/v3/member/D000530/sponsored-legislation"
         },
         "state": "Pennsylvania",

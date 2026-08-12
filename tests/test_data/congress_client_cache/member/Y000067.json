@@ -10,7 +10,7 @@
         "bioguideId": "Y000067",
         "birthYear": "1984",
         "cosponsoredLegislation": {
-            "count": 526,
+            "count": 527,
             "url": "https://api.congress.gov/v3/member/Y000067/cosponsored-legislation"
         },
         "currentMember": true,
@@ -68,7 +68,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 44,
+            "count": 45,
             "url": "https://api.congress.gov/v3/member/Y000067/sponsored-legislation"
         },
         "state": "Indiana",

@@ -10,7 +10,7 @@
         "bioguideId": "J000310",
         "birthYear": "1966",
         "cosponsoredLegislation": {
-            "count": 409,
+            "count": 410,
             "url": "https://api.congress.gov/v3/member/J000310/cosponsored-legislation"
         },
         "currentMember": true,

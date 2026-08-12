@@ -10,7 +10,7 @@
         "bioguideId": "G000602",
         "birthYear": "1969",
         "cosponsoredLegislation": {
-            "count": 266,
+            "count": 269,
             "url": "https://api.congress.gov/v3/member/G000602/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 14,
+            "count": 15,
             "url": "https://api.congress.gov/v3/member/G000602/sponsored-legislation"
         },
         "state": "New York",

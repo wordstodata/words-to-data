@@ -2,8 +2,9 @@ use std::fs::File;
 use std::io::BufReader;
 
 use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, VersionSnapshot};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format, VersionSnapshot};
 use words_to_data::diff::TreeDiff;
+use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 
@@ -39,34 +40,42 @@ fn should_serialize_roundtrip_json() {
 
     let annotations = make_annotations();
     for annotation in annotations.into_iter() {
-        dataset.add_annotation("2025-07-18", "2025-07-30", annotation);
+        dataset
+            .add_annotation("2025-07-18", "2025-07-30", annotation)
+            .unwrap();
     }
 
-    // Serialize to JSON and back
-    let json = serde_json::to_string(&dataset).unwrap();
-    let roundtripped: Dataset = serde_json::from_str(&json).unwrap();
+    // Save and load via Compact format (JSON with tuple keys requires file-based roundtrip)
+    let path = "/tmp/dataset_test_roundtrip.json";
+    dataset.save(path, Format::Compact).unwrap();
+    let roundtripped = Dataset::load(path, Format::Compact).unwrap();
 
-    assert_eq!(roundtripped.metadata.name, "Test Dataset");
-    assert_eq!(roundtripped.versions.len(), 2);
-    assert_eq!(roundtripped.versions[0].date, "2025-07-18");
-    assert_eq!(roundtripped.versions[0].label, Some("test".to_string()));
+    assert_eq!(roundtripped.metadata().name, "Test Dataset");
+    assert_eq!(roundtripped.storage().versions.len(), 2);
+    assert_eq!(roundtripped.storage().versions[0].date, "2025-07-18");
+    assert_eq!(
+        roundtripped.storage().versions[0].label,
+        Some("test".to_string())
+    );
     assert_eq!(
         roundtripped
             .get_annotations("2025-07-18", "2025-07-30")
             .unwrap()
+            .unwrap()
             .len(),
         753
     );
-    assert_eq!(
+    assert!(
         roundtripped
             .get_annotations("2025-07-18", "2025-07-20")
-            .iter()
-            .len(),
-        0
+            .unwrap()
+            .is_none()
     );
+
+    std::fs::remove_file(path).ok();
 }
 
-fn make_test_dataset() -> Dataset {
+fn make_test_dataset() -> Dataset<InMemoryStorage> {
     let metadata = DatasetMetadata {
         name: "Test".to_string(),
         description: "Test".to_string(),
@@ -92,68 +101,88 @@ fn should_add_version_maintaining_order() {
     let mut dataset = make_test_dataset();
 
     // Add out of order
-    dataset.add_version(make_snapshot("2024-06-01", None));
-    dataset.add_version(make_snapshot("2024-01-01", Some("First")));
-    dataset.add_version(make_snapshot("2024-12-01", Some("Last")));
+    dataset
+        .add_version(make_snapshot("2024-06-01", None))
+        .unwrap();
+    dataset
+        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .unwrap();
+    dataset
+        .add_version(make_snapshot("2024-12-01", Some("Last")))
+        .unwrap();
 
-    assert_eq!(dataset.versions.len(), 3);
-    assert_eq!(dataset.versions[0].date, "2024-01-01");
-    assert_eq!(dataset.versions[1].date, "2024-06-01");
-    assert_eq!(dataset.versions[2].date, "2024-12-01");
+    assert_eq!(dataset.storage().versions.len(), 3);
+    assert_eq!(dataset.storage().versions[0].date, "2024-01-01");
+    assert_eq!(dataset.storage().versions[1].date, "2024-06-01");
+    assert_eq!(dataset.storage().versions[2].date, "2024-12-01");
 }
 
 #[test]
 fn should_get_version_by_date() {
     let mut dataset = make_test_dataset();
-    dataset.add_version(make_snapshot("2024-01-01", Some("First")));
-    dataset.add_version(make_snapshot("2024-06-01", None));
+    dataset
+        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .unwrap();
+    dataset
+        .add_version(make_snapshot("2024-06-01", None))
+        .unwrap();
 
-    let found = dataset.get_version("2024-01-01");
+    let found = dataset.get_version("2024-01-01").unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().label, Some("First".to_string()));
 
-    let not_found = dataset.get_version("2024-03-01");
+    let not_found = dataset.get_version("2024-03-01").unwrap();
     assert!(not_found.is_none());
 }
 
 #[test]
 fn should_navigate_versions() {
     let mut dataset = make_test_dataset();
-    dataset.add_version(make_snapshot("2024-01-01", Some("First")));
-    dataset.add_version(make_snapshot("2024-06-01", Some("Middle")));
-    dataset.add_version(make_snapshot("2024-12-01", Some("Last")));
+    dataset
+        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .unwrap();
+    dataset
+        .add_version(make_snapshot("2024-06-01", Some("Middle")))
+        .unwrap();
+    dataset
+        .add_version(make_snapshot("2024-12-01", Some("Last")))
+        .unwrap();
 
     // next_version
-    let next = dataset.next_version("2024-01-01");
+    let next = dataset.next_version("2024-01-01").unwrap();
     assert!(next.is_some());
     assert_eq!(next.unwrap().date, "2024-06-01");
 
     // prev_version
-    let prev = dataset.prev_version("2024-12-01");
+    let prev = dataset.prev_version("2024-12-01").unwrap();
     assert!(prev.is_some());
     assert_eq!(prev.unwrap().date, "2024-06-01");
 
     // Edge cases
-    assert!(dataset.next_version("2024-12-01").is_none()); // no next after last
-    assert!(dataset.prev_version("2024-01-01").is_none()); // no prev before first
+    assert!(dataset.next_version("2024-12-01").unwrap().is_none()); // no next after last
+    assert!(dataset.prev_version("2024-01-01").unwrap().is_none()); // no prev before first
 }
 
 #[test]
 fn should_save_and_load_file() {
     let mut dataset = make_test_dataset();
-    dataset.add_version(make_snapshot("2024-01-01", Some("First")));
+    dataset
+        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .unwrap();
 
     let path = "/tmp/dataset_test_save_load.json";
 
     // Save
-    dataset.save(path).expect("save should succeed");
+    dataset
+        .save(path, Format::Compact)
+        .expect("save should succeed");
 
     // Load
-    let loaded = Dataset::load(path).expect("load should succeed");
+    let loaded = Dataset::load(path, Format::Compact).expect("load should succeed");
 
-    assert_eq!(loaded.metadata.name, "Test");
-    assert_eq!(loaded.versions.len(), 1);
-    assert_eq!(loaded.versions[0].date, "2024-01-01");
+    assert_eq!(loaded.metadata().name, "Test");
+    assert_eq!(loaded.storage().versions.len(), 1);
+    assert_eq!(loaded.storage().versions[0].date, "2024-01-01");
 
     // Cleanup
     std::fs::remove_file(path).ok();
@@ -167,16 +196,20 @@ fn should_compute_diff_between_versions() {
     let elem1 = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
     let elem2 = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
 
-    dataset.add_version(VersionSnapshot {
-        date: "2025-07-18".to_string(),
-        label: Some("First".to_string()),
-        element: elem1,
-    });
-    dataset.add_version(VersionSnapshot {
-        date: "2025-07-30".to_string(),
-        label: Some("Second".to_string()),
-        element: elem2,
-    });
+    dataset
+        .add_version(VersionSnapshot {
+            date: "2025-07-18".to_string(),
+            label: Some("First".to_string()),
+            element: elem1,
+        })
+        .unwrap();
+    dataset
+        .add_version(VersionSnapshot {
+            date: "2025-07-30".to_string(),
+            label: Some("Second".to_string()),
+            element: elem2,
+        })
+        .unwrap();
 
     let diff: TreeDiff = dataset.compute_diff("2025-07-18", "2025-07-30").unwrap();
 
@@ -191,15 +224,15 @@ fn should_add_and_query_bills() {
     let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
     let bill_id = bill.bill_id.clone();
 
-    dataset.add_bill(bill);
+    dataset.add_bill(bill).unwrap();
 
-    assert_eq!(dataset.bills.len(), 1);
+    assert_eq!(dataset.storage().bills.len(), 1);
 
-    let found = dataset.get_bill(&bill_id);
+    let found = dataset.get_bill(&bill_id).unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().bill_id, "119-21");
 
-    let not_found = dataset.get_bill("nonexistent");
+    let not_found = dataset.get_bill("nonexistent").unwrap();
     assert!(not_found.is_none());
 }
 
@@ -215,20 +248,24 @@ fn should_query_annotations_by_path() {
     let mut dataset = make_test_dataset();
 
     for annotation in make_annotations().into_iter() {
-        dataset.add_annotation("2025-07-18", "2025-07-30", annotation);
+        dataset
+            .add_annotation("2025-07-18", "2025-07-30", annotation)
+            .unwrap();
     }
 
     // Query by path
-    let found = dataset.annotations_for_path("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_8/subparagraph_A/clause_v");
+    let found = dataset.annotations_for_path("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_8/subparagraph_A/clause_v").unwrap();
     assert_eq!(found.len(), 2);
     assert_eq!(found[0].source_bill.bill_id, "119-21");
 
     // Query by bill
-    let found = dataset.annotations_for_bill("119-21");
+    let found = dataset.annotations_for_bill("119-21").unwrap();
     assert_eq!(found.len(), 753);
 
     // No matches
-    let found = dataset.annotations_for_path("uscode/title_99/section_1");
+    let found = dataset
+        .annotations_for_path("uscode/title_99/section_1")
+        .unwrap();
     assert_eq!(found.len(), 0);
 }
 
@@ -239,19 +276,23 @@ fn should_find_element_across_versions() {
     let elem1 = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
     let elem2 = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
 
-    dataset.add_version(VersionSnapshot {
-        date: "2025-07-18".to_string(),
-        label: None,
-        element: elem1,
-    });
-    dataset.add_version(VersionSnapshot {
-        date: "2025-07-30".to_string(),
-        label: None,
-        element: elem2,
-    });
+    dataset
+        .add_version(VersionSnapshot {
+            date: "2025-07-18".to_string(),
+            label: None,
+            element: elem1,
+        })
+        .unwrap();
+    dataset
+        .add_version(VersionSnapshot {
+            date: "2025-07-30".to_string(),
+            label: None,
+            element: elem2,
+        })
+        .unwrap();
 
     // Find element across versions
-    let results = dataset.find_element("uscode/title_7");
+    let results = dataset.find_element("uscode/title_7").unwrap();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].0, "2025-07-18");
@@ -261,19 +302,25 @@ fn should_find_element_across_versions() {
 #[test]
 fn should_get_version_by_label() {
     let mut dataset = make_test_dataset();
-    dataset.add_version(make_snapshot("2024-01-01", Some("Pre-Tax Cuts Act")));
-    dataset.add_version(make_snapshot("2024-06-01", None));
-    dataset.add_version(make_snapshot("2024-12-01", Some("Post-Tax Cuts Act")));
+    dataset
+        .add_version(make_snapshot("2024-01-01", Some("Pre-Tax Cuts Act")))
+        .unwrap();
+    dataset
+        .add_version(make_snapshot("2024-06-01", None))
+        .unwrap();
+    dataset
+        .add_version(make_snapshot("2024-12-01", Some("Post-Tax Cuts Act")))
+        .unwrap();
 
-    let found = dataset.get_version_by_label("Pre-Tax Cuts Act");
+    let found = dataset.get_version_by_label("Pre-Tax Cuts Act").unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().date, "2024-01-01");
 
-    let found = dataset.get_version_by_label("Post-Tax Cuts Act");
+    let found = dataset.get_version_by_label("Post-Tax Cuts Act").unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().date, "2024-12-01");
 
-    let not_found = dataset.get_version_by_label("Nonexistent");
+    let not_found = dataset.get_version_by_label("Nonexistent").unwrap();
     assert!(not_found.is_none());
 }
 
@@ -282,14 +329,16 @@ fn should_search_text_across_versions() {
     let mut dataset = make_test_dataset();
 
     let elem = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-    dataset.add_version(VersionSnapshot {
-        date: "2025-07-18".to_string(),
-        label: None,
-        element: elem,
-    });
+    dataset
+        .add_version(VersionSnapshot {
+            date: "2025-07-18".to_string(),
+            label: None,
+            element: elem,
+        })
+        .unwrap();
 
     // Search for text that exists in Title 7 (Agriculture)
-    let results = dataset.search_text("Agriculture");
+    let results = dataset.search_text("Agriculture").unwrap();
 
     // Should find at least one match
     assert!(!results.is_empty());

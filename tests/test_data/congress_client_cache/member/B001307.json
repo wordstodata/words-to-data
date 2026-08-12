@@ -65,7 +65,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 42,
+            "count": 43,
             "url": "https://api.congress.gov/v3/member/B001307/sponsored-legislation"
         },
         "state": "Indiana",

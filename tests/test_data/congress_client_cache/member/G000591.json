@@ -10,7 +10,7 @@
         "bioguideId": "G000591",
         "birthYear": "1970",
         "cosponsoredLegislation": {
-            "count": 1121,
+            "count": 1125,
             "url": "https://api.congress.gov/v3/member/G000591/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 53,
+            "count": 54,
             "url": "https://api.congress.gov/v3/member/G000591/sponsored-legislation"
         },
         "state": "Mississippi",

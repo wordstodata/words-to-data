@@ -10,7 +10,7 @@
         "bioguideId": "J000304",
         "birthYear": "1967",
         "cosponsoredLegislation": {
-            "count": 934,
+            "count": 939,
             "url": "https://api.congress.gov/v3/member/J000304/cosponsored-legislation"
         },
         "currentMember": true,
@@ -70,7 +70,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 99,
+            "count": 100,
             "url": "https://api.congress.gov/v3/member/J000304/sponsored-legislation"
         },
         "state": "Texas",

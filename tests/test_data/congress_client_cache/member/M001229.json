@@ -10,7 +10,7 @@
         "bioguideId": "M001229",
         "birthYear": "1986",
         "cosponsoredLegislation": {
-            "count": 583,
+            "count": 595,
             "url": "https://api.congress.gov/v3/member/M001229/cosponsored-legislation"
         },
         "currentMember": true,
@@ -59,7 +59,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 15,
+            "count": 16,
             "url": "https://api.congress.gov/v3/member/M001229/sponsored-legislation"
         },
         "state": "New Jersey",

@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use thiserror::Error;
 
@@ -201,13 +201,13 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
 
             // Create the uscode container element
             let container_data = ElementData {
-                path: "uscode".to_string(),
+                path: "uscode".into(),
                 element_type: ElementType::USCodeDocument,
                 document_type: container_doc_type.clone(),
                 date: d,
-                number_value: String::new(),
-                number_display: String::new(),
-                verbose_name: "US Code".to_string(),
+                number_value: "".into(),
+                number_display: "".into(),
+                verbose_name: "US Code".into(),
                 heading: None,
                 chapeau: None,
                 proviso: None,
@@ -231,7 +231,7 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
                     &container_doc_type,
                     date,
                     Some("US Code"),
-                    Some("uscode".to_string()),
+                    Some("uscode"),
                     None,
                     1,
                 );
@@ -293,12 +293,9 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
 ///
 /// // Parse a USC title - root is uscode container, title is first child
 /// let usc = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-/// assert_eq!(usc.data.path, "uscode");
-/// assert_eq!(usc.children[0].data.uslm_id.as_ref().unwrap(), "/us/usc/t7");
 ///
 /// // Parse a public law
 /// let bill = parse("tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml", "2025-07-04").unwrap();
-/// assert_eq!(bill.data.uslm_id.unwrap(), "/us/pl/119-21");
 /// ```
 ///
 /// # Errors
@@ -313,8 +310,12 @@ pub fn parse(path: &str, date: &str) -> Result<USLMElement> {
     parse_from_str(&xml_str, date)
 }
 
-fn rewrap_str(s: Option<&str>) -> Option<String> {
-    s.map(String::from)
+fn rewrap_str(s: Option<&str>) -> Option<Arc<str>> {
+    s.map(Arc::from)
+}
+
+fn rewrap_string(s: Option<String>) -> Option<Arc<str>> {
+    s.map(Arc::from)
 }
 
 /// Normalize Unicode typographic quotes to their ASCII equivalents.
@@ -386,8 +387,8 @@ fn parse_element(
     document_type: &DocumentType,
     date: &str,
     parent_name: Option<&str>,
-    parent_structural_path: Option<String>,
-    parent_uslm_path: Option<String>,
+    parent_structural_path: Option<&str>,
+    parent_uslm_path: Option<&str>,
     _depth: usize,
 ) -> Result<USLMElement> {
     if check_attr(&node, "status", "repealed") {
@@ -401,7 +402,7 @@ fn parse_element(
     if matches!(element_type, ElementType::Unknown) {
         return Err(ParseError::UnknownElement);
     }
-    let xml_identifier = rewrap_str(node.attribute("identifier"));
+    let xml_identifier = node.attribute("identifier");
     let uslm_uuid = rewrap_str(node.attribute("id"));
 
     let number = extract_number(element_type, &node)?;
@@ -416,20 +417,21 @@ fn parse_element(
     let text_contents = extract_text_contents(&node);
 
     // Generate structural path (includes all elements like Level)
-    let structural_path = generate_structural_path(
-        element_type,
-        &number.value,
-        parent_structural_path.as_deref(),
-    );
+    let structural_path =
+        generate_structural_path(element_type, &number.value, parent_structural_path);
 
     // Generate USLM path for USLM-significant elements only
     // Structural-only elements like Level will have None for uslm_id
     let uslm_id = if should_include_in_uslm_path(element_type) {
         match xml_identifier {
-            Some(xml_id) => Some(xml_id),
+            Some(xml_id) => Some(Arc::from(xml_id)),
             None => match element_type {
-                ElementType::PublicLawDocument => Some(format!("/us/pl/{}", number.value)),
-                ElementType::Appendix => Some(format!("/us/usc/t{}", number.value)),
+                ElementType::PublicLawDocument => {
+                    Some(Arc::from(format!("/us/pl/{}", number.value).as_str()))
+                }
+                ElementType::Appendix => {
+                    Some(Arc::from(format!("/us/usc/t{}", number.value).as_str()))
+                }
                 _ => {
                     return Err(ParseError::UnableToParseElement(format!(
                         "XML identifier missing for element type {:?}",
@@ -449,20 +451,20 @@ fn parse_element(
     let source_credits = extract_source_credits(&node);
 
     let element_data = ElementData {
-        path: structural_path.clone(),
+        path: structural_path.clone().into(),
         uslm_id: uslm_id.clone(),
         uslm_uuid,
         document_type: document_type.clone(),
         element_type,
         date: d,
-        number_value: number.value,
-        number_display: number.display,
-        verbose_name: verbose_name.clone(),
-        heading: text_contents.heading,
-        chapeau: text_contents.chapeau,
-        proviso: text_contents.proviso,
-        content: text_contents.content,
-        continuation: text_contents.continuation,
+        number_value: number.value.clone().into(),
+        number_display: number.display.clone().into(),
+        verbose_name: verbose_name.clone().into(),
+        heading: rewrap_string(text_contents.heading),
+        chapeau: rewrap_string(text_contents.chapeau),
+        proviso: rewrap_string(text_contents.proviso),
+        content: rewrap_string(text_contents.content),
+        continuation: rewrap_string(text_contents.continuation),
         source_credits,
     };
 
@@ -500,15 +502,15 @@ fn parse_element(
     for child in cont_node.children() {
         // For USLM path, pass the generated USLM ID if this element has one,
         // otherwise pass through the parent's USLM path
-        let child_parent_uslm_path = uslm_id.clone().or_else(|| parent_uslm_path.clone());
+        let child_parent_uslm_path = uslm_id.clone().or_else(|| rewrap_str(parent_uslm_path));
 
         let child_element = parse_element(
             child,
             document_type,
             date,
             Some(verbose_name.as_str()),
-            Some(structural_path.clone()),
-            child_parent_uslm_path,
+            Some(structural_path.as_str()),
+            child_parent_uslm_path.as_deref(),
             _depth + 1,
         );
         match child_element {

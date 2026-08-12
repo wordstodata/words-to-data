@@ -10,7 +10,7 @@
         "bioguideId": "C001066",
         "birthYear": "1966",
         "cosponsoredLegislation": {
-            "count": 3647,
+            "count": 3654,
             "url": "https://api.congress.gov/v3/member/C001066/cosponsored-legislation"
         },
         "currentMember": true,
@@ -61,7 +61,7 @@
             }
         ],
         "sponsoredLegislation": {
-            "count": 209,
+            "count": 210,
             "url": "https://api.congress.gov/v3/member/C001066/sponsored-legislation"
         },
         "state": "Florida",
