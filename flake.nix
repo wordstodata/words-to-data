@@ -20,7 +20,7 @@
         pkgs.glib
 
         # Python bindings
-        pkgs.python313
+        pkgs.python314
         pkgs.maturin
 
         # Extra python packages
