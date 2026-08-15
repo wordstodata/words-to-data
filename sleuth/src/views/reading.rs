@@ -19,7 +19,7 @@ impl AppState {
     pub fn view_reading_pane(&self) -> Element<'_, Message> {
         let content: Element<'_, Message> = if let Some(ref dataset) = self.dataset {
             if let Some(ref path) = self.selected_path {
-                if let Some(version) = dataset.versions.get(self.selected_version_index) {
+                if let Some(version) = dataset.storage().versions.get(self.selected_version_index) {
                     if let Some(element) = version.element.find(path) {
                         // Flatten tree into single column
                         let mut blocks: Vec<Element<'_, Message>> = Vec::new();
@@ -269,7 +269,7 @@ impl AppState {
             return text("No data").size(11).into();
         };
 
-        let annotations = dataset.annotations_for_path(path);
+        let annotations = dataset.annotations_for_path(path).unwrap_or_default();
         let Some(ann) = annotations.first() else {
             return text("No annotation").size(11).into();
         };

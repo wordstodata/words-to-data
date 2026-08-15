@@ -14,7 +14,7 @@ impl AppState {
             return container(text("")).height(Length::Fixed(36.0)).into();
         };
 
-        let version_count = dataset.versions.len();
+        let version_count = dataset.storage().versions.len();
         if version_count == 0 {
             return container(text("No versions"))
                 .height(Length::Fixed(36.0))
@@ -22,12 +22,14 @@ impl AppState {
         }
 
         let current_date = dataset
+            .storage()
             .versions
             .get(self.selected_version_index)
             .map(|v| v.date.as_str())
             .unwrap_or("--");
 
         let version_label = dataset
+            .storage()
             .versions
             .get(self.selected_version_index)
             .and_then(|v| v.label.as_deref())

@@ -2,8 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use words_to_data::dataset::Dataset;
+use words_to_data::dataset::Dataset as GenericDataset;
 use words_to_data::diff::TreeDiff;
+use words_to_data::storage::InMemoryStorage;
+
+/// SLEUTH loads datasets from compact/JSON files, which are always backed by
+/// in-memory storage. Alias so the rest of the app can spell it plainly.
+pub type Dataset = GenericDataset<InMemoryStorage>;
 
 use crate::message::{TimelineStyle, ViewMode};
 
@@ -113,12 +118,12 @@ impl AppState {
             return;
         };
 
-        if self.selected_version_index == 0 || dataset.versions.len() < 2 {
+        if self.selected_version_index == 0 || dataset.storage().versions.len() < 2 {
             return;
         }
 
-        let from = &dataset.versions[self.selected_version_index - 1];
-        let to = &dataset.versions[self.selected_version_index];
+        let from = &dataset.storage().versions[self.selected_version_index - 1];
+        let to = &dataset.storage().versions[self.selected_version_index];
 
         let diff = TreeDiff::from_elements(&from.element, &to.element);
         self.flatten_diff_to_cache(&diff);
@@ -167,7 +172,7 @@ impl AppState {
         use words_to_data::congress::Party;
 
         let dataset = self.dataset.as_ref()?;
-        let annotations = dataset.annotations_for_path(path);
+        let annotations = dataset.annotations_for_path(path).ok()?;
         let ann = annotations.first()?;
 
         let bill_id = &ann.source_bill.bill_id;
@@ -175,8 +180,8 @@ impl AppState {
         // Format as "hr7024·118" style
         let formatted_id = bill_id.replace("-", "·");
 
-        let color = if let Some(sponsor_info) = dataset.get_sponsor_info(bill_id) {
-            if let Some(member) = dataset.get_member(&sponsor_info.sponsor) {
+        let color = if let Some(sponsor_info) = dataset.get_sponsor_info(bill_id).ok().flatten() {
+            if let Some(member) = dataset.get_member(&sponsor_info.sponsor).ok().flatten() {
                 match &member.party {
                     Party::Republican => colors::PARTY_R,
                     Party::Democrat => colors::PARTY_D,

@@ -26,7 +26,7 @@ impl AppState {
             }
             Message::VersionChange(idx) => {
                 if let Some(ref dataset) = self.dataset {
-                    if idx < dataset.versions.len() {
+                    if idx < dataset.storage().versions.len() {
                         self.selected_version_index = idx;
                         self.recompute_diff();
                     }
@@ -35,7 +35,7 @@ impl AppState {
             }
             Message::NextVersion => {
                 if let Some(ref dataset) = self.dataset {
-                    if self.selected_version_index + 1 < dataset.versions.len() {
+                    if self.selected_version_index + 1 < dataset.storage().versions.len() {
                         self.selected_version_index += 1;
                         self.recompute_diff();
                     }
@@ -138,7 +138,7 @@ impl AppState {
             }
             Message::DatasetLoaded(dataset) => {
                 // Auto-expand root and first level
-                if let Some(version) = dataset.versions.first() {
+                if let Some(version) = dataset.storage().versions.first() {
                     let root_path = version.element.data.path.clone();
                     self.tree_expanded.insert(root_path.to_string());
                 }

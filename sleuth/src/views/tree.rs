@@ -99,7 +99,7 @@ impl AppState {
         .align_y(iced::Alignment::Center);
 
         let tree_content: Element<Message> = if let Some(ref dataset) = self.dataset {
-            if let Some(version) = dataset.versions.get(self.selected_version_index) {
+            if let Some(version) = dataset.storage().versions.get(self.selected_version_index) {
                 self.render_tree_node(&version.element, 0)
             } else {
                 text("No version selected").into()

@@ -118,7 +118,7 @@ impl AppState {
             return text("No dataset").size(12).into();
         };
 
-        let annotations = dataset.annotations_for_path(path);
+        let annotations = dataset.annotations_for_path(path).unwrap_or_default();
         let Some(ann) = annotations.first() else {
             return text("No annotation for this path")
                 .size(12)
@@ -159,7 +159,7 @@ impl AppState {
                 .size(11)
                 .color(colors::TEXT_SECONDARY);
             let body = container(
-                text(&ann.source_bill.causative_text)
+                text(ann.source_bill.causative_text.to_string())
                     .size(12)
                     .color(colors::TEXT_PRIMARY),
             )
@@ -194,23 +194,27 @@ impl AppState {
         // Reasoning
         if let Some(ref reasoning) = ann.metadata.reasoning {
             let label = text("Reasoning").size(11).color(colors::TEXT_SECONDARY);
-            let body = container(text(reasoning).size(12).color(colors::TEXT_PRIMARY))
-                .padding(8)
-                .style(|_| container::Style {
-                    background: Some(colors::PAPER.into()),
-                    border: iced::Border {
-                        radius: 4.0.into(),
-                        ..Default::default()
-                    },
+            let body = container(
+                text(reasoning.to_string())
+                    .size(12)
+                    .color(colors::TEXT_PRIMARY),
+            )
+            .padding(8)
+            .style(|_| container::Style {
+                background: Some(colors::PAPER.into()),
+                border: iced::Border {
+                    radius: 4.0.into(),
                     ..Default::default()
-                });
+                },
+                ..Default::default()
+            });
             content = content.push(column![label, body].spacing(4));
         }
 
         // Notes
         if let Some(ref notes) = ann.metadata.notes {
             let label = text("Notes").size(11).color(colors::TEXT_SECONDARY);
-            let body = container(text(notes).size(12).color(colors::TEXT_PRIMARY))
+            let body = container(text(notes.to_string()).size(12).color(colors::TEXT_PRIMARY))
                 .padding(8)
                 .style(|_| container::Style {
                     background: Some(colors::PAPER.into()),
@@ -237,9 +241,9 @@ impl AppState {
         let bill_id = &ann.source_bill.bill_id;
 
         // Sponsor section
-        if let Some(sponsor_info) = dataset.get_sponsor_info(bill_id) {
-            content = content.push(self.render_sponsor_section(dataset, sponsor_info));
-            content = content.push(self.render_cosponsors_section(dataset, sponsor_info));
+        if let Some(sponsor_info) = dataset.get_sponsor_info(bill_id).ok().flatten() {
+            content = content.push(self.render_sponsor_section(dataset, &sponsor_info));
+            content = content.push(self.render_cosponsors_section(dataset, &sponsor_info));
         }
 
         // Roll call votes section
@@ -250,21 +254,21 @@ impl AppState {
 
     /// Render sponsor info
     fn render_sponsor_section<'a>(
-        &self,
-        dataset: &words_to_data::dataset::Dataset,
-        sponsor_info: &'a words_to_data::congress::SponsorInfo,
+        &'a self,
+        dataset: &crate::state::Dataset,
+        sponsor_info: &words_to_data::congress::SponsorInfo,
     ) -> Element<'a, Message> {
         let mut col = column![text("Sponsor").size(11).color(colors::TEXT_SECONDARY)].spacing(4);
 
-        if let Some(member) = dataset.get_member(&sponsor_info.sponsor) {
+        if let Some(member) = dataset.get_member(&sponsor_info.sponsor).ok().flatten() {
             col = col.push(
-                text(format_member_display(member))
+                text(format_member_display(&member))
                     .size(12)
                     .color(party_color(&member.party)),
             );
         } else {
             col = col.push(
-                text(&sponsor_info.sponsor)
+                text(sponsor_info.sponsor.to_string())
                     .size(12)
                     .color(colors::TEXT_SECONDARY),
             );
@@ -275,9 +279,9 @@ impl AppState {
 
     /// Render collapsible cosponsors list
     fn render_cosponsors_section<'a>(
-        &self,
-        dataset: &words_to_data::dataset::Dataset,
-        sponsor_info: &'a words_to_data::congress::SponsorInfo,
+        &'a self,
+        dataset: &crate::state::Dataset,
+        sponsor_info: &words_to_data::congress::SponsorInfo,
     ) -> Element<'a, Message> {
         let count = sponsor_info.cosponsors.len();
         if count == 0 {
@@ -299,15 +303,15 @@ impl AppState {
         if is_expanded {
             let mut list = column![].spacing(2).padding(Padding::ZERO.left(16));
             for cosponsor in &sponsor_info.cosponsors {
-                if let Some(member) = dataset.get_member(&cosponsor.bioguide_id) {
+                if let Some(member) = dataset.get_member(&cosponsor.bioguide_id).ok().flatten() {
                     list = list.push(
-                        text(format_member_display(member))
+                        text(format_member_display(&member))
                             .size(11)
                             .color(party_color(&member.party)),
                     );
                 } else {
                     list = list.push(
-                        text(&cosponsor.bioguide_id)
+                        text(cosponsor.bioguide_id.to_string())
                             .size(11)
                             .color(colors::TEXT_SECONDARY),
                     );
@@ -321,8 +325,8 @@ impl AppState {
 
     /// Render roll call votes section
     fn render_votes_section<'a>(
-        &self,
-        dataset: &'a words_to_data::dataset::Dataset,
+        &'a self,
+        dataset: &crate::state::Dataset,
         bill_id: &str,
     ) -> Element<'a, Message> {
         let mut col = column![
@@ -332,7 +336,7 @@ impl AppState {
         ]
         .spacing(8);
 
-        let Some(bill_votes) = dataset.get_bill_votes(bill_id) else {
+        let Some(bill_votes) = dataset.get_bill_votes(bill_id).ok().flatten() else {
             return col
                 .push(
                     text("No recorded votes")
@@ -361,14 +365,14 @@ impl AppState {
 
     /// Render single roll call vote
     fn render_roll_call<'a>(
-        &self,
-        dataset: &words_to_data::dataset::Dataset,
-        roll_call: &'a HouseRollCall,
+        &'a self,
+        dataset: &crate::state::Dataset,
+        roll_call: &HouseRollCall,
         idx: usize,
     ) -> Element<'a, Message> {
         let vote_box = container(
             column![
-                text(&roll_call.question)
+                text(roll_call.question.to_string())
                     .size(12)
                     .color(colors::TEXT_PRIMARY),
                 text(format!("{} — {}", roll_call.date, roll_call.result))
@@ -410,9 +414,9 @@ impl AppState {
 
     /// Render party breakdown bar showing % yes by party
     fn render_party_vote_bar<'a>(
-        &self,
-        dataset: &words_to_data::dataset::Dataset,
-        roll_call: &'a HouseRollCall,
+        &'a self,
+        dataset: &crate::state::Dataset,
+        roll_call: &HouseRollCall,
     ) -> Element<'a, Message> {
         // Count votes by party
         let mut r_yea = 0u32;
@@ -425,8 +429,9 @@ impl AppState {
         for mv in &roll_call.member_votes {
             let party = dataset
                 .get_member(&mv.bioguide_id)
-                .map(|m| &m.party)
-                .cloned()
+                .ok()
+                .flatten()
+                .map(|m| m.party)
                 .unwrap_or(Party::Other("?".into()));
 
             let is_yea = mv.position == VotePosition::Yea;
@@ -542,9 +547,9 @@ impl AppState {
 
     /// Render collapsible member votes
     fn render_member_votes_toggle<'a>(
-        &self,
-        dataset: &words_to_data::dataset::Dataset,
-        roll_call: &'a HouseRollCall,
+        &'a self,
+        dataset: &crate::state::Dataset,
+        roll_call: &HouseRollCall,
         idx: usize,
     ) -> Element<'a, Message> {
         let count = roll_call.member_votes.len();
@@ -583,7 +588,7 @@ impl AppState {
                 if query_lower.is_empty() {
                     return true;
                 }
-                if let Some(member) = dataset.get_member(bioguide) {
+                if let Some(member) = dataset.get_member(bioguide).ok().flatten() {
                     member.name.to_lowercase().contains(&query_lower)
                         || member.last_name.to_lowercase().contains(&query_lower)
                         || member.first_name.to_lowercase().contains(&query_lower)
@@ -680,9 +685,9 @@ impl AppState {
                         VotePosition::Present => "P",
                         _ => "?",
                     };
-                    if let Some(member) = dataset.get_member(bioguide) {
+                    if let Some(member) = dataset.get_member(bioguide).ok().flatten() {
                         other_col = other_col.push(
-                            text(format!("{} [{}]", format_member_display(member), pos_str))
+                            text(format!("{} [{}]", format_member_display(&member), pos_str))
                                 .size(10)
                                 .color(colors::TEXT_SECONDARY),
                         );
@@ -720,13 +725,13 @@ impl AppState {
 
     /// Format a single member vote line
     fn format_member_vote<'a>(
-        &self,
-        dataset: &words_to_data::dataset::Dataset,
-        bioguide: &'a str,
+        &'a self,
+        dataset: &crate::state::Dataset,
+        bioguide: &str,
         _fallback_party: &Party,
     ) -> Element<'a, Message> {
-        if let Some(member) = dataset.get_member(bioguide) {
-            text(format_member_display(member))
+        if let Some(member) = dataset.get_member(bioguide).ok().flatten() {
+            text(format_member_display(&member))
                 .size(10)
                 .color(party_color(&member.party))
                 .into()

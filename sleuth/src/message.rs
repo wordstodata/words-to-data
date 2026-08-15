@@ -57,7 +57,7 @@ pub enum Message {
     /// Load a dataset from path
     LoadDataset(String),
     /// Dataset loaded successfully
-    DatasetLoaded(Box<words_to_data::dataset::Dataset>),
+    DatasetLoaded(Box<crate::state::Dataset>),
     /// Dataset load failed
     DatasetError(String),
     /// Update loader path input
