@@ -38,9 +38,22 @@ regex = "1.12.3"
 serde_with = "3.18.0"
 ureq = "3"
 dirs = "6.0.0"
+clap = { version = "4.6.6", features = ["derive"], optional = true }
+zip = { version = "2", optional = true }
 
 [features]
+default = ["tools"]
 python = ["pyo3", "pythonize"]
+# Mirror downloader: fetch the manifest + release-point zips from our host.
+download = ["zip"]
+tools = ["clap", "download"]
+
+# Single user-facing binary; every tool is a subcommand (`words_to_data <cmd>`).
+# Gated so a pure-lib consumer (`default-features = false`) skips clap + this bin.
+[[bin]]
+name = "words_to_data"
+path = "src/bin/words_to_data/main.rs"
+required-features = ["tools"]
 
 [dev-dependencies]
 rstest = "0.18"

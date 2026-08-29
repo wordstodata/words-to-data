@@ -236,6 +236,19 @@ fn should_add_and_query_bills() {
     assert!(not_found.is_none());
 }
 
+#[test]
+fn should_list_all_bill_ids_when_iterating_dataset() {
+    let mut dataset = make_test_dataset();
+
+    assert!(dataset.list_bill_ids().unwrap().is_empty());
+
+    let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+    dataset.add_bill(bill).unwrap();
+
+    let ids = dataset.list_bill_ids().unwrap();
+    assert_eq!(ids, vec!["119-21".to_string()]);
+}
+
 fn make_annotations() -> Vec<ChangeAnnotation> {
     let file = File::open("tests/test_data/processed/annotations.json")
         .expect("should be able to open annotations file");
