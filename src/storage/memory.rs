@@ -248,6 +248,10 @@ impl DatasetReader for InMemoryStorage {
             .collect())
     }
 
+    fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
+        Ok(self.diff_annotations.keys().cloned().collect())
+    }
+
     fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
         Ok(self
             .versions

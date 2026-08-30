@@ -7,6 +7,7 @@ pub mod constants;
 pub mod dataset;
 pub mod date;
 pub mod diff;
+pub mod inspect;
 pub mod intern;
 pub mod io;
 #[cfg(feature = "python")]

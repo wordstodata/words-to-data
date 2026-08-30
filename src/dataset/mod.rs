@@ -61,7 +61,7 @@ pub struct VersionSnapshot {
 }
 
 /// A search result from text search
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub date: String,
     pub path: String,
@@ -174,6 +174,10 @@ impl<S: Storage> Dataset<S> {
         bill_id: &str,
     ) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         self.storage.annotations_for_bill(bill_id)
+    }
+
+    pub fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
+        self.storage.annotation_pairs()
     }
 
     pub fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
@@ -531,6 +535,10 @@ impl<S: Storage> DatasetReader for Dataset<S> {
 
     fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         self.storage.annotations_for_bill(bill_id)
+    }
+
+    fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
+        self.storage.annotation_pairs()
     }
 
     fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
