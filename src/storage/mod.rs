@@ -78,6 +78,9 @@ pub trait DatasetReader {
     /// Find all annotations from a specific bill (across all version pairs)
     fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError>;
 
+    /// List every `(from_date, to_date)` pair that carries annotations
+    fn annotation_pairs(&self) -> Result<Vec<crate::dataset::VersionPair>, DatasetError>;
+
     /// Find element by path across all versions
     fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError>;
 

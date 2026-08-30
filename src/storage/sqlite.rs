@@ -1112,6 +1112,18 @@ impl DatasetReader for SqliteStorage {
         Ok(annotations)
     }
 
+    fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT from_date, to_date FROM annotations")?;
+        let pairs = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(pairs)
+    }
+
     fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
         // Use element_index to find which versions have this path
         let mut stmt = self
