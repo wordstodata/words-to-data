@@ -154,6 +154,10 @@ impl DatasetReader for InMemoryStorage {
         Ok(self.bills.get(id).cloned())
     }
 
+    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        Ok(self.bills.keys().cloned().collect())
+    }
+
     fn get_annotations(
         &self,
         from: &str,

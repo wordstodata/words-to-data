@@ -12,5 +12,7 @@ pub mod io;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod storage;
+#[cfg(feature = "download")]
+pub mod uscode;
 pub mod uslm;
 pub mod utils;

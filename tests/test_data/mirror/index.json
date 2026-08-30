@@ -1,0 +1,8 @@
+{
+  "versions": ["2025-07-30", "2025-07-18", "2025-06-12"],
+  "download": {
+    "2025-07-30": "https://www.wordstodata.com/mirror/uslm/2025-07-30.zip",
+    "2025-07-18": "https://www.wordstodata.com/mirror/uslm/2025-07-18.zip",
+    "2025-06-12": "https://www.wordstodata.com/mirror/uslm/2025-06-12.zip"
+  }
+}

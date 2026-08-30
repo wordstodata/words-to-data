@@ -125,6 +125,18 @@ impl<S: Storage> Dataset<S> {
         self.storage.get_bill(bill_id)
     }
 
+    /// List the IDs of every bill in the dataset.
+    ///
+    /// Pair with [`Dataset::get_bill`] to iterate over all bills:
+    /// ```ignore
+    /// for id in dataset.list_bill_ids()? {
+    ///     let bill = dataset.get_bill(&id)?.unwrap();
+    /// }
+    /// ```
+    pub fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        self.storage.list_bill_ids()
+    }
+
     pub fn get_annotations(
         &self,
         from: &str,
@@ -467,6 +479,10 @@ impl<S: Storage> DatasetReader for Dataset<S> {
 
     fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
         self.storage.get_bill(id)
+    }
+
+    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        self.storage.list_bill_ids()
     }
 
     fn get_annotations(

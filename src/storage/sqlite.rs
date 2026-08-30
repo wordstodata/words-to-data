@@ -783,6 +783,14 @@ impl DatasetReader for SqliteStorage {
         }
     }
 
+    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        let mut stmt = self.conn.prepare("SELECT bill_id FROM bills")?;
+        let ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(ids)
+    }
+
     fn get_annotations(
         &self,
         from: &str,

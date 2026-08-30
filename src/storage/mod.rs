@@ -34,6 +34,9 @@ pub trait DatasetReader {
     /// Get a bill by ID
     fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError>;
 
+    /// List the IDs of every bill in the dataset
+    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError>;
+
     /// Get annotations for a version pair
     fn get_annotations(
         &self,
