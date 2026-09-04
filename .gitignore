@@ -17,7 +17,6 @@ bill_data/
 src/main.rs
 
 # Claude Code Users
-CLAUDE.md
 .claude/
 
 # Python bindings
@@ -32,3 +31,6 @@ tests/test_data/usc/
 hacks/
 
 plans/
+
+# Generated sqlite datasets
+*.sqlite
