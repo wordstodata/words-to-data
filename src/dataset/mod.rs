@@ -97,6 +97,23 @@ impl<S: Storage> Dataset<S> {
         &mut self.storage
     }
 
+    /// The legislature extension, when this dataset carries one.
+    ///
+    /// Use this when reading a dataset whose contents you do not control:
+    ///
+    /// ```ignore
+    /// match dataset.legislature() {
+    ///     Some(legislature) => legislature.get_bill(id)?,
+    ///     None => return Err("this dataset holds no legislative material".into()),
+    /// }
+    /// ```
+    ///
+    /// `None` means the dataset has no legislative material at all, which is a
+    /// different answer from "no bill matches that id".
+    pub fn legislature(&self) -> Option<&dyn LegislatureReader> {
+        self.storage.legislature()
+    }
+
     // --- Delegate DatasetReader methods ---
 
     pub fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
@@ -601,4 +618,8 @@ impl<S: Storage> LegislatureWriter for Dataset<S> {
     }
 }
 
-impl<S: Storage> Storage for Dataset<S> {}
+impl<S: Storage> Storage for Dataset<S> {
+    fn legislature(&self) -> Option<&dyn LegislatureReader> {
+        self.storage.legislature()
+    }
+}
