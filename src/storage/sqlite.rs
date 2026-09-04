@@ -10,7 +10,10 @@ use crate::congress::{BillVotes, HouseRollCall, Member, MemberVote, SponsorInfo,
 use crate::dataset::{DatasetError, DatasetMetadata, SearchResult, VersionPair, VersionSnapshot};
 use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
-use crate::storage::{DatasetReader, DatasetWriter, InMemoryStorage, Storage, VersionInfo};
+use crate::storage::{
+    DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
+    LinkReader, LinkWriter, Storage, VersionInfo,
+};
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
@@ -730,7 +733,7 @@ impl SqliteStorage {
     }
 }
 
-impl DatasetReader for SqliteStorage {
+impl DocumentReader for SqliteStorage {
     fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
         let mut stmt = self
             .conn
@@ -766,74 +769,6 @@ impl DatasetReader for SqliteStorage {
         } else {
             Ok(None)
         }
-    }
-
-    fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT data_json FROM bills WHERE bill_id = ?1")?;
-        let mut rows = stmt.query(params![id])?;
-
-        if let Some(row) = rows.next()? {
-            let data_json: String = row.get(0)?;
-            let bill: Bill = serde_json::from_str(&data_json)?;
-            Ok(Some(bill))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
-        let mut stmt = self.conn.prepare("SELECT bill_id FROM bills")?;
-        let ids = stmt
-            .query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
-        Ok(ids)
-    }
-
-    fn get_annotations(
-        &self,
-        from: &str,
-        to: &str,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        let all = self.load_annotations()?;
-        let key = (from.to_string(), to.to_string());
-        Ok(all.get(&key).cloned())
-    }
-
-    fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT data_json FROM members WHERE bioguide_id = ?1")?;
-        let mut rows = stmt.query(params![bioguide_id])?;
-
-        if let Some(row) = rows.next()? {
-            let data_json: String = row.get(0)?;
-            let member: Member = serde_json::from_str(&data_json)?;
-            Ok(Some(member))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT data_json FROM sponsors WHERE bill_id = ?1")?;
-        let mut rows = stmt.query(params![bill_id])?;
-
-        if let Some(row) = rows.next()? {
-            let data_json: String = row.get(0)?;
-            let info: SponsorInfo = serde_json::from_str(&data_json)?;
-            Ok(Some(info))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
-        let all = self.load_bill_votes()?;
-        Ok(all.get(bill_id).cloned())
     }
 
     fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
@@ -936,6 +871,38 @@ impl DatasetReader for SqliteStorage {
         } else {
             Ok(None)
         }
+    }
+
+    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+        // Use element_index to find which versions have this path
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT version_date FROM element_index WHERE path = ?1")?;
+        let mut rows = stmt.query(params![path])?;
+
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            let date: String = row.get(0)?;
+            if let Some(version) = self.get_version(&date)?
+                && let Some(elem) = version.element.find(path)
+            {
+                results.push((date, elem.clone()));
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+impl LinkReader for SqliteStorage {
+    fn get_annotations(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
+        let all = self.load_annotations()?;
+        let key = (from.to_string(), to.to_string());
+        Ok(all.get(&key).cloned())
     }
 
     fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
@@ -1123,25 +1090,65 @@ impl DatasetReader for SqliteStorage {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(pairs)
     }
+}
 
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
-        // Use element_index to find which versions have this path
+impl LegislatureReader for SqliteStorage {
+    fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT DISTINCT version_date FROM element_index WHERE path = ?1")?;
-        let mut rows = stmt.query(params![path])?;
+            .prepare("SELECT data_json FROM bills WHERE bill_id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
 
-        let mut results = Vec::new();
-        while let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            if let Some(version) = self.get_version(&date)?
-                && let Some(elem) = version.element.find(path)
-            {
-                results.push((date, elem.clone()));
-            }
+        if let Some(row) = rows.next()? {
+            let data_json: String = row.get(0)?;
+            let bill: Bill = serde_json::from_str(&data_json)?;
+            Ok(Some(bill))
+        } else {
+            Ok(None)
         }
+    }
 
-        Ok(results)
+    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        let mut stmt = self.conn.prepare("SELECT bill_id FROM bills")?;
+        let ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(ids)
+    }
+
+    fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT data_json FROM members WHERE bioguide_id = ?1")?;
+        let mut rows = stmt.query(params![bioguide_id])?;
+
+        if let Some(row) = rows.next()? {
+            let data_json: String = row.get(0)?;
+            let member: Member = serde_json::from_str(&data_json)?;
+            Ok(Some(member))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT data_json FROM sponsors WHERE bill_id = ?1")?;
+        let mut rows = stmt.query(params![bill_id])?;
+
+        if let Some(row) = rows.next()? {
+            let data_json: String = row.get(0)?;
+            let info: SponsorInfo = serde_json::from_str(&data_json)?;
+            Ok(Some(info))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
+        let all = self.load_bill_votes()?;
+        Ok(all.get(bill_id).cloned())
     }
 
     fn votes_by_member(
@@ -1228,7 +1235,7 @@ impl DatasetReader for SqliteStorage {
     }
 }
 
-impl DatasetWriter for SqliteStorage {
+impl DocumentWriter for SqliteStorage {
     fn metadata(&self) -> &DatasetMetadata {
         &self.metadata
     }
@@ -1253,16 +1260,9 @@ impl DatasetWriter for SqliteStorage {
 
         Ok(())
     }
+}
 
-    fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
-        let json = serde_json::to_string(&bill)?;
-        self.conn.execute(
-            "INSERT OR REPLACE INTO bills (bill_id, data_json) VALUES (?1, ?2)",
-            params![&bill.bill_id, json],
-        )?;
-        Ok(())
-    }
-
+impl LinkWriter for SqliteStorage {
     fn add_annotation(
         &mut self,
         from: &str,
@@ -1299,6 +1299,17 @@ impl DatasetWriter for SqliteStorage {
             )?;
         }
 
+        Ok(())
+    }
+}
+
+impl LegislatureWriter for SqliteStorage {
+    fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
+        let json = serde_json::to_string(&bill)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO bills (bill_id, data_json) VALUES (?1, ?2)",
+            params![&bill.bill_id, json],
+        )?;
         Ok(())
     }
 

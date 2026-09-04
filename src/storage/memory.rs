@@ -9,7 +9,10 @@ use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePositio
 use crate::dataset::{DatasetError, DatasetMetadata, SearchResult, VersionPair, VersionSnapshot};
 use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
-use crate::storage::{DatasetReader, DatasetWriter, Storage, VersionInfo};
+use crate::storage::{
+    DocumentReader, DocumentWriter, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
+    Storage, VersionInfo,
+};
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
@@ -134,7 +137,7 @@ impl InMemoryStorage {
     }
 }
 
-impl DatasetReader for InMemoryStorage {
+impl DocumentReader for InMemoryStorage {
     fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
         Ok(self
             .versions
@@ -148,35 +151,6 @@ impl DatasetReader for InMemoryStorage {
 
     fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
         Ok(self.versions.iter().find(|v| v.date == date).cloned())
-    }
-
-    fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
-        Ok(self.bills.get(id).cloned())
-    }
-
-    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
-        Ok(self.bills.keys().cloned().collect())
-    }
-
-    fn get_annotations(
-        &self,
-        from: &str,
-        to: &str,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        let key = (from.to_string(), to.to_string());
-        Ok(self.diff_annotations.get(&key).cloned())
-    }
-
-    fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
-        Ok(self.members.get(bioguide_id).cloned())
-    }
-
-    fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
-        Ok(self.sponsors.get(bill_id).cloned())
-    }
-
-    fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
-        Ok(self.bill_votes.get(bill_id).cloned())
     }
 
     fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
@@ -228,6 +202,25 @@ impl DatasetReader for InMemoryStorage {
         }))
     }
 
+    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+        Ok(self
+            .versions
+            .iter()
+            .filter_map(|v| v.element.find(path).map(|e| (v.date.clone(), e.clone())))
+            .collect())
+    }
+}
+
+impl LinkReader for InMemoryStorage {
+    fn get_annotations(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
+        let key = (from.to_string(), to.to_string());
+        Ok(self.diff_annotations.get(&key).cloned())
+    }
+
     fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         Ok(self
             .diff_annotations
@@ -251,13 +244,27 @@ impl DatasetReader for InMemoryStorage {
     fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
         Ok(self.diff_annotations.keys().cloned().collect())
     }
+}
 
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
-        Ok(self
-            .versions
-            .iter()
-            .filter_map(|v| v.element.find(path).map(|e| (v.date.clone(), e.clone())))
-            .collect())
+impl LegislatureReader for InMemoryStorage {
+    fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
+        Ok(self.bills.get(id).cloned())
+    }
+
+    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        Ok(self.bills.keys().cloned().collect())
+    }
+
+    fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
+        Ok(self.members.get(bioguide_id).cloned())
+    }
+
+    fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
+        Ok(self.sponsors.get(bill_id).cloned())
+    }
+
+    fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
+        Ok(self.bill_votes.get(bill_id).cloned())
     }
 
     fn votes_by_member(
@@ -278,7 +285,7 @@ impl DatasetReader for InMemoryStorage {
     }
 }
 
-impl DatasetWriter for InMemoryStorage {
+impl DocumentWriter for InMemoryStorage {
     fn metadata(&self) -> &DatasetMetadata {
         &self.metadata
     }
@@ -295,12 +302,9 @@ impl DatasetWriter for InMemoryStorage {
         self.versions.insert(pos, snapshot);
         Ok(())
     }
+}
 
-    fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
-        self.bills.insert(bill.bill_id.clone(), bill);
-        Ok(())
-    }
-
+impl LinkWriter for InMemoryStorage {
     fn add_annotation(
         &mut self,
         from: &str,
@@ -311,6 +315,13 @@ impl DatasetWriter for InMemoryStorage {
             .entry((from.to_string(), to.to_string()))
             .or_default()
             .push(annotation);
+        Ok(())
+    }
+}
+
+impl LegislatureWriter for InMemoryStorage {
+    fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
+        self.bills.insert(bill.bill_id.clone(), bill);
         Ok(())
     }
 

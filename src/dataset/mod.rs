@@ -17,7 +17,8 @@ use crate::congress::{
 };
 use crate::diff::TreeDiff;
 use crate::storage::{
-    DatasetReader, DatasetWriter, InMemoryStorage, SqliteStorage, Storage, VersionInfo,
+    DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
+    LinkReader, LinkWriter, SqliteStorage, Storage, VersionInfo,
 };
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
@@ -472,41 +473,13 @@ impl Dataset<SqliteStorage> {
 
 // --- Implement traits for Dataset<S> ---
 
-impl<S: Storage> DatasetReader for Dataset<S> {
+impl<S: Storage> DocumentReader for Dataset<S> {
     fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
         self.storage.list_versions()
     }
 
     fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
         self.storage.get_version(date)
-    }
-
-    fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
-        self.storage.get_bill(id)
-    }
-
-    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
-        self.storage.list_bill_ids()
-    }
-
-    fn get_annotations(
-        &self,
-        from: &str,
-        to: &str,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        self.storage.get_annotations(from, to)
-    }
-
-    fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
-        self.storage.get_member(bioguide_id)
-    }
-
-    fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
-        self.storage.get_sponsor_info(bill_id)
-    }
-
-    fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
-        self.storage.get_bill_votes(bill_id)
     }
 
     fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
@@ -529,6 +502,20 @@ impl<S: Storage> DatasetReader for Dataset<S> {
         self.storage.prev_version(date)
     }
 
+    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+        self.storage.find_element(path)
+    }
+}
+
+impl<S: Storage> LinkReader for Dataset<S> {
+    fn get_annotations(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
+        self.storage.get_annotations(from, to)
+    }
+
     fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         self.storage.annotations_for_path(path)
     }
@@ -540,9 +527,27 @@ impl<S: Storage> DatasetReader for Dataset<S> {
     fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
         self.storage.annotation_pairs()
     }
+}
 
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
-        self.storage.find_element(path)
+impl<S: Storage> LegislatureReader for Dataset<S> {
+    fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
+        self.storage.get_bill(id)
+    }
+
+    fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        self.storage.list_bill_ids()
+    }
+
+    fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
+        self.storage.get_member(bioguide_id)
+    }
+
+    fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
+        self.storage.get_sponsor_info(bill_id)
+    }
+
+    fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
+        self.storage.get_bill_votes(bill_id)
     }
 
     fn votes_by_member(
@@ -553,7 +558,7 @@ impl<S: Storage> DatasetReader for Dataset<S> {
     }
 }
 
-impl<S: Storage> DatasetWriter for Dataset<S> {
+impl<S: Storage> DocumentWriter for Dataset<S> {
     fn metadata(&self) -> &DatasetMetadata {
         self.storage.metadata()
     }
@@ -565,11 +570,9 @@ impl<S: Storage> DatasetWriter for Dataset<S> {
     fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError> {
         self.storage.add_version(snapshot)
     }
+}
 
-    fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
-        self.storage.add_bill(bill)
-    }
-
+impl<S: Storage> LinkWriter for Dataset<S> {
     fn add_annotation(
         &mut self,
         from: &str,
@@ -577,6 +580,12 @@ impl<S: Storage> DatasetWriter for Dataset<S> {
         annotation: ChangeAnnotation,
     ) -> Result<(), DatasetError> {
         self.storage.add_annotation(from, to, annotation)
+    }
+}
+
+impl<S: Storage> LegislatureWriter for Dataset<S> {
+    fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
+        self.storage.add_bill(bill)
     }
 
     fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
