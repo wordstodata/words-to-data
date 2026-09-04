@@ -19,4 +19,10 @@ pub enum DatasetError {
 
     #[error("Failed to load folder '{0}': folder is empty or unreadable")]
     FolderLoadFailed(String),
+
+    #[error(
+        "This dataset was written with schema version {found}, and this build reads version \
+         {expected}. Datasets are rebuilt rather than migrated, so regenerate it."
+    )]
+    SchemaVersionMismatch { found: i32, expected: i32 },
 }

@@ -24,9 +24,38 @@ pub struct SqliteStorage {
     metadata: DatasetMetadata,
 }
 
+/// Refuse a dataset this build cannot read.
+///
+/// Datasets are rebuilt rather than migrated, so a schema change is a clean
+/// break. That is only safe if the break is loud: `CREATE TABLE IF NOT EXISTS`
+/// would otherwise graft this build's tables onto an older file, and every
+/// query against the new tables would return nothing. An empty answer that
+/// means "wrong schema" is the failure this whole model exists to prevent.
+///
+/// A file with no `schema_version` table is new, and gets this build's schema.
+fn check_schema_version(conn: &Connection) -> Result<(), DatasetError> {
+    let found: Option<i32> = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .ok();
+
+    match found {
+        Some(version) if version != SCHEMA_VERSION => Err(DatasetError::SchemaVersionMismatch {
+            found: version,
+            expected: SCHEMA_VERSION,
+        }),
+        _ => Ok(()),
+    }
+}
+
 impl SqliteStorage {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DatasetError> {
         let conn = Connection::open(path)?;
+        // Check before init_schema, which would otherwise add this build's
+        // tables to an older file and leave a hybrid that answers queries with
+        // nothing rather than saying it cannot read them.
+        check_schema_version(&conn)?;
         let mut storage = Self {
             conn,
             metadata: DatasetMetadata::default(),
