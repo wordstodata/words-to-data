@@ -129,6 +129,173 @@ fn should_list_the_paths_that_changed_between_two_versions_when_diff_runs() {
     );
 }
 
+#[test]
+fn should_list_every_version_with_its_element_count_when_versions_runs() {
+    let output = run(&["versions", amended_fixture(), "--json"]);
+
+    assert!(output.status.success(), "versions should exit zero");
+
+    let versions: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("versions --json should emit json");
+    let versions = versions.as_array().expect("an array of versions");
+
+    assert_eq!(versions.len(), 2);
+    assert_eq!(versions[0]["date"], EARLY);
+    assert_eq!(versions[0]["label"], "Before");
+    assert_eq!(versions[1]["date"], LATE);
+    assert_eq!(versions[1]["label"], "After");
+
+    // The later release carries the two sections title 51 gained, so it must
+    // hold more elements than the earlier one.
+    let count = |v: &serde_json::Value| v["element_count"].as_u64().expect("a count");
+    assert!(
+        count(&versions[1]) > count(&versions[0]),
+        "the amended version should hold more elements: {} then {}",
+        count(&versions[0]),
+        count(&versions[1])
+    );
+}
+
+#[test]
+fn should_find_matching_text_across_versions_when_search_runs() {
+    let output = run(&["search", amended_fixture(), "space", "--json"]);
+
+    assert!(output.status.success(), "search should exit zero");
+
+    let hits: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("search --json should emit json");
+    let hits = hits.as_array().expect("an array of hits");
+
+    assert!(!hits.is_empty(), "title 51 should contain the word 'space'");
+
+    for hit in hits {
+        let date = hit["date"].as_str().expect("a date");
+        assert!(
+            date == EARLY || date == LATE,
+            "a hit should name one of the two versions, got {date}"
+        );
+        let path = hit["path"].as_str().expect("a path");
+        assert!(
+            path.starts_with("uscode/title_51"),
+            "a hit should sit under the title in the dataset, got {path}"
+        );
+        assert!(
+            !hit["snippet"].as_str().expect("a snippet").is_empty(),
+            "a hit should carry a snippet"
+        );
+    }
+}
+
+/// A search that finds nothing must say so, rather than fail or return noise.
+#[test]
+fn should_find_nothing_when_search_has_no_match() {
+    let output = run(&["search", amended_fixture(), "zzqqxnotarealterm", "--json"]);
+
+    assert!(output.status.success(), "an empty search should exit zero");
+
+    let hits: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("search --json should emit json");
+
+    assert_eq!(hits.as_array().expect("an array of hits").len(), 0);
+}
+
+/// Nothing in this fixture is annotated, so every changed path is unannotated.
+/// This pins the empty end of the scale: coverage must report the work left,
+/// not zero work.
+#[test]
+fn should_report_every_changed_path_as_unannotated_when_nothing_is_annotated() {
+    let output = run(&[
+        "coverage",
+        amended_fixture(),
+        "--from",
+        EARLY,
+        "--to",
+        LATE,
+        "--json",
+    ]);
+
+    assert!(output.status.success(), "coverage should exit zero");
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("coverage --json should emit json");
+
+    let changed = report["changed_path_count"].as_u64().expect("a count");
+    assert!(
+        changed > 0,
+        "the amended title should have a change universe"
+    );
+    assert_eq!(report["annotated_count"], 0);
+    assert_eq!(report["unannotated_count"], changed);
+    assert_eq!(report["coverage"], 0.0);
+}
+
+#[test]
+fn should_return_no_annotations_when_the_dataset_has_none() {
+    let output = run(&[
+        "annotations",
+        amended_fixture(),
+        "--from",
+        EARLY,
+        "--to",
+        LATE,
+        "--json",
+    ]);
+
+    assert!(output.status.success(), "annotations should exit zero");
+
+    let annotations: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("annotations --json should emit json");
+
+    assert_eq!(annotations.as_array().expect("an array").len(), 0);
+}
+
+/// `annotations` needs one of three filters. Asking for everything is a usage
+/// error, and it exits 2 rather than panicking.
+#[test]
+fn should_exit_two_when_annotations_is_given_no_filter() {
+    let output = run(&["annotations", amended_fixture(), "--json"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("filter"),
+        "the error should say what is missing"
+    );
+}
+
+/// These two pin that a bad request fails rather than reporting an empty
+/// result. They assert failure, not a specific code, because the codes are not
+/// yet distinct: most commands panic with 101 today. When #51 gives them
+/// meaningful codes, these tests still hold.
+#[test]
+fn should_fail_when_the_dataset_file_does_not_exist() {
+    let output = run(&["info", "no/such/dataset.sqlite", "--json"]);
+
+    assert!(
+        !output.status.success(),
+        "a missing dataset must not look like an empty one"
+    );
+    assert!(!output.stderr.is_empty(), "the failure should be explained");
+}
+
+#[test]
+fn should_fail_when_the_version_date_is_unknown() {
+    let output = run(&[
+        "diff",
+        amended_fixture(),
+        "--from",
+        "1999-01-01",
+        "--to",
+        LATE,
+        "--json",
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "an unknown version must not look like an empty diff"
+    );
+    assert!(!output.stderr.is_empty(), "the failure should be explained");
+}
+
 /// The two files of an unchanged title differ by ten bytes of release stamp.
 /// A diff that reported those as changes would flood every real result with
 /// noise, so this pins that it reports nothing.
