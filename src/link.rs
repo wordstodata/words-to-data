@@ -96,10 +96,12 @@ pub struct Provenance {
     pub method: Option<String>,
     /// How far the statement can be trusted.
     pub verification: VerificationState,
-    /// What the statement was based on.
+    /// What the statement was based on, in the maker's own words.
     ///
-    /// `None` for everything produced so far: raw model replies were never
-    /// persisted (#58), so the evidence behind those claims is gone.
+    /// For a machine-made annotation this is the reasoning the model gave for
+    /// its answer. It is not the verbatim reply: the text around the answer,
+    /// including any fences and prose, was never persisted (#58). So this
+    /// explains a claim without being enough to reproduce how it was parsed.
     pub evidence: Option<String>,
     /// The raw score a model reported, kept as diagnostic data only. It is not
     /// a probability and must not be presented as one.
@@ -172,7 +174,7 @@ impl Link {
             source: annotation.metadata.annotator.clone(),
             method: Some(format!("{:?}", annotation.operation)),
             verification: verification_of(annotation),
-            evidence: None,
+            evidence: annotation.metadata.reasoning.clone(),
             raw_score: annotation.metadata.confidence,
             corroboration: None,
         };
