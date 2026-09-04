@@ -112,15 +112,7 @@ impl<S: Storage> Dataset<S> {
     /// }
     /// ```
     pub fn scope(&self) -> Result<Scope, DatasetError> {
-        let mut versions = Vec::new();
-        for info in self.storage.list_versions()? {
-            if let Some(snapshot) = self.storage.get_version(&info.date)? {
-                versions.push(snapshot);
-            }
-        }
-        Ok(Scope::from_versions(
-            versions.iter().map(|v| (v.date.as_str(), &v.element)),
-        ))
+        Scope::derive(&self.storage)
     }
 
     /// The legislature extension, when this dataset carries one.

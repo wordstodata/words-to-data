@@ -90,6 +90,12 @@ fn should_report_metadata_and_counts_when_info_runs_on_a_dataset() {
     assert_eq!(info["name"], "CLI Test Fixture");
     assert_eq!(info["version_count"], 2);
     assert_eq!(info["bill_count"], 0);
+
+    // Scope answers "why did my query find nothing". Without it, an agent
+    // reading this output cannot tell an absent provision from an absent title.
+    assert_eq!(info["scope"]["held"][0], "uscode/title_51");
+    assert_eq!(info["scope"]["dates"][0], EARLY);
+    assert_eq!(info["scope"]["dates"][1], LATE);
 }
 
 /// Run `diff` over a fixture and return its parsed JSON summary.

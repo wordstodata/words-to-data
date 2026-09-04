@@ -5,6 +5,9 @@ use words_to_data::inspect;
 
 use crate::load::{self, with_dataset};
 
+/// How many coverage units the human output lists before it summarizes.
+const SCOPE_SAMPLE: usize = 5;
+
 #[derive(ClapArgs)]
 pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
@@ -34,4 +37,18 @@ pub fn run(args: Args) {
     }
     println!("Versions:    {}", info.version_count);
     println!("Bills:       {}", info.bill_count);
+
+    // Scope is the answer to "why did my query find nothing". Print it, so a
+    // reader of this dataset knows what it does not hold.
+    match info.scope.held.len() {
+        0 => println!("Covers:      nothing"),
+        // A full US Code dataset holds 60+ units, which is a wall of text on
+        // one line. Show a sample and the count; `--json` carries them all.
+        count if count > SCOPE_SAMPLE => println!(
+            "Covers:      {} units, including {}",
+            count,
+            info.scope.held[..SCOPE_SAMPLE].join(", ")
+        ),
+        _ => println!("Covers:      {}", info.scope.held.join(", ")),
+    }
 }
