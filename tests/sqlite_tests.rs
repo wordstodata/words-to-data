@@ -3,7 +3,9 @@ use std::io::BufReader;
 
 use words_to_data::annotation::ChangeAnnotation;
 use words_to_data::dataset::{Dataset, DatasetMetadata, VersionSnapshot};
-use words_to_data::storage::{DatasetReader, InMemoryStorage, SqliteStorage};
+use words_to_data::storage::{
+    DocumentReader, InMemoryStorage, LegislatureReader, LinkReader, SqliteStorage,
+};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 
@@ -180,7 +182,7 @@ fn should_query_via_trait_interface() {
     dataset.save_to_sqlite(path).unwrap();
 
     // Query via trait - works for both Dataset and SqliteStorage
-    fn check_reader(reader: &impl DatasetReader) {
+    fn check_reader(reader: &(impl DocumentReader + LinkReader + LegislatureReader)) {
         // list_versions
         let versions = reader.list_versions().unwrap();
         assert_eq!(versions.len(), 2);
@@ -288,7 +290,7 @@ fn should_query_annotations_for_path_via_trait() {
     dataset.save_to_sqlite(path).unwrap();
 
     // Test via trait - should work for both
-    fn check_annotations_for_path(reader: &impl DatasetReader) {
+    fn check_annotations_for_path(reader: &impl LinkReader) {
         let anns = reader.annotations_for_path(TEST_PATH).unwrap();
         assert!(!anns.is_empty());
         // All returned annotations should contain the path
