@@ -252,6 +252,15 @@ impl TreeDiff {
     ///
     /// let diff = TreeDiff::from_elements(&old, &new);
     /// ```
+    /// True when this diff records nothing at all: no field changes, no added or
+    /// removed children, and no changed descendant.
+    pub fn is_empty(&self) -> bool {
+        self.changes.is_empty()
+            && self.added.is_empty()
+            && self.removed.is_empty()
+            && self.child_diffs.is_empty()
+    }
+
     pub fn from_elements(from_element: &USLMElement, to_element: &USLMElement) -> TreeDiff {
         assert!(from_element.data.path == to_element.data.path);
         let root_path = from_element.data.path.clone();
@@ -279,8 +288,12 @@ impl TreeDiff {
             match children_b.get(path) {
                 Some(child_b) => {
                     // Matched - recurse
+                    // Keep any child that records something. Testing only
+                    // `changes` and `child_diffs` here dropped a child whose
+                    // sole content was an added or removed element, which lost
+                    // every pure insertion in the tree (#54).
                     let child_diff = TreeDiff::from_elements(child_a, child_b);
-                    if !child_diff.child_diffs.is_empty() || !child_diff.changes.is_empty() {
+                    if !child_diff.is_empty() {
                         child_diffs.push(child_diff);
                     }
                 }
