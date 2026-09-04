@@ -3,8 +3,8 @@
 //! The fixture is `tests/test_data/processed/annotations.json`, the output of a
 //! real matching run, not invented data.
 
-use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::link::{Link, LinkKind, Target, VerificationState};
+use words_to_data::annotation::{AnnotationStatus, ChangeAnnotation};
+use words_to_data::link::{Corroboration, Link, LinkKind, Target, VerificationState};
 
 const ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
 
@@ -93,4 +93,60 @@ fn should_mark_unreviewed_model_output_as_machine_suggested() {
             );
         }
     }
+}
+
+/// The stored `Rejected` status means the claim was checked and found wrong.
+/// That is settled, unlike `Disputed`, which means someone objects. The real
+/// fixture holds only `Pending`, so this takes a real annotation and varies the
+/// one field under test.
+#[test]
+fn should_mark_a_rejected_annotation_as_refuted_rather_than_disputed() {
+    let mut annotation = real_annotations()
+        .into_iter()
+        .next()
+        .expect("the fixture should hold some");
+
+    annotation.metadata.status = AnnotationStatus::Rejected;
+    for link in Link::from_annotation(&annotation) {
+        assert_eq!(link.provenance.verification, VerificationState::Refuted);
+    }
+
+    annotation.metadata.status = AnnotationStatus::Disputed;
+    for link in Link::from_annotation(&annotation) {
+        assert_eq!(
+            link.provenance.verification,
+            VerificationState::Disputed,
+            "an objection is not a finding of falsehood"
+        );
+    }
+}
+
+/// Corroboration is reproducible, so it may be relied on. It does not raise the
+/// verification state: a machine's proposal that scores well is still a
+/// machine's proposal.
+#[test]
+fn should_carry_corroboration_without_raising_the_verification_state() {
+    let annotations = real_annotations();
+    let annotation = annotations.first().expect("the fixture should hold some");
+
+    let link = Link::from_annotation(annotation)
+        .into_iter()
+        .next()
+        .expect("at least one link")
+        .with_corroboration(Corroboration {
+            method: "precision_weighted_f1".to_string(),
+            score: 0.82,
+            detail: vec![("precision".to_string(), 0.9)],
+        });
+
+    assert_eq!(
+        link.provenance.verification,
+        VerificationState::MachineSuggested,
+        "evidence is not confirmation"
+    );
+    let corroboration = link
+        .provenance
+        .corroboration
+        .expect("the measurement should be carried");
+    assert_eq!(corroboration.method, "precision_weighted_f1");
 }

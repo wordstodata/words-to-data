@@ -16,6 +16,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::annotation::{AnnotationStatus, ChangeAnnotation};
+use crate::diff::AmendmentSimilarity;
 
 /// The kind of a link, namespaced by the extension that defines it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,8 +77,14 @@ pub enum VerificationState {
     MachineSuggested,
     /// A human confirmed it.
     HumanConfirmed,
-    /// Contested, or found to be wrong.
+    /// Contested. Someone disagrees, and it is not settled.
     Disputed,
+    /// Found to be wrong. Settled, and settled against the statement.
+    ///
+    /// Distinct from `Disputed` on purpose: "we checked and it is false" is a
+    /// stronger claim than "someone objects", and a reader deciding whether to
+    /// rely on a link needs to tell them apart.
+    Refuted,
 }
 
 /// Where a statement came from.
@@ -96,7 +103,53 @@ pub struct Provenance {
     pub evidence: Option<String>,
     /// The raw score a model reported, kept as diagnostic data only. It is not
     /// a probability and must not be presented as one.
+    ///
+    /// Nobody can check it. The model asserted it about its own work, and
+    /// running the model again may give a different number.
     pub raw_score: Option<f32>,
+    /// A deterministic measurement supporting the statement.
+    ///
+    /// Unlike `raw_score`, this is reproducible: a receiver holding the same
+    /// texts can recompute it and get the same answer. That makes it evidence
+    /// rather than a claim, and it is the one number in this struct a reader
+    /// may reasonably rely on.
+    ///
+    /// It does not raise the verification state. A machine's proposal that
+    /// scores well is still a machine's proposal; corroboration tells a human
+    /// reviewer where to look first, and nothing more.
+    pub corroboration: Option<Corroboration>,
+}
+
+/// A reproducible measurement that supports a statement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Corroboration {
+    /// What was computed, so a receiver knows how to reproduce it.
+    pub method: String,
+    /// The headline figure, on whatever scale `method` defines.
+    pub score: f32,
+    /// The parts it was built from, so the figure can be checked rather than
+    /// taken on trust.
+    pub detail: Vec<(String, f32)>,
+}
+
+impl From<&AmendmentSimilarity> for Corroboration {
+    /// Corroborate an amendment match with the deterministic overlap between
+    /// the amendment's words and the words that actually changed.
+    fn from(similarity: &AmendmentSimilarity) -> Self {
+        Self {
+            method: "precision_weighted_f1".to_string(),
+            score: similarity.score,
+            detail: vec![
+                ("precision".to_string(), similarity.precision),
+                ("recall".to_string(), similarity.recall),
+                ("matched_words".to_string(), similarity.matched_words as f32),
+                (
+                    "tree_diff_words".to_string(),
+                    similarity.tree_diff_words as f32,
+                ),
+            ],
+        }
+    }
 }
 
 /// A statement connecting a provision to something else.
@@ -121,6 +174,7 @@ impl Link {
             verification: verification_of(annotation),
             evidence: None,
             raw_score: annotation.metadata.confidence,
+            corroboration: None,
         };
 
         annotation
@@ -140,6 +194,15 @@ impl Link {
             })
             .collect()
     }
+
+    /// Attach a reproducible measurement supporting this link.
+    ///
+    /// Deliberately does not change the verification state. Corroboration is
+    /// evidence for a reviewer, not a substitute for one.
+    pub fn with_corroboration(mut self, corroboration: Corroboration) -> Self {
+        self.provenance.corroboration = Some(corroboration);
+        self
+    }
 }
 
 /// Map a stored status onto a verification state.
@@ -148,13 +211,14 @@ impl Link {
 /// decides: a machine's unreviewed claim is `MachineSuggested`, a person's is
 /// `Asserted`.
 ///
-/// `Rejected` collapses into `Disputed`, which loses information: "found to be
-/// wrong" is a stronger statement than "contested". The four states in
-/// `CONTEXT.md` have no home for a refuted claim, and that gap is real.
+/// `Rejected` maps to `Refuted` rather than `Disputed`: the stored status means
+/// the claim was checked and found wrong, which is settled, while `Disputed`
+/// means someone objects and it is not.
 fn verification_of(annotation: &ChangeAnnotation) -> VerificationState {
     match annotation.metadata.status {
         AnnotationStatus::Verified => VerificationState::HumanConfirmed,
-        AnnotationStatus::Disputed | AnnotationStatus::Rejected => VerificationState::Disputed,
+        AnnotationStatus::Disputed => VerificationState::Disputed,
+        AnnotationStatus::Rejected => VerificationState::Refuted,
         AnnotationStatus::Pending => {
             if annotation.metadata.annotator.starts_with("model:") {
                 VerificationState::MachineSuggested
