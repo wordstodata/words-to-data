@@ -1,0 +1,3449 @@
+[
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Q/subsection_b/paragraph_3",
+    "amendment_id": "c88ed09d3b036f8c845a5ee6ad5d0715815c5bc5d68d167003b92ccaec1af2f1",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9034/subsection_e",
+    "amendment_id": "02092f24ee3eb05d6225b0f7dfc74131aa22b1dc7790d71254a0b2b8aaa8bf52",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_55/subsection_d/paragraph_4",
+    "amendment_id": "51b3dc08e8c537a48ef5a2e7634f76fcf37029b133af05aea0fc8596034e8791",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_G/part_II/section_543/subsection_d/paragraph_4/subparagraph_A/clause_i",
+    "amendment_id": "72ffba4ffb9e12a20924c630275847e71c572a1f61405e00c4103acee2259998",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_a/paragraph_1/subparagraph_B",
+    "amendment_id": "67096f7cf791841d3953314d351331617dee422e290a13a575012425e048c0e1",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_51/section_2014/subsection_e/paragraph_6/subparagraph_C/clause_iv/subclause_I",
+    "amendment_id": "53291f4006fe0ea19ed4b3dcbf93e8cdde4c35a81b580100aeb8f350cc2bb1c7",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45F/subsection_a/paragraph_1",
+    "amendment_id": "d5d5a809f04b5beb9c893a6f636cef62d484751fa3bac49498fd1eb3c7163ba5",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 8,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9011/paragraph_8/subparagraph_B/clause_ii",
+    "amendment_id": "3b5db1ca166f5c176eac0d12312b5abaa9d505d2ae0baf9c699870df04da652c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6696/subsection_c",
+    "amendment_id": "ccb1304947224f5259cd2683742d9651f53d15c2ad64f9aeb5b09c296d2b2c93",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_IV/subpart_A/section_142/subsection_c",
+    "amendment_id": "eb1b47b513c1c3f901f1c57e2cef035aeb3d663ac1940d9482f4773a9fb26492",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087d/subsection_b/paragraph_2",
+    "amendment_id": "0745b3e79a66578513d42453ad127c1532e7b82615dba01d3ab4ced1dac25e95",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_III/subpart_B/section_6041A/subsection_a",
+    "amendment_id": "8484b1e4a58216b67e78ee306c97772f8747ceae977bce15803acf92fc40c1ee",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 17,
+    "tree_diff_words": 17
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_960/subsection_d/paragraph_2/subparagraph_A",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XXI/section_1397aa/subsection_b",
+    "amendment_id": "73d7e36e3f64d9edad45e844b01ee4291b58ceb0d45eed7e12d38967ec893d26",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_c/paragraph_4/subparagraph_C/clause_ii",
+    "amendment_id": "1bc9d6d040c9f75dd0ca334e45adf9c7f09fa2817d4a7e237c8686f2b3e3468c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9057/subsection_c/paragraph_1",
+    "amendment_id": "6f6e430d67a76d074eb9d447dde4c1ad333e0d8c3485f877847ccd7b72281852",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25D/subsection_g/paragraph_3",
+    "amendment_id": "ea1c535e2beee3904807bc693c1978c16a7541a67b2f69717465d11f639ab352",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_132/subsection_f/paragraph_4",
+    "amendment_id": "4f0d5a21eb528302c2b2b249a378d2a28b641293e89a786ac51400429e5fc761",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_III/subpart_B/section_6050W/subsection_f/paragraph_2",
+    "amendment_id": "f18ba8df1452f28b9dd33f288bff032bf15f30f036f6fa4bd3bdf5c5d9755438",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 18,
+    "tree_diff_words": 18
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_g/paragraph_5",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9016/subsection_g/paragraph_2",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XXI/section_1397ff/subsection_a/paragraph_1",
+    "amendment_id": "73d7e36e3f64d9edad45e844b01ee4291b58ceb0d45eed7e12d38967ec893d26",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_i/paragraph_5",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_49/subtitle_VI/part_C/chapter_329/section_32912/subsection_b",
+    "amendment_id": "ecb9700a1e9c9fc41eda5c741bcadef942a994fd789edf893b33a9a66ec08b8b",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_199A/subsection_b/paragraph_3/subparagraph_B/clause_i/subclause_I",
+    "amendment_id": "1660c69d64da37caf4dd820a9c7e9c7f82d52ca4ce1156bbd8a36267a0ed92d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_b/paragraph_3/subparagraph_A/clause_i/subclause_VI",
+    "amendment_id": "6e9d64183ff74a23c53a86587597148c1b979d61ed7f3e6a0f6d907e2301c45c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9032/subsection_b",
+    "amendment_id": "b20f8bacac880dd8ddf24d1efe6e51e5e3983645f6de96eaddb0156a2b400788",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_a/paragraph_2/subparagraph_B/clause_i",
+    "amendment_id": "f9a25f54994a8f8c0f1e7503ec3e44045971e5ff75db6ae623ef10aaaa7dcd3a",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_2/subparagraph_A/clause_i/subclause_IV",
+    "amendment_id": "4094fe8058314c41ba48e1bc5f5267c8d60fc921eb4b9b388012d4682846419e",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_c/paragraph_6/subparagraph_B",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9056/subsection_a/paragraph_1/subparagraph_C/clause_ii",
+    "amendment_id": "6f6e430d67a76d074eb9d447dde4c1ad333e0d8c3485f877847ccd7b72281852",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_a",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6696/subsection_a",
+    "amendment_id": "ccb1304947224f5259cd2683742d9651f53d15c2ad64f9aeb5b09c296d2b2c93",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_e/paragraph_2/subparagraph_H/clause_i",
+    "amendment_id": "7680c5ce390752701649263e98439d56baefa5fd5610793c9a2faab64665942a",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9016/subsection_a/paragraph_2",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_199A/subsection_d/paragraph_3/subparagraph_A",
+    "amendment_id": "1660c69d64da37caf4dd820a9c7e9c7f82d52ca4ce1156bbd8a36267a0ed92d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_I/section_1/subsection_j",
+    "amendment_id": "3469cee7bce7b7d82cdb3b58d5feaac83c89731fcc733120b0cfd0389ff9c8d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_K/part_I/section_707/subsection_a/paragraph_2",
+    "amendment_id": "9abf6a2e321361e12ff6f1507b3e1b05d9db67bbeb6cc2f3a89cba7bfc4903fc",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_30/chapter_3A/subchapter_I/section_188/subsection_d/paragraph_1",
+    "amendment_id": "9fdbb815fed1fba371ef816ab1795c2e4030720e9841a74db1d5aaec5dfef3d2",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9036/subsection_d",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_e/paragraph_2/subparagraph_F/clause_i",
+    "amendment_id": "618296cf9dc2a73a6c9c27c00de3a854d08e8e99d930a209d221c895de0f3130",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_e/paragraph_2/subparagraph_D/clause_i",
+    "amendment_id": "618296cf9dc2a73a6c9c27c00de3a854d08e8e99d930a209d221c895de0f3130",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_a/paragraph_2/subparagraph_B/clause_ii",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_a/paragraph_3",
+    "amendment_id": "09bdf73057016ab7d7e40c32b8070f47c65b1019bace49b85efc7fddc5190f1e",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_127/subsection_c/paragraph_1/subparagraph_B",
+    "amendment_id": "530e38ea1f211ba9eac0c148ff457a0c0bc936eafe7dd5106769a07f4f14903c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 7,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Q/subsection_f/paragraph_5/subparagraph_B/clause_i",
+    "amendment_id": "c88ed09d3b036f8c845a5ee6ad5d0715815c5bc5d68d167003b92ccaec1af2f1",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_e/paragraph_2/subparagraph_E/clause_i",
+    "amendment_id": "618296cf9dc2a73a6c9c27c00de3a854d08e8e99d930a209d221c895de0f3130",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_164/subsection_b/paragraph_6/subparagraph_B",
+    "amendment_id": "f195b2910dc8cb951aa1043aa2971fbce0a7edde21851956dc474b61f4481559",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_960/subsection_d/paragraph_1",
+    "amendment_id": "e87094afb41324090dce1ef02f5fc60774fa1f9fe3fac21df0b0cfbb71b174aa",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9036/subsection_a/paragraph_2",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9039/subsection_b",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_199A/subsection_b/paragraph_3/subparagraph_B/clause_ii/subclause_II",
+    "amendment_id": "1660c69d64da37caf4dd820a9c7e9c7f82d52ca4ce1156bbd8a36267a0ed92d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_22/chapter_31/subchapter_IV/section_2131/subsection_d/paragraph_2/subparagraph_B",
+    "amendment_id": "ca44de9ba820d00c73e928081499b537e5c56ea2d6c0a8367576bb18224d59a8",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9016/subsection_d",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VII/section_59A/subsection_h/paragraph_2/subparagraph_B",
+    "amendment_id": "8cad0e166c2aaddbc21d4598fa0fa47dde90768d406209828152de05ad86982a",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VII/section_223/subsection_c/paragraph_1/subparagraph_B/clause_ii",
+    "amendment_id": "08d79f2e90eafb7f212cea2f2b4a4822c345adaf6c9591557d62752d544a0406",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 9,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529/subsection_e/paragraph_3/subparagraph_A",
+    "amendment_id": "ab09bd440058b2eebb0030cd0ed15703cc5ee75cabde6f77477bcaf58154332e",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_165/subsection_h/paragraph_5",
+    "amendment_id": "3469cee7bce7b7d82cdb3b58d5feaac83c89731fcc733120b0cfd0389ff9c8d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_12/chapter_53/subchapter_V/part_A/section_5497/subsection_a/paragraph_2/subparagraph_A/clause_iii",
+    "amendment_id": "65f58b32a0a1496cb934705f89ef5ac251c312e7c43ed145f5c32bfa93780104",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48E/subsection_e/paragraph_1",
+    "amendment_id": "248686bf54e72368342b92ec9f9537890db31aee9abc74651a976b6bb257954c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_e/paragraph_2/subparagraph_C/clause_i",
+    "amendment_id": "618296cf9dc2a73a6c9c27c00de3a854d08e8e99d930a209d221c895de0f3130",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Q/subsection_b/paragraph_2/subparagraph_B",
+    "amendment_id": "c88ed09d3b036f8c845a5ee6ad5d0715815c5bc5d68d167003b92ccaec1af2f1",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a",
+    "amendment_id": "a92dddd33709fb930c70c273a79d33b7c15f060620416c7ff89444efe92cddad",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9057/subsection_c",
+    "amendment_id": "6f6e430d67a76d074eb9d447dde4c1ad333e0d8c3485f877847ccd7b72281852",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9016/subsection_c/paragraph_1/subparagraph_B",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_129/subsection_a/paragraph_2/subparagraph_A",
+    "amendment_id": "84ef71a868ea9ada296b65dbcb3a80750fc0ca4c4d26129c6ff3e7b76843d029",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_n/paragraph_1",
+    "amendment_id": "4b99701ec40826c29aedbddc41ec148da67338e83fa994c136ce176709305439",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_e",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_199A/subsection_a",
+    "amendment_id": "e5d69a51d1d6958b55a85826e73792012c6f14c2ab9d601ee290e4a283cc6669",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9057/subsection_b/paragraph_1",
+    "amendment_id": "6f6e430d67a76d074eb9d447dde4c1ad333e0d8c3485f877847ccd7b72281852",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9036/subsection_a/paragraph_1",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6696/subsection_d/paragraph_1",
+    "amendment_id": "ccb1304947224f5259cd2683742d9651f53d15c2ad64f9aeb5b09c296d2b2c93",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 9,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_b",
+    "amendment_id": "f9a25f54994a8f8c0f1e7503ec3e44045971e5ff75db6ae623ef10aaaa7dcd3a",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_5/subparagraph_A/clause_i",
+    "amendment_id": "5f77dccf5454a113db5ccf6ac4614c552339b78c23465e67ed6fd69561a9b211",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_B/subpart_vii/section_1359bb/subsection_a/paragraph_1",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_h/paragraph_3/subparagraph_F",
+    "amendment_id": "3469cee7bce7b7d82cdb3b58d5feaac83c89731fcc733120b0cfd0389ff9c8d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_d/paragraph_1/subparagraph_D",
+    "amendment_id": "3dcfd578e992d578d84ce19d10bdde771bb6be4aae14d027f33f930c2aa87e95",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_49/subtitle_VI/part_C/chapter_329/section_32912/subsection_c/paragraph_1/subparagraph_B",
+    "amendment_id": "ecb9700a1e9c9fc41eda5c741bcadef942a994fd789edf893b33a9a66ec08b8b",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_E/part_II/subpart_B/section_460/subsection_e/paragraph_1/subparagraph_A",
+    "amendment_id": "4ff0cb47e805535cc49bf4729cecca30dfd84ecd2de4b559c92e0f785d74e016",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9035/subsection_a/paragraph_2/subparagraph_B",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396o–1/subsection_a/paragraph_1",
+    "amendment_id": "81293eebc9a6257aa44f60f60a38d2e65b172926833852aa679ff44eb822f32d",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_51/section_2014/subsection_k/paragraph_4/subparagraph_A",
+    "amendment_id": "53291f4006fe0ea19ed4b3dcbf93e8cdde4c35a81b580100aeb8f350cc2bb1c7",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_51/section_2014/subsection_k/paragraph_4/subparagraph_B",
+    "amendment_id": "53291f4006fe0ea19ed4b3dcbf93e8cdde4c35a81b580100aeb8f350cc2bb1c7",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_199A/subsection_e/paragraph_1",
+    "amendment_id": "7cb15f00890ff6563ba6b1a66e25c4d62d8239c49ad9577e0a50634a363bfad5",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_b/paragraph_1/subparagraph_B",
+    "amendment_id": "c6937a2ea6bf8cd2daa0c83377bf25f48e16d6059e56219998c0b6aed0226ab9",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9031/subsection_b/paragraph_1",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_e/paragraph_2/subparagraph_G/clause_i",
+    "amendment_id": "618296cf9dc2a73a6c9c27c00de3a854d08e8e99d930a209d221c895de0f3130",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_63/subchapter_B/section_6213/subsection_g/paragraph_2/subparagraph_I",
+    "amendment_id": "e258ea0b9fd8c3aea0b6ba2af274cc207758cdd7daea32429fd1a2e1ea03ce33",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45S/subsection_b/paragraph_1",
+    "amendment_id": "ab8352618025bb9f968303f43044806d20372a5964a79376fed6465ef6085817",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_B/section_1078/subsection_b/paragraph_9/subparagraph_A/clause_v",
+    "amendment_id": "8890839b753b9d3c13cd2beda3d286fe114050bec7337aa261bc3d201c99b59f",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_23/subsection_d/paragraph_3/subparagraph_A",
+    "amendment_id": "4d8f45e3f2f1719ad0c8810f393317b8ffc75698d1fecbc7484d8b2834c2f7da",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6696/subsection_d/paragraph_2",
+    "amendment_id": "ccb1304947224f5259cd2683742d9651f53d15c2ad64f9aeb5b09c296d2b2c93",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 14,
+    "tree_diff_words": 14
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_c/paragraph_4/subparagraph_B",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_B/subpart_vii/section_1359ll/subsection_a",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_M/part_II/section_856/subsection_c/paragraph_4/subparagraph_B/clause_ii",
+    "amendment_id": "5153a1422442767a2c2fa61bdc2716842d0009442ac23ee855a84872f09c4a7b",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_172/subsection_d/paragraph_9",
+    "amendment_id": "f9a25f54994a8f8c0f1e7503ec3e44045971e5ff75db6ae623ef10aaaa7dcd3a",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9039/subsection_c",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6696",
+    "amendment_id": "ccb1304947224f5259cd2683742d9651f53d15c2ad64f9aeb5b09c296d2b2c93",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_954/subsection_c/paragraph_6/subparagraph_C",
+    "amendment_id": "eb3c40effb0109eaa346e41b83b944b3a47239cab9c43f32f414e67ff59e6fa0",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_65/subchapter_B/section_6418/subsection_g/paragraph_3/subparagraph_A",
+    "amendment_id": "7563c6f63b4dc4d2eab8544f024f26878ef7d918fca267edc88bcecd61a20606",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_960/subsection_d/paragraph_2/subparagraph_B",
+    "amendment_id": "60bf06bde4edbecb6b68150bda69fe310de7f64952ba40be8902fa94eaafb956",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XVIII/part_B/section_1395w–4/subsection_t",
+    "amendment_id": "6f8e90fac1621b010e6b85860d99a8386369cc1cf094c2846ade5ae7358c22dd",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_b/paragraph_1/subparagraph_M",
+    "amendment_id": "a1bc7690ff5587853ebc8dfefd605a749ba61dc1bb279245e33ec2b45bcbff9c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_2/subparagraph_A/clause_i/subclause_V",
+    "amendment_id": "4094fe8058314c41ba48e1bc5f5267c8d60fc921eb4b9b388012d4682846419e",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_h/paragraph_2",
+    "amendment_id": "3ddfe78d963134265a8a51fb3a1d53696f98f7bae4dd5b475f1f0f19eb13d538",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_5",
+    "amendment_id": "0760f39c72efa02508a0c80bae6163ce2dccd4054d633589f6edfd4ab60e1ce6",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 13,
+    "tree_diff_words": 13
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_b",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_h",
+    "amendment_id": "3469cee7bce7b7d82cdb3b58d5feaac83c89731fcc733120b0cfd0389ff9c8d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_23/subsection_d/paragraph_3/subparagraph_B",
+    "amendment_id": "4d8f45e3f2f1719ad0c8810f393317b8ffc75698d1fecbc7484d8b2834c2f7da",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9039/subsection_a/paragraph_2",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_57/subsection_a/paragraph_7",
+    "amendment_id": "7f847a82f8451eb2d42e8dc307f5ec3d5b843148e17e6c28b2f1247f6fa73d20",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 12,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_199A/subsection_g/paragraph_2/subparagraph_B",
+    "amendment_id": "48cb8f8c535efac87cb6da7bb4794a0dc97c049994fce75301096f1bcba260fe",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_88/subchapter_VII/section_5933/subsection_c/paragraph_2",
+    "amendment_id": "efcd825f3f5a7d8aae34930c9f0016ccd65d7f98a84d18060f44268e5cfe292c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_56/subsection_b/paragraph_2/subparagraph_C",
+    "amendment_id": "50ac7f3ac7528842114ef89b8634bf29a31c35293208c1c06836ecf4f6a586f9",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_14/subchapter_III/section_390d/subsection_c",
+    "amendment_id": "c9e882ce46e839bad658dcc709cc7fa31ff7f63d135fca3b38239801b2a1a398",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_8/subparagraph_A/clause_v",
+    "amendment_id": "a18d3d3c0e847f8fb9a27425aa38b8d94505b15169f101a494510b523c7b4838",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 8,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_65/subchapter_B/section_6418/subsection_g/paragraph_3/subparagraph_B",
+    "amendment_id": "7563c6f63b4dc4d2eab8544f024f26878ef7d918fca267edc88bcecd61a20606",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_63/subchapter_B/section_6213/subsection_g/paragraph_2/subparagraph_J",
+    "amendment_id": "c6df430534037cf3491850ddd0ff6bb9afcf139979267561a8a8e852f533fe1a",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_9/subparagraph_C",
+    "amendment_id": "65b68df4b71d58bb0fe039fb2efb76a297c055048680344d994995f705e9371d",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 25,
+    "tree_diff_words": 25
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396n/subsection_c/paragraph_3",
+    "amendment_id": "483bf2213283b85ce86ac93ba5b94529fa8ee5409ece89d7b4b7f99f170244c5",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_d/paragraph_1",
+    "amendment_id": "3dcfd578e992d578d84ce19d10bdde771bb6be4aae14d027f33f930c2aa87e95",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 12,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48C/subsection_e/paragraph_3/subparagraph_C",
+    "amendment_id": "754176459eeea87e582956187363f99acfa375d04491da3d4006f8f524b102ef",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_c/paragraph_3/subparagraph_C",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_199A/subsection_d/paragraph_3/subparagraph_B/clause_ii",
+    "amendment_id": "1660c69d64da37caf4dd820a9c7e9c7f82d52ca4ce1156bbd8a36267a0ed92d3",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_165/subsection_h/paragraph_5/subparagraph_B/clause_i",
+    "amendment_id": "ea2dd0544754b14bfb74003cbdc956f097cf3372c4c12b7dc6a6d11d9f981a7f",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_h/paragraph_1",
+    "amendment_id": "eb3c40effb0109eaa346e41b83b944b3a47239cab9c43f32f414e67ff59e6fa0",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9015/subsection_a",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_b/paragraph_3/subparagraph_A/clause_i/subclause_II",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_A/subpart_1/section_1070a/subsection_b/paragraph_7/subparagraph_A/clause_iii",
+    "amendment_id": "5c82706c21f79f9a3be26bbc12faafe9fd99ec429fc585d30092d87b2202ceb0",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Y/subsection_d/paragraph_1",
+    "amendment_id": "248686bf54e72368342b92ec9f9537890db31aee9abc74651a976b6bb257954c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_5/subparagraph_A",
+    "amendment_id": "af48bfefade6ae3c06b0725ff4f156e7219fe1be8fdbe487dfcb132ae4642551",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 9,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_a",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48/subsection_a/paragraph_2/subparagraph_A/clause_ii",
+    "amendment_id": "950b5e0ffffb7cfdad7e513595467687dea6162876a4941670c18c05257e59b2",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529/subsection_c/paragraph_3/subparagraph_C/clause_i/subclause_III",
+    "amendment_id": "eb3c40effb0109eaa346e41b83b944b3a47239cab9c43f32f414e67ff59e6fa0",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_a/paragraph_1/subparagraph_B/clause_i",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_100/subchapter_IV/part_B/section_7272/subsection_i",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9057/subsection_b",
+    "amendment_id": "6f6e430d67a76d074eb9d447dde4c1ad333e0d8c3485f877847ccd7b72281852",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_c/paragraph_4/subparagraph_C/clause_iii/subclause_I",
+    "amendment_id": "1bc9d6d040c9f75dd0ca334e45adf9c7f09fa2817d4a7e237c8686f2b3e3468c",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_85/subchapter_I/part_A/section_7436/subsection_g",
+    "amendment_id": "c1272aeb290c08a38d4d2f55e9b476882d1cd25c4e7d465463c0e5a1a4ff482b",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_1/subparagraph_A",
+    "amendment_id": "5f77dccf5454a113db5ccf6ac4614c552339b78c23465e67ed6fd69561a9b211",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9016/subsection_g/paragraph_1",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_958/subsection_b",
+    "amendment_id": "3b76b951d068616936b21c689e789786cbbcaf9158f0d8240a04dd53286012de",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9056/subsection_a/paragraph_1/subparagraph_C/clause_i",
+    "amendment_id": "6f6e430d67a76d074eb9d447dde4c1ad333e0d8c3485f877847ccd7b72281852",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9012/subsection_d/paragraph_3/subparagraph_A",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1502/subsection_b/paragraph_3",
+    "amendment_id": "8765958c87e64ff9a6938faaf583a7ac354a6a175ac636519567fc0c7897873e",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VII/section_59A/subsection_b/paragraph_1/subparagraph_A",
+    "amendment_id": "04aa740b6a88c96569ae4cae2f3bd26f23579583e13affcaa9014f5f1e1571c1",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_b/paragraph_3",
+    "amendment_id": "ec7b477a07c8890cd0a5d34792674269825c3bf4858b6adc94e09b67e49c32af",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_59/subsection_e/paragraph_2/subparagraph_B",
+    "amendment_id": "3f790d75912f06dc51755514b1efcb8a93f4ebe9734eb6309b2e83e998bf73ca",
+    "score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_B/section_1078–6/subsection_a/paragraph_1/subparagraph_B",
+    "amendment_id": "56217f61312086a1391c4ea6b8757e890fd2c1af5e38c0bd9bee3e994591e27f",
+    "score": 0.9811321,
+    "precision": 0.962963,
+    "recall": 1.0,
+    "matched_words": 26,
+    "tree_diff_words": 27
+  },
+  {
+    "tree_diff_path": "uscode/title_30/chapter_3A/subchapter_IV/section_226/subsection_q",
+    "amendment_id": "170561ba046f705afa54369627b3d7de93693e20a571df755038d978cb46d8fc",
+    "score": 0.9680851,
+    "precision": 0.9680851,
+    "recall": 0.9680851,
+    "matched_words": 91,
+    "tree_diff_words": 94
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Z/subsection_f/paragraph_3",
+    "amendment_id": "4105da37218fe0595950da17fecb6c296f4e4a6576d3c89fa45c85a4b285eead",
+    "score": 0.96666664,
+    "precision": 0.9354839,
+    "recall": 1.0,
+    "matched_words": 29,
+    "tree_diff_words": 31
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396o/subsection_a",
+    "amendment_id": "2e3a57cc6091639aa9e7147b938c3a00147661066edc29bde54140b45bc259f9",
+    "score": 0.95652175,
+    "precision": 0.9166667,
+    "recall": 1.0,
+    "matched_words": 11,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_IX/section_280C/subsection_a",
+    "amendment_id": "57349b6cdfab35a10d51f39dbe20b6d138378aca8f74f8bbe4a2730896c67ddc",
+    "score": 0.95454544,
+    "precision": 0.9130435,
+    "recall": 1.0,
+    "matched_words": 21,
+    "tree_diff_words": 23
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_c/paragraph_1",
+    "amendment_id": "da1557789a61de8b35c931859f75bc05c2f6781b49f0aea055569b7625f4af82",
+    "score": 0.9230769,
+    "precision": 0.85714287,
+    "recall": 1.0,
+    "matched_words": 12,
+    "tree_diff_words": 14
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308–1/subsection_b/paragraph_2/subparagraph_C",
+    "amendment_id": "a3fb24f93393ed6be62e04ea14870f7d8a2e33d92f622926c72bf2461694550c",
+    "score": 0.9230769,
+    "precision": 0.85714287,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_B/subpart_vii/section_1359kk/subsection_b/paragraph_1",
+    "amendment_id": "065a53c3d97b159d55a0aad66ed0e1413fcc2ae4d7024036246bdc2803305287",
+    "score": 0.90909094,
+    "precision": 0.8333333,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_c/paragraph_6/subparagraph_R",
+    "amendment_id": "8641e09f99248c9dd84915fbd30f35ab3afe61a821ba8cf00c3358ec9884335f",
+    "score": 0.8947368,
+    "precision": 0.8947368,
+    "recall": 0.8947368,
+    "matched_words": 34,
+    "tree_diff_words": 38
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_23/subsection_c/paragraph_1",
+    "amendment_id": "82820eab1c30fe94a21937d9c5f6778ca2f12eab064d3e1591d8c0d8545a75b0",
+    "score": 0.88888896,
+    "precision": 0.8,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_181/subsection_a/paragraph_1",
+    "amendment_id": "940be6137b77d8333c6dbe9af2828df5b6dafd35b56f8c01985b73732e366638",
+    "score": 0.88888896,
+    "precision": 0.8,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XXI/section_1397ee/subsection_c/paragraph_1",
+    "amendment_id": "73d7e36e3f64d9edad45e844b01ee4291b58ceb0d45eed7e12d38967ec893d26",
+    "score": 0.882353,
+    "precision": 0.9375,
+    "recall": 0.8333333,
+    "matched_words": 15,
+    "tree_diff_words": 16
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396a/subsection_a/paragraph_14",
+    "amendment_id": "449f0f94edf0c4300244c86a80182c0420000190f47ce74b0a3d0c7b526f1af7",
+    "score": 0.88,
+    "precision": 0.8148148,
+    "recall": 0.95652175,
+    "matched_words": 22,
+    "tree_diff_words": 27
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a/paragraph_2/subparagraph_B",
+    "amendment_id": "a92dddd33709fb930c70c273a79d33b7c15f060620416c7ff89444efe92cddad",
+    "score": 0.875,
+    "precision": 0.8235294,
+    "recall": 0.93333334,
+    "matched_words": 14,
+    "tree_diff_words": 17
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_D/chapter_32/subchapter_D/part_III/section_4182/subsection_a",
+    "amendment_id": "bc9b3ed4d8368e43d566133a5e6c299221a52aaeea435f632aefbb6028089700",
+    "score": 0.875,
+    "precision": 0.875,
+    "recall": 0.875,
+    "matched_words": 14,
+    "tree_diff_words": 16
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_11",
+    "amendment_id": "b8dfd789ac0ab1668c7d066c7e950e028a04cb9f354838705b74fca89d693cca",
+    "score": 0.8679245,
+    "precision": 0.8518519,
+    "recall": 0.88461536,
+    "matched_words": 23,
+    "tree_diff_words": 27
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_h/paragraph_5",
+    "amendment_id": "1c7ee4c7c958f50c00c949197f9ab1d7a419e178719cc789b38aeada62fb41b7",
+    "score": 0.8636364,
+    "precision": 0.95,
+    "recall": 0.7916667,
+    "matched_words": 19,
+    "tree_diff_words": 20
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_a/paragraph_2/subparagraph_A",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 0.85714287,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_51/section_2022/subsection_a/paragraph_1",
+    "amendment_id": "02e24a923a6066cdc887b6b1e8e0ac6b819527227fbffb4bf47729aaa7ed4ce4",
+    "score": 0.85714287,
+    "precision": 0.85714287,
+    "recall": 0.85714287,
+    "matched_words": 6,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308–1/subsection_b/paragraph_2/subparagraph_A",
+    "amendment_id": "a3fb24f93393ed6be62e04ea14870f7d8a2e33d92f622926c72bf2461694550c",
+    "score": 0.85714287,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 0.85714287,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529A/subsection_b/paragraph_6",
+    "amendment_id": "21997a911adb9f09fff4dedd52fee194d911b2786a4f80021344395b2dc5bbaf",
+    "score": 0.85714287,
+    "precision": 0.8,
+    "recall": 0.9230769,
+    "matched_words": 12,
+    "tree_diff_words": 15
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XVIII/part_B/section_1395w–4/subsection_t/paragraph_2/subparagraph_C",
+    "amendment_id": "d1be682f8ed5244242206ab7b73d70bd083e4464165a00085009f041de08a172",
+    "score": 0.85714287,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_f/paragraph_2/subparagraph_D",
+    "amendment_id": "13a94ff13c970a922bdcc94ff30a9d2bfd7a03ca95fc87454fba62bd3f70eb93",
+    "score": 0.85714287,
+    "precision": 1.0,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308–1/subsection_b/paragraph_2/subparagraph_B",
+    "amendment_id": "a3fb24f93393ed6be62e04ea14870f7d8a2e33d92f622926c72bf2461694550c",
+    "score": 0.85714287,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_a/paragraph_2/subparagraph_A/clause_i",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 0.85714287,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_40A/subsection_g",
+    "amendment_id": "99d5e2d63d22f4b8ad7da0b2c37b1d3f388355c04b018ee2a1988e1519d442d4",
+    "score": 0.85714287,
+    "precision": 0.8,
+    "recall": 0.9230769,
+    "matched_words": 12,
+    "tree_diff_words": 15
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_51/section_2025/subsection_a",
+    "amendment_id": "0b149342d48c870f90bcec278763686c542b05860c23f65f4102603315cc7651",
+    "score": 0.85714287,
+    "precision": 0.8,
+    "recall": 0.9230769,
+    "matched_words": 12,
+    "tree_diff_words": 15
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_100/subchapter_V/section_7287/subsection_b",
+    "amendment_id": "719016366a9e5b5cd78d593a8953eb74f472217453a86991743b45aca757bddf",
+    "score": 0.85714287,
+    "precision": 0.75,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_f/paragraph_2/subparagraph_B",
+    "amendment_id": "13a94ff13c970a922bdcc94ff30a9d2bfd7a03ca95fc87454fba62bd3f70eb93",
+    "score": 0.85714287,
+    "precision": 1.0,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_m/paragraph_1/subparagraph_A/clause_iv",
+    "amendment_id": "8a8a5a0c2378b2431803becf09bf38e835f2f37c747da2cab774387cb85c2e8a",
+    "score": 0.8571428,
+    "precision": 0.8181818,
+    "recall": 0.9,
+    "matched_words": 9,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_94/section_6522/subsection_c/paragraph_4",
+    "amendment_id": "61bc469773ce477b0b1d81d19d10ce784652dcb6be67b4ef20dadaa4caf61b50",
+    "score": 0.84210527,
+    "precision": 0.8,
+    "recall": 0.8888889,
+    "matched_words": 8,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_5/part_III/subpart_G/chapter_89/section_8909/subsection_a/paragraph_2",
+    "amendment_id": "bfa6d5ec82ccb5bbecfbde5adffac57e5523f55a24b6f9cf2215adaf04c05dc8",
+    "score": 0.83870965,
+    "precision": 0.8125,
+    "recall": 0.8666667,
+    "matched_words": 13,
+    "tree_diff_words": 16
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_IV/section_9081/subsection_e/paragraph_3/subparagraph_A/clause_i",
+    "amendment_id": "4b914773b1c4b54965f147e39c299b9d2586c977eb4123aeb08bdff9bfb1ca43",
+    "score": 0.8333334,
+    "precision": 0.71428573,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_38/subchapter_I/section_1627a/subsection_c",
+    "amendment_id": "65d8836b47b8766bab870274bbb30f30d4349ef2f1020335ea1e582abe4bef1c",
+    "score": 0.8333334,
+    "precision": 0.71428573,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_E/part_II/subpart_B/section_460/subsection_e/paragraph_1",
+    "amendment_id": "4ff0cb47e805535cc49bf4729cecca30dfd84ecd2de4b559c92e0f785d74e016",
+    "score": 0.82758623,
+    "precision": 0.8,
+    "recall": 0.85714287,
+    "matched_words": 12,
+    "tree_diff_words": 15
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_Z/section_1400Z–1/subsection_c/paragraph_2/subparagraph_B",
+    "amendment_id": "4493ede450b171f94aef2ac4b52889782acdddfd94f07aae1409a8bc237852b5",
+    "score": 0.8235294,
+    "precision": 0.7777778,
+    "recall": 0.875,
+    "matched_words": 7,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396b/subsection_w/paragraph_4/subparagraph_C/clause_ii",
+    "amendment_id": "bcc8992e62bf62ed2bd5eb42f6b21f46d2d3d9e2ae7d9f8e30826586a39cc55f",
+    "score": 0.82051283,
+    "precision": 0.8,
+    "recall": 0.84210527,
+    "matched_words": 16,
+    "tree_diff_words": 20
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_C/chapter_24/section_3406/subsection_b/paragraph_6/subparagraph_A",
+    "amendment_id": "cf71c7c2a954fea098ccf34928067b42fb83e8c3d87b3bfff27c4432fa0249f3",
+    "score": 0.8181818,
+    "precision": 0.8181818,
+    "recall": 0.8181818,
+    "matched_words": 9,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_b/paragraph_1/subparagraph_G/clause_i",
+    "amendment_id": "aa5f5600575919632c121402983b1708305179c2ee0b2c65e8a44dc213ea4508",
+    "score": 0.80898875,
+    "precision": 0.7826087,
+    "recall": 0.8372093,
+    "matched_words": 36,
+    "tree_diff_words": 46
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_132/subsection_g/paragraph_2",
+    "amendment_id": "707598e50b46ce43528e2739a24767c7d39d99db3c01c4dc6a749684263762d6",
+    "score": 0.80555546,
+    "precision": 0.6904762,
+    "recall": 0.96666664,
+    "matched_words": 29,
+    "tree_diff_words": 42
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_III/subpart_B/section_6041A/subsection_a/paragraph_2",
+    "amendment_id": "cf71c7c2a954fea098ccf34928067b42fb83e8c3d87b3bfff27c4432fa0249f3",
+    "score": 0.8000001,
+    "precision": 0.71428573,
+    "recall": 0.90909094,
+    "matched_words": 10,
+    "tree_diff_words": 14
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XXI/section_1397aa/subsection_a",
+    "amendment_id": "73d7e36e3f64d9edad45e844b01ee4291b58ceb0d45eed7e12d38967ec893d26",
+    "score": 0.8000001,
+    "precision": 0.8,
+    "recall": 0.8,
+    "matched_words": 8,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_Z/section_1400Z–2/subsection_d/paragraph_2/subparagraph_D/clause_ii",
+    "amendment_id": "d9c7b39911e1b6fcacf58d96a12d18c0c017f101abca83525806d50f69fae88a",
+    "score": 0.8,
+    "precision": 0.6666667,
+    "recall": 1.0,
+    "matched_words": 18,
+    "tree_diff_words": 27
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25C/subsection_d/paragraph_2/subparagraph_C/clause_ii",
+    "amendment_id": "d029d9f7ef870d767132bf14d2ba7a99f9a78e723a9ecad244ac69fd37300d12",
+    "score": 0.8,
+    "precision": 0.6666667,
+    "recall": 1.0,
+    "matched_words": 14,
+    "tree_diff_words": 21
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529A/subsection_b/paragraph_2/subparagraph_B/clause_ii",
+    "amendment_id": "eb3c40effb0109eaa346e41b83b944b3a47239cab9c43f32f414e67ff59e6fa0",
+    "score": 0.8,
+    "precision": 0.6666667,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_b/paragraph_1/subparagraph_G/clause_iii",
+    "amendment_id": "1a4dce48042a2ecba41f5a76b101d9cd9165a358e1cf0d2e593bc18586db965a",
+    "score": 0.8,
+    "precision": 0.6666667,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_I/section_1/subsection_j/paragraph_3/subparagraph_B/clause_i",
+    "amendment_id": "90e435916ace1b78885e5ab0d32fbdd0da87524f38b0b9e385356e1d1d338d90",
+    "score": 0.8,
+    "precision": 0.7058824,
+    "recall": 0.9230769,
+    "matched_words": 12,
+    "tree_diff_words": 17
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48D/subsection_a",
+    "amendment_id": "56694c989ed68b77a02405b5b25cc35b3cba10139d776ea216dacb2b44b6dd1c",
+    "score": 0.8,
+    "precision": 1.0,
+    "recall": 0.6666667,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_40A/subsection_b/paragraph_4/subparagraph_A",
+    "amendment_id": "99d5e2d63d22f4b8ad7da0b2c37b1d3f388355c04b018ee2a1988e1519d442d4",
+    "score": 0.8,
+    "precision": 1.0,
+    "recall": 0.6666667,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9051/paragraph_8",
+    "amendment_id": "4580a86f6b670b96507795abecc31913366fd05a02e7c0df3b690f7448bcc45c",
+    "score": 0.8,
+    "precision": 0.72727275,
+    "recall": 0.8888889,
+    "matched_words": 8,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_8/chapter_12/subchapter_II/part_II/section_1187/subsection_h/paragraph_3/subparagraph_B/clause_i/subclause_II",
+    "amendment_id": "f60916a8a1655218fdcc2310fb1d434740f14b30078b5e803f2bf78f5d2085c4",
+    "score": 0.8,
+    "precision": 0.6666667,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_10/subtitle_A/part_IV/chapter_169/subchapter_IV/section_2881a/subsection_c/paragraph_1",
+    "amendment_id": "0a22dc2cece75d1948ff665b4f175b2c24130eca9155aa648c274273b1630efd",
+    "score": 0.8,
+    "precision": 0.6666667,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_D/chapter_43/section_4973/subsection_h/paragraph_1",
+    "amendment_id": "4d0848f30be839691a499f79f3bdf672e95f8041857005afe701059bfe87c132",
+    "score": 0.8,
+    "precision": 0.72727275,
+    "recall": 0.8888889,
+    "matched_words": 8,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_109/section_8308a/subsection_d/paragraph_1/subparagraph_B",
+    "amendment_id": "8bf42dd5148b5c271555d5e5b3b68ccc25b15d883663c0d2132a2b941a56a8c0",
+    "score": 0.8,
+    "precision": 0.6666667,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45F/subsection_c/paragraph_1/subparagraph_A/clause_iii",
+    "amendment_id": "5452fb9c64bea296f636a0f948563d641d5d70185f396e60d4a812830e461d58",
+    "score": 0.79999995,
+    "precision": 0.75,
+    "recall": 0.85714287,
+    "matched_words": 12,
+    "tree_diff_words": 16
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529A/subsection_b/paragraph_2/subparagraph_B",
+    "amendment_id": "0ee521dbc0e791efaf028f4b618fb3ba0680b2dd408c988e5b3962b754ac4cc1",
+    "score": 0.7777778,
+    "precision": 0.7,
+    "recall": 0.875,
+    "matched_words": 7,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_G/section_1098e/subsection_b/paragraph_7/subparagraph_B/clause_iv",
+    "amendment_id": "8fd7099c77a38bab6b63cea042363ae8e6ab3be1d73d34c0ce5ad10c0a5ca6c8",
+    "score": 0.7777778,
+    "precision": 0.7,
+    "recall": 0.875,
+    "matched_words": 7,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_B/section_30D/subsection_h",
+    "amendment_id": "53a2db0e54ec1d7f190dbc7f664c9b426676070103df8283f4daadb41f494f97",
+    "score": 0.77777773,
+    "precision": 0.7777778,
+    "recall": 0.7777778,
+    "matched_words": 7,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25D/subsection_h",
+    "amendment_id": "6b6c3d578a567cacedb7660783eaddc51d44b4dc03311fd247df2996608ca82f",
+    "score": 0.77777773,
+    "precision": 0.7777778,
+    "recall": 0.7777778,
+    "matched_words": 7,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_C/chapter_24/section_3406/subsection_b/paragraph_6",
+    "amendment_id": "cf71c7c2a954fea098ccf34928067b42fb83e8c3d87b3bfff27c4432fa0249f3",
+    "score": 0.7692308,
+    "precision": 0.625,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6675/subsection_a",
+    "amendment_id": "899d58ab3c208a43851bee49eff97caa2758694598cafca77a17063cd446c506",
+    "score": 0.7692308,
+    "precision": 0.625,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_51/section_2036a/subsection_d/paragraph_1/subparagraph_F",
+    "amendment_id": "8bf42dd5148b5c271555d5e5b3b68ccc25b15d883663c0d2132a2b941a56a8c0",
+    "score": 0.7692307,
+    "precision": 0.71428573,
+    "recall": 0.8333333,
+    "matched_words": 5,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_38/part_II/chapter_20/subchapter_II/section_2016/paragraph_7",
+    "amendment_id": "8bf42dd5148b5c271555d5e5b3b68ccc25b15d883663c0d2132a2b941a56a8c0",
+    "score": 0.7692307,
+    "precision": 0.71428573,
+    "recall": 0.8333333,
+    "matched_words": 5,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_10/subtitle_A/part_IV/chapter_169/subchapter_IV/section_2881a/subsection_a",
+    "amendment_id": "0a22dc2cece75d1948ff665b4f175b2c24130eca9155aa648c274273b1630efd",
+    "score": 0.7647059,
+    "precision": 0.61904764,
+    "recall": 1.0,
+    "matched_words": 13,
+    "tree_diff_words": 21
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_88/subchapter_VII/section_5925g/subsection_d/paragraph_1/subparagraph_B",
+    "amendment_id": "7309602a47be61df3a26a2f2a7e1b8ea2cd0d6e00aa5bfe45f79688f9bf76b8d",
+    "score": 0.76190484,
+    "precision": 0.72727275,
+    "recall": 0.8,
+    "matched_words": 8,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48E/subsection_i",
+    "amendment_id": "453d0c23458e369911bf219040136b201988634f03cc1a398d9b6a672ea8362c",
+    "score": 0.75555557,
+    "precision": 0.6666667,
+    "recall": 0.8717949,
+    "matched_words": 34,
+    "tree_diff_words": 51
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_d",
+    "amendment_id": "a92dddd33709fb930c70c273a79d33b7c15f060620416c7ff89444efe92cddad",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9015/subsection_c/paragraph_1",
+    "amendment_id": "70f5ada1767d876c5f3f7cf292ac85acbfa8f27baa92550373049868cf1c6f53",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_56/subsection_b/paragraph_2/subparagraph_A/clause_ii",
+    "amendment_id": "50ac7f3ac7528842114ef89b8634bf29a31c35293208c1c06836ecf4f6a586f9",
+    "score": 0.75,
+    "precision": 0.6666667,
+    "recall": 0.85714287,
+    "matched_words": 6,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_a/paragraph_1/subparagraph_A",
+    "amendment_id": "f9a25f54994a8f8c0f1e7503ec3e44045971e5ff75db6ae623ef10aaaa7dcd3a",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_40A/subsection_b/paragraph_4/subparagraph_B",
+    "amendment_id": "99d5e2d63d22f4b8ad7da0b2c37b1d3f388355c04b018ee2a1988e1519d442d4",
+    "score": 0.75,
+    "precision": 0.6666667,
+    "recall": 0.85714287,
+    "matched_words": 6,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Q/subsection_f/paragraph_9",
+    "amendment_id": "ab8352618025bb9f968303f43044806d20372a5964a79376fed6465ef6085817",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_D/chapter_42/subchapter_H/section_4968/subsection_a",
+    "amendment_id": "5f77dccf5454a113db5ccf6ac4614c552339b78c23465e67ed6fd69561a9b211",
+    "score": 0.75,
+    "precision": 0.75,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308–3a/subsection_b/paragraph_1",
+    "amendment_id": "6b311ab52eea99fdcaf9caf7abc6db4fe652fce3d287099e15dac6e765409036",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_O/part_II/section_1016/subsection_a/paragraph_14",
+    "amendment_id": "3971bc1878c1b92c2912b25614bc09dc574a012951c5f4a68cdd0a2e1058c133",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 9,
+    "tree_diff_words": 15
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_42/subsection_h/paragraph_3/subparagraph_I",
+    "amendment_id": "3792d63aba1142748d60bc2adc912da8c7504e9f1c397e201fecf312b6bd60b8",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 9,
+    "tree_diff_words": 15
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9015/subsection_c",
+    "amendment_id": "70f5ada1767d876c5f3f7cf292ac85acbfa8f27baa92550373049868cf1c6f53",
+    "score": 0.75,
+    "precision": 0.6,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_66/subchapter_A/section_6501/subsection_o",
+    "amendment_id": "01025e1674ffdc8c6d862feb3fe17ad9d0274def1922e37cef19684920a54063",
+    "score": 0.74666667,
+    "precision": 0.62222224,
+    "recall": 0.93333334,
+    "matched_words": 28,
+    "tree_diff_words": 45
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308/subsection_d",
+    "amendment_id": "870f840110d062a536e410007a3ffe6cdedcbc40f8ec337691d4e85209369d47",
+    "score": 0.7368421,
+    "precision": 0.5833333,
+    "recall": 1.0,
+    "matched_words": 7,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45S/subsection_d/paragraph_1",
+    "amendment_id": "ab8352618025bb9f968303f43044806d20372a5964a79376fed6465ef6085817",
+    "score": 0.7368421,
+    "precision": 0.6363636,
+    "recall": 0.875,
+    "matched_words": 7,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Z/subsection_c/paragraph_1",
+    "amendment_id": "a16b67291ac25ca18ecfc6382a3746d9fd139455677aba3a1681630f805fbfa1",
+    "score": 0.7368421,
+    "precision": 0.5833333,
+    "recall": 1.0,
+    "matched_words": 7,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_A/subpart_1/section_1070a/subsection_b/paragraph_1/subparagraph_D",
+    "amendment_id": "c75672d44da21725c61b8c5dddf96503433c89b6d238e6f5bdf42ebd3667c294",
+    "score": 0.72727275,
+    "precision": 0.61538464,
+    "recall": 0.8888889,
+    "matched_words": 8,
+    "tree_diff_words": 13
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_G/section_1098e/subsection_e",
+    "amendment_id": "f07da9403642878602941c5d418e97f431950cd8523ecba640259adb763d2a28",
+    "score": 0.72727275,
+    "precision": 0.5714286,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Z/subsection_b/paragraph_1/subparagraph_B/clause_i",
+    "amendment_id": "021dc00f26bb225df0e3ab8a0f81fdfaa52268d0965bb21c5c2a42f069c35276",
+    "score": 0.72727275,
+    "precision": 0.8,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_IV/section_9081/subsection_e/paragraph_2/subparagraph_B",
+    "amendment_id": "4b914773b1c4b54965f147e39c299b9d2586c977eb4123aeb08bdff9bfb1ca43",
+    "score": 0.72727275,
+    "precision": 0.6666667,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_C/section_35/subsection_g/paragraph_12/subparagraph_B/clause_ii",
+    "amendment_id": "27ad1d0a2a7ade90c97c1d3b5754fd4653aa3fdaf15c3a1c7fd963c1c48f050f",
+    "score": 0.71428573,
+    "precision": 0.625,
+    "recall": 0.8333333,
+    "matched_words": 5,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_c/paragraph_4/subparagraph_C/clause_iv",
+    "amendment_id": "06cefea44f212938eaa018cd88c37876d94bd1f36947e435381e0f1f24e5fc36",
+    "score": 0.7142857,
+    "precision": 0.71428573,
+    "recall": 0.71428573,
+    "matched_words": 10,
+    "tree_diff_words": 14
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_O/part_IV/section_1062",
+    "amendment_id": "8879f36afc1a7e0b825fe570c3229b7780b8c2363e6e92d221cb2ad1de4b2f95",
+    "score": 0.70588243,
+    "precision": 0.6,
+    "recall": 0.85714287,
+    "matched_words": 6,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VII/section_223/subsection_g/paragraph_1",
+    "amendment_id": "e7efea63e3bdf87200197f7c9ca0d9345120b2ef50f8efbd6160e8be2429c5f8",
+    "score": 0.7,
+    "precision": 0.5833333,
+    "recall": 0.875,
+    "matched_words": 7,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XXI/section_1397gg/subsection_e/paragraph_1/subparagraph_R",
+    "amendment_id": "fc67da2a06b9b9d67312c141afe212358a86ea6d73d61c36c7b83c9b27c92df5",
+    "score": 0.68571424,
+    "precision": 0.6315789,
+    "recall": 0.75,
+    "matched_words": 12,
+    "tree_diff_words": 19
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_179/subsection_b/paragraph_6/subparagraph_A",
+    "amendment_id": "627b34c6d31d46586cd0bf46f0a8140e723569622b747996c65045f5efa7da5a",
+    "score": 0.66666675,
+    "precision": 0.5555556,
+    "recall": 0.8333333,
+    "matched_words": 5,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_G/section_1098e/subsection_b/paragraph_8",
+    "amendment_id": "8fd7099c77a38bab6b63cea042363ae8e6ab3be1d73d34c0ce5ad10c0a5ca6c8",
+    "score": 0.66666675,
+    "precision": 0.5555556,
+    "recall": 0.8333333,
+    "matched_words": 5,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_100/subchapter_IV/part_B/section_7272/subsection_a/paragraph_5",
+    "amendment_id": "caa087aafed76e3fae66cefd7d628cde72d917bb387b24da6b82ffeeffe6c432",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_22/chapter_32/subchapter_III/part_II/section_2396/subsection_a/paragraph_17",
+    "amendment_id": "0174639d02e62df39d45991a55fe9eb8b763af6dee9187bda095fd758daa7667",
+    "score": 0.6666667,
+    "precision": 1.0,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308–2/subsection_d",
+    "amendment_id": "269fc0b135111e323af8b52461beb1b3cd1d2cdbf1b8cdc998d47625b26048f4",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_38/part_III/chapter_37/subchapter_III/section_3720/subsection_a",
+    "amendment_id": "e5d69a51d1d6958b55a85826e73792012c6f14c2ab9d601ee290e4a283cc6669",
+    "score": 0.6666667,
+    "precision": 0.6,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_2/subparagraph_C/clause_i",
+    "amendment_id": "7ab1b3504109c2b3c28daad1a3730efe1cdcd7c22685eb587c1f2000acedf857",
+    "score": 0.6666667,
+    "precision": 0.5714286,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_P/part_I/section_1202/subsection_e/paragraph_2/subparagraph_B",
+    "amendment_id": "50ac7f3ac7528842114ef89b8634bf29a31c35293208c1c06836ecf4f6a586f9",
+    "score": 0.6666667,
+    "precision": 0.54545456,
+    "recall": 0.85714287,
+    "matched_words": 6,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_36/subchapter_I/section_1516/subsection_b/paragraph_2/subparagraph_C/clause_i",
+    "amendment_id": "fd74c0cff04cd4be09b7d46137199f36fe93a35720c7767d49bd7f9ddef92f06",
+    "score": 0.6666667,
+    "precision": 0.54545456,
+    "recall": 0.85714287,
+    "matched_words": 6,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308/subsection_e/paragraph_3/subparagraph_B/clause_ii",
+    "amendment_id": "870f840110d062a536e410007a3ffe6cdedcbc40f8ec337691d4e85209369d47",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 7,
+    "tree_diff_words": 14
+  },
+  {
+    "tree_diff_path": "uscode/title_38/part_III/chapter_36/subchapter_III/section_3699C/subsection_g/paragraph_2",
+    "amendment_id": "0174639d02e62df39d45991a55fe9eb8b763af6dee9187bda095fd758daa7667",
+    "score": 0.6666667,
+    "precision": 1.0,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_65/subchapter_B/section_6417/subsection_d/paragraph_3/subparagraph_C/clause_i/subclause_II/item_bb",
+    "amendment_id": "612e69c0f1740a3de32b7f5b9be7b68ab7630a924591e16eae5c5bab0c89216d",
+    "score": 0.6666667,
+    "precision": 0.6,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_b/paragraph_3/subparagraph_A/clause_ii",
+    "amendment_id": "9fd6b354333fab386fbe13799aeb5b798d5645002ccfa21fe425055139e5fcbc",
+    "score": 0.6666667,
+    "precision": 0.9,
+    "recall": 0.5294118,
+    "matched_words": 9,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_b/paragraph_2/subparagraph_C/clause_ii",
+    "amendment_id": "4ffd4afc44ae9ab50d26583c8a925e038740f00722f66040275691249ddb5f53",
+    "score": 0.6666667,
+    "precision": 0.5714286,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_IX/section_263/subsection_a/paragraph_1/subparagraph_B",
+    "amendment_id": "30c5c396e3a055b7de9820aa07505e096d0f39d973ee1c93a3f2de1bf9c3e944",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 2,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_V/section_151/subsection_d/paragraph_5",
+    "amendment_id": "3469cee7bce7b7d82cdb3b58d5feaac83c89731fcc733120b0cfd0389ff9c8d3",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25E/subsection_g",
+    "amendment_id": "63e1794933e53d6f567182cd40f8c7ac76b7414147a9bfd32e15699b082bdb1d",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_181/subsection_b",
+    "amendment_id": "940be6137b77d8333c6dbe9af2828df5b6dafd35b56f8c01985b73732e366638",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_I/section_63/subsection_c/paragraph_7",
+    "amendment_id": "3469cee7bce7b7d82cdb3b58d5feaac83c89731fcc733120b0cfd0389ff9c8d3",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 6,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_13/chapter_1/subchapter_I/section_9/subsection_b",
+    "amendment_id": "b4a4d6a7cd585baba314872b61e6e6daed4d131af41c55e4175e0389e06a1b7c",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9016/subsection_g",
+    "amendment_id": "385064dd66420818378334011f0dd5f0b930c27bf0d62010409d4552fdeb7003",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9057/subsection_g/paragraph_2",
+    "amendment_id": "98d0e8f6e5e82913194df0a70f4b24949bb4e0e31dec4e77c17524711676ddef",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_2/subparagraph_A/clause_ii",
+    "amendment_id": "6ddc7b7dfe81084e2ad847196d4dce6983b6c12995d0e03cf2f53513ef26b687",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6676/subsection_a",
+    "amendment_id": "ef19de3bf009c266cff1d8324dc6d164afdef974a0a4cb752eda99bd9928a381",
+    "score": 0.6666667,
+    "precision": 1.0,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48E/subsection_a/paragraph_3/subparagraph_A/clause_i",
+    "amendment_id": "cbc20adb956a66b9733040221dae101f3654bc0d73ad40752b8e1695db72733b",
+    "score": 0.6666667,
+    "precision": 0.625,
+    "recall": 0.71428573,
+    "matched_words": 5,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_b/paragraph_2/subparagraph_B/clause_ii",
+    "amendment_id": "4ffd4afc44ae9ab50d26583c8a925e038740f00722f66040275691249ddb5f53",
+    "score": 0.6666667,
+    "precision": 0.5714286,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45W/subsection_g",
+    "amendment_id": "63e1794933e53d6f567182cd40f8c7ac76b7414147a9bfd32e15699b082bdb1d",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_16/chapter_18/section_1012a",
+    "amendment_id": "26dd411ca85dcf56ecc9c6268e2a13f9f86843c9bdea22acfbc986dfd4f381ce",
+    "score": 0.6666667,
+    "precision": 0.6,
+    "recall": 0.75,
+    "matched_words": 6,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45L/subsection_h",
+    "amendment_id": "f6af7f0f6a05415ee560036b9f61b1e0cf156aee5e3c3a1a5bb970b7d1220d82",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_IV/section_9081/subsection_e/paragraph_3/subparagraph_B",
+    "amendment_id": "4b914773b1c4b54965f147e39c299b9d2586c977eb4123aeb08bdff9bfb1ca43",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 10
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_100/subchapter_IV/part_B/section_7272/subsection_b/paragraph_2",
+    "amendment_id": "caa087aafed76e3fae66cefd7d628cde72d917bb387b24da6b82ffeeffe6c432",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 4
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45S/subsection_d/paragraph_2",
+    "amendment_id": "ab8352618025bb9f968303f43044806d20372a5964a79376fed6465ef6085817",
+    "score": 0.6666667,
+    "precision": 0.54545456,
+    "recall": 0.85714287,
+    "matched_words": 6,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_I/section_6675/subsection_b/paragraph_1",
+    "amendment_id": "899d58ab3c208a43851bee49eff97caa2758694598cafca77a17063cd446c506",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_10/subtitle_A/part_IV/chapter_169/subchapter_IV/section_2875/subsection_c/paragraph_2",
+    "amendment_id": "0174639d02e62df39d45991a55fe9eb8b763af6dee9187bda095fd758daa7667",
+    "score": 0.6666667,
+    "precision": 1.0,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308–3a/subsection_d",
+    "amendment_id": "6a610eace3efc951a37524fd5ba1484504765d2dfc2f3ef07f696ebccdc1872a",
+    "score": 0.6666667,
+    "precision": 0.5714286,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_b/paragraph_1",
+    "amendment_id": "95faa82b8caa6e1c8c654b39e4d3502e24cddd418d7c5add73174030b61a3031",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_e/paragraph_3/subparagraph_B",
+    "amendment_id": "0174639d02e62df39d45991a55fe9eb8b763af6dee9187bda095fd758daa7667",
+    "score": 0.6666667,
+    "precision": 1.0,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396a/subsection_e/paragraph_16/subparagraph_C",
+    "amendment_id": "0174639d02e62df39d45991a55fe9eb8b763af6dee9187bda095fd758daa7667",
+    "score": 0.6666667,
+    "precision": 1.0,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9034/subsection_e/paragraph_2",
+    "amendment_id": "02092f24ee3eb05d6225b0f7dfc74131aa22b1dc7790d71254a0b2b8aaa8bf52",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_181/subsection_c/paragraph_1",
+    "amendment_id": "940be6137b77d8333c6dbe9af2828df5b6dafd35b56f8c01985b73732e366638",
+    "score": 0.6666667,
+    "precision": 0.5,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Q/subsection_h/paragraph_3/subparagraph_A/clause_ii",
+    "amendment_id": "612e69c0f1740a3de32b7f5b9be7b68ab7630a924591e16eae5c5bab0c89216d",
+    "score": 0.6666667,
+    "precision": 0.6,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_104/subchapter_I/section_7721/subsection_f/paragraph_6",
+    "amendment_id": "8bf42dd5148b5c271555d5e5b3b68ccc25b15d883663c0d2132a2b941a56a8c0",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_B/section_30C/subsection_i",
+    "amendment_id": "f6af7f0f6a05415ee560036b9f61b1e0cf156aee5e3c3a1a5bb970b7d1220d82",
+    "score": 0.6666667,
+    "precision": 0.6666667,
+    "recall": 0.6666667,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_19/chapter_15/section_2703/subsection_e/paragraph_5/subparagraph_B",
+    "amendment_id": "0174639d02e62df39d45991a55fe9eb8b763af6dee9187bda095fd758daa7667",
+    "score": 0.6666667,
+    "precision": 1.0,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 1
+  },
+  {
+    "tree_diff_path": "uscode/title_16/chapter_58/subchapter_IV/part_V/section_3839bb–5/subsection_f/paragraph_1",
+    "amendment_id": "bffbcc495aa3bcdcf13272b7f464d05a8cb39656bd4c9b57d539c101fadbce88",
+    "score": 0.6666666,
+    "precision": 0.5833333,
+    "recall": 0.7777778,
+    "matched_words": 7,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_5/part_III/subpart_G/chapter_89/section_8909/subsection_b/paragraph_2",
+    "amendment_id": "bfa6d5ec82ccb5bbecfbde5adffac57e5523f55a24b6f9cf2215adaf04c05dc8",
+    "score": 0.65625,
+    "precision": 0.53846157,
+    "recall": 0.84,
+    "matched_words": 21,
+    "tree_diff_words": 39
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_III/subpart_B/section_6041/subsection_a",
+    "amendment_id": "8484b1e4a58216b67e78ee306c97772f8747ceae977bce15803acf92fc40c1ee",
+    "score": 0.6530613,
+    "precision": 0.5,
+    "recall": 0.9411765,
+    "matched_words": 16,
+    "tree_diff_words": 32
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_42/subsection_h/paragraph_4/subparagraph_B",
+    "amendment_id": "e1fc93f27deb5f9580cfe9dc037b65e3cc5bb6f284dd0bcbc688c27702887433",
+    "score": 0.6526316,
+    "precision": 0.8857143,
+    "recall": 0.51666665,
+    "matched_words": 31,
+    "tree_diff_words": 35
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_149/subchapter_XV/section_16517/subsection_f/paragraph_1",
+    "amendment_id": "995adb742d9913e832003c130af0ba336b63295d8fe89fa6505662eff5544985",
+    "score": 0.6486487,
+    "precision": 0.7741935,
+    "recall": 0.55813956,
+    "matched_words": 24,
+    "tree_diff_words": 31
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_103/subchapter_II/section_7632/subsection_k/paragraph_1/subparagraph_B",
+    "amendment_id": "cab2b0c040c923267d0dfb0bdad880febb022a97734e54da67e85845d1e9311e",
+    "score": 0.6486487,
+    "precision": 0.7058824,
+    "recall": 0.6,
+    "matched_words": 12,
+    "tree_diff_words": 17
+  },
+  {
+    "tree_diff_path": "uscode/title_30/chapter_3A/subchapter_II/section_207/subsection_a",
+    "amendment_id": "5add212e29c611e795a4e670497ab107ab9356ffffd7b56bd6ec81b610e8575c",
+    "score": 0.6428572,
+    "precision": 0.8181818,
+    "recall": 0.5294118,
+    "matched_words": 18,
+    "tree_diff_words": 22
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_IV/section_9081/subsection_c/paragraph_3/subparagraph_D/clause_ii/subclause_I",
+    "amendment_id": "29693d58b63e432e9ba49821974dff977a6348e84bbaae48e65b2a0e8055f82c",
+    "score": 0.64285713,
+    "precision": 0.54,
+    "recall": 0.7941176,
+    "matched_words": 27,
+    "tree_diff_words": 50
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_d/paragraph_5/subparagraph_B",
+    "amendment_id": "06bc0bf5a6548433f7eeca3cc6d840d3d02d40a99a77474cce9f2be96a6e6715",
+    "score": 0.64000005,
+    "precision": 0.61538464,
+    "recall": 0.6666667,
+    "matched_words": 8,
+    "tree_diff_words": 13
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48E/subsection_b/paragraph_6",
+    "amendment_id": "9f2e798ad29858b5432b24abe9c441f571fb44af1ef41943e9c150527ed6629a",
+    "score": 0.63414633,
+    "precision": 0.5416667,
+    "recall": 0.7647059,
+    "matched_words": 26,
+    "tree_diff_words": 48
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087d/subsection_a/paragraph_6",
+    "amendment_id": "0745b3e79a66578513d42453ad127c1532e7b82615dba01d3ab4ced1dac25e95",
+    "score": 0.63414633,
+    "precision": 0.4814815,
+    "recall": 0.9285714,
+    "matched_words": 13,
+    "tree_diff_words": 27
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25B/subsection_d/paragraph_1/subparagraph_B",
+    "amendment_id": "a18d3d3c0e847f8fb9a27425aa38b8d94505b15169f101a494510b523c7b4838",
+    "score": 0.631579,
+    "precision": 0.54545456,
+    "recall": 0.75,
+    "matched_words": 6,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45D/subsection_f/paragraph_1/subparagraph_H",
+    "amendment_id": "430343373ee929f225167b154e7eef96487c60050d341b73fc7aa870f822c911",
+    "score": 0.631579,
+    "precision": 0.54545456,
+    "recall": 0.75,
+    "matched_words": 6,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_181/subsection_f",
+    "amendment_id": "3bb5fa5aee63b18044fd201af7a61edca00ab754a98918763f1693e97d819aa1",
+    "score": 0.6296297,
+    "precision": 0.5483871,
+    "recall": 0.73913044,
+    "matched_words": 17,
+    "tree_diff_words": 31
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_d/paragraph_1/subparagraph_E",
+    "amendment_id": "3dcfd578e992d578d84ce19d10bdde771bb6be4aae14d027f33f930c2aa87e95",
+    "score": 0.6296296,
+    "precision": 0.5151515,
+    "recall": 0.8095238,
+    "matched_words": 17,
+    "tree_diff_words": 33
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_P/part_I/section_1202/subsection_j/paragraph_1/subparagraph_A",
+    "amendment_id": "0907f7336a239c1413783fa0368f6a4a0b5bfca553e9c1c90a9489998bcbde1d",
+    "score": 0.625,
+    "precision": 0.45454547,
+    "recall": 1.0,
+    "matched_words": 5,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_10/subparagraph_A",
+    "amendment_id": "24b10fa05d90e7e9d62d47c298588ed55ecfeb67308ec97687cbe6936b175ff9",
+    "score": 0.6222222,
+    "precision": 0.7567568,
+    "recall": 0.5283019,
+    "matched_words": 28,
+    "tree_diff_words": 37
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_165/subsection_h/paragraph_5/subparagraph_A",
+    "amendment_id": "eb3c40effb0109eaa346e41b83b944b3a47239cab9c43f32f414e67ff59e6fa0",
+    "score": 0.61538464,
+    "precision": 0.44444445,
+    "recall": 1.0,
+    "matched_words": 4,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_G/section_1098e/subsection_a/paragraph_2",
+    "amendment_id": "3dcfd578e992d578d84ce19d10bdde771bb6be4aae14d027f33f930c2aa87e95",
+    "score": 0.60465115,
+    "precision": 0.59090906,
+    "recall": 0.61904764,
+    "matched_words": 13,
+    "tree_diff_words": 22
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_55/subsection_d/paragraph_4/subparagraph_A",
+    "amendment_id": "070abc72f77aa6f1665fb9e01cbe781d4969d44dfc6c6f9f564587c85df3326e",
+    "score": 0.6,
+    "precision": 0.5,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_h/paragraph_3/subparagraph_F/clause_i",
+    "amendment_id": "070abc72f77aa6f1665fb9e01cbe781d4969d44dfc6c6f9f564587c85df3326e",
+    "score": 0.6,
+    "precision": 0.5,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_I/section_1/subsection_j/paragraph_1",
+    "amendment_id": "070abc72f77aa6f1665fb9e01cbe781d4969d44dfc6c6f9f564587c85df3326e",
+    "score": 0.6,
+    "precision": 0.5,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_Z/section_1400Z–1/subsection_d/paragraph_1",
+    "amendment_id": "1a6a81e92d0f78d9f1d012f31c65698cc0528fdc17942e7ffd89dc1463109aa2",
+    "score": 0.59999996,
+    "precision": 0.42857143,
+    "recall": 1.0,
+    "matched_words": 3,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_30/chapter_3A/subchapter_IV/section_226/subsection_b/paragraph_1/subparagraph_A",
+    "amendment_id": "0970b6bb28ab78eddb647d4e69698e8c22c4d816d12df924ed317634294071c8",
+    "score": 0.5909091,
+    "precision": 0.4814815,
+    "recall": 0.7647059,
+    "matched_words": 39,
+    "tree_diff_words": 81
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_10/subparagraph_B",
+    "amendment_id": "24b10fa05d90e7e9d62d47c298588ed55ecfeb67308ec97687cbe6936b175ff9",
+    "score": 0.5744681,
+    "precision": 0.6585366,
+    "recall": 0.509434,
+    "matched_words": 27,
+    "tree_diff_words": 41
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_b/paragraph_3/subparagraph_A",
+    "amendment_id": "4f0d5a21eb528302c2b2b249a378d2a28b641293e89a786ac51400429e5fc761",
+    "score": 0.5714286,
+    "precision": 0.4,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_56/subsection_b/paragraph_2/subparagraph_A",
+    "amendment_id": "c28424f0b65ffb91f89f4a6b06d9bb60f730afb6e46d93c44ee45731876cb47d",
+    "score": 0.5714286,
+    "precision": 0.4,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VII/section_223/subsection_g/paragraph_1/subparagraph_B/clause_i",
+    "amendment_id": "8956e60f562e468624b3aad0f3b901dc0530cac7696e123420757bf9c95f15a0",
+    "score": 0.5714286,
+    "precision": 0.4,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VII/section_59A/subsection_b/paragraph_1",
+    "amendment_id": "b6ebfd996ea940bdc608822954f845c9c7dca2d67be2946c749be9e9a05e27c4",
+    "score": 0.5714286,
+    "precision": 0.4,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_f",
+    "amendment_id": "13a94ff13c970a922bdcc94ff30a9d2bfd7a03ca95fc87454fba62bd3f70eb93",
+    "score": 0.57142854,
+    "precision": 0.6666667,
+    "recall": 0.5,
+    "matched_words": 2,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_16/chapter_58/subchapter_V/section_3841/subsection_a/paragraph_2/subparagraph_F",
+    "amendment_id": "430343373ee929f225167b154e7eef96487c60050d341b73fc7aa870f822c911",
+    "score": 0.57142854,
+    "precision": 0.6666667,
+    "recall": 0.5,
+    "matched_words": 4,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_F/chapter_63/subchapter_A/section_6206",
+    "amendment_id": "2f5db7fc98ff8b2857a2e41e3af2aedfb9c086de78b4feb7015234e10e087362",
+    "score": 0.57142854,
+    "precision": 0.44444445,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_I/section_9017/subsection_d/paragraph_1/subparagraph_B",
+    "amendment_id": "da1557789a61de8b35c931859f75bc05c2f6781b49f0aea055569b7625f4af82",
+    "score": 0.57142854,
+    "precision": 0.90909094,
+    "recall": 0.41666666,
+    "matched_words": 10,
+    "tree_diff_words": 11
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25C/subsection_d/paragraph_2/subparagraph_C/clause_i",
+    "amendment_id": "d029d9f7ef870d767132bf14d2ba7a99f9a78e723a9ecad244ac69fd37300d12",
+    "score": 0.56,
+    "precision": 0.3888889,
+    "recall": 1.0,
+    "matched_words": 7,
+    "tree_diff_words": 18
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_23/subsection_h/paragraph_2",
+    "amendment_id": "4d5ddb2a7145a1b9dc1c1a6d96d9d99cf8e998a22b0e0b3609783526c701ee0c",
+    "score": 0.5384615,
+    "precision": 0.6363636,
+    "recall": 0.46666667,
+    "matched_words": 21,
+    "tree_diff_words": 33
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529A/subsection_b/paragraph_2/subparagraph_B/clause_i",
+    "amendment_id": "e4e6e7d3907946739e9a242c0c5927358241a9e9d7e7fdcd682a3a4100a657c0",
+    "score": 0.53333336,
+    "precision": 0.5,
+    "recall": 0.5714286,
+    "matched_words": 4,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308/subsection_c",
+    "amendment_id": "870f840110d062a536e410007a3ffe6cdedcbc40f8ec337691d4e85209369d47",
+    "score": 0.5263158,
+    "precision": 0.41666666,
+    "recall": 0.71428573,
+    "matched_words": 5,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_b",
+    "amendment_id": "a92dddd33709fb930c70c273a79d33b7c15f060620416c7ff89444efe92cddad",
+    "score": 0.5263158,
+    "precision": 0.3846154,
+    "recall": 0.8333333,
+    "matched_words": 5,
+    "tree_diff_words": 13
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308/subsection_b",
+    "amendment_id": "870f840110d062a536e410007a3ffe6cdedcbc40f8ec337691d4e85209369d47",
+    "score": 0.5263158,
+    "precision": 0.41666666,
+    "recall": 0.71428573,
+    "matched_words": 5,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_b/paragraph_1/subparagraph_A",
+    "amendment_id": "4773120706e5bf417b837d0b86ecb6f8d2e072d00168817fb13f46ae182ac24a",
+    "score": 0.516129,
+    "precision": 0.44444445,
+    "recall": 0.61538464,
+    "matched_words": 8,
+    "tree_diff_words": 18
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_b/paragraph_2/subparagraph_A",
+    "amendment_id": "2dd0278de361b2f9a8dc59a3e8ee081abc46a621f13238ce6de76187e116497c",
+    "score": 0.51485145,
+    "precision": 0.61904764,
+    "recall": 0.44067797,
+    "matched_words": 26,
+    "tree_diff_words": 42
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_P/part_I/section_1202/subsection_a/paragraph_3/subparagraph_A",
+    "amendment_id": "e693e81602a1920421a0b378c85dd463ff69e608723492486a50e51a25fa5e4e",
+    "score": 0.5,
+    "precision": 0.5,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_III/part_A/section_9057/subsection_g/paragraph_1",
+    "amendment_id": "1d80bb1e55d1b4a2467ec4ac3791cd83304e5e534f7cf9d1ebdad90f127a91c9",
+    "score": 0.5,
+    "precision": 0.33333334,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396a/subsection_a/paragraph_10/subparagraph_A/clause_i/subclause_VIII",
+    "amendment_id": "ddb8bac56692027d6d3fa60c99cac2747aa2437977455a7a9a315aeada364689",
+    "score": 0.5,
+    "precision": 0.4,
+    "recall": 0.6666667,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_I/section_63/subsection_c/paragraph_7/subparagraph_B/clause_ii",
+    "amendment_id": "570eb310ac56f96ee43baccac61e8f6bfcec673b42dbd4c9a89de61a60ef12c8",
+    "score": 0.5,
+    "precision": 0.33333334,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_22/chapter_89/subchapter_II/section_8221/subsection_b",
+    "amendment_id": "efcd825f3f5a7d8aae34930c9f0016ccd65d7f98a84d18060f44268e5cfe292c",
+    "score": 0.5,
+    "precision": 0.5,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_c",
+    "amendment_id": "3c45c6702b04ec1bc1f8b1c375d938738dd6bee25b2c1aa0f6c6db4b30a78b05",
+    "score": 0.5,
+    "precision": 0.44444445,
+    "recall": 0.5714286,
+    "matched_words": 4,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_22/chapter_113/section_10602/subsection_a/paragraph_3",
+    "amendment_id": "8edbc5a6ae300bd2958a3c50f44abb60373b3ef80f8a01c008a0c279a49d6250",
+    "score": 0.5,
+    "precision": 0.5,
+    "recall": 0.5,
+    "matched_words": 3,
+    "tree_diff_words": 6
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_P/part_I/section_1202/subsection_a/paragraph_4",
+    "amendment_id": "4cea8b6fc09e13c61b4e3d222a22be08838b2cab2cfcd7936e5e1578104877f3",
+    "score": 0.5,
+    "precision": 0.4,
+    "recall": 0.6666667,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XXI/section_1397cc/subsection_f/paragraph_3",
+    "amendment_id": "6bb7a267e726dd33939c26836734cfab33b86b1ce10b1b62154711804c8ce468",
+    "score": 0.5,
+    "precision": 0.33333334,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VIII/section_250/subsection_b/paragraph_1/subparagraph_A",
+    "amendment_id": "64f716623b157f28f85333c1e068fcd4ec030dbef9135ca196c4120aa58c240e",
+    "score": 0.5,
+    "precision": 0.375,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_149/subchapter_XV/section_16517/subsection_e",
+    "amendment_id": "995adb742d9913e832003c130af0ba336b63295d8fe89fa6505662eff5544985",
+    "score": 0.5,
+    "precision": 0.34146342,
+    "recall": 0.93333334,
+    "matched_words": 14,
+    "tree_diff_words": 41
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_Z/section_1400Z–1/subsection_d/paragraph_2",
+    "amendment_id": "1a6a81e92d0f78d9f1d012f31c65698cc0528fdc17942e7ffd89dc1463109aa2",
+    "score": 0.5,
+    "precision": 0.4,
+    "recall": 0.6666667,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45B/subsection_b/paragraph_1/subparagraph_B",
+    "amendment_id": "a33feecb526cf413a46c6159e529cceccf03522b69e5dfe2ff655c5ba83720f0",
+    "score": 0.5,
+    "precision": 0.36842105,
+    "recall": 0.7777778,
+    "matched_words": 7,
+    "tree_diff_words": 19
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_I/section_864/subsection_g/paragraph_2",
+    "amendment_id": "177bcb574e1b675b94f4ce2e57b39ceffc32a266a284d74cc63618b43d576b8c",
+    "score": 0.5,
+    "precision": 0.33333334,
+    "recall": 1.0,
+    "matched_words": 11,
+    "tree_diff_words": 33
+  },
+  {
+    "tree_diff_path": "uscode/title_22/chapter_52/subchapter_VII/section_4026/subsection_b/paragraph_2/subparagraph_A",
+    "amendment_id": "65212695d1a4b74d306321ccfb6bd2ea2ca174a4e65f0177ce3a0ba3dcc5fb38",
+    "score": 0.5,
+    "precision": 0.33333334,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_D/part_I/subpart_A/section_401/subsection_k/paragraph_2/subparagraph_D/clause_ii",
+    "amendment_id": "950b5e0ffffb7cfdad7e513595467687dea6162876a4941670c18c05257e59b2",
+    "score": 0.5,
+    "precision": 0.5,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_88/subchapter_VII/section_5925c/subsection_d/paragraph_1/subparagraph_C",
+    "amendment_id": "893cf05f8bd2b066a63acc222ca77e157cc0176d10672707ec44fef8617003cc",
+    "score": 0.5,
+    "precision": 0.5,
+    "recall": 0.5,
+    "matched_words": 1,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_IV/subpart_A/section_142/subsection_a/paragraph_1",
+    "amendment_id": "eb1b47b513c1c3f901f1c57e2cef035aeb3d663ac1940d9482f4773a9fb26492",
+    "score": 0.5,
+    "precision": 0.33333334,
+    "recall": 1.0,
+    "matched_words": 1,
+    "tree_diff_words": 3
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_B/section_30D/subsection_e/paragraph_1/subparagraph_B/clause_iv",
+    "amendment_id": "ea1c535e2beee3904807bc693c1978c16a7541a67b2f69717465d11f639ab352",
+    "score": 0.5,
+    "precision": 1.0,
+    "recall": 0.33333334,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_E/chapter_53/subchapter_A/part_III/section_5821/subsection_a",
+    "amendment_id": "2765f986baf15af2c795c002a0d95c763d21d9381b1ec6d6e2c8c173a2995cba",
+    "score": 0.5,
+    "precision": 0.7692308,
+    "recall": 0.37037036,
+    "matched_words": 10,
+    "tree_diff_words": 13
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_B/section_30D/subsection_e/paragraph_2/subparagraph_B/clause_iii",
+    "amendment_id": "ea1c535e2beee3904807bc693c1978c16a7541a67b2f69717465d11f639ab352",
+    "score": 0.5,
+    "precision": 1.0,
+    "recall": 0.33333334,
+    "matched_words": 2,
+    "tree_diff_words": 2
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_E/chapter_53/subchapter_A/part_II/section_5811/subsection_a",
+    "amendment_id": "2765f986baf15af2c795c002a0d95c763d21d9381b1ec6d6e2c8c173a2995cba",
+    "score": 0.49999994,
+    "precision": 0.52,
+    "recall": 0.4814815,
+    "matched_words": 13,
+    "tree_diff_words": 25
+  },
+  {
+    "tree_diff_path": "uscode/title_47/chapter_5/subchapter_III/part_I/section_309/subsection_j/paragraph_11",
+    "amendment_id": "d8d1573b41c8af5412d325432a325d594a4c9dd6db5c49fc4561f50e0cbccae8",
+    "score": 0.49180326,
+    "precision": 0.33333334,
+    "recall": 0.9375,
+    "matched_words": 15,
+    "tree_diff_words": 45
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9034/subsection_d/paragraph_1",
+    "amendment_id": "02092f24ee3eb05d6225b0f7dfc74131aa22b1dc7790d71254a0b2b8aaa8bf52",
+    "score": 0.48979592,
+    "precision": 0.5217391,
+    "recall": 0.46153846,
+    "matched_words": 12,
+    "tree_diff_words": 23
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_23/subsection_h",
+    "amendment_id": "4d5ddb2a7145a1b9dc1c1a6d96d9d99cf8e998a22b0e0b3609783526c701ee0c",
+    "score": 0.4871795,
+    "precision": 0.57575756,
+    "recall": 0.42222223,
+    "matched_words": 19,
+    "tree_diff_words": 33
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_a/paragraph_3/subparagraph_A/clause_ii",
+    "amendment_id": "c75672d44da21725c61b8c5dddf96503433c89b6d238e6f5bdf42ebd3667c294",
+    "score": 0.4761905,
+    "precision": 0.41666666,
+    "recall": 0.5555556,
+    "matched_words": 5,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_P/part_I/section_1202/subsection_g/paragraph_2/subparagraph_A",
+    "amendment_id": "0907f7336a239c1413783fa0368f6a4a0b5bfca553e9c1c90a9489998bcbde1d",
+    "score": 0.47058827,
+    "precision": 0.33333334,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_30/chapter_3A/subchapter_IV/section_226/subsection_n/paragraph_1/subparagraph_C",
+    "amendment_id": "80ee1891b77f7b704a58e38bded21daf0d7ba8dd27827feca9911dda8c854c7e",
+    "score": 0.47058827,
+    "precision": 0.8,
+    "recall": 0.33333334,
+    "matched_words": 4,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_P/part_I/section_1202/subsection_b/paragraph_2",
+    "amendment_id": "0907f7336a239c1413783fa0368f6a4a0b5bfca553e9c1c90a9489998bcbde1d",
+    "score": 0.47058827,
+    "precision": 0.33333334,
+    "recall": 0.8,
+    "matched_words": 4,
+    "tree_diff_words": 12
+  },
+  {
+    "tree_diff_path": "uscode/title_30/chapter_3A/subchapter_IV/section_226/subsection_b/paragraph_2/subparagraph_A/clause_ii",
+    "amendment_id": "80ee1891b77f7b704a58e38bded21daf0d7ba8dd27827feca9911dda8c854c7e",
+    "score": 0.47058827,
+    "precision": 0.8,
+    "recall": 0.33333334,
+    "matched_words": 4,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_30/chapter_3A/subchapter_IV/section_226/subsection_l",
+    "amendment_id": "80ee1891b77f7b704a58e38bded21daf0d7ba8dd27827feca9911dda8c854c7e",
+    "score": 0.47058827,
+    "precision": 0.8,
+    "recall": 0.33333334,
+    "matched_words": 4,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_b/paragraph_2/subparagraph_A",
+    "amendment_id": "4773120706e5bf417b837d0b86ecb6f8d2e072d00168817fb13f46ae182ac24a",
+    "score": 0.46153846,
+    "precision": 0.30769232,
+    "recall": 0.9230769,
+    "matched_words": 12,
+    "tree_diff_words": 39
+  },
+  {
+    "tree_diff_path": "uscode/title_10/subtitle_A/part_IV/chapter_169/subchapter_IV/section_2881a",
+    "amendment_id": "0a22dc2cece75d1948ff665b4f175b2c24130eca9155aa648c274273b1630efd",
+    "score": 0.46153846,
+    "precision": 0.6,
+    "recall": 0.375,
+    "matched_words": 3,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Q/subsection_b/paragraph_1/subparagraph_A/clause_ii",
+    "amendment_id": "4d5ddb2a7145a1b9dc1c1a6d96d9d99cf8e998a22b0e0b3609783526c701ee0c",
+    "score": 0.4571429,
+    "precision": 0.64,
+    "recall": 0.35555556,
+    "matched_words": 16,
+    "tree_diff_words": 25
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_b/paragraph_1/subparagraph_B",
+    "amendment_id": "4773120706e5bf417b837d0b86ecb6f8d2e072d00168817fb13f46ae182ac24a",
+    "score": 0.44444448,
+    "precision": 0.3478261,
+    "recall": 0.61538464,
+    "matched_words": 8,
+    "tree_diff_words": 23
+  },
+  {
+    "tree_diff_path": "uscode/title_10/subtitle_A/part_IV/chapter_169/subchapter_IV/section_2881a/subsection_d/paragraph_1",
+    "amendment_id": "0a22dc2cece75d1948ff665b4f175b2c24130eca9155aa648c274273b1630efd",
+    "score": 0.44444448,
+    "precision": 0.2857143,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_41/subsection_d/paragraph_1/subparagraph_A",
+    "amendment_id": "0e88572c2f24be6dcabe1bc6044e89dfeb6fb9dc6a4b056800791485a936e1b4",
+    "score": 0.44444448,
+    "precision": 0.4,
+    "recall": 0.5,
+    "matched_words": 2,
+    "tree_diff_words": 5
+  },
+  {
+    "tree_diff_path": "uscode/title_10/subtitle_A/part_IV/chapter_169/subchapter_IV/section_2881a/subsection_b",
+    "amendment_id": "0a22dc2cece75d1948ff665b4f175b2c24130eca9155aa648c274273b1630efd",
+    "score": 0.44444448,
+    "precision": 0.2857143,
+    "recall": 1.0,
+    "matched_words": 2,
+    "tree_diff_words": 7
+  },
+  {
+    "tree_diff_path": "uscode/title_20/chapter_28/subchapter_IV/part_D/section_1087e/subsection_a/paragraph_3/subparagraph_A/clause_i",
+    "amendment_id": "c75672d44da21725c61b8c5dddf96503433c89b6d238e6f5bdf42ebd3667c294",
+    "score": 0.44444445,
+    "precision": 0.44444445,
+    "recall": 0.44444445,
+    "matched_words": 4,
+    "tree_diff_words": 9
+  },
+  {
+    "tree_diff_path": "uscode/title_16/chapter_58/subchapter_VIII/section_3871d/subsection_a",
+    "amendment_id": "27d4842acfb0a6377139bded52d9af3d3f415cbcb139ceb6a97d8be965d3df59",
+    "score": 0.44444445,
+    "precision": 0.45454547,
+    "recall": 0.4347826,
+    "matched_words": 10,
+    "tree_diff_words": 22
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_i",
+    "amendment_id": "a18d3d3c0e847f8fb9a27425aa38b8d94505b15169f101a494510b523c7b4838",
+    "score": 0.44444442,
+    "precision": 0.31578946,
+    "recall": 0.75,
+    "matched_words": 6,
+    "tree_diff_words": 19
+  },
+  {
+    "tree_diff_path": "uscode/title_16/chapter_58/subchapter_V/section_3841/subsection_a/paragraph_3/subparagraph_A/clause_v",
+    "amendment_id": "8bf42dd5148b5c271555d5e5b3b68ccc25b15d883663c0d2132a2b941a56a8c0",
+    "score": 0.42857143,
+    "precision": 0.375,
+    "recall": 0.5,
+    "matched_words": 3,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_16/chapter_58/subchapter_V/section_3841/subsection_a/paragraph_3/subparagraph_B/clause_v",
+    "amendment_id": "8bf42dd5148b5c271555d5e5b3b68ccc25b15d883663c0d2132a2b941a56a8c0",
+    "score": 0.42857143,
+    "precision": 0.375,
+    "recall": 0.5,
+    "matched_words": 3,
+    "tree_diff_words": 8
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_d/paragraph_2/subparagraph_A",
+    "amendment_id": "aa5f5600575919632c121402983b1708305179c2ee0b2c65e8a44dc213ea4508",
+    "score": 0.42372885,
+    "precision": 0.33333334,
+    "recall": 0.5813953,
+    "matched_words": 25,
+    "tree_diff_words": 75
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_i/paragraph_3",
+    "amendment_id": "4d5ddb2a7145a1b9dc1c1a6d96d9d99cf8e998a22b0e0b3609783526c701ee0c",
+    "score": 0.4235294,
+    "precision": 0.45,
+    "recall": 0.4,
+    "matched_words": 18,
+    "tree_diff_words": 40
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_c/paragraph_2",
+    "amendment_id": "4773120706e5bf417b837d0b86ecb6f8d2e072d00168817fb13f46ae182ac24a",
+    "score": 0.41860467,
+    "precision": 0.3,
+    "recall": 0.6923077,
+    "matched_words": 9,
+    "tree_diff_words": 30
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XIX/section_1396b/subsection_r/paragraph_3",
+    "amendment_id": "25ee4ba32bf9cb7f208d54e362730c0af98e0496191ea389e48e8d3cca8bfa81",
+    "score": 0.4179105,
+    "precision": 0.42424244,
+    "recall": 0.4117647,
+    "matched_words": 14,
+    "tree_diff_words": 33
+  },
+  {
+    "tree_diff_path": "uscode/title_8/chapter_12/subchapter_II/part_I/section_1158/subsection_d/paragraph_3",
+    "amendment_id": "a84b186381cab1682938068708e214da72fb23ed98abe53f2e32a9611a03d8cc",
+    "score": 0.4166667,
+    "precision": 0.35714287,
+    "recall": 0.5,
+    "matched_words": 10,
+    "tree_diff_words": 28
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_100/subchapter_V/section_7287/subsection_a",
+    "amendment_id": "8bf42dd5148b5c271555d5e5b3b68ccc25b15d883663c0d2132a2b941a56a8c0",
+    "score": 0.41666666,
+    "precision": 0.2777778,
+    "recall": 0.8333333,
+    "matched_words": 5,
+    "tree_diff_words": 18
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_149/subchapter_XV/section_16517/subsection_f/paragraph_2",
+    "amendment_id": "995adb742d9913e832003c130af0ba336b63295d8fe89fa6505662eff5544985",
+    "score": 0.41666663,
+    "precision": 0.51724136,
+    "recall": 0.3488372,
+    "matched_words": 15,
+    "tree_diff_words": 29
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529/subsection_f",
+    "amendment_id": "b8dfd789ac0ab1668c7d066c7e950e028a04cb9f354838705b74fca89d693cca",
+    "score": 0.41379312,
+    "precision": 0.375,
+    "recall": 0.46153846,
+    "matched_words": 12,
+    "tree_diff_words": 32
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25C/subsection_h",
+    "amendment_id": "7a580e3fb40f0620fc7e56273ff792d68e69d909c7443c4c0c11a9a6670cee88",
+    "score": 0.41379312,
+    "precision": 0.42857143,
+    "recall": 0.4,
+    "matched_words": 6,
+    "tree_diff_words": 14
+  },
+  {
+    "tree_diff_path": "uscode/title_7/chapter_115/subchapter_II/section_9034/subsection_g",
+    "amendment_id": "e6e648ba7ad977ec188335910801f222719541a206a6b330f656fd47ddbf7d89",
+    "score": 0.41176468,
+    "precision": 0.5833333,
+    "recall": 0.3181818,
+    "matched_words": 14,
+    "tree_diff_words": 24
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_56A/subsection_c/paragraph_13/subparagraph_A",
+    "amendment_id": "e55fa29a2140743680103f491a4998a7a829bf204e4ec14f5e551bd85c5cf559",
+    "score": 0.41176468,
+    "precision": 0.35,
+    "recall": 0.5,
+    "matched_words": 7,
+    "tree_diff_words": 20
+  },
+  {
+    "tree_diff_path": "uscode/title_42/chapter_7/subchapter_XXI/section_1397gg/subsection_e/paragraph_1/subparagraph_H",
+    "amendment_id": "f08ee216cc6cba98775e9572464d54f5b897fc246a2263a6f95d6ce90e458bf2",
+    "score": 0.41176468,
+    "precision": 0.3043478,
+    "recall": 0.6363636,
+    "matched_words": 7,
+    "tree_diff_words": 23
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_i/paragraph_1/subparagraph_B",
+    "amendment_id": "4d5ddb2a7145a1b9dc1c1a6d96d9d99cf8e998a22b0e0b3609783526c701ee0c",
+    "score": 0.4047619,
+    "precision": 0.43589744,
+    "recall": 0.37777779,
+    "matched_words": 17,
+    "tree_diff_words": 39
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_d/paragraph_1",
+    "amendment_id": "2dbf7d2cf0be7025b077ab68ab92124564e521d3a24f77215debd1a8e1fc1a8f",
+    "score": 0.40000004,
+    "precision": 0.26923078,
+    "recall": 0.7777778,
+    "matched_words": 7,
+    "tree_diff_words": 26
+  },
+  {
+    "tree_diff_path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_170/subsection_p",
+    "amendment_id": "da44d5d2175a77a364ea7933097636e03594661807d23b318dbf525bd956ca56",
+    "score": 0.40000004,
+    "precision": 0.27272728,
+    "recall": 0.75,
+    "matched_words": 3,
+    "tree_diff_words": 11
+  }
+]
