@@ -6,7 +6,7 @@
 
 `words_to_data` parses US Code titles and Public Laws (bills) from USLM XML format, providing structured access to legislative text, the ability to track changes between document versions, and tools for annotating how bills amend existing law.
 
-Available for both **Rust** and **Python** with high-performance Rust core and ergonomic Python bindings via PyO3.
+Written in Rust.
 
 ## Features
 
@@ -16,11 +16,8 @@ Available for both **Rust** and **Python** with high-performance Rust core and e
 - **Bill amendment extraction** - Identify USC references and amending actions from bills
 - **Hierarchical diffing** - Compute word-level differences between document versions
 - **Congress data integration** - Fetch bill metadata and text from Congress.gov API
-- **Python bindings** - Full API access from Python with PyO3
 
 ## Installation
-
-### Rust
 
 Add to your `Cargo.toml`:
 
@@ -28,14 +25,6 @@ Add to your `Cargo.toml`:
 [dependencies]
 words-to-data = "0.3.0"
 ```
-
-### Python
-
-```bash
-pip install words-to-data
-```
-
-**Note:** Pre-built wheels are available for Linux x86_64. Other platforms will build from source (requires Rust toolchain).
 
 ## Getting Data
 - Title data: https://uscode.house.gov/download/download.shtml
@@ -47,7 +36,6 @@ pip install words-to-data
 
 The `Dataset` is the primary abstraction for working with versioned legal documents. It holds document versions, bills, and annotations together.
 
-**Rust:**
 ```rust
 use words_to_data::dataset::{Dataset, DatasetMetadata};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
@@ -87,46 +75,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-**Python:**
-```python
-from words_to_data import Dataset, DatasetMetadata, parse_bill_amendments
-
-metadata = DatasetMetadata(
-    name="Tax Code Changes",
-    description="Tracking Title 26 changes",
-    author="Author",
-    source_urls=[],
-    license="MIT",
-    version="1.0.0",
-)
-dataset = Dataset(metadata)
-
-# Add document versions
-dataset.add_uslm_xml("path/to/old.xml", "2025-07-18", label="Before")
-dataset.add_uslm_xml("path/to/new.xml", "2025-07-30", label="After")
-
-# Add bill
-bill = parse_bill_amendments("119-21", "path/to/bill.xml")
-dataset.add_bill(bill)
-
-# Compute diff
-diff = dataset.compute_diff("2025-07-18", "2025-07-30")
-
-# Navigate to specific section
-s174a = diff.find("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
-if s174a:
-    for change in s174a.changes:
-        print(f"{change.field_name}: {change.old_value} → {change.new_value}")
-
-# Save dataset
-dataset.save("my_dataset.json")
-```
-
 ### Download from Congress API
 
 Bills can be automatically fetched with additional metadata from the congress.gov API
 
-**Rust:**
 ```rust
 use words_to_data::congress::CongressClient;
 use words_to_data::dataset::{Dataset, DatasetMetadata};
@@ -161,37 +113,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-**Python:**
-```python
-import os
-from words_to_data import CongressClient, Dataset, DatasetMetadata
-
-# Create client with API key
-client = CongressClient(os.environ["CONGRESS_API_KEY"])
-
-# Download bill data
-download = client.download_bill("119-hr-1")
-
-# Create dataset and load bill
-metadata = DatasetMetadata(
-    name="HR 1 Analysis",
-    description="Tracking HR 1 amendments",
-    author="Author",
-    source_urls=[],
-    license="MIT",
-    version="1.0.0",
-)
-dataset = Dataset(metadata)
-
-# Load bill into dataset
-bill_id = dataset.load_bill_download(download)
-print(f"Loaded bill: {bill_id}")
-
-# Access bill data
-bill = dataset.get_bill(bill_id)
-print(f"Amendments: {len(bill.amendments)}")
-```
-
 ## Core Concepts
 
 ### Dataset
@@ -203,7 +124,7 @@ The `Dataset` is the primary abstraction for working with versioned legal docume
 - **Bills**: Parsed bill data with extracted amendments
 - **Annotations**: Links diff paths to bill amendments with verification status
 
-Use `Dataset` to load documents, compute diffs, and build training data for ML models.
+Use `Dataset` to load documents, compute diffs, and track which amendment caused each change.
 
 ### USLM Elements
 
@@ -249,8 +170,6 @@ Bills can perform these operations on existing code:
 
 ## API Documentation
 
-### Rust
-
 Generate and view the full API documentation:
 
 ```bash
@@ -260,12 +179,6 @@ cargo doc --open
 ### Development
 
 ```bash
-# Run Rust tests
+# Run tests
 cargo test
-
-# Build and install Python bindings locally
-maturin develop
-
-# Run Python tests
-python -m pytest
 ```
