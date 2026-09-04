@@ -11,7 +11,7 @@
 //! `get_member`, `get_sponsor_info`, and `get_bill_votes` from every backend.
 
 use words_to_data::dataset::{
-    Dataset, DatasetError, DatasetMetadata, SearchResult, VersionSnapshot,
+    Coverage, Dataset, DatasetError, DatasetMetadata, SearchResult, VersionSnapshot,
 };
 use words_to_data::diff::TreeDiff;
 use words_to_data::storage::{DocumentReader, DocumentWriter, InMemoryStorage, VersionInfo};
@@ -154,5 +154,56 @@ fn should_close_the_legislature_door_when_the_dataset_holds_no_legislative_mater
     assert!(
         dataset.legislature().is_none(),
         "a dataset of documents alone should not offer the legislature extension"
+    );
+}
+
+/// A dataset holding title 9 covers title 9, and does not cover title 26. The
+/// second half is the point: an empty search for a title 26 provision says
+/// nothing about the law when the dataset never held title 26.
+#[test]
+fn should_report_out_of_scope_for_material_the_dataset_never_held() {
+    let dataset = dataset_holding(false);
+    let scope = dataset.scope().expect("scope should derive");
+
+    assert_eq!(scope.held, vec!["uscode/title_9".to_string()]);
+    assert_eq!(scope.dates, vec!["2025-07-18".to_string()]);
+
+    assert_eq!(scope.covers("uscode/title_9"), Coverage::InScope);
+    assert_eq!(
+        scope.covers("uscode/title_9/chapter_1/section_3"),
+        Coverage::InScope,
+        "a provision inside a held title is in scope"
+    );
+    assert_eq!(
+        scope.covers("uscode"),
+        Coverage::InScope,
+        "the dataset holds part of the code, so asking about the code is in scope"
+    );
+
+    assert_eq!(
+        scope.covers("uscode/title_26/subtitle_A/chapter_1/section_174"),
+        Coverage::OutOfScope,
+        "title 26 was never in this dataset"
+    );
+}
+
+/// Searching for real text that this dataset cannot contain returns nothing,
+/// and the scope explains why. Without that second answer the empty result
+/// reads as "no such law".
+#[test]
+fn should_explain_an_empty_search_with_the_scope() {
+    let dataset = dataset_holding(false);
+
+    let hits = dataset
+        .search_text("qualified small business stock")
+        .expect("search should work");
+    assert!(hits.is_empty(), "that phrase belongs to title 26");
+
+    assert_eq!(
+        dataset
+            .scope()
+            .expect("scope should derive")
+            .covers("uscode/title_26"),
+        Coverage::OutOfScope
     );
 }

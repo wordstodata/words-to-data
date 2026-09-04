@@ -4,8 +4,10 @@
 //! versioned legal documents, designed for the SLEUTH Tauri app.
 
 mod error;
+mod scope;
 
 pub use error::DatasetError;
+pub use scope::{Coverage, Scope};
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -95,6 +97,30 @@ impl<S: Storage> Dataset<S> {
     /// Get mutable reference to underlying storage
     pub fn storage_mut(&mut self) -> &mut S {
         &mut self.storage
+    }
+
+    /// What this dataset covers.
+    ///
+    /// Use it to tell "the law does not contain this" from "this dataset never
+    /// held it":
+    ///
+    /// ```ignore
+    /// if dataset.search_text(query)?.is_empty()
+    ///     && dataset.scope()?.covers(path) == Coverage::OutOfScope
+    /// {
+    ///     // say "out of scope", not "not found"
+    /// }
+    /// ```
+    pub fn scope(&self) -> Result<Scope, DatasetError> {
+        let mut versions = Vec::new();
+        for info in self.storage.list_versions()? {
+            if let Some(snapshot) = self.storage.get_version(&info.date)? {
+                versions.push(snapshot);
+            }
+        }
+        Ok(Scope::from_versions(
+            versions.iter().map(|v| (v.date.as_str(), &v.element)),
+        ))
     }
 
     /// The legislature extension, when this dataset carries one.
