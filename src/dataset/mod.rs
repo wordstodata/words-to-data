@@ -20,13 +20,14 @@ use crate::congress::{
     BillDownload, BillVotes, CosponsorRecord, HouseRollCall, Member, SponsorInfo, VotePosition,
 };
 use crate::diff::TreeDiff;
+use crate::legislature::BillDiff;
 use crate::storage::{
     DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
     LinkReader, LinkWriter, SqliteStorage, Storage, VersionInfo,
 };
+use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
-use crate::uslm::{BillDiff, USLMElement};
 use crate::utils::{load_uslm_folder, parse_uslm_xml};
 
 /// On-disk serialization format for in-memory datasets.

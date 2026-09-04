@@ -19,7 +19,8 @@ use words_to_data::annotation::{
 };
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::diff::{AmendmentSimilarity, MentionMatch, TreeDiff};
-use words_to_data::uslm::{AmendingAction, TextContentField};
+use words_to_data::legislature::AmendingAction;
+use words_to_data::uslm::TextContentField;
 
 use crate::llm::{ChatOptions, LlmClient};
 

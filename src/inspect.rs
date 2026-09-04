@@ -443,7 +443,7 @@ pub struct AmendmentSummary {
 }
 
 /// Serde string form of an amending action (e.g. `"strikeandinsert"`).
-fn action_str(action: &crate::uslm::AmendingAction) -> String {
+fn action_str(action: &crate::legislature::AmendingAction) -> String {
     serde_json::to_value(action)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))

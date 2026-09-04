@@ -11,8 +11,8 @@ use words_to_data::annotation::{
 use words_to_data::dataset::{Dataset, DatasetMetadata};
 use words_to_data::inspect;
 use words_to_data::inspect::AnnotationQuery;
+use words_to_data::legislature::AmendingAction;
 use words_to_data::storage::{InMemoryStorage, SqliteStorage};
-use words_to_data::uslm::AmendingAction;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 const ANNOTATED_PATH: &str = "uscode/title_9/chapter_1/section_1";

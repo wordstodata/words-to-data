@@ -544,7 +544,7 @@ impl SqliteStorage {
         &self,
     ) -> Result<HashMap<VersionPair, Vec<ChangeAnnotation>>, DatasetError> {
         use crate::annotation::{AnnotationMetadata, AnnotationStatus, BillReference};
-        use crate::uslm::AmendingAction;
+        use crate::legislature::AmendingAction;
         use std::str::FromStr;
 
         // Load all annotations with their paths
@@ -907,7 +907,7 @@ impl LinkReader for SqliteStorage {
 
     fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         use crate::annotation::{AnnotationMetadata, AnnotationStatus, BillReference};
-        use crate::uslm::AmendingAction;
+        use crate::legislature::AmendingAction;
         use std::str::FromStr;
 
         // Find annotation IDs that have this path
@@ -1004,7 +1004,7 @@ impl LinkReader for SqliteStorage {
 
     fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         use crate::annotation::{AnnotationMetadata, AnnotationStatus, BillReference};
-        use crate::uslm::AmendingAction;
+        use crate::legislature::AmendingAction;
         use std::str::FromStr;
 
         let mut stmt = self.conn.prepare(
