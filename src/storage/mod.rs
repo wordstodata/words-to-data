@@ -168,4 +168,20 @@ pub trait LegislatureWriter {
 pub trait Storage:
     DocumentReader + LinkReader + LegislatureReader + DocumentWriter + LinkWriter + LegislatureWriter
 {
+    /// The legislature extension, when this dataset actually carries one.
+    ///
+    /// This is the run-time door. A dataset arriving from another party is
+    /// whatever it is, and the caller cannot know at compile time whether it
+    /// holds bills. `None` means "this dataset has no legislative material",
+    /// which is a different answer from "it has no bills matching your query",
+    /// and the difference is the one a researcher needs.
+    ///
+    /// Code of our own that always needs bills should take
+    /// `impl DocumentReader + LegislatureReader` instead, and let the compiler
+    /// enforce it.
+    ///
+    /// Today the answer comes from the contents. Once a dataset declares its
+    /// scope, the declaration decides, and a mismatch between the two becomes
+    /// a reported gap.
+    fn legislature(&self) -> Option<&dyn LegislatureReader>;
 }

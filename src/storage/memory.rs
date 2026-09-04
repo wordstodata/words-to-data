@@ -341,4 +341,12 @@ impl LegislatureWriter for InMemoryStorage {
     }
 }
 
-impl Storage for InMemoryStorage {}
+impl Storage for InMemoryStorage {
+    fn legislature(&self) -> Option<&dyn LegislatureReader> {
+        let holds_legislature = !self.bills.is_empty()
+            || !self.members.is_empty()
+            || !self.sponsors.is_empty()
+            || !self.bill_votes.is_empty();
+        holds_legislature.then_some(self as &dyn LegislatureReader)
+    }
+}

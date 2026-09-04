@@ -1363,4 +1363,33 @@ impl LegislatureWriter for SqliteStorage {
     }
 }
 
-impl Storage for SqliteStorage {}
+impl SqliteStorage {
+    /// True when any legislative table holds a row.
+    ///
+    /// A dataset that was never given bills, sponsors, members, or votes has
+    /// no legislature to offer, even though the tables exist because every
+    /// dataset shares one schema today.
+    fn holds_legislature(&self) -> Result<bool, DatasetError> {
+        for table in ["bills", "members", "sponsors", "roll_calls"] {
+            let present: bool = self.conn.query_row(
+                &format!("SELECT EXISTS(SELECT 1 FROM {table} LIMIT 1)"),
+                [],
+                |row| row.get(0),
+            )?;
+            if present {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+impl Storage for SqliteStorage {
+    fn legislature(&self) -> Option<&dyn LegislatureReader> {
+        // A database error here means we cannot show legislative material, so
+        // the honest answer is that this dataset offers none.
+        self.holds_legislature()
+            .unwrap_or(false)
+            .then_some(self as &dyn LegislatureReader)
+    }
+}
