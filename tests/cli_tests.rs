@@ -110,12 +110,9 @@ fn path_count(summary: &serde_json::Value, key: &str) -> usize {
     summary[key].as_array().expect("an array of paths").len()
 }
 
-/// Title 51 gained 26 KB of text and 63 elements between the two release points,
-/// but `diff` reports nothing at all. This test states the behaviour we want, not
-/// the behaviour we have, so it stays ignored until the defect is fixed. Do not
-/// "fix" it by asserting zero: that would pin the bug as if it were correct.
+/// Title 51 gained 26 KB of text and 63 elements between the two release points.
+/// Those are pure insertions, which `from_elements` used to discard (#54).
 #[test]
-#[ignore = "TreeDiff::from_elements reports no changes for a real amendment"]
 fn should_list_the_paths_that_changed_between_two_versions_when_diff_runs() {
     let summary = diff_summary(amended_fixture());
 
