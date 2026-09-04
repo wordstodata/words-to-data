@@ -88,9 +88,9 @@ fn should_mark_unreviewed_model_output_as_machine_suggested() {
             );
             assert_eq!(link.provenance.source, annotation.metadata.annotator);
             assert_eq!(link.provenance.raw_score, annotation.metadata.confidence);
-            assert!(
-                link.provenance.evidence.is_none(),
-                "raw model replies were never persisted (#58), so there is no evidence to carry"
+            assert_eq!(
+                link.provenance.evidence, annotation.metadata.reasoning,
+                "the model's stated reasoning is the evidence we do have"
             );
         }
     }
@@ -192,5 +192,32 @@ fn should_carry_a_reproducible_measurement_from_real_similarity_scores() {
 
         assert_eq!(detail["matched_words"], similarity.matched_words as f32);
         assert_eq!(detail["tree_diff_words"], similarity.tree_diff_words as f32);
+    }
+}
+
+/// The fixture's annotations carry the model's reasoning, so the links built
+/// from them carry it as evidence. A machine claim that cannot say why is
+/// weaker than one that can, and this is the part of "why" that survived.
+#[test]
+fn should_carry_the_models_reasoning_as_evidence() {
+    let annotations = real_annotations();
+    let with_reasoning: Vec<&ChangeAnnotation> = annotations
+        .iter()
+        .filter(|a| a.metadata.reasoning.is_some())
+        .collect();
+
+    assert!(
+        !with_reasoning.is_empty(),
+        "the fixture should hold annotations the model explained"
+    );
+
+    for annotation in with_reasoning {
+        for link in Link::from_annotation(annotation) {
+            let evidence = link
+                .provenance
+                .evidence
+                .expect("a link should carry the reasoning behind it");
+            assert!(!evidence.trim().is_empty());
+        }
     }
 }
