@@ -17,6 +17,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dataset::DatasetError;
+use crate::storage::DocumentReader;
 use crate::uslm::USLMElement;
 
 /// Whether a dataset covers something.
@@ -41,6 +43,19 @@ pub struct Scope {
 }
 
 impl Scope {
+    /// Derive the scope of anything that can read documents.
+    pub fn derive<R: DocumentReader + ?Sized>(reader: &R) -> Result<Self, DatasetError> {
+        let mut versions = Vec::new();
+        for info in reader.list_versions()? {
+            if let Some(snapshot) = reader.get_version(&info.date)? {
+                versions.push(snapshot);
+            }
+        }
+        Ok(Self::from_versions(
+            versions.iter().map(|v| (v.date.as_str(), &v.element)),
+        ))
+    }
+
     /// Build a scope from the root element of each version.
     pub fn from_versions<'a>(versions: impl Iterator<Item = (&'a str, &'a USLMElement)>) -> Self {
         let mut held = Vec::new();

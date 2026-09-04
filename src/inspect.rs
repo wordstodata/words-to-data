@@ -12,7 +12,7 @@
 use serde::Serialize;
 
 use crate::annotation::ChangeAnnotation;
-use crate::dataset::{DatasetError, SearchResult};
+use crate::dataset::{DatasetError, Scope, SearchResult};
 use crate::diff::TreeDiff;
 use crate::storage::Storage;
 use crate::uslm::USLMElement;
@@ -30,6 +30,9 @@ pub struct DatasetInfo {
     pub version_count: usize,
     /// Number of bills recorded in the dataset.
     pub bill_count: usize,
+    /// What this dataset covers, so a caller can tell "absent from the law"
+    /// from "absent from this dataset".
+    pub scope: Scope,
 }
 
 /// One version snapshot's headline facts (no element tree).
@@ -487,5 +490,6 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
         source_urls: meta.source_urls.clone(),
         version_count: dataset.list_versions()?.len(),
         bill_count: dataset.list_bill_ids()?.len(),
+        scope: Scope::derive(dataset)?,
     })
 }
