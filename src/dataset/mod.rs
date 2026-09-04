@@ -5,9 +5,11 @@
 
 mod error;
 mod scope;
+mod work;
 
 pub use error::DatasetError;
 pub use scope::{Coverage, Scope};
+pub use work::{ExpressionId, WorkId};
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -113,6 +115,44 @@ impl<S: Storage> Dataset<S> {
     /// ```
     pub fn scope(&self) -> Result<Scope, DatasetError> {
         Scope::derive(&self.storage)
+    }
+
+    /// Every work this dataset holds.
+    ///
+    /// A work is a document as a concept, with no date. This is the entry point
+    /// for a dataset whose contents do not share a release cycle: ten court
+    /// opinions are ten works, and no global date describes them.
+    pub fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
+        Ok(self.scope()?.held.into_iter().map(WorkId::new).collect())
+    }
+
+    /// Every expression of one work, in date order.
+    ///
+    /// A work with one expression is normal, not a degenerate case: a court
+    /// opinion is published once and never amended.
+    pub fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionId>, DatasetError> {
+        let mut expressions: Vec<ExpressionId> = self
+            .storage
+            .find_element(work.as_str())?
+            .into_iter()
+            .map(|(date, _)| ExpressionId::new(work.clone(), date))
+            .collect();
+        expressions.sort();
+        Ok(expressions)
+    }
+
+    /// One work as it read on one date.
+    ///
+    /// `None` means this dataset holds no such expression. Ask
+    /// [`Dataset::scope`] whether it holds the work at all, so an absent
+    /// expression is not mistaken for an absent document.
+    pub fn get_expression(&self, id: &ExpressionId) -> Result<Option<USLMElement>, DatasetError> {
+        Ok(self
+            .storage
+            .find_element(id.work.as_str())?
+            .into_iter()
+            .find(|(date, _)| *date == id.at)
+            .map(|(_, element)| element))
     }
 
     /// The legislature extension, when this dataset carries one.
