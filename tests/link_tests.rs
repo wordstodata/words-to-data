@@ -4,6 +4,7 @@
 //! real matching run, not invented data.
 
 use words_to_data::annotation::{AnnotationStatus, ChangeAnnotation};
+use words_to_data::diff::AmendmentSimilarity;
 use words_to_data::link::{Corroboration, Link, LinkKind, Target, VerificationState};
 
 const ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
@@ -149,4 +150,47 @@ fn should_carry_corroboration_without_raising_the_verification_state() {
         .corroboration
         .expect("the measurement should be carried");
     assert_eq!(corroboration.method, "precision_weighted_f1");
+}
+
+/// Corroboration must be reproducible: that is the whole reason it may be
+/// relied on when a model's self-reported score may not. This checks the claim
+/// against 383 real scores from a production run, by recomputing precision from
+/// the word counts the record carries.
+#[test]
+fn should_carry_a_reproducible_measurement_from_real_similarity_scores() {
+    let json = std::fs::read_to_string("tests/test_data/processed/similarity_scores.json")
+        .expect("the fixture should be readable");
+    let scores: Vec<AmendmentSimilarity> =
+        serde_json::from_str(&json).expect("the fixture should parse as similarities");
+
+    assert!(!scores.is_empty(), "the fixture should hold real scores");
+
+    for similarity in &scores {
+        let corroboration = Corroboration::from(similarity);
+
+        assert_eq!(corroboration.method, "precision_weighted_f1");
+        assert_eq!(corroboration.score, similarity.score);
+
+        let detail: std::collections::HashMap<&str, f32> = corroboration
+            .detail
+            .iter()
+            .map(|(name, value)| (name.as_str(), *value))
+            .collect();
+
+        // Recompute precision from the counts the record carries. If this
+        // holds, a receiver can check the figure instead of trusting it.
+        if similarity.tree_diff_words > 0 {
+            let recomputed = similarity.matched_words as f32 / similarity.tree_diff_words as f32;
+            let reported = detail["precision"];
+            assert!(
+                (recomputed - reported).abs() < 1e-5,
+                "precision should recompute from the counts: {recomputed} against {reported} \
+                 for {}",
+                similarity.tree_diff_path
+            );
+        }
+
+        assert_eq!(detail["matched_words"], similarity.matched_words as f32);
+        assert_eq!(detail["tree_diff_words"], similarity.tree_diff_words as f32);
+    }
 }
