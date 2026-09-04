@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, vibes ]
+  # No branch filter: every pull request runs CI, whatever it targets. Filtering
+  # on `main` meant no PR into `vibes` was ever tested, and it would also skip a
+  # stacked PR that targets a feature branch.
   pull_request:
-    branches: [ main ]
 
 env:
   CARGO_TERM_COLOR: always
