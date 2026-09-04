@@ -10,6 +10,7 @@ pub mod diff;
 pub mod inspect;
 pub mod intern;
 pub mod io;
+pub mod legislature;
 pub mod link;
 pub mod storage;
 #[cfg(feature = "download")]

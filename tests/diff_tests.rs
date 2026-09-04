@@ -1,7 +1,8 @@
 use rstest::rstest;
 use words_to_data::{
     diff::{MentionMatch, TreeDiff},
-    uslm::{BillDiff, TextContentField, bill_parser::parse_bill_amendments, parser::parse},
+    legislature::BillDiff,
+    uslm::{TextContentField, bill_parser::parse_bill_amendments, parser::parse},
 };
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";

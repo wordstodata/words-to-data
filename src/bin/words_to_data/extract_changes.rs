@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use clap::Args as ClapArgs;
 use serde::Deserialize;
 use words_to_data::dataset::{Dataset, Format};
-use words_to_data::uslm::BillDiff;
+use words_to_data::legislature::BillDiff;
 
 use crate::llm::{ChatOptions, LlmClient};
 

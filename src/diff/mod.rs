@@ -8,7 +8,8 @@ use similar::{ChangeTag, TextDiff};
 use time::Date;
 
 use crate::constants::STOP_WORDS;
-use crate::uslm::{BillAmendment, ElementData, TextContentField, USLMElement, bill_parser::Bill};
+use crate::legislature::BillAmendment;
+use crate::uslm::{ElementData, TextContentField, USLMElement, bill_parser::Bill};
 
 /// A change detected in a single text content field between two document versions
 ///
