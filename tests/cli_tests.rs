@@ -731,3 +731,44 @@ fn should_reject_a_span_that_names_neither_form() {
         "one form or the other is required"
     );
 }
+
+/// A `--between` date is checked before any work starts, the way `--from` and
+/// `--to` are by parsing an expression. Without it a typo is not an error: no
+/// work is held on `not-a-date`, so every work is skipped and the run exits
+/// zero having done nothing.
+#[test]
+fn should_reject_a_between_date_that_is_not_a_date() {
+    let output = run(&[
+        "score-amendments",
+        both_works_json_fixture(),
+        "--between",
+        "not-a-date",
+        LATE,
+    ]);
+
+    assert!(!output.status.success(), "a malformed date must not run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("YYYY-MM-DD"),
+        "the error should show the expected form, got: {stderr}"
+    );
+}
+
+/// A real date that no work was published on is a fact about the data, not a
+/// user error, so it reports and exits zero. A dataset of court opinions — one
+/// expression per work — would legitimately span nothing.
+#[test]
+fn should_report_and_succeed_when_a_valid_span_covers_no_work() {
+    let (output, scores) = scored(
+        both_works_json_fixture(),
+        &["--between", "1999-01-01", LATE],
+        "scores_empty_span.json",
+    );
+
+    assert!(output.status.success(), "an empty span is not a failure");
+    assert_eq!(scores.as_array().expect("an array").len(), 0);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("nothing to do"),
+        "it must say it did nothing"
+    );
+}
