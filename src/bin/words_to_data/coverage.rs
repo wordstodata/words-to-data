@@ -1,9 +1,10 @@
-//! `words_to_data coverage` — how much of a version diff has been annotated.
+//! `words_to_data coverage` — how much of a diff has been annotated.
 //!
 //! Reports the annotated vs unannotated split of the change universe. Full
 //! coverage is not the goal: many changed paths are not amendment-caused.
 
 use clap::Args as ClapArgs;
+use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
 
 use crate::load::{self, with_dataset};
@@ -13,13 +14,13 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Older version date (YYYY-MM-DD)
+    /// Older expression, e.g. `uscode/title_9@2025-07-18`
     #[arg(long)]
-    pub from: String,
+    pub from: ExpressionId,
 
-    /// Newer version date (YYYY-MM-DD)
+    /// Newer expression of the same work
     #[arg(long)]
-    pub to: String,
+    pub to: ExpressionId,
 
     /// Print the full unannotated path list (human output truncates otherwise)
     #[arg(long)]
@@ -31,16 +32,18 @@ pub struct Args {
 }
 
 pub fn run(args: Args) {
-    let ds = load::open(&args.dataset).expect("Error opening dataset");
-    let report = with_dataset!(ds, d => inspect::coverage(&d, &args.from, &args.to))
-        .expect("Error computing coverage");
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    let report = crate::fail::or_exit(
+        with_dataset!(ds, d => inspect::coverage(&d, &args.from, &args.to)),
+        "Error computing coverage",
+    );
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
         return;
     }
 
-    println!("{} -> {}", report.from_date, report.to_date);
+    println!("{} -> {}", report.from, report.to);
     println!("Changed paths:     {}", report.changed_path_count);
     println!("Annotated:         {}", report.annotated_count);
     println!("Unannotated:       {}", report.unannotated_count);

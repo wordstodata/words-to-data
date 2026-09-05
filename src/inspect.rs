@@ -12,7 +12,7 @@
 use serde::Serialize;
 
 use crate::annotation::ChangeAnnotation;
-use crate::dataset::{DatasetError, Scope, SearchResult};
+use crate::dataset::{DatasetError, ExpressionId, Scope, SearchResult, WorkId};
 use crate::diff::TreeDiff;
 use crate::storage::Storage;
 use crate::uslm::USLMElement;
@@ -26,8 +26,10 @@ pub struct DatasetInfo {
     pub license: String,
     pub version: String,
     pub source_urls: Vec<String>,
-    /// Number of version snapshots (US Code release points).
-    pub version_count: usize,
+    /// Number of works (distinct documents) held.
+    pub work_count: usize,
+    /// Number of expressions (work-and-date pairs) held.
+    pub expression_count: usize,
     /// Number of bills recorded in the dataset.
     pub bill_count: usize,
     /// What this dataset covers, so a caller can tell "absent from the law"
@@ -35,14 +37,18 @@ pub struct DatasetInfo {
     pub scope: Scope,
 }
 
-/// One version snapshot's headline facts (no element tree).
+/// One expression's headline facts (no element tree).
 #[derive(Debug, Clone, Serialize)]
-pub struct VersionSummary {
+pub struct ExpressionSummary {
+    /// The identifier, printed as `uscode/title_9@2025-07-18`.
+    pub id: String,
+    /// The work alone, for grouping and filtering.
+    pub work: String,
     /// Publication date, `YYYY-MM-DD`.
     pub date: String,
     /// Optional human-readable label.
     pub label: Option<String>,
-    /// Total elements in the version's document tree (root included).
+    /// Total elements in this expression's document tree (root included).
     pub element_count: usize,
 }
 
@@ -51,23 +57,35 @@ fn count_elements(element: &USLMElement) -> usize {
     1 + element.children.iter().map(count_elements).sum::<usize>()
 }
 
-/// List every version chronologically with its label and element count.
-pub fn versions<S: Storage>(dataset: &S) -> Result<Vec<VersionSummary>, DatasetError> {
-    dataset
-        .list_versions()?
-        .into_iter()
-        .map(|info| {
+/// List every expression with its label and element count.
+///
+/// Ordered by work, then by date. Pass `work` to list one document's history.
+pub fn expressions<S: Storage>(
+    dataset: &S,
+    work: Option<&WorkId>,
+) -> Result<Vec<ExpressionSummary>, DatasetError> {
+    let works = match work {
+        Some(one) => vec![one.clone()],
+        None => dataset.works()?,
+    };
+
+    let mut summaries = Vec::new();
+    for work in works {
+        for info in dataset.expressions(&work)? {
             let element_count = dataset
-                .get_version(&info.date)?
-                .map(|snap| count_elements(&snap.element))
+                .get_expression(&info.id)?
+                .map(|e| count_elements(&e.element))
                 .unwrap_or(0);
-            Ok(VersionSummary {
-                date: info.date,
+            summaries.push(ExpressionSummary {
+                id: info.id.to_string(),
+                work: info.id.work.to_string(),
+                date: info.id.at,
                 label: info.label,
                 element_count,
-            })
-        })
-        .collect()
+            });
+        }
+    }
+    Ok(summaries)
 }
 
 /// A single field's change at a path between two versions.
@@ -84,11 +102,11 @@ pub struct PathFieldChange {
 #[derive(Debug, Clone, Serialize)]
 pub struct PathReport {
     pub path: String,
-    /// Dates of the versions in which the element exists, ascending.
+    /// The expressions in which the element exists, as `work@date`.
     pub present_in: Vec<String>,
-    /// Field-level changes for the requested version pair (empty if no pair given).
+    /// Field-level changes for the requested expression pair (empty if none given).
     pub changes: Vec<PathFieldChange>,
-    /// Annotations that reference this path (across all version pairs).
+    /// Annotations that reference this path (across all expression pairs).
     pub annotations: Vec<AnnotationSummary>,
 }
 
@@ -101,16 +119,16 @@ fn field_str(field: &crate::uslm::TextContentField) -> String {
 }
 
 /// Assemble a combined view of a single path: presence, field changes for an
-/// optional version pair, and every annotation that references it.
+/// optional expression pair, and every annotation that references it.
 pub fn path_report<S: Storage>(
     dataset: &S,
     path: &str,
-    pair: Option<(&str, &str)>,
+    pair: Option<(&ExpressionId, &ExpressionId)>,
 ) -> Result<PathReport, DatasetError> {
     let mut present_in: Vec<String> = dataset
         .find_element(path)?
         .into_iter()
-        .map(|(date, _)| date)
+        .map(|(id, _)| id.to_string())
         .collect();
     present_in.sort();
 
@@ -155,21 +173,25 @@ pub struct ValidationReport {
 
 /// Check a dataset for internal consistency:
 ///
-/// - version dates are strictly ascending and unique,
-/// - every annotation's version pair actually exists,
+/// - each work's expression dates are strictly ascending and unique,
+/// - every annotation's expression pair actually exists,
 /// - every annotation's `amendment_id` resolves to a real bill amendment,
-/// - every annotation path names an element present in some version.
+/// - every annotation path names an element present in some expression.
 pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetError> {
     let mut issues = Vec::new();
 
-    // 1. Versions strictly ascending and unique by date.
-    let versions = dataset.list_versions()?;
-    for pair in versions.windows(2) {
-        if pair[0].date >= pair[1].date {
-            issues.push(format!(
-                "versions out of order or duplicated: {} then {}",
-                pair[0].date, pair[1].date
-            ));
+    // 1. Dates strictly ascending and unique *within each work*. Across works
+    //    there is no order to check: two documents may share a date, or share
+    //    none, and neither is a fault.
+    for work in dataset.works()? {
+        let expressions = dataset.expressions(&work)?;
+        for pair in expressions.windows(2) {
+            if pair[0].id.at >= pair[1].id.at {
+                issues.push(format!(
+                    "expressions of {work} out of order or duplicated: {} then {}",
+                    pair[0].id.at, pair[1].id.at
+                ));
+            }
         }
     }
 
@@ -184,13 +206,12 @@ pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetErro
     // 3 & 4. Check each annotation's pair, amendment, and paths.
     let mut checked_annotations = 0;
     for (from, to) in dataset.annotation_pairs()? {
-        if dataset.get_version(&from)?.is_none() {
-            issues.push(format!(
-                "annotation pair references missing version: {from}"
-            ));
-        }
-        if dataset.get_version(&to)?.is_none() {
-            issues.push(format!("annotation pair references missing version: {to}"));
+        for end in [&from, &to] {
+            if dataset.get_expression(end)?.is_none() {
+                issues.push(format!(
+                    "annotation pair references missing expression: {end}"
+                ));
+            }
         }
 
         let anns = dataset.get_annotations(&from, &to)?.unwrap_or_default();
@@ -205,7 +226,7 @@ pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetErro
             for path in &ann.paths {
                 if dataset.find_element(path)?.is_empty() {
                     issues.push(format!(
-                        "annotation ({from} -> {to}) references path not found in any version: {path}"
+                        "annotation ({from} -> {to}) references path not found in any expression: {path}"
                     ));
                 }
             }
@@ -222,20 +243,29 @@ pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetErro
 /// Which annotations to list. The three variants map to the mutually exclusive
 /// filters of the `annotations` subcommand.
 pub enum AnnotationQuery<'a> {
-    /// Annotations recorded for a specific version pair.
-    Pair { from: &'a str, to: &'a str },
-    /// Annotations sourced from a specific bill (across all version pairs).
+    /// Annotations recorded for a specific expression pair.
+    Pair {
+        from: &'a ExpressionId,
+        to: &'a ExpressionId,
+    },
+    /// Annotations sourced from a specific bill (across all pairs).
     Bill(&'a str),
-    /// Annotations touching a specific structural path (across all version pairs).
+    /// Annotations touching a specific structural path (across all pairs).
     Path(&'a str),
 }
 
-/// A flattened annotation for display, tagged with the version pair it belongs to.
+/// A flattened annotation for display, tagged with the expression pair it belongs to.
 #[derive(Debug, Clone, Serialize)]
 pub struct AnnotationSummary {
-    /// Older version date of the pair this annotation belongs to.
+    /// The work both ends of the pair belong to.
+    pub work: String,
+    /// Older expression of the pair, as `work@date`.
+    pub from: String,
+    /// Newer expression of the pair, as `work@date`.
+    pub to: String,
+    /// Older date of the pair.
     pub from_date: String,
-    /// Newer version date of the pair this annotation belongs to.
+    /// Newer date of the pair.
     pub to_date: String,
     /// Legal operation, serde string form (e.g. `"strike"`).
     pub operation: String,
@@ -249,11 +279,14 @@ pub struct AnnotationSummary {
     pub paths: Vec<String>,
 }
 
-/// Build a summary for `ann`, tagging it with the version pair it was found under.
-fn summarize(from: &str, to: &str, ann: &ChangeAnnotation) -> AnnotationSummary {
+/// Build a summary for `ann`, tagging it with the expression pair it was found under.
+fn summarize(from: &ExpressionId, to: &ExpressionId, ann: &ChangeAnnotation) -> AnnotationSummary {
     AnnotationSummary {
-        from_date: from.to_string(),
-        to_date: to.to_string(),
+        work: from.work.to_string(),
+        from: from.to_string(),
+        to: to.to_string(),
+        from_date: from.at.clone(),
+        to_date: to.at.clone(),
         operation: action_str(&ann.operation),
         bill_id: ann.source_bill.bill_id.clone(),
         amendment_id: ann.source_bill.amendment_id.clone(),
@@ -265,9 +298,9 @@ fn summarize(from: &str, to: &str, ann: &ChangeAnnotation) -> AnnotationSummary 
     }
 }
 
-/// List annotations matching `query`, each tagged with its version pair.
+/// List annotations matching `query`, each tagged with its expression pair.
 ///
-/// Bill and path filters iterate every version pair so the pair is always known
+/// Bill and path filters iterate every pair so the pair is always known
 /// (the underlying `annotations_for_*` queries drop it).
 pub fn annotations<S: Storage>(
     dataset: &S,
@@ -302,9 +335,15 @@ pub fn annotations<S: Storage>(
     Ok(out)
 }
 
-/// The paths touched between two versions, split by kind of change.
+/// The paths touched between two expressions of one work, split by kind of change.
 #[derive(Debug, Clone, Serialize)]
 pub struct DiffSummary {
+    /// The work both expressions belong to.
+    pub work: String,
+    /// Older expression, as `work@date`.
+    pub from: String,
+    /// Newer expression, as `work@date`.
+    pub to: String,
     pub from_date: String,
     pub to_date: String,
     /// Paths whose text fields changed.
@@ -331,12 +370,19 @@ fn collect_diff_paths(diff: &TreeDiff, summary: &mut DiffSummary) {
     }
 }
 
-/// Summarize the changes between two versions as lists of affected paths.
-pub fn diff<S: Storage>(dataset: &S, from: &str, to: &str) -> Result<DiffSummary, DatasetError> {
+/// Summarize the changes between two expressions as lists of affected paths.
+pub fn diff<S: Storage>(
+    dataset: &S,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) -> Result<DiffSummary, DatasetError> {
     let tree = dataset.compute_diff(from, to)?;
     let mut summary = DiffSummary {
-        from_date: from.to_string(),
-        to_date: to.to_string(),
+        work: from.work.to_string(),
+        from: from.to_string(),
+        to: to.to_string(),
+        from_date: from.at.clone(),
+        to_date: to.at.clone(),
         changed_paths: Vec::new(),
         added_paths: Vec::new(),
         removed_paths: Vec::new(),
@@ -353,6 +399,12 @@ pub fn diff<S: Storage>(dataset: &S, from: &str, to: &str) -> Result<DiffSummary
 /// reclassifications, etc.), so full coverage is not necessarily expected.
 #[derive(Debug, Clone, Serialize)]
 pub struct CoverageReport {
+    /// The work both expressions belong to.
+    pub work: String,
+    /// Older expression, as `work@date`.
+    pub from: String,
+    /// Newer expression, as `work@date`.
+    pub to: String,
     pub from_date: String,
     pub to_date: String,
     /// Distinct paths in the change universe.
@@ -367,11 +419,11 @@ pub struct CoverageReport {
     pub coverage: f64,
 }
 
-/// Measure annotation coverage of the diff between two versions.
+/// Measure annotation coverage of the diff between two expressions.
 pub fn coverage<S: Storage>(
     dataset: &S,
-    from: &str,
-    to: &str,
+    from: &ExpressionId,
+    to: &ExpressionId,
 ) -> Result<CoverageReport, DatasetError> {
     let summary = diff(dataset, from, to)?;
     let mut universe = std::collections::HashSet::new();
@@ -403,8 +455,11 @@ pub fn coverage<S: Storage>(
     };
 
     Ok(CoverageReport {
-        from_date: from.to_string(),
-        to_date: to.to_string(),
+        work: from.work.to_string(),
+        from: from.to_string(),
+        to: to.to_string(),
+        from_date: from.at.clone(),
+        to_date: to.at.clone(),
         changed_path_count,
         annotated_count,
         unannotated_count,
@@ -413,7 +468,7 @@ pub fn coverage<S: Storage>(
     })
 }
 
-/// Full-text search across every version, returning each field match.
+/// Full-text search across every expression, returning each field match.
 ///
 /// Backends differ in coverage: the in-memory store searches all text fields,
 /// while SQLite indexes headings and content — a heading or content term is
@@ -481,6 +536,7 @@ pub fn show_bill<S: Storage>(
 /// Summarize a dataset's metadata and contents.
 pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
     let meta = dataset.metadata();
+    let scope = Scope::derive(dataset)?;
     Ok(DatasetInfo {
         name: meta.name.clone(),
         description: meta.description.clone(),
@@ -488,8 +544,9 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
         license: meta.license.clone(),
         version: meta.version.clone(),
         source_urls: meta.source_urls.clone(),
-        version_count: dataset.list_versions()?.len(),
+        work_count: scope.held.len(),
+        expression_count: scope.held.iter().map(|held| held.dates.len()).sum(),
         bill_count: dataset.list_bill_ids()?.len(),
-        scope: Scope::derive(dataset)?,
+        scope,
     })
 }

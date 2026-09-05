@@ -8,7 +8,7 @@
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
-use words_to_data::dataset::{Dataset, DatasetMetadata};
+use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
 use words_to_data::inspect;
 use words_to_data::inspect::AnnotationQuery;
 use words_to_data::legislature::AmendingAction;
@@ -16,10 +16,21 @@ use words_to_data::storage::{InMemoryStorage, SqliteStorage};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 const ANNOTATED_PATH: &str = "uscode/title_9/chapter_1/section_1";
+/// Title 9 is Arbitration, and is the work every fixture below holds.
+const TITLE_9: &str = "uscode/title_9";
 
 const USC09_18: &str = "tests/test_data/usc/2025-07-18/usc09.xml";
 const USC09_30: &str = "tests/test_data/usc/2025-07-30/usc09.xml";
 const PL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+
+fn at(date: &str) -> ExpressionId {
+    ExpressionId::new(WorkId::new(TITLE_9), date)
+}
+
+/// The pair the fixture's annotation sits between.
+fn pair() -> (ExpressionId, ExpressionId) {
+    (at("2025-07-18"), at("2025-07-30"))
+}
 
 /// Build a small real dataset: two USC title-9 versions plus one real bill.
 fn make_fixture() -> Dataset<InMemoryStorage> {
@@ -58,8 +69,9 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
             reasoning: None,
         },
     };
+    let (from, to) = pair();
     dataset
-        .add_annotation("2025-07-18", "2025-07-30", annotation)
+        .add_annotation(&from, &to, annotation)
         .expect("add annotation");
     dataset
 }
@@ -87,36 +99,53 @@ fn should_report_metadata_and_counts_when_given_in_memory_dataset() {
     assert_eq!(info.name, "Inspect Fixture");
     assert_eq!(info.author, "Tester");
     assert_eq!(info.license, "Public Domain");
-    assert_eq!(info.version_count, 2);
+    assert_eq!(info.work_count, 1, "two releases of one title are one work");
+    assert_eq!(info.expression_count, 2);
     assert_eq!(info.bill_count, 1);
 }
 
 #[test]
-fn should_list_versions_with_dates_labels_and_element_counts() {
+fn should_list_expressions_with_ids_labels_and_element_counts() {
     let dataset = make_fixture();
 
-    let versions = inspect::versions(&dataset).expect("versions");
+    let expressions = inspect::expressions(&dataset, None).expect("expressions");
 
-    assert_eq!(versions.len(), 2);
-    // Chronological order.
-    assert_eq!(versions[0].date, "2025-07-18");
-    assert_eq!(versions[0].label.as_deref(), Some("Before"));
-    assert_eq!(versions[1].date, "2025-07-30");
+    assert_eq!(expressions.len(), 2);
+    // Chronological order within the work.
+    assert_eq!(expressions[0].id, "uscode/title_9@2025-07-18");
+    assert_eq!(expressions[0].work, TITLE_9);
+    assert_eq!(expressions[0].date, "2025-07-18");
+    assert_eq!(expressions[0].label.as_deref(), Some("Before"));
+    assert_eq!(expressions[1].id, "uscode/title_9@2025-07-30");
     // A parsed USC title has many elements.
-    assert!(versions[0].element_count > 1, "expected a populated tree");
+    assert!(
+        expressions[0].element_count > 1,
+        "expected a populated tree"
+    );
 }
 
 #[test]
-fn should_list_identical_versions_for_sqlite_backend() {
-    let fixture = make_fixture();
-    let expected = inspect::versions(&fixture).expect("versions mem");
+fn should_list_only_the_requested_work() {
+    let dataset = make_fixture();
 
-    let sqlite = to_sqlite(&fixture, "versions");
-    let actual = inspect::versions(&sqlite).expect("versions sqlite");
+    let expressions =
+        inspect::expressions(&dataset, Some(&WorkId::new(TITLE_9))).expect("expressions");
+
+    assert_eq!(expressions.len(), 2);
+    assert!(expressions.iter().all(|e| e.work == TITLE_9));
+}
+
+#[test]
+fn should_list_identical_expressions_for_sqlite_backend() {
+    let fixture = make_fixture();
+    let expected = inspect::expressions(&fixture, None).expect("expressions mem");
+
+    let sqlite = to_sqlite(&fixture, "expressions");
+    let actual = inspect::expressions(&sqlite, None).expect("expressions sqlite");
 
     assert_eq!(actual.len(), expected.len());
     for (a, e) in actual.iter().zip(expected.iter()) {
-        assert_eq!(a.date, e.date);
+        assert_eq!(a.id, e.id);
         assert_eq!(a.label, e.label);
         assert_eq!(a.element_count, e.element_count);
     }
@@ -206,15 +235,18 @@ fn walk_counts(diff: &words_to_data::diff::TreeDiff) -> (usize, usize, usize) {
 #[test]
 fn should_collect_changed_added_and_removed_paths_matching_the_tree_diff() {
     let dataset = make_fixture();
-    let (from, to) = ("2025-07-18", "2025-07-30");
+    let (from, to) = pair();
 
-    let tree = dataset.compute_diff(from, to).expect("compute_diff");
+    let tree = dataset.compute_diff(&from, &to).expect("compute_diff");
     let (changed, added, removed) = walk_counts(&tree);
 
-    let summary = inspect::diff(&dataset, from, to).expect("diff");
+    let summary = inspect::diff(&dataset, &from, &to).expect("diff");
 
-    assert_eq!(summary.from_date, from);
-    assert_eq!(summary.to_date, to);
+    assert_eq!(summary.work, TITLE_9);
+    assert_eq!(summary.from, from.to_string());
+    assert_eq!(summary.to, to.to_string());
+    assert_eq!(summary.from_date, from.at);
+    assert_eq!(summary.to_date, to.at);
     assert_eq!(summary.changed_paths.len(), changed);
     assert_eq!(summary.added_paths.len(), added);
     assert_eq!(summary.removed_paths.len(), removed);
@@ -223,11 +255,11 @@ fn should_collect_changed_added_and_removed_paths_matching_the_tree_diff() {
 #[test]
 fn should_produce_identical_diff_summary_for_sqlite_backend() {
     let fixture = make_fixture();
-    let (from, to) = ("2025-07-18", "2025-07-30");
-    let expected = inspect::diff(&fixture, from, to).expect("mem");
+    let (from, to) = pair();
+    let expected = inspect::diff(&fixture, &from, &to).expect("mem");
 
     let sqlite = to_sqlite(&fixture, "diff");
-    let actual = inspect::diff(&sqlite, from, to).expect("sqlite");
+    let actual = inspect::diff(&sqlite, &from, &to).expect("sqlite");
 
     assert_eq!(actual.changed_paths, expected.changed_paths);
     assert_eq!(actual.added_paths, expected.added_paths);
@@ -235,14 +267,15 @@ fn should_produce_identical_diff_summary_for_sqlite_backend() {
 }
 
 #[test]
-fn should_list_annotations_for_a_version_pair() {
+fn should_list_annotations_for_an_expression_pair() {
     let dataset = make_fixture();
+    let (from, to) = pair();
 
     let anns = inspect::annotations(
         &dataset,
         AnnotationQuery::Pair {
-            from: "2025-07-18",
-            to: "2025-07-30",
+            from: &from,
+            to: &to,
         },
     )
     .expect("annotations");
@@ -252,7 +285,11 @@ fn should_list_annotations_for_a_version_pair() {
     assert_eq!(anns[0].operation, "strike");
     assert_eq!(anns[0].confidence, Some(0.9));
     assert_eq!(anns[0].paths, vec![ANNOTATED_PATH.to_string()]);
-    // Every annotation carries the version pair it belongs to.
+    // Every annotation carries the expression pair it belongs to, work and all:
+    // a bare date pair could not say which document was diffed.
+    assert_eq!(anns[0].work, TITLE_9);
+    assert_eq!(anns[0].from, "uscode/title_9@2025-07-18");
+    assert_eq!(anns[0].to, "uscode/title_9@2025-07-30");
     assert_eq!(anns[0].from_date, "2025-07-18");
     assert_eq!(anns[0].to_date, "2025-07-30");
 }
@@ -323,9 +360,10 @@ fn should_pass_validation_for_a_consistent_dataset() {
     let amendment_id = bill.amendments.keys().next().expect("an amendment").clone();
     dataset.add_bill(bill).expect("add bill");
 
-    // A path that really exists: the root element of a version.
+    // A path that really exists: the root element of an expression.
+    let (from, to) = pair();
     let real_path = dataset
-        .get_version("2025-07-18")
+        .get_expression(&from)
         .unwrap()
         .unwrap()
         .element
@@ -335,8 +373,8 @@ fn should_pass_validation_for_a_consistent_dataset() {
 
     dataset
         .add_annotation(
-            "2025-07-18",
-            "2025-07-30",
+            &from,
+            &to,
             ChangeAnnotation {
                 operation: AmendingAction::Amend,
                 source_bill: BillReference {
@@ -370,8 +408,9 @@ fn should_pass_validation_for_a_consistent_dataset() {
 fn should_report_annotations_for_a_path() {
     let dataset = make_fixture();
 
-    let report = inspect::path_report(&dataset, ANNOTATED_PATH, Some(("2025-07-18", "2025-07-30")))
-        .expect("path_report");
+    let (from, to) = pair();
+    let report =
+        inspect::path_report(&dataset, ANNOTATED_PATH, Some((&from, &to))).expect("path_report");
 
     assert_eq!(report.path, ANNOTATED_PATH);
     assert_eq!(report.annotations.len(), 1);
@@ -381,11 +420,11 @@ fn should_report_annotations_for_a_path() {
 #[test]
 fn should_report_presence_and_field_changes_for_a_real_path() {
     let dataset = make_fixture();
-    let (from, to) = ("2025-07-18", "2025-07-30");
+    let (from, to) = pair();
 
-    // The root element of a version is a path guaranteed to exist.
+    // The root element of an expression is a path guaranteed to exist.
     let real_path = dataset
-        .get_version(from)
+        .get_expression(&from)
         .unwrap()
         .unwrap()
         .element
@@ -394,14 +433,16 @@ fn should_report_presence_and_field_changes_for_a_real_path() {
         .to_string();
 
     // Independent count of field changes at that path.
-    let tree = dataset.compute_diff(from, to).expect("diff");
+    let tree = dataset.compute_diff(&from, &to).expect("diff");
     let expected_changes = tree.find(&real_path).map(|n| n.changes.len()).unwrap_or(0);
 
-    let report = inspect::path_report(&dataset, &real_path, Some((from, to))).expect("path_report");
+    let report =
+        inspect::path_report(&dataset, &real_path, Some((&from, &to))).expect("path_report");
 
     assert!(
         report.present_in.contains(&from.to_string()),
-        "root path should be present in the from-version"
+        "root path should be present in the from-expression, got {:?}",
+        report.present_in
     );
     assert_eq!(report.changes.len(), expected_changes);
 }
@@ -453,8 +494,10 @@ fn should_account_coverage_against_the_real_diff() {
         )
         .expect("v2");
 
-    let (from, to) = ("2025-07-18", "2025-07-30");
-    let tree = dataset.compute_diff(from, to).expect("diff");
+    let title_13 = WorkId::new("uscode/title_13");
+    let from = ExpressionId::new(title_13.clone(), "2025-07-18");
+    let to = ExpressionId::new(title_13, "2025-07-30");
+    let tree = dataset.compute_diff(&from, &to).expect("diff");
     let mut universe = Vec::new();
     collect_diff_paths(&tree, &mut universe);
     universe.sort();
@@ -463,7 +506,7 @@ fn should_account_coverage_against_the_real_diff() {
     let target = universe[0].clone();
 
     // Before annotating: every changed path is in the work queue.
-    let before = inspect::coverage(&dataset, from, to).expect("coverage");
+    let before = inspect::coverage(&dataset, &from, &to).expect("coverage");
     assert_eq!(before.changed_path_count, universe.len());
     assert_eq!(before.unannotated_count, universe.len());
     assert_eq!(before.annotated_count, 0);
@@ -473,8 +516,8 @@ fn should_account_coverage_against_the_real_diff() {
     // Annotate one real changed path.
     dataset
         .add_annotation(
-            from,
-            to,
+            &from,
+            &to,
             ChangeAnnotation {
                 operation: AmendingAction::Amend,
                 source_bill: BillReference {
@@ -496,7 +539,7 @@ fn should_account_coverage_against_the_real_diff() {
         .expect("annotate");
 
     // After: that path is covered and drops out of the work queue.
-    let after = inspect::coverage(&dataset, from, to).expect("coverage");
+    let after = inspect::coverage(&dataset, &from, &to).expect("coverage");
     assert_eq!(after.changed_path_count, universe.len());
     assert_eq!(
         after.annotated_count + after.unannotated_count,
@@ -511,7 +554,8 @@ fn should_account_coverage_against_the_real_diff() {
 fn should_report_full_coverage_when_no_changes() {
     // Title 9 parses to zero semantic changes: nothing to annotate == fully covered.
     let dataset = make_fixture();
-    let cov = inspect::coverage(&dataset, "2025-07-18", "2025-07-30").expect("coverage");
+    let (from, to) = pair();
+    let cov = inspect::coverage(&dataset, &from, &to).expect("coverage");
     assert_eq!(cov.changed_path_count, 0);
     assert!(cov.unannotated_paths.is_empty());
     assert_eq!(cov.coverage, 1.0);
@@ -526,6 +570,10 @@ fn should_report_identical_info_for_sqlite_backend() {
     let actual = inspect::info(&sqlite).expect("info sqlite");
 
     assert_eq!(actual.name, expected.name);
-    assert_eq!(actual.version_count, expected.version_count);
+    assert_eq!(actual.work_count, expected.work_count);
+    assert_eq!(actual.expression_count, expected.expression_count);
     assert_eq!(actual.bill_count, expected.bill_count);
+    // The scope pairs each work with its own dates, and both backends must
+    // derive the same pairing.
+    assert_eq!(actual.scope.held, expected.scope.held);
 }

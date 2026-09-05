@@ -7,17 +7,19 @@ use rusqlite::{Connection, params};
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, MemberVote, SponsorInfo, VotePosition};
-use crate::dataset::{DatasetError, DatasetMetadata, SearchResult, VersionPair, VersionSnapshot};
+use crate::dataset::{
+    DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, ExpressionPair,
+    SearchResult, WorkId,
+};
 use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
+use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
     DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
-    LinkReader, LinkWriter, Storage, VersionInfo,
+    LinkReader, LinkWriter, SCHEMA_VERSION, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
-
-const SCHEMA_VERSION: i32 = 2;
 
 pub struct SqliteStorage {
     conn: Connection,
@@ -111,19 +113,25 @@ impl SqliteStorage {
                 value TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS versions (
-                date TEXT PRIMARY KEY,
+            -- One work as it read on one date. There is no table of release
+            -- dates above this: a date owns nothing, so two documents
+            -- published on unrelated days need share nothing.
+            CREATE TABLE IF NOT EXISTS expressions (
+                work TEXT NOT NULL,
+                date TEXT NOT NULL,
                 label TEXT,
-                element_json TEXT NOT NULL
+                element_json TEXT NOT NULL,
+                PRIMARY KEY (work, date)
             );
 
             CREATE TABLE IF NOT EXISTS element_index (
-                version_date TEXT NOT NULL,
+                work TEXT NOT NULL,
+                date TEXT NOT NULL,
                 path TEXT NOT NULL,
                 element_type TEXT,
                 heading TEXT,
                 content TEXT,
-                PRIMARY KEY (version_date, path)
+                PRIMARY KEY (work, date, path)
             );
 
             CREATE TABLE IF NOT EXISTS bills (
@@ -141,9 +149,11 @@ impl SqliteStorage {
                 data_json TEXT NOT NULL
             );
 
-            -- Normalized annotations
+            -- Normalized annotations. Keyed by the work plus the two dates,
+            -- which together name the two expressions the diff ran between.
             CREATE TABLE IF NOT EXISTS annotations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work TEXT NOT NULL,
                 from_date TEXT NOT NULL,
                 to_date TEXT NOT NULL,
                 operation TEXT NOT NULL,
@@ -165,7 +175,11 @@ impl SqliteStorage {
                 FOREIGN KEY (annotation_id) REFERENCES annotations(id)
             );
 
-            CREATE INDEX IF NOT EXISTS idx_ann_dates ON annotations(from_date, to_date);
+            CREATE INDEX IF NOT EXISTS idx_expr_work ON expressions(work);
+            -- Finding a path is now a keyed lookup rather than a scan that
+            -- deserializes one whole tree per date.
+            CREATE INDEX IF NOT EXISTS idx_elem_path ON element_index(path);
+            CREATE INDEX IF NOT EXISTS idx_ann_pair ON annotations(work, from_date, to_date);
             CREATE INDEX IF NOT EXISTS idx_ann_bill ON annotations(bill_id);
             CREATE INDEX IF NOT EXISTS idx_ann_paths_path ON annotation_paths(path);
 
@@ -225,27 +239,39 @@ impl SqliteStorage {
             stmt.execute(params!["version", &storage.metadata.version])?;
         }
 
-        // Save versions
+        // Save expressions
         {
             let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO versions (date, label, element_json) VALUES (?1, ?2, ?3)",
+                "INSERT OR REPLACE INTO expressions (work, date, label, element_json) VALUES (?1, ?2, ?3, ?4)",
             )?;
-            for version in &storage.versions {
-                let element_json = serde_json::to_string(&version.element)?;
-                stmt.execute(params![&version.date, &version.label, element_json])?;
+            for expression in storage.all_expressions() {
+                let element_json = serde_json::to_string(&expression.element)?;
+                stmt.execute(params![
+                    expression.id.work.as_str(),
+                    &expression.id.at,
+                    &expression.label,
+                    element_json
+                ])?;
             }
         }
 
-        // Save element index for each version (batch collect then insert)
+        // Save element index for each expression (batch collect then insert)
         {
             let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO element_index (version_date, path, element_type, heading, content) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO element_index (work, date, path, element_type, heading, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
-            for version in &storage.versions {
+            for expression in storage.all_expressions() {
                 let mut rows = Vec::new();
-                Self::collect_element_rows(&version.date, &version.element, &mut rows);
-                for (date, path, elem_type, heading, content) in rows {
-                    stmt.execute(params![date, path, elem_type, heading, content])?;
+                Self::collect_element_rows(&expression.element, &mut rows);
+                for (path, elem_type, heading, content) in rows {
+                    stmt.execute(params![
+                        expression.id.work.as_str(),
+                        &expression.id.at,
+                        path,
+                        elem_type,
+                        heading,
+                        content
+                    ])?;
                 }
             }
         }
@@ -287,7 +313,7 @@ impl SqliteStorage {
             tx.execute("DELETE FROM annotations", [])?;
 
             let mut ann_stmt = tx.prepare(
-                "INSERT INTO annotations (from_date, to_date, operation, bill_id, amendment_id, causative_text, status, confidence, annotator, timestamp, notes, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT INTO annotations (work, from_date, to_date, operation, bill_id, amendment_id, causative_text, status, confidence, annotator, timestamp, notes, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )?;
             let mut path_stmt =
                 tx.prepare("INSERT INTO annotation_paths (annotation_id, path) VALUES (?1, ?2)")?;
@@ -299,8 +325,9 @@ impl SqliteStorage {
                     let timestamp = ann.metadata.timestamp.to_string();
 
                     ann_stmt.execute(params![
-                        from,
-                        to,
+                        from.work.as_str(),
+                        &from.at,
+                        &to.at,
                         operation,
                         &ann.source_bill.bill_id,
                         &ann.source_bill.amendment_id,
@@ -365,66 +392,66 @@ impl SqliteStorage {
     /// Collect element data into rows for batch insert (no recursion overhead per-insert)
     #[allow(clippy::type_complexity)]
     fn collect_element_rows<'a>(
-        date: &'a str,
         element: &'a USLMElement,
-        rows: &mut Vec<(&'a str, &'a str, String, Option<&'a str>, Option<&'a str>)>,
+        rows: &mut Vec<(&'a str, String, Option<&'a str>, Option<&'a str>)>,
     ) {
         let element_type = format!("{:?}", element.data.element_type);
         let heading = element.data.heading.as_ref().map(|s| s.as_ref());
         let content = element.data.content.as_ref().map(|s| s.as_ref());
-        rows.push((
-            date,
-            element.data.path.as_ref(),
-            element_type,
-            heading,
-            content,
-        ));
+        rows.push((element.data.path.as_ref(), element_type, heading, content));
 
         for child in &element.children {
-            Self::collect_element_rows(date, child, rows);
+            Self::collect_element_rows(child, rows);
         }
     }
 
     fn index_element(
         stmt: &mut rusqlite::Statement,
-        date: &str,
+        id: &ExpressionId,
         element: &USLMElement,
     ) -> Result<(), DatasetError> {
         let mut rows = Vec::new();
-        Self::collect_element_rows(date, element, &mut rows);
-        for (d, path, elem_type, heading, content) in rows {
-            stmt.execute(params![d, path, elem_type, heading, content])?;
+        Self::collect_element_rows(element, &mut rows);
+        for (path, elem_type, heading, content) in rows {
+            stmt.execute(params![
+                id.work.as_str(),
+                &id.at,
+                path,
+                elem_type,
+                heading,
+                content
+            ])?;
         }
         Ok(())
     }
 
-    /// Load a window of two versions with their annotations
+    /// Load a window of two expressions with their annotations
     ///
-    /// Returns InMemoryStorage with only the specified versions and their annotations.
+    /// Returns InMemoryStorage with only the specified expressions and their annotations.
     /// Bills, members, sponsors are NOT loaded - query them from storage as needed.
-    pub fn load_window(&self, from: &str, to: &str) -> Result<InMemoryStorage, DatasetError> {
+    pub fn load_window(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<InMemoryStorage, DatasetError> {
         let metadata = self.load_metadata()?;
 
-        // Load only the two versions
-        let from_v = self
-            .get_version(from)?
-            .ok_or_else(|| DatasetError::VersionNotFound(from.to_string()))?;
-        let to_v = self
-            .get_version(to)?
-            .ok_or_else(|| DatasetError::VersionNotFound(to.to_string()))?;
+        let (from_e, to_e) = require_same_work(self, from, to)?;
 
-        let mut versions = vec![from_v, to_v];
-        versions.sort_by(|a, b| a.date.cmp(&b.date));
+        let mut expressions = ExpressionsByWork::new();
+        let by_date = expressions.entry(from.work.clone()).or_default();
+        by_date.insert(from_e.id.at.clone(), from_e);
+        by_date.insert(to_e.id.at.clone(), to_e);
 
         // Load annotations for this pair only
         let mut diff_annotations = HashMap::new();
         if let Some(anns) = self.get_annotations(from, to)? {
-            diff_annotations.insert((from.to_string(), to.to_string()), anns);
+            diff_annotations.insert((from.clone(), to.clone()), anns);
         }
 
         let mut storage = InMemoryStorage::from_parts(
             metadata,
-            versions,
+            expressions,
             HashMap::new(), // bills - query from storage
             diff_annotations,
             HashMap::new(), // members - query from storage
@@ -440,7 +467,7 @@ impl SqliteStorage {
     /// Load entire database into memory
     pub fn to_memory(&self) -> Result<InMemoryStorage, DatasetError> {
         let metadata = self.load_metadata()?;
-        let versions = self.load_versions()?;
+        let expressions = self.load_expressions()?;
         let bills = self.load_bills()?;
         let members = self.load_members()?;
         let sponsors = self.load_sponsors()?;
@@ -449,7 +476,7 @@ impl SqliteStorage {
 
         let mut storage = InMemoryStorage::from_parts(
             metadata,
-            versions,
+            expressions,
             bills,
             diff_annotations,
             members,
@@ -497,27 +524,28 @@ impl SqliteStorage {
         })
     }
 
-    fn load_versions(&self) -> Result<Vec<VersionSnapshot>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT date, label, element_json FROM versions ORDER BY date")?;
+    fn load_expressions(&self) -> Result<ExpressionsByWork, DatasetError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT work, date, label, element_json FROM expressions ORDER BY work, date",
+        )?;
         let mut rows = stmt.query([])?;
 
-        let mut versions = Vec::new();
+        let mut expressions = ExpressionsByWork::new();
         while let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            let label: Option<String> = row.get(1)?;
-            let element_json: String = row.get(2)?;
+            let work: String = row.get(0)?;
+            let date: String = row.get(1)?;
+            let label: Option<String> = row.get(2)?;
+            let element_json: String = row.get(3)?;
             let element: USLMElement = serde_json::from_str(&element_json)?;
 
-            versions.push(VersionSnapshot {
-                date,
-                label,
-                element,
-            });
+            let id = ExpressionId::new(WorkId::new(work), date);
+            expressions
+                .entry(id.work.clone())
+                .or_default()
+                .insert(id.at.clone(), Expression { id, label, element });
         }
 
-        Ok(versions)
+        Ok(expressions)
     }
 
     fn load_bills(&self) -> Result<HashMap<String, Bill>, DatasetError> {
@@ -571,38 +599,39 @@ impl SqliteStorage {
 
     fn load_annotations(
         &self,
-    ) -> Result<HashMap<VersionPair, Vec<ChangeAnnotation>>, DatasetError> {
+    ) -> Result<HashMap<ExpressionPair, Vec<ChangeAnnotation>>, DatasetError> {
         use crate::annotation::{AnnotationMetadata, AnnotationStatus, BillReference};
         use crate::legislature::AmendingAction;
         use std::str::FromStr;
 
         // Load all annotations with their paths
         let mut stmt = self.conn.prepare(
-            "SELECT a.id, a.from_date, a.to_date, a.operation, a.bill_id, a.amendment_id,
+            "SELECT a.id, a.work, a.from_date, a.to_date, a.operation, a.bill_id, a.amendment_id,
                     a.causative_text, a.status, a.confidence, a.annotator, a.timestamp,
                     a.notes, a.reasoning
              FROM annotations a
-             ORDER BY a.from_date, a.to_date, a.id",
+             ORDER BY a.work, a.from_date, a.to_date, a.id",
         )?;
         let mut rows = stmt.query([])?;
 
-        let mut annotations: HashMap<VersionPair, Vec<ChangeAnnotation>> = HashMap::new();
-        let mut ann_ids: Vec<(i64, String, String)> = Vec::new(); // (id, from, to)
+        let mut annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>> = HashMap::new();
+        let mut ann_ids: Vec<(i64, ExpressionPair)> = Vec::new();
 
         while let Some(row) = rows.next()? {
             let id: i64 = row.get(0)?;
-            let from_date: String = row.get(1)?;
-            let to_date: String = row.get(2)?;
-            let operation_str: String = row.get(3)?;
-            let bill_id: String = row.get(4)?;
-            let amendment_id: String = row.get(5)?;
-            let causative_text: String = row.get(6)?;
-            let status_str: String = row.get(7)?;
-            let confidence: Option<f32> = row.get(8)?;
-            let annotator: String = row.get(9)?;
-            let timestamp_str: String = row.get(10)?;
-            let notes: Option<String> = row.get(11)?;
-            let reasoning: Option<String> = row.get(12)?;
+            let work: String = row.get(1)?;
+            let from_date: String = row.get(2)?;
+            let to_date: String = row.get(3)?;
+            let operation_str: String = row.get(4)?;
+            let bill_id: String = row.get(5)?;
+            let amendment_id: String = row.get(6)?;
+            let causative_text: String = row.get(7)?;
+            let status_str: String = row.get(8)?;
+            let confidence: Option<f32> = row.get(9)?;
+            let annotator: String = row.get(10)?;
+            let timestamp_str: String = row.get(11)?;
+            let notes: Option<String> = row.get(12)?;
+            let reasoning: Option<String> = row.get(13)?;
 
             let operation =
                 AmendingAction::from_str(&operation_str).unwrap_or(AmendingAction::Amend);
@@ -636,9 +665,13 @@ impl SqliteStorage {
                 },
             };
 
-            let key = (from_date.clone(), to_date.clone());
-            annotations.entry(key).or_default().push(ann);
-            ann_ids.push((id, from_date, to_date));
+            let work = WorkId::new(work);
+            let key = (
+                ExpressionId::new(work.clone(), from_date),
+                ExpressionId::new(work, to_date),
+            );
+            annotations.entry(key.clone()).or_default().push(ann);
+            ann_ids.push((id, key));
         }
 
         // Load paths for each annotation
@@ -646,7 +679,7 @@ impl SqliteStorage {
             .conn
             .prepare("SELECT path FROM annotation_paths WHERE annotation_id = ?1")?;
 
-        for (id, from_date, to_date) in ann_ids {
+        for (id, key) in ann_ids {
             let mut path_rows = path_stmt.query(params![id])?;
             let mut paths = Vec::new();
             while let Some(row) = path_rows.next()? {
@@ -655,7 +688,6 @@ impl SqliteStorage {
             }
 
             // Find the annotation and set paths
-            let key = (from_date, to_date);
             if let Some(anns) = annotations.get_mut(&key) {
                 // Find the annotation with matching id (it's the one with empty paths)
                 for ann in anns.iter_mut() {
@@ -762,73 +794,120 @@ impl SqliteStorage {
     }
 }
 
+impl SqliteStorage {
+    /// Read one expression row, given a query that selects
+    /// `work, date, label, element_json` and its parameters.
+    fn expression_row(
+        &self,
+        sql: &str,
+        bound: &[&dyn rusqlite::ToSql],
+    ) -> Result<Option<Expression>, DatasetError> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let mut rows = stmt.query(bound)?;
+
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        let work: String = row.get(0)?;
+        let date: String = row.get(1)?;
+        let label: Option<String> = row.get(2)?;
+        let element_json: String = row.get(3)?;
+        Ok(Some(Expression {
+            id: ExpressionId::new(WorkId::new(work), date),
+            label,
+            element: serde_json::from_str(&element_json)?,
+        }))
+    }
+}
+
 impl DocumentReader for SqliteStorage {
-    fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
+    fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT date, label FROM versions ORDER BY date")?;
+            .prepare("SELECT DISTINCT work FROM expressions ORDER BY work")?;
         let mut rows = stmt.query([])?;
 
-        let mut versions = Vec::new();
+        let mut works = Vec::new();
+        while let Some(row) = rows.next()? {
+            let work: String = row.get(0)?;
+            works.push(WorkId::new(work));
+        }
+
+        Ok(works)
+    }
+
+    fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionInfo>, DatasetError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT date, label FROM expressions WHERE work = ?1 ORDER BY date")?;
+        let mut rows = stmt.query(params![work.as_str()])?;
+
+        let mut expressions = Vec::new();
         while let Some(row) = rows.next()? {
             let date: String = row.get(0)?;
             let label: Option<String> = row.get(1)?;
-            versions.push(VersionInfo { date, label });
-        }
-
-        Ok(versions)
-    }
-
-    fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT date, label, element_json FROM versions WHERE date = ?1")?;
-        let mut rows = stmt.query(params![date])?;
-
-        if let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            let label: Option<String> = row.get(1)?;
-            let element_json: String = row.get(2)?;
-            let element: USLMElement = serde_json::from_str(&element_json)?;
-            Ok(Some(VersionSnapshot {
-                date,
+            expressions.push(ExpressionInfo {
+                id: ExpressionId::new(work.clone(), date),
                 label,
-                element,
-            }))
-        } else {
-            Ok(None)
+            });
         }
+
+        Ok(expressions)
     }
 
-    fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
-        let from_v = self
-            .get_version(from)?
-            .ok_or_else(|| DatasetError::VersionNotFound(from.to_string()))?;
-        let to_v = self
-            .get_version(to)?
-            .ok_or_else(|| DatasetError::VersionNotFound(to.to_string()))?;
-        Ok(TreeDiff::from_elements(&from_v.element, &to_v.element))
+    fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.expression_row(
+            "SELECT work, date, label, element_json FROM expressions \
+             WHERE work = ?1 AND date = ?2",
+            &[&id.work.as_str(), &id.at],
+        )
+    }
+
+    fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.expression_row(
+            "SELECT work, date, label, element_json FROM expressions \
+             WHERE work = ?1 AND date > ?2 ORDER BY date LIMIT 1",
+            &[&id.work.as_str(), &id.at],
+        )
+    }
+
+    fn prev_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.expression_row(
+            "SELECT work, date, label, element_json FROM expressions \
+             WHERE work = ?1 AND date < ?2 ORDER BY date DESC LIMIT 1",
+            &[&id.work.as_str(), &id.at],
+        )
+    }
+
+    fn compute_diff(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError> {
+        let (from_e, to_e) = require_same_work(self, from, to)?;
+        Ok(TreeDiff::from_elements(&from_e.element, &to_e.element))
     }
 
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
         // Search using element_index table
         let query_pattern = format!("%{}%", query.to_lowercase());
         let mut stmt = self.conn.prepare(
-            "SELECT version_date, path, 'heading', heading FROM element_index WHERE LOWER(heading) LIKE ?1
+            "SELECT work, date, path, 'heading', heading FROM element_index WHERE LOWER(heading) LIKE ?1
              UNION ALL
-             SELECT version_date, path, 'content', content FROM element_index WHERE LOWER(content) LIKE ?1",
+             SELECT work, date, path, 'content', content FROM element_index WHERE LOWER(content) LIKE ?1",
         )?;
         let mut rows = stmt.query(params![query_pattern])?;
 
         let mut results = Vec::new();
         while let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            let path: String = row.get(1)?;
-            let field: String = row.get(2)?;
-            let snippet: Option<String> = row.get(3)?;
+            let work: String = row.get(0)?;
+            let date: String = row.get(1)?;
+            let path: String = row.get(2)?;
+            let field: String = row.get(3)?;
+            let snippet: Option<String> = row.get(4)?;
             if let Some(snippet) = snippet {
                 results.push(SearchResult {
-                    date,
+                    expression: ExpressionId::new(WorkId::new(work), date),
                     path,
                     field,
                     snippet,
@@ -839,83 +918,27 @@ impl DocumentReader for SqliteStorage {
         Ok(results)
     }
 
-    fn get_version_by_label(&self, label: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT date, label, element_json FROM versions WHERE label = ?1")?;
-        let mut rows = stmt.query(params![label])?;
-
-        if let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            let label: Option<String> = row.get(1)?;
-            let element_json: String = row.get(2)?;
-            let element: USLMElement = serde_json::from_str(&element_json)?;
-            Ok(Some(VersionSnapshot {
-                date,
-                label,
-                element,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
+        // The index says which expressions hold this path; only those are read.
+        // Ordered so both backends answer alike.
         let mut stmt = self.conn.prepare(
-            "SELECT date, label, element_json FROM versions WHERE date > ?1 ORDER BY date LIMIT 1",
+            "SELECT DISTINCT work, date FROM element_index WHERE path = ?1 ORDER BY work, date",
         )?;
-        let mut rows = stmt.query(params![date])?;
-
-        if let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            let label: Option<String> = row.get(1)?;
-            let element_json: String = row.get(2)?;
-            let element: USLMElement = serde_json::from_str(&element_json)?;
-            Ok(Some(VersionSnapshot {
-                date,
-                label,
-                element,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT date, label, element_json FROM versions WHERE date < ?1 ORDER BY date DESC LIMIT 1",
-        )?;
-        let mut rows = stmt.query(params![date])?;
-
-        if let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            let label: Option<String> = row.get(1)?;
-            let element_json: String = row.get(2)?;
-            let element: USLMElement = serde_json::from_str(&element_json)?;
-            Ok(Some(VersionSnapshot {
-                date,
-                label,
-                element,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
-        // Use element_index to find which versions have this path
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT version_date FROM element_index WHERE path = ?1")?;
         let mut rows = stmt.query(params![path])?;
 
-        let mut results = Vec::new();
+        let mut wanted = Vec::new();
         while let Some(row) = rows.next()? {
-            let date: String = row.get(0)?;
-            if let Some(version) = self.get_version(&date)?
-                && let Some(elem) = version.element.find(path)
+            let work: String = row.get(0)?;
+            let date: String = row.get(1)?;
+            wanted.push(ExpressionId::new(WorkId::new(work), date));
+        }
+
+        let mut results = Vec::new();
+        for id in wanted {
+            if let Some(expression) = self.get_expression(&id)?
+                && let Some(found) = expression.element.find(path)
             {
-                results.push((date, elem.clone()));
+                results.push((id, found.clone()));
             }
         }
 
@@ -926,11 +949,11 @@ impl DocumentReader for SqliteStorage {
 impl LinkReader for SqliteStorage {
     fn get_annotations(
         &self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
     ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
         let all = self.load_annotations()?;
-        let key = (from.to_string(), to.to_string());
+        let key = (from.clone(), to.clone());
         Ok(all.get(&key).cloned())
     }
 
@@ -1108,13 +1131,18 @@ impl LinkReader for SqliteStorage {
         Ok(annotations)
     }
 
-    fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT from_date, to_date FROM annotations")?;
+    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT work, from_date, to_date FROM annotations \
+             ORDER BY work, from_date, to_date",
+        )?;
         let pairs = stmt
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                let work = WorkId::new(row.get::<_, String>(0)?);
+                Ok((
+                    ExpressionId::new(work.clone(), row.get::<_, String>(1)?),
+                    ExpressionId::new(work, row.get::<_, String>(2)?),
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(pairs)
@@ -1274,18 +1302,23 @@ impl DocumentWriter for SqliteStorage {
         let _ = self.save_metadata();
     }
 
-    fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError> {
-        let element_json = serde_json::to_string(&snapshot.element)?;
+    fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
+        let element_json = serde_json::to_string(&expression.element)?;
         self.conn.execute(
-            "INSERT OR REPLACE INTO versions (date, label, element_json) VALUES (?1, ?2, ?3)",
-            params![&snapshot.date, &snapshot.label, element_json],
+            "INSERT OR REPLACE INTO expressions (work, date, label, element_json) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                expression.id.work.as_str(),
+                &expression.id.at,
+                &expression.label,
+                element_json
+            ],
         )?;
 
         // Index elements
         let mut stmt = self.conn.prepare(
-            "INSERT OR REPLACE INTO element_index (version_date, path, element_type, heading, content) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT OR REPLACE INTO element_index (work, date, path, element_type, heading, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
-        Self::index_element(&mut stmt, &snapshot.date, &snapshot.element)?;
+        Self::index_element(&mut stmt, &expression.id, &expression.element)?;
 
         Ok(())
     }
@@ -1294,8 +1327,8 @@ impl DocumentWriter for SqliteStorage {
 impl LinkWriter for SqliteStorage {
     fn add_annotation(
         &mut self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
         annotation: ChangeAnnotation,
     ) -> Result<(), DatasetError> {
         let operation = format!("{:?}", annotation.operation);
@@ -1303,10 +1336,11 @@ impl LinkWriter for SqliteStorage {
         let timestamp = annotation.metadata.timestamp.to_string();
 
         self.conn.execute(
-            "INSERT INTO annotations (from_date, to_date, operation, bill_id, amendment_id, causative_text, status, confidence, annotator, timestamp, notes, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO annotations (work, from_date, to_date, operation, bill_id, amendment_id, causative_text, status, confidence, annotator, timestamp, notes, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
-                from,
-                to,
+                from.work.as_str(),
+                &from.at,
+                &to.at,
                 operation,
                 &annotation.source_bill.bill_id,
                 &annotation.source_bill.amendment_id,

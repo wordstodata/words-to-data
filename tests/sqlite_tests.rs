@@ -2,7 +2,9 @@ use std::fs::File;
 use std::io::BufReader;
 
 use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, VersionSnapshot};
+use words_to_data::dataset::{
+    Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
+};
 use words_to_data::storage::{
     DocumentReader, InMemoryStorage, LegislatureReader, LinkReader, SqliteStorage,
 };
@@ -10,6 +12,16 @@ use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 
 const TEST_PATH: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_8/subparagraph_A/clause_v";
+/// Title 7 is Agriculture. It is the work every expression below belongs to.
+const TITLE_7: &str = "uscode/title_7";
+
+fn title_7() -> WorkId {
+    WorkId::new(TITLE_7)
+}
+
+fn at(date: &str) -> ExpressionId {
+    ExpressionId::new(title_7(), date)
+}
 
 fn make_test_dataset() -> Dataset<InMemoryStorage> {
     let metadata = DatasetMetadata {
@@ -23,54 +35,60 @@ fn make_test_dataset() -> Dataset<InMemoryStorage> {
     Dataset::new(metadata)
 }
 
-fn make_snapshot(date: &str, label: Option<&str>) -> VersionSnapshot {
-    let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-    VersionSnapshot {
-        date: date.to_string(),
+/// Title 7's tree, labelled with `date`.
+fn make_expression(date: &str, label: Option<&str>) -> Expression {
+    let parsed = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
+    let root = work_roots(parsed).pop().expect("the file holds one title");
+    Expression {
+        id: at(date),
         label: label.map(|s| s.to_string()),
-        element,
+        element: root,
     }
+}
+
+/// The ids and labels of every expression of title 7, oldest first.
+fn listed(dataset: &Dataset<InMemoryStorage>) -> Vec<(ExpressionId, Option<String>)> {
+    dataset
+        .expressions(&title_7())
+        .unwrap()
+        .into_iter()
+        .map(|info| (info.id, info.label))
+        .collect()
 }
 
 #[test]
 fn should_save_and_load_sqlite_format() {
-    println!("RUNNING");
     let mut dataset = make_test_dataset();
-    println!("ADDING 1");
     dataset
-        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .add_expression(make_expression("2024-01-01", Some("First")))
         .unwrap();
-    println!("ADDING 2");
     dataset
-        .add_version(make_snapshot("2024-06-01", None))
+        .add_expression(make_expression("2024-06-01", None))
         .unwrap();
 
     let path = "/tmp/test_dataset.db";
 
-    println!("SAVING");
     // Save as SQLite
     dataset.save_to_sqlite(path).expect("save should succeed");
 
     // Load from SQLite
-    println!("LOADING");
     let loaded = Dataset::open_sqlite(path)
         .expect("open should succeed")
         .to_memory()
         .expect("to_memory should succeed");
 
     assert_eq!(loaded.metadata().name, "SQLite Test");
-    assert_eq!(loaded.storage().versions.len(), 2);
-    assert_eq!(loaded.storage().versions[0].date, "2024-01-01");
     assert_eq!(
-        loaded.storage().versions[0].label,
-        Some("First".to_string())
+        listed(&loaded),
+        vec![
+            (at("2024-01-01"), Some("First".to_string())),
+            (at("2024-06-01"), None),
+        ]
     );
-    assert_eq!(loaded.storage().versions[1].date, "2024-06-01");
-    assert_eq!(loaded.storage().versions[1].label, None);
 
-    // Verify element data preserved
-    let elem = &loaded.storage().versions[0].element;
-    assert_eq!(elem.data.path.as_ref(), "uscode");
+    // Verify element data preserved, rooted at the work
+    let expression = loaded.get_expression(&at("2024-01-01")).unwrap().unwrap();
+    assert_eq!(expression.element.data.path.as_ref(), TITLE_7);
 
     // Cleanup
     std::fs::remove_file(path).ok();
@@ -88,10 +106,10 @@ fn load_annotations() -> Vec<ChangeAnnotation> {
 fn should_roundtrip_bills_and_annotations_sqlite() {
     let mut dataset = make_test_dataset();
     dataset
-        .add_version(make_snapshot("2025-07-18", None))
+        .add_expression(make_expression("2025-07-18", None))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2025-07-30", None))
+        .add_expression(make_expression("2025-07-30", None))
         .unwrap();
 
     // Add bill
@@ -101,7 +119,7 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
     // Add annotations
     for annotation in load_annotations() {
         dataset
-            .add_annotation("2025-07-18", "2025-07-30", annotation)
+            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
             .unwrap();
     }
 
@@ -117,7 +135,7 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
 
     // Verify annotations
     let anns = loaded
-        .get_annotations("2025-07-18", "2025-07-30")
+        .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
         .unwrap()
         .unwrap();
     assert_eq!(anns.len(), 753);
@@ -129,31 +147,35 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
 fn should_support_incremental_save_sqlite() {
     let path = "/tmp/test_incremental.db";
 
-    // First save with one version
+    // First save with one expression
     {
         let mut dataset = make_test_dataset();
         dataset
-            .add_version(make_snapshot("2024-01-01", Some("V1")))
+            .add_expression(make_expression("2024-01-01", Some("V1")))
             .unwrap();
         dataset.save_to_sqlite(path).unwrap();
     }
 
-    // Load, add another version, save again
+    // Load, add another expression, save again
     {
         let mut dataset = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
-        assert_eq!(dataset.storage().versions.len(), 1);
+        assert_eq!(listed(&dataset).len(), 1);
 
         dataset
-            .add_version(make_snapshot("2024-06-01", Some("V2")))
+            .add_expression(make_expression("2024-06-01", Some("V2")))
             .unwrap();
         dataset.save_to_sqlite(path).unwrap();
     }
 
-    // Verify both versions present
+    // Verify both expressions present
     let loaded = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
-    assert_eq!(loaded.storage().versions.len(), 2);
-    assert_eq!(loaded.storage().versions[0].label, Some("V1".to_string()));
-    assert_eq!(loaded.storage().versions[1].label, Some("V2".to_string()));
+    assert_eq!(
+        listed(&loaded),
+        vec![
+            (at("2024-01-01"), Some("V1".to_string())),
+            (at("2024-06-01"), Some("V2".to_string())),
+        ]
+    );
 
     std::fs::remove_file(path).ok();
 }
@@ -163,10 +185,10 @@ fn should_query_via_trait_interface() {
     // Setup: save dataset to SQLite
     let mut dataset = make_test_dataset();
     dataset
-        .add_version(make_snapshot("2025-07-18", Some("V1")))
+        .add_expression(make_expression("2025-07-18", Some("V1")))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2025-07-30", Some("V2")))
+        .add_expression(make_expression("2025-07-30", Some("V2")))
         .unwrap();
 
     let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
@@ -174,7 +196,7 @@ fn should_query_via_trait_interface() {
 
     for annotation in load_annotations() {
         dataset
-            .add_annotation("2025-07-18", "2025-07-30", annotation)
+            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
             .unwrap();
     }
 
@@ -183,12 +205,16 @@ fn should_query_via_trait_interface() {
 
     // Query via trait - works for both Dataset and SqliteStorage
     fn check_reader(reader: &(impl DocumentReader + LinkReader + LegislatureReader)) {
-        // list_versions
-        let versions = reader.list_versions().unwrap();
-        assert_eq!(versions.len(), 2);
+        // works
+        assert_eq!(reader.works().unwrap(), vec![title_7()]);
 
-        // get_version
-        let v1 = reader.get_version("2025-07-18").unwrap().unwrap();
+        // expressions
+        let expressions = reader.expressions(&title_7()).unwrap();
+        assert_eq!(expressions.len(), 2);
+        assert_eq!(expressions[0].label, Some("V1".to_string()));
+
+        // get_expression
+        let v1 = reader.get_expression(&at("2025-07-18")).unwrap().unwrap();
         assert_eq!(v1.label, Some("V1".to_string()));
 
         // get_bill
@@ -197,14 +223,23 @@ fn should_query_via_trait_interface() {
 
         // get_annotations
         let anns = reader
-            .get_annotations("2025-07-18", "2025-07-30")
+            .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
             .unwrap()
             .unwrap();
         assert_eq!(anns.len(), 753);
 
         // compute_diff
-        let diff = reader.compute_diff("2025-07-18", "2025-07-30").unwrap();
-        assert_eq!(diff.root_path, "uscode");
+        let diff = reader
+            .compute_diff(&at("2025-07-18"), &at("2025-07-30"))
+            .unwrap();
+        assert_eq!(diff.root_path, TITLE_7);
+
+        // find_element, in the same order from either backend
+        let found = reader.find_element(TITLE_7).unwrap();
+        assert_eq!(
+            found.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
+            vec![at("2025-07-18"), at("2025-07-30")]
+        );
     }
 
     // Test with Dataset
@@ -218,50 +253,56 @@ fn should_query_via_trait_interface() {
 }
 
 #[test]
-fn should_load_window_with_two_versions() {
-    // Setup: save dataset with 3 versions
+fn should_load_window_with_two_expressions() {
+    // Setup: save dataset with 3 expressions
     let mut dataset = make_test_dataset();
     dataset
-        .add_version(make_snapshot("2024-01-01", Some("V1")))
+        .add_expression(make_expression("2024-01-01", Some("V1")))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2024-06-01", Some("V2")))
+        .add_expression(make_expression("2024-06-01", Some("V2")))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2024-12-01", Some("V3")))
+        .add_expression(make_expression("2024-12-01", Some("V3")))
         .unwrap();
 
     for annotation in load_annotations() {
         dataset
-            .add_annotation("2024-01-01", "2024-06-01", annotation.clone())
+            .add_annotation(&at("2024-01-01"), &at("2024-06-01"), annotation.clone())
             .unwrap();
         dataset
-            .add_annotation("2024-06-01", "2024-12-01", annotation)
+            .add_annotation(&at("2024-06-01"), &at("2024-12-01"), annotation)
             .unwrap();
     }
 
     let path = "/tmp/test_load_window.db";
     dataset.save_to_sqlite(path).unwrap();
 
-    // Load window with just 2 versions (returns InMemoryStorage)
+    // Load window with just 2 expressions (returns InMemoryStorage)
     let storage = SqliteStorage::open(path).unwrap();
-    let windowed = storage.load_window("2024-01-01", "2024-06-01").unwrap();
+    let windowed = storage
+        .load_window(&at("2024-01-01"), &at("2024-06-01"))
+        .unwrap();
 
-    // Should have exactly 2 versions
-    assert_eq!(windowed.versions.len(), 2);
-    assert_eq!(windowed.versions[0].date, "2024-01-01");
-    assert_eq!(windowed.versions[1].date, "2024-06-01");
+    // Should have exactly 2 expressions, of the one work
+    assert_eq!(
+        windowed
+            .all_expressions()
+            .map(|e| e.id.clone())
+            .collect::<Vec<_>>(),
+        vec![at("2024-01-01"), at("2024-06-01")]
+    );
 
     // Should have annotations for that pair only
     assert!(
         windowed
             .diff_annotations
-            .contains_key(&("2024-01-01".to_string(), "2024-06-01".to_string()))
+            .contains_key(&(at("2024-01-01"), at("2024-06-01")))
     );
     assert!(
         !windowed
             .diff_annotations
-            .contains_key(&("2024-06-01".to_string(), "2024-12-01".to_string()))
+            .contains_key(&(at("2024-06-01"), at("2024-12-01")))
     );
 
     // Bills/members/sponsors should be empty (query from storage when needed)
@@ -274,15 +315,15 @@ fn should_load_window_with_two_versions() {
 fn should_query_annotations_for_path_via_trait() {
     let mut dataset = make_test_dataset();
     dataset
-        .add_version(make_snapshot("2025-07-18", None))
+        .add_expression(make_expression("2025-07-18", None))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2025-07-30", None))
+        .add_expression(make_expression("2025-07-30", None))
         .unwrap();
 
     for annotation in load_annotations() {
         dataset
-            .add_annotation("2025-07-18", "2025-07-30", annotation)
+            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
             .unwrap();
     }
 

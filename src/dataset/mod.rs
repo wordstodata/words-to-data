@@ -8,8 +8,10 @@ mod scope;
 mod work;
 
 pub use error::DatasetError;
-pub use scope::{Coverage, Scope};
-pub use work::{ExpressionId, WorkId};
+pub use scope::{Coverage, Scope, WorkCoverage};
+pub use work::{
+    Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, work_roots,
+};
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -23,7 +25,7 @@ use crate::diff::TreeDiff;
 use crate::legislature::BillDiff;
 use crate::storage::{
     DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
-    LinkReader, LinkWriter, SqliteStorage, Storage, VersionInfo,
+    LinkReader, LinkWriter, SqliteStorage, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -55,28 +57,18 @@ pub struct DatasetMetadata {
     pub version: String,
 }
 
-/// A snapshot of a USLMElement at a specific point in time
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VersionSnapshot {
-    /// Date in "YYYY-MM-DD" format
-    pub date: String,
-    /// Optional human-readable label (e.g., "Pre-Tax Cuts Act")
-    pub label: Option<String>,
-    /// The element tree at this version
-    pub element: USLMElement,
-}
-
 /// A search result from text search
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
-    pub date: String,
+    /// The expression the hit was found in.
+    pub expression: ExpressionId,
     pub path: String,
     pub field: String,
     pub snippet: String,
 }
 
-/// Key for diff_annotations HashMap: (from_date, to_date)
-pub type VersionPair = (String, String);
+/// The two expressions an annotation sits between. Both name the same work.
+pub type ExpressionPair = (ExpressionId, ExpressionId);
 
 /// A collection of versioned legal documents with bill annotations
 ///
@@ -124,22 +116,15 @@ impl<S: Storage> Dataset<S> {
     /// for a dataset whose contents do not share a release cycle: ten court
     /// opinions are ten works, and no global date describes them.
     pub fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
-        Ok(self.scope()?.held.into_iter().map(WorkId::new).collect())
+        self.storage.works()
     }
 
     /// Every expression of one work, in date order.
     ///
     /// A work with one expression is normal, not a degenerate case: a court
     /// opinion is published once and never amended.
-    pub fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionId>, DatasetError> {
-        let mut expressions: Vec<ExpressionId> = self
-            .storage
-            .find_element(work.as_str())?
-            .into_iter()
-            .map(|(date, _)| ExpressionId::new(work.clone(), date))
-            .collect();
-        expressions.sort();
-        Ok(expressions)
+    pub fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionInfo>, DatasetError> {
+        self.storage.expressions(work)
     }
 
     /// One work as it read on one date.
@@ -147,13 +132,18 @@ impl<S: Storage> Dataset<S> {
     /// `None` means this dataset holds no such expression. Ask
     /// [`Dataset::scope`] whether it holds the work at all, so an absent
     /// expression is not mistaken for an absent document.
-    pub fn get_expression(&self, id: &ExpressionId) -> Result<Option<USLMElement>, DatasetError> {
-        Ok(self
-            .storage
-            .find_element(id.work.as_str())?
-            .into_iter()
-            .find(|(date, _)| *date == id.at)
-            .map(|(_, element)| element))
+    pub fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.storage.get_expression(id)
+    }
+
+    /// The next expression of the same work, or `None` at the latest one.
+    pub fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.storage.next_expression(id)
+    }
+
+    /// The previous expression of the same work, or `None` at the earliest one.
+    pub fn prev_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.storage.prev_expression(id)
     }
 
     /// The legislature extension, when this dataset carries one.
@@ -173,30 +163,7 @@ impl<S: Storage> Dataset<S> {
         self.storage.legislature()
     }
 
-    // --- Delegate DatasetReader methods ---
-
-    pub fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
-        self.storage.list_versions()
-    }
-
-    pub fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.get_version(date)
-    }
-
-    pub fn get_version_by_label(
-        &self,
-        label: &str,
-    ) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.get_version_by_label(label)
-    }
-
-    pub fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.next_version(date)
-    }
-
-    pub fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.prev_version(date)
-    }
+    // --- Delegate reader methods ---
 
     pub fn get_bill(&self, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
         self.storage.get_bill(bill_id)
@@ -216,8 +183,8 @@ impl<S: Storage> Dataset<S> {
 
     pub fn get_annotations(
         &self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
     ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
         self.storage.get_annotations(from, to)
     }
@@ -234,8 +201,12 @@ impl<S: Storage> Dataset<S> {
         self.storage.get_bill_votes(bill_id)
     }
 
-    pub fn compute_diff(&self, from_date: &str, to_date: &str) -> Result<TreeDiff, DatasetError> {
-        self.storage.compute_diff(from_date, to_date)
+    pub fn compute_diff(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError> {
+        self.storage.compute_diff(from, to)
     }
 
     pub fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
@@ -253,11 +224,14 @@ impl<S: Storage> Dataset<S> {
         self.storage.annotations_for_bill(bill_id)
     }
 
-    pub fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
+    pub fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
         self.storage.annotation_pairs()
     }
 
-    pub fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+    pub fn find_element(
+        &self,
+        path: &str,
+    ) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         self.storage.find_element(path)
     }
 
@@ -278,8 +252,8 @@ impl<S: Storage> Dataset<S> {
         self.storage.set_metadata(metadata)
     }
 
-    pub fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError> {
-        self.storage.add_version(snapshot)
+    pub fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
+        self.storage.add_expression(expression)
     }
 
     pub fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
@@ -288,8 +262,8 @@ impl<S: Storage> Dataset<S> {
 
     pub fn add_annotation(
         &mut self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
         annotation: ChangeAnnotation,
     ) -> Result<(), DatasetError> {
         self.storage.add_annotation(from, to, annotation)
@@ -307,8 +281,8 @@ impl<S: Storage> Dataset<S> {
         self.storage.add_bill_votes(votes)
     }
 
-    /// Get paths that have annotations for a version pair
-    pub fn annotated_paths(&self, from: &str, to: &str) -> Vec<String> {
+    /// Get paths that have annotations for an expression pair
+    pub fn annotated_paths(&self, from: &ExpressionId, to: &ExpressionId) -> Vec<String> {
         self.get_annotations(from, to)
             .ok()
             .flatten()
@@ -323,8 +297,12 @@ impl<S: Storage> Dataset<S> {
             .unwrap_or_default()
     }
 
-    /// Get paths with changes that lack annotations for a version pair
-    pub fn unannotated_paths(&self, from: &str, to: &str) -> Result<Vec<String>, DatasetError> {
+    /// Get paths with changes that lack annotations for an expression pair
+    pub fn unannotated_paths(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<Vec<String>, DatasetError> {
         let diff = self.compute_diff(from, to)?;
         let annotated = self.annotated_paths(from, to);
         let annotated_set: std::collections::HashSet<_> = annotated.into_iter().collect();
@@ -374,23 +352,24 @@ impl Dataset<InMemoryStorage> {
         }
     }
 
-    /// Parse a USLM XML file and add it as a version
+    /// Parse a USLM XML file and add each work it holds as an expression.
     pub fn add_uslm_xml(
         &mut self,
         xml_path: &str,
         date: &str,
         label: Option<String>,
     ) -> Result<(), ParseError> {
-        let result = parse_uslm_xml(xml_path, date)?;
-        self.add_version(VersionSnapshot {
-            date: date.to_string(),
-            label,
-            element: result,
-        })
-        .map_err(|e| ParseError::Io(std::io::Error::other(e)))
+        let element = parse_uslm_xml(xml_path, date)?;
+        self.add_works_of(element, date, label)
+            .map_err(|e| ParseError::Io(std::io::Error::other(e)))
     }
 
-    /// Load and merge all USLM XML files from a folder
+    /// Load and merge all USLM XML files from a folder, then add each work it
+    /// holds as an expression.
+    ///
+    /// A US Code release point is one folder of many titles. It arrives as one
+    /// merged tree and leaves as one expression per title, because the release
+    /// point is how the source publishes, not what the dataset holds.
     pub fn add_uslm_folder(
         &mut self,
         folder_path: &str,
@@ -399,11 +378,24 @@ impl Dataset<InMemoryStorage> {
     ) -> Result<(), DatasetError> {
         let element = load_uslm_folder(folder_path, date)
             .ok_or_else(|| DatasetError::FolderLoadFailed(folder_path.to_string()))?;
-        self.add_version(VersionSnapshot {
-            date: date.to_string(),
-            label,
-            element,
-        })
+        self.add_works_of(element, date, label)
+    }
+
+    /// Split a parsed tree into works and add one expression for each.
+    fn add_works_of(
+        &mut self,
+        element: USLMElement,
+        date: &str,
+        label: Option<String>,
+    ) -> Result<(), DatasetError> {
+        for root in work_roots(element) {
+            self.add_expression(Expression {
+                id: ExpressionId::new(WorkId::new(root.data.path.to_string()), date),
+                label: label.clone(),
+                element: root,
+            })?;
+        }
+        Ok(())
     }
 
     /// Save to file in specified format
@@ -424,11 +416,18 @@ impl Dataset<InMemoryStorage> {
     }
 
     /// Load from file in specified format
+    ///
+    /// A file written by a different schema is refused rather than half-read.
+    /// Datasets are rebuilt, not migrated, so the break has to be loud.
     pub fn load(path: &str, format: Format) -> Result<Self, DatasetError> {
         match format {
             Format::Compact => {
-                use crate::compact::DatasetCompact;
+                use crate::compact::{DatasetCompact, check_schema_version};
                 let json = fs::read_to_string(path)?;
+                // Before the full parse: every other field changes shape
+                // between schemas, so parsing first would fail on one of those
+                // and report a type mismatch instead of "rebuild this file".
+                check_schema_version(&json)?;
                 let compact: DatasetCompact = serde_json::from_str(&json)?;
                 Ok(Self::with_storage(compact.into_storage()))
             }
@@ -536,12 +535,13 @@ impl Dataset<SqliteStorage> {
         Ok(Dataset::with_storage(self.storage.to_memory()?))
     }
 
-    /// Load just the version pair `[from, to]` (and any annotations between them)
-    /// into an in-memory dataset, without materializing the rest of the database.
+    /// Load just the expression pair `[from, to]` (and any annotations between
+    /// them) into an in-memory dataset, without materializing the rest of the
+    /// database.
     pub fn load_window(
         &self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
     ) -> Result<Dataset<InMemoryStorage>, DatasetError> {
         Ok(Dataset::with_storage(self.storage.load_window(from, to)?))
     }
@@ -550,15 +550,31 @@ impl Dataset<SqliteStorage> {
 // --- Implement traits for Dataset<S> ---
 
 impl<S: Storage> DocumentReader for Dataset<S> {
-    fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
-        self.storage.list_versions()
+    fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
+        self.storage.works()
     }
 
-    fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.get_version(date)
+    fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionInfo>, DatasetError> {
+        self.storage.expressions(work)
     }
 
-    fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
+    fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.storage.get_expression(id)
+    }
+
+    fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.storage.next_expression(id)
+    }
+
+    fn prev_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.storage.prev_expression(id)
+    }
+
+    fn compute_diff(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError> {
         self.storage.compute_diff(from, to)
     }
 
@@ -566,19 +582,7 @@ impl<S: Storage> DocumentReader for Dataset<S> {
         self.storage.search_text(query)
     }
 
-    fn get_version_by_label(&self, label: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.get_version_by_label(label)
-    }
-
-    fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.next_version(date)
-    }
-
-    fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.storage.prev_version(date)
-    }
-
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         self.storage.find_element(path)
     }
 }
@@ -586,8 +590,8 @@ impl<S: Storage> DocumentReader for Dataset<S> {
 impl<S: Storage> LinkReader for Dataset<S> {
     fn get_annotations(
         &self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
     ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
         self.storage.get_annotations(from, to)
     }
@@ -600,7 +604,7 @@ impl<S: Storage> LinkReader for Dataset<S> {
         self.storage.annotations_for_bill(bill_id)
     }
 
-    fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
+    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
         self.storage.annotation_pairs()
     }
 }
@@ -643,16 +647,16 @@ impl<S: Storage> DocumentWriter for Dataset<S> {
         self.storage.set_metadata(metadata)
     }
 
-    fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError> {
-        self.storage.add_version(snapshot)
+    fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
+        self.storage.add_expression(expression)
     }
 }
 
 impl<S: Storage> LinkWriter for Dataset<S> {
     fn add_annotation(
         &mut self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
         annotation: ChangeAnnotation,
     ) -> Result<(), DatasetError> {
         self.storage.add_annotation(from, to, annotation)

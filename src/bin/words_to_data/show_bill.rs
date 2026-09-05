@@ -19,9 +19,11 @@ pub struct Args {
 }
 
 pub fn run(args: Args) {
-    let ds = load::open(&args.dataset).expect("Error opening dataset");
-    let summary =
-        with_dataset!(ds, d => inspect::show_bill(&d, &args.bill_id)).expect("Error reading bill");
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    let summary = crate::fail::or_exit(
+        with_dataset!(ds, d => inspect::show_bill(&d, &args.bill_id)),
+        "Error reading bill",
+    );
 
     let Some(summary) = summary else {
         eprintln!("Bill not found: {}", args.bill_id);

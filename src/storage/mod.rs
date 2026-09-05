@@ -2,9 +2,9 @@
 //!
 //! The traits split three ways, which is the shape the data model needs (#51):
 //!
-//! - **Documents** are the core. Versions, navigation, diffing, and search work
-//!   the same whether the document is a statute, a regulation, or an opinion.
-//!   Nothing here names a legislature or a court.
+//! - **Documents** are the core. Expressions, navigation, diffing, and search
+//!   work the same whether the document is a statute, a regulation, or an
+//!   opinion. Nothing here names a legislature or a court.
 //! - **Links** are also core. A link connects a provision to something else and
 //!   carries its provenance. Today the only kind is the change annotation, which
 //!   ties a change to the amendment that caused it.
@@ -14,6 +14,11 @@
 //!
 //! `Storage` is the full set that both first-party backends implement today. A
 //! backend that holds only documents implements [`DocumentReader`] alone.
+//!
+//! The unit a backend stores is an **expression**: one work as it read on one
+//! date, with its own tree. There is no table of release dates above it, so
+//! documents that share no publication cycle can live in one dataset
+//! (`docs/adr/0003-storage-is-keyed-by-work.md`).
 
 pub mod memory;
 pub mod sqlite;
@@ -23,46 +28,72 @@ pub use sqlite::SqliteStorage;
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
-use crate::dataset::{DatasetError, DatasetMetadata, SearchResult, VersionSnapshot};
+use crate::dataset::{
+    DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, SearchResult, WorkId,
+};
 use crate::diff::TreeDiff;
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
-/// Version info for listing (without full element tree)
-#[derive(Debug, Clone)]
-pub struct VersionInfo {
-    pub date: String,
-    pub label: Option<String>,
-}
+/// The dataset shape this build reads and writes.
+///
+/// Datasets are rebuilt rather than migrated, so a schema change is a clean
+/// break. Both on-disk forms carry this number and refuse a file that does not
+/// match, because a break that is not loud reads as an empty dataset.
+///
+/// 3 is the work-scoped schema: an expression is `(work, date)` with its own
+/// tree, and annotations are keyed by a pair of expressions
+/// (`docs/adr/0003-storage-is-keyed-by-work.md`).
+pub const SCHEMA_VERSION: i32 = 3;
 
 /// Reading the documents a dataset holds.
 ///
 /// This is the core interface. Every document class supports it, so nothing
 /// here may name a legislature, a court, or any other extension concept.
+///
+/// It speaks in works and expressions rather than dates. A date alone cannot
+/// name anything in a dataset whose documents share no release cycle, which is
+/// every dataset except a statutory one.
 pub trait DocumentReader {
-    /// List all available versions (date + label, no element tree)
-    fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError>;
+    /// Every work this dataset holds, in path order.
+    fn works(&self) -> Result<Vec<WorkId>, DatasetError>;
 
-    /// Get a specific version by date
-    fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError>;
+    /// Every expression of one work, oldest first, without their trees.
+    ///
+    /// A work with one expression is ordinary, not degenerate: a court opinion
+    /// is published once and never amended.
+    fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionInfo>, DatasetError>;
 
-    /// Get a version by label
-    fn get_version_by_label(&self, label: &str) -> Result<Option<VersionSnapshot>, DatasetError>;
+    /// One work as it read on one date.
+    ///
+    /// `None` means this dataset holds no such expression. Ask [`works`] or the
+    /// scope whether it holds the work at all, so a missing date is not
+    /// mistaken for a missing document.
+    ///
+    /// [`works`]: DocumentReader::works
+    fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError>;
 
-    /// Get the next version after the given date
-    fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError>;
+    /// The next expression of the same work, or `None` at the latest one.
+    fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError>;
 
-    /// Get the previous version before the given date
-    fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError>;
+    /// The previous expression of the same work, or `None` at the earliest one.
+    fn prev_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError>;
 
-    /// Compute diff between two versions
-    fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError>;
+    /// The differences between two expressions of one work.
+    ///
+    /// Both ids must name the same work. A diff across two works compares
+    /// unrelated documents, so it is refused rather than answered.
+    fn compute_diff(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError>;
 
-    /// Search text across versions
+    /// Search text across every expression.
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError>;
 
-    /// Find element by path across all versions
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError>;
+    /// Find an element by path, in every expression that holds it.
+    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError>;
 }
 
 /// Reading the links a dataset holds.
@@ -76,21 +107,21 @@ pub trait DocumentReader {
 /// query by link object, and the bill id is an opaque string here: this trait
 /// does not need to know what a bill is.
 pub trait LinkReader {
-    /// Get annotations for a version pair
+    /// Get annotations recorded for a pair of expressions of one work.
     fn get_annotations(
         &self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
     ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError>;
 
-    /// Find all annotations that include the given path (across all version pairs)
+    /// Find all annotations that include the given path (across all pairs)
     fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError>;
 
-    /// Find all annotations from a specific bill (across all version pairs)
+    /// Find all annotations from a specific bill (across all pairs)
     fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError>;
 
-    /// List every `(from_date, to_date)` pair that carries annotations
-    fn annotation_pairs(&self) -> Result<Vec<crate::dataset::VersionPair>, DatasetError>;
+    /// List every expression pair that carries annotations
+    fn annotation_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError>;
 }
 
 /// Reading the legislature facts a dataset holds.
@@ -130,17 +161,20 @@ pub trait DocumentWriter {
     /// Set metadata
     fn set_metadata(&mut self, metadata: DatasetMetadata);
 
-    /// Add a version snapshot
-    fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError>;
+    /// Add one expression of one work.
+    ///
+    /// Adding the same `(work, date)` twice replaces the earlier one, so a
+    /// rebuild cannot leave two trees claiming to be the same text.
+    fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError>;
 }
 
 /// Writing links.
 pub trait LinkWriter {
-    /// Add an annotation for a version pair
+    /// Add an annotation for a pair of expressions of one work.
     fn add_annotation(
         &mut self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
         annotation: ChangeAnnotation,
     ) -> Result<(), DatasetError>;
 }

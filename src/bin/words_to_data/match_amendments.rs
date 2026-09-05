@@ -17,7 +17,7 @@ use serde::Deserialize;
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::{Dataset, ExpressionId, Format};
 use words_to_data::diff::{AmendmentSimilarity, MentionMatch, TreeDiff};
 use words_to_data::legislature::AmendingAction;
 use words_to_data::uslm::TextContentField;
@@ -26,16 +26,16 @@ use crate::llm::{ChatOptions, LlmClient};
 
 #[derive(ClapArgs)]
 pub struct Args {
-    /// Path to a dataset (compact JSON) that already has amendment changes + versions
+    /// Path to a dataset (compact JSON) that already has amendment changes + expressions
     pub dataset: String,
 
-    /// Older US Code release-point date (YYYY-MM-DD)
+    /// Older expression, e.g. `uscode/title_26@2025-07-18`
     #[arg(long)]
-    pub from_date: String,
+    pub from: ExpressionId,
 
-    /// Newer US Code release-point date (YYYY-MM-DD)
+    /// Newer expression of the same work
     #[arg(long)]
-    pub to_date: String,
+    pub to: ExpressionId,
 
     /// Base URL of an OpenAI-compatible chat-completions server
     #[arg(long, default_value = "http://localhost:8080")]
@@ -77,7 +77,7 @@ pub fn run(args: Args) {
     let mut dataset = Dataset::load(&args.dataset, Format::Compact).expect("Error loading dataset");
 
     let diff = dataset
-        .compute_diff(&args.from_date, &args.to_date)
+        .compute_diff(&args.from, &args.to)
         .expect("Error computing diff");
 
     let matches = build_matches(&dataset, &diff);
@@ -136,7 +136,7 @@ pub fn run(args: Args) {
                 },
             };
             dataset
-                .add_annotation(&args.from_date, &args.to_date, annotation)
+                .add_annotation(&args.from, &args.to, annotation)
                 .expect("Error adding annotation");
             applied += 1;
         }
@@ -150,9 +150,7 @@ pub fn run(args: Args) {
     println!("Applied {applied} annotations");
     println!(
         "Annotated paths: {}",
-        dataset
-            .annotated_paths(&args.from_date, &args.to_date)
-            .len()
+        dataset.annotated_paths(&args.from, &args.to).len()
     );
     println!("Wrote {}", candidates_path.display());
     println!("Wrote {output}");
