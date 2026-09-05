@@ -19,6 +19,7 @@ mod path;
 mod score_amendments;
 mod search;
 mod show_bill;
+mod span;
 mod validate;
 
 /// Words to Data — legal document tooling

@@ -5,7 +5,7 @@
 //! one is written so it would still make sense for a court opinion: a work with
 //! a single expression is the normal case here, not a degenerate one.
 
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
+use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId, works_between};
 
 const EARLY: &str = "2025-07-18";
 const LATE: &str = "2025-07-30";
@@ -256,5 +256,69 @@ fn should_refuse_a_diff_across_two_works() {
             Err(words_to_data::dataset::DatasetError::WorkMismatch { .. })
         ),
         "expected WorkMismatch, got {refused:?}"
+    );
+}
+
+// --- Covering a whole corpus, one work at a time ---
+//
+// A diff is per work, so a job that used to be one call over a global tree is
+// now one call per document. Deciding which documents that is belongs here
+// rather than in each command that needs it.
+
+/// Both titles at both release points: every work is diffable between them.
+fn two_works_both_dates() -> Dataset<words_to_data::storage::InMemoryStorage> {
+    let mut dataset = empty_dataset();
+    for title in [UNCHANGED, AMENDED] {
+        for date in [EARLY, LATE] {
+            dataset
+                .add_uslm_xml(
+                    &format!("tests/test_data/usc/{date}/{title}.xml"),
+                    date,
+                    None,
+                )
+                .expect("the corpus should load");
+        }
+    }
+    dataset
+}
+
+#[test]
+fn should_pair_every_work_published_on_both_dates() {
+    let dataset = two_works_both_dates();
+
+    let between = works_between(&dataset, EARLY, LATE).expect("works should pair");
+
+    assert_eq!(
+        between.pairs,
+        vec![
+            (
+                ExpressionId::new(WorkId::new("uscode/title_51"), EARLY),
+                ExpressionId::new(WorkId::new("uscode/title_51"), LATE),
+            ),
+            (
+                ExpressionId::new(WorkId::new("uscode/title_9"), EARLY),
+                ExpressionId::new(WorkId::new("uscode/title_9"), LATE),
+            ),
+        ]
+    );
+    assert!(between.skipped.is_empty());
+}
+
+/// A work published on only one of the two dates cannot be diffed between
+/// them. It is reported rather than dropped: a corpus run that quietly covered
+/// none of the works would otherwise print success for a job it did not do.
+#[test]
+fn should_report_works_that_are_not_held_on_both_dates() {
+    let dataset = two_works_no_shared_date();
+
+    let between = works_between(&dataset, EARLY, LATE).expect("works should pair");
+
+    assert!(between.pairs.is_empty(), "neither title spans both dates");
+    assert_eq!(
+        between.skipped,
+        vec![
+            WorkId::new("uscode/title_51"),
+            WorkId::new("uscode/title_9"),
+        ]
     );
 }

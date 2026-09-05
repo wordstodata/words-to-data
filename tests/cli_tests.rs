@@ -7,7 +7,7 @@
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
-use words_to_data::dataset::{Dataset, DatasetMetadata};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 
 /// The two US Code release points held in `tests/test_data`.
 const EARLY: &str = "2025-07-18";
@@ -97,6 +97,70 @@ fn two_works_fixture() -> &'static str {
 
         dataset
             .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+/// A compact-JSON dataset holding both titles at both release points.
+///
+/// JSON rather than SQLite because the annotation commands read that form, and
+/// both titles at both dates because a corpus-wide run needs more than one work
+/// to prove it covered them all.
+fn both_works_json_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/cli_both_works.json", env!("CARGO_TARGET_TMPDIR"));
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Both Works".to_string(),
+            description: "Two titles, both release points".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+        });
+
+        for title in [UNCHANGED_TITLE, AMENDED_TITLE] {
+            for date in [EARLY, LATE] {
+                let xml = format!("tests/test_data/usc/{date}/{title}.xml");
+                dataset
+                    .add_uslm_xml(&xml, date, None)
+                    .expect("the corpus should parse and load");
+            }
+        }
+
+        dataset
+            .save(&path, Format::Compact)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+/// The same two titles, but neither held at both dates.
+fn two_works_json_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/cli_two_works.json", env!("CARGO_TARGET_TMPDIR"));
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Two Works".to_string(),
+            description: "Two titles, no shared date".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+        });
+
+        for (title, date) in [(UNCHANGED_TITLE, EARLY), (AMENDED_TITLE, LATE)] {
+            let xml = format!("tests/test_data/usc/{date}/{title}.xml");
+            dataset
+                .add_uslm_xml(&xml, date, None)
+                .expect("the corpus should parse and load");
+        }
+
+        dataset
+            .save(&path, Format::Compact)
             .expect("the fixture should save");
         path
     })
@@ -534,5 +598,177 @@ fn should_report_no_changes_when_only_the_release_stamp_differs() {
             path_count(&summary, "removed_paths"),
         ),
         (0, 0, 0)
+    );
+}
+
+// --- Covering a corpus, now that a diff is per work ---
+//
+// A diff used to span the whole `uscode` root, so one `score-amendments` run
+// covered every title. It now covers one work, so the command has to loop.
+// `score-amendments` is the deterministic half of the pipeline — no LLM — so it
+// is where this behaviour is pinned.
+
+/// Run `score-amendments` and return the parsed scores file it wrote.
+fn scored(dataset: &str, span: &[&str], out_name: &str) -> (Output, serde_json::Value) {
+    let out = format!("{}/{out_name}", env!("CARGO_TARGET_TMPDIR"));
+    let _ = std::fs::remove_file(&out);
+
+    let mut args = vec!["score-amendments", dataset];
+    args.extend_from_slice(span);
+    args.extend_from_slice(&["--output", &out]);
+    let output = run(&args);
+
+    let written = std::fs::read_to_string(&out).unwrap_or_else(|_| "null".to_string());
+    (
+        output,
+        serde_json::from_str(&written).expect("the scores file should be json"),
+    )
+}
+
+#[test]
+fn should_cover_every_work_when_score_amendments_is_given_two_dates() {
+    let (output, scores) = scored(
+        both_works_json_fixture(),
+        &["--between", EARLY, LATE],
+        "scores_between.json",
+    );
+
+    assert!(
+        output.status.success(),
+        "score-amendments should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let entries = scores.as_array().expect("an array of scored works");
+    let works: Vec<&str> = entries
+        .iter()
+        .map(|e| e["work"].as_str().expect("a work"))
+        .collect();
+
+    assert_eq!(
+        works,
+        vec![AMENDED_WORK, UNCHANGED_WORK],
+        "one run should cover both documents"
+    );
+    // Each entry says which pair it came from, so the file is readable without
+    // knowing the command line that produced it.
+    assert_eq!(entries[0]["from"], expression(AMENDED_WORK, EARLY));
+    assert_eq!(entries[0]["to"], expression(AMENDED_WORK, LATE));
+}
+
+#[test]
+fn should_cover_one_work_when_score_amendments_is_given_one_pair() {
+    let (output, scores) = scored(
+        both_works_json_fixture(),
+        &[
+            "--from",
+            &expression(AMENDED_WORK, EARLY),
+            "--to",
+            &expression(AMENDED_WORK, LATE),
+        ],
+        "scores_one.json",
+    );
+
+    assert!(output.status.success(), "score-amendments should exit zero");
+
+    let entries = scores.as_array().expect("an array of scored works");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["work"], AMENDED_WORK);
+}
+
+/// A work held at only one of the two dates cannot be diffed between them.
+/// Saying so is the point: a run that covered nothing and reported success
+/// would read as having done the job.
+#[test]
+fn should_name_the_works_it_could_not_cover() {
+    let (output, scores) = scored(
+        two_works_json_fixture(),
+        &["--between", EARLY, LATE],
+        "scores_skipped.json",
+    );
+
+    assert!(output.status.success(), "score-amendments should exit zero");
+    assert_eq!(
+        scores.as_array().expect("an array").len(),
+        0,
+        "neither title spans both dates"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(UNCHANGED_WORK) && stderr.contains(AMENDED_WORK),
+        "both skipped works should be named, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("nothing to do"),
+        "an empty run should say so, got: {stderr}"
+    );
+}
+
+#[test]
+fn should_reject_a_span_that_names_both_forms() {
+    let output = run(&[
+        "score-amendments",
+        both_works_json_fixture(),
+        "--between",
+        EARLY,
+        LATE,
+        "--from",
+        &expression(AMENDED_WORK, EARLY),
+        "--to",
+        &expression(AMENDED_WORK, LATE),
+    ]);
+
+    assert!(!output.status.success(), "the two forms are exclusive");
+}
+
+#[test]
+fn should_reject_a_span_that_names_neither_form() {
+    let output = run(&["score-amendments", both_works_json_fixture()]);
+
+    assert!(
+        !output.status.success(),
+        "one form or the other is required"
+    );
+}
+
+/// A `--between` date is checked before any work starts, the way `--from` and
+/// `--to` are by parsing an expression. Without it a typo is not an error: no
+/// work is held on `not-a-date`, so every work is skipped and the run exits
+/// zero having done nothing.
+#[test]
+fn should_reject_a_between_date_that_is_not_a_date() {
+    let output = run(&[
+        "score-amendments",
+        both_works_json_fixture(),
+        "--between",
+        "not-a-date",
+        LATE,
+    ]);
+
+    assert!(!output.status.success(), "a malformed date must not run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("YYYY-MM-DD"),
+        "the error should show the expected form, got: {stderr}"
+    );
+}
+
+/// A real date that no work was published on is a fact about the data, not a
+/// user error, so it reports and exits zero. A dataset of court opinions — one
+/// expression per work — would legitimately span nothing.
+#[test]
+fn should_report_and_succeed_when_a_valid_span_covers_no_work() {
+    let (output, scores) = scored(
+        both_works_json_fixture(),
+        &["--between", "1999-01-01", LATE],
+        "scores_empty_span.json",
+    );
+
+    assert!(output.status.success(), "an empty span is not a failure");
+    assert_eq!(scores.as_array().expect("an array").len(), 0);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("nothing to do"),
+        "it must say it did nothing"
     );
 }
