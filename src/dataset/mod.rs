@@ -10,7 +10,8 @@ mod work;
 pub use error::DatasetError;
 pub use scope::{Coverage, Scope, WorkCoverage};
 pub use work::{
-    Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, work_roots,
+    Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
+    work_roots, works_between,
 };
 
 use serde::{Deserialize, Serialize};

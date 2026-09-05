@@ -13,29 +13,25 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use clap::Args as ClapArgs;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
-use words_to_data::dataset::{Dataset, ExpressionId, Format};
+use words_to_data::dataset::{Dataset, Format};
 use words_to_data::diff::{AmendmentSimilarity, MentionMatch, TreeDiff};
 use words_to_data::legislature::AmendingAction;
 use words_to_data::uslm::TextContentField;
 
 use crate::llm::{ChatOptions, LlmClient};
+use crate::span::Span;
 
 #[derive(ClapArgs)]
 pub struct Args {
     /// Path to a dataset (compact JSON) that already has amendment changes + expressions
     pub dataset: String,
 
-    /// Older expression, e.g. `uscode/title_26@2025-07-18`
-    #[arg(long)]
-    pub from: ExpressionId,
-
-    /// Newer expression of the same work
-    #[arg(long)]
-    pub to: ExpressionId,
+    #[command(flatten)]
+    pub span: Span,
 
     /// Base URL of an OpenAI-compatible chat-completions server
     #[arg(long, default_value = "http://localhost:8080")]
@@ -64,6 +60,18 @@ struct Candidate {
     mentions: Vec<MentionMatch>,
 }
 
+/// One work's candidate view, tagged with the pair it was built from.
+///
+/// A corpus run covers many works, and the candidates carry no work of their
+/// own, so a flat list would mix title 26's with title 51's.
+#[derive(Serialize)]
+struct CandidatesOfWork {
+    work: String,
+    from: String,
+    to: String,
+    amendments: Vec<serde_json::Value>,
+}
+
 /// One amendment plus the candidate diffs to disambiguate between.
 struct AmendmentMatch {
     bill_id: String,
@@ -74,21 +82,12 @@ struct AmendmentMatch {
 }
 
 pub fn run(args: Args) {
-    let mut dataset = Dataset::load(&args.dataset, Format::Compact).expect("Error loading dataset");
+    let mut dataset = crate::fail::or_exit(
+        Dataset::load(&args.dataset, Format::Compact),
+        "Error loading dataset",
+    );
 
-    let diff = dataset
-        .compute_diff(&args.from, &args.to)
-        .expect("Error computing diff");
-
-    let matches = build_matches(&dataset, &diff);
-    print_stats(&matches);
-
-    // Persist the candidate view next to the dataset for inspection.
-    let candidates_path = sibling(&args.dataset, "candidates.json");
-    fs::write(&candidates_path, candidates_json(&matches)).expect("Error writing candidates.json");
-
-    // Ask the LLM which candidate(s) each amendment matches.
-    let llm = LlmClient::new(args.base_url, args.model.clone(), None);
+    let llm = LlmClient::new(args.base_url.clone(), args.model.clone(), None);
     let annotator = format!(
         "model:{}",
         if args.model.is_empty() {
@@ -97,61 +96,96 @@ pub fn run(args: Args) {
             &args.model
         }
     );
-    let matched = classify_all(&llm, &matches, args.threads);
 
-    // Apply the LLM's annotations single-threaded.
+    let pairs = args.span.resolve(&dataset);
+    let mut candidates_by_work = Vec::new();
     let mut applied = 0;
-    for (match_idx, annotations) in matched {
-        let m = &matches[match_idx];
-        for ann in annotations {
-            let Some(candidate) = usize::try_from(ann.candidate_index)
-                .ok()
-                .and_then(|i| m.candidates.get(i))
-            else {
-                continue;
-            };
+    let mut annotated_paths = 0;
 
-            let annotation = ChangeAnnotation {
-                operation: ann
-                    .operation
-                    .as_deref()
-                    .and_then(|op| AmendingAction::from_str(op).ok())
-                    .unwrap_or(AmendingAction::Amend),
-                source_bill: BillReference {
-                    bill_id: m.bill_id.clone(),
-                    amendment_id: m.amendment_id.clone(),
-                    causative_text: ann
-                        .causative_text
-                        .clone()
-                        .unwrap_or_else(|| m.amending_text.clone()),
-                },
-                paths: vec![candidate.diff.root_path.clone()],
-                metadata: AnnotationMetadata {
-                    status: AnnotationStatus::Pending,
-                    confidence: ann.confidence,
-                    annotator: annotator.clone(),
-                    timestamp: time::OffsetDateTime::now_utc(),
-                    notes: None,
-                    reasoning: ann.reasoning,
-                },
-            };
-            dataset
-                .add_annotation(&args.from, &args.to, annotation)
-                .expect("Error adding annotation");
-            applied += 1;
+    for (from, to) in pairs {
+        let diff = crate::fail::or_exit(dataset.compute_diff(&from, &to), "Error computing diff");
+
+        let matches = build_matches(&dataset, &diff);
+        println!("\n{from} -> {to}");
+        print_stats(&matches);
+
+        // Ask the LLM which candidate(s) each amendment matches.
+        let matched = classify_all(&llm, &matches, args.threads);
+
+        // Apply the LLM's annotations single-threaded.
+        for (match_idx, annotations) in matched {
+            let m = &matches[match_idx];
+            for ann in annotations {
+                let Some(candidate) = usize::try_from(ann.candidate_index)
+                    .ok()
+                    .and_then(|i| m.candidates.get(i))
+                else {
+                    continue;
+                };
+
+                let annotation = ChangeAnnotation {
+                    operation: ann
+                        .operation
+                        .as_deref()
+                        .and_then(|op| AmendingAction::from_str(op).ok())
+                        .unwrap_or(AmendingAction::Amend),
+                    source_bill: BillReference {
+                        bill_id: m.bill_id.clone(),
+                        amendment_id: m.amendment_id.clone(),
+                        causative_text: ann
+                            .causative_text
+                            .clone()
+                            .unwrap_or_else(|| m.amending_text.clone()),
+                    },
+                    paths: vec![candidate.diff.root_path.clone()],
+                    metadata: AnnotationMetadata {
+                        status: AnnotationStatus::Pending,
+                        confidence: ann.confidence,
+                        annotator: annotator.clone(),
+                        timestamp: time::OffsetDateTime::now_utc(),
+                        notes: None,
+                        reasoning: ann.reasoning,
+                    },
+                };
+                crate::fail::or_exit(
+                    dataset.add_annotation(&from, &to, annotation),
+                    "Error adding annotation",
+                );
+                applied += 1;
+            }
         }
+
+        annotated_paths += dataset.annotated_paths(&from, &to).len();
+        candidates_by_work.push(CandidatesOfWork {
+            work: from.work.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            amendments: candidates_view(&matches),
+        });
     }
 
-    let output = args.output.as_deref().unwrap_or(&args.dataset);
-    dataset
-        .save(output, Format::Compact)
-        .expect("Error saving dataset");
-
-    println!("Applied {applied} annotations");
-    println!(
-        "Annotated paths: {}",
-        dataset.annotated_paths(&args.from, &args.to).len()
+    // Persist the candidate view next to the dataset for inspection.
+    let candidates_path = sibling(&args.dataset, "candidates.json");
+    crate::fail::or_exit(
+        fs::write(
+            &candidates_path,
+            serde_json::to_string_pretty(&candidates_by_work)
+                .expect("Error serializing candidates"),
+        ),
+        "Error writing candidates.json",
     );
+
+    let output = args.output.as_deref().unwrap_or(&args.dataset);
+    crate::fail::or_exit(
+        dataset.save(output, Format::Compact),
+        "Error saving dataset",
+    );
+
+    println!(
+        "\nApplied {applied} annotation(s) across {} work(s)",
+        candidates_by_work.len()
+    );
+    println!("Annotated paths: {annotated_paths}");
     println!("Wrote {}", candidates_path.display());
     println!("Wrote {output}");
 }
@@ -478,8 +512,8 @@ fn sibling(dataset_path: &str, filename: &str) -> PathBuf {
 }
 
 /// Serialize the candidate view to pretty JSON for inspection.
-fn candidates_json(matches: &[AmendmentMatch]) -> String {
-    let view: Vec<_> = matches
+fn candidates_view(matches: &[AmendmentMatch]) -> Vec<serde_json::Value> {
+    matches
         .iter()
         .map(|m| {
             serde_json::json!({
@@ -493,8 +527,7 @@ fn candidates_json(matches: &[AmendmentMatch]) -> String {
                 })).collect::<Vec<_>>(),
             })
         })
-        .collect();
-    serde_json::to_string_pretty(&view).expect("Error serializing candidates")
+        .collect()
 }
 
 /// System prompt (ported verbatim from the Python `ai_bill_matching` tool).

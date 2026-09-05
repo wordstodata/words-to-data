@@ -129,6 +129,52 @@ pub struct ExpressionInfo {
     pub label: Option<String>,
 }
 
+/// Which works a job spanning two dates can and cannot cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorksBetween {
+    /// Works held on both dates, in work order, as a pair to diff.
+    pub pairs: Vec<crate::dataset::ExpressionPair>,
+    /// Works held on one of the dates but not the other.
+    pub skipped: Vec<WorkId>,
+}
+
+/// Every work this dataset holds on both dates, paired for diffing.
+///
+/// A diff is between two expressions of one work, so a job that spans a corpus
+/// is one diff per document rather than one over everything. This decides which
+/// documents that is, once, for every command that needs it.
+///
+/// A work published on only one of the two dates cannot be diffed between them.
+/// It is returned in `skipped` rather than dropped: a run that quietly covered
+/// forty of fifty-eight works would report success for a job it did not do.
+pub fn works_between<R: crate::storage::DocumentReader + ?Sized>(
+    reader: &R,
+    from: &str,
+    to: &str,
+) -> Result<WorksBetween, crate::dataset::DatasetError> {
+    let mut pairs = Vec::new();
+    let mut skipped = Vec::new();
+
+    for work in reader.works()? {
+        let dates: Vec<String> = reader
+            .expressions(&work)?
+            .into_iter()
+            .map(|info| info.id.at)
+            .collect();
+
+        if dates.iter().any(|d| d == from) && dates.iter().any(|d| d == to) {
+            pairs.push((
+                ExpressionId::new(work.clone(), from),
+                ExpressionId::new(work, to),
+            ));
+        } else {
+            skipped.push(work);
+        }
+    }
+
+    Ok(WorksBetween { pairs, skipped })
+}
+
 /// Split a parsed tree into the works it holds.
 ///
 /// A root that names a work, such as `uscode/title_9`, is one work and is
