@@ -3,6 +3,8 @@
 use std::io;
 use thiserror::Error;
 
+use crate::dataset::{ExpressionId, WorkId};
+
 #[derive(Error, Debug)]
 pub enum DatasetError {
     #[error("IO error: {0}")]
@@ -14,8 +16,15 @@ pub enum DatasetError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
 
-    #[error("Version not found: {0}")]
-    VersionNotFound(String),
+    /// Names the work as well as the date. "Not found: 2025-07-18" cannot say
+    /// whether the date or the document is the thing this dataset lacks.
+    #[error("This dataset holds no expression {0}")]
+    ExpressionNotFound(ExpressionId),
+
+    /// A diff needs two expressions of one work. Across two works it would
+    /// compare unrelated documents and report the whole of each as changed.
+    #[error("A diff needs two expressions of one work, and `{from}` and `{to}` are two works")]
+    WorkMismatch { from: WorkId, to: WorkId },
 
     #[error("Failed to load folder '{0}': folder is empty or unreadable")]
     FolderLoadFailed(String),

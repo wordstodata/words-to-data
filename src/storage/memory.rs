@@ -1,17 +1,20 @@
 //! In-memory storage backend
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
-use crate::dataset::{DatasetError, DatasetMetadata, SearchResult, VersionPair, VersionSnapshot};
+use crate::dataset::{
+    DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, ExpressionPair,
+    SearchResult, WorkId,
+};
 use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
 use crate::storage::{
     DocumentReader, DocumentWriter, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
-    Storage, VersionInfo,
+    Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -21,7 +24,7 @@ mod tuple_key_map {
     use super::*;
 
     pub fn serialize<S>(
-        map: &HashMap<VersionPair, Vec<ChangeAnnotation>>,
+        map: &HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -33,26 +36,35 @@ mod tuple_key_map {
 
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<HashMap<VersionPair, Vec<ChangeAnnotation>>, D::Error>
+    ) -> Result<HashMap<ExpressionPair, Vec<ChangeAnnotation>>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let vec: Vec<(VersionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
+        let vec: Vec<(ExpressionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
         Ok(vec.into_iter().collect())
     }
 }
 
+/// Every expression a dataset holds, by work and then by date.
+///
+/// Two nested `BTreeMap`s rather than one flat list: work order and date order
+/// then come for free, and "the expression before this one" can only ever mean
+/// the previous expression *of the same work*. A flat list keyed by date made
+/// that question answerable across unrelated documents, which is the bug this
+/// shape removes.
+pub type ExpressionsByWork = BTreeMap<WorkId, BTreeMap<String, Expression>>;
+
 /// In-memory storage backend
 ///
-/// Stores all data in memory using HashMaps. Good for small datasets
+/// Stores all data in memory using maps. Good for small datasets
 /// or when you need fast access without persistence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InMemoryStorage {
     pub metadata: DatasetMetadata,
-    pub versions: Vec<VersionSnapshot>,
+    pub expressions: ExpressionsByWork,
     pub bills: HashMap<String, Bill>,
     #[serde(with = "tuple_key_map")]
-    pub diff_annotations: HashMap<VersionPair, Vec<ChangeAnnotation>>,
+    pub diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
     pub members: HashMap<String, Member>,
     pub sponsors: HashMap<String, SponsorInfo>,
     pub bill_votes: HashMap<String, BillVotes>,
@@ -64,7 +76,7 @@ impl InMemoryStorage {
     pub fn new(metadata: DatasetMetadata) -> Self {
         Self {
             metadata,
-            versions: Vec::new(),
+            expressions: BTreeMap::new(),
             bills: HashMap::new(),
             diff_annotations: HashMap::new(),
             members: HashMap::new(),
@@ -75,18 +87,23 @@ impl InMemoryStorage {
     }
 
     pub fn intern_strings(&mut self) {
-        for version in self.versions.iter_mut() {
-            version.element.intern_strings(&mut self.interner);
+        for expression in self.expressions.values_mut().flat_map(BTreeMap::values_mut) {
+            expression.element.intern_strings(&mut self.interner);
         }
+    }
+
+    /// Every expression held, oldest first within each work.
+    pub fn all_expressions(&self) -> impl Iterator<Item = &Expression> {
+        self.expressions.values().flat_map(BTreeMap::values)
     }
 
     /// Create from parts (used by loaders)
     #[allow(clippy::too_many_arguments)]
     pub fn from_parts(
         metadata: DatasetMetadata,
-        versions: Vec<VersionSnapshot>,
+        expressions: ExpressionsByWork,
         bills: HashMap<String, Bill>,
-        diff_annotations: HashMap<VersionPair, Vec<ChangeAnnotation>>,
+        diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
         members: HashMap<String, Member>,
         sponsors: HashMap<String, SponsorInfo>,
         bill_votes: HashMap<String, BillVotes>,
@@ -94,7 +111,7 @@ impl InMemoryStorage {
     ) -> Self {
         Self {
             metadata,
-            versions,
+            expressions,
             bills,
             diff_annotations,
             members,
@@ -104,9 +121,25 @@ impl InMemoryStorage {
         }
     }
 
+    /// The dates of one work, oldest first, or an empty slice when unheld.
+    fn dates_of(&self, work: &WorkId) -> Vec<&String> {
+        self.expressions
+            .get(work)
+            .map(|by_date| by_date.keys().collect())
+            .unwrap_or_default()
+    }
+
+    /// The expression `offset` places from `id` within its own work.
+    fn neighbour(&self, id: &ExpressionId, offset: isize) -> Option<&Expression> {
+        let by_date = self.expressions.get(&id.work)?;
+        let position = by_date.keys().position(|date| *date == id.at)?;
+        let wanted = position.checked_add_signed(offset)?;
+        by_date.values().nth(wanted)
+    }
+
     fn search_element(
         element: &USLMElement,
-        date: &str,
+        id: &ExpressionId,
         query: &str,
         results: &mut Vec<SearchResult>,
     ) {
@@ -123,7 +156,7 @@ impl InMemoryStorage {
                 && text.to_lowercase().contains(query)
             {
                 results.push(SearchResult {
-                    date: date.to_string(),
+                    expression: id.clone(),
                     path: element.data.path.to_string(),
                     field: field_name.to_string(),
                     snippet: text.to_string(),
@@ -132,92 +165,112 @@ impl InMemoryStorage {
         }
 
         for child in &element.children {
-            Self::search_element(child, date, query, results);
+            Self::search_element(child, id, query, results);
         }
     }
 }
 
 impl DocumentReader for InMemoryStorage {
-    fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
+    fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
+        Ok(self.expressions.keys().cloned().collect())
+    }
+
+    fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionInfo>, DatasetError> {
         Ok(self
-            .versions
-            .iter()
-            .map(|v| VersionInfo {
-                date: v.date.clone(),
-                label: v.label.clone(),
+            .dates_of(work)
+            .into_iter()
+            .map(|date| ExpressionInfo {
+                id: ExpressionId::new(work.clone(), date),
+                label: self.expressions[work][date].label.clone(),
             })
             .collect())
     }
 
-    fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        Ok(self.versions.iter().find(|v| v.date == date).cloned())
+    fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        Ok(self
+            .expressions
+            .get(&id.work)
+            .and_then(|by_date| by_date.get(&id.at))
+            .cloned())
     }
 
-    fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
-        let from_v = self
-            .versions
-            .iter()
-            .find(|v| v.date == from)
-            .ok_or_else(|| DatasetError::VersionNotFound(from.to_string()))?;
-        let to_v = self
-            .versions
-            .iter()
-            .find(|v| v.date == to)
-            .ok_or_else(|| DatasetError::VersionNotFound(to.to_string()))?;
-        Ok(TreeDiff::from_elements(&from_v.element, &to_v.element))
+    fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        Ok(self.neighbour(id, 1).cloned())
+    }
+
+    fn prev_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        Ok(self.neighbour(id, -1).cloned())
+    }
+
+    fn compute_diff(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError> {
+        let (from_e, to_e) = require_same_work(self, from, to)?;
+        Ok(TreeDiff::from_elements(&from_e.element, &to_e.element))
     }
 
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
         let query_lower = query.to_lowercase();
         let mut results = Vec::new();
 
-        for version in &self.versions {
-            Self::search_element(&version.element, &version.date, &query_lower, &mut results);
+        for expression in self.all_expressions() {
+            Self::search_element(
+                &expression.element,
+                &expression.id,
+                &query_lower,
+                &mut results,
+            );
         }
 
         Ok(results)
     }
 
-    fn get_version_by_label(&self, label: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
+    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         Ok(self
-            .versions
-            .iter()
-            .find(|v| v.label.as_deref() == Some(label))
-            .cloned())
-    }
-
-    fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        let pos = self.versions.iter().position(|v| v.date == date);
-        Ok(pos.and_then(|p| self.versions.get(p + 1).cloned()))
-    }
-
-    fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        let pos = self.versions.iter().position(|v| v.date == date);
-        Ok(pos.and_then(|p| {
-            if p == 0 {
-                None
-            } else {
-                self.versions.get(p - 1).cloned()
-            }
-        }))
-    }
-
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
-        Ok(self
-            .versions
-            .iter()
-            .filter_map(|v| v.element.find(path).map(|e| (v.date.clone(), e.clone())))
+            .all_expressions()
+            .filter_map(|e| {
+                e.element
+                    .find(path)
+                    .map(|found| (e.id.clone(), found.clone()))
+            })
             .collect())
     }
+}
+
+/// Fetch both expressions of a diff, refusing a pair that names two works.
+///
+/// The check lives here rather than in `TreeDiff::from_elements`, which asserts
+/// on it and so would abort the process. Two works is a caller's mistake, not a
+/// broken invariant, and a mistake deserves a message.
+pub(crate) fn require_same_work<R: DocumentReader + ?Sized>(
+    reader: &R,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) -> Result<(Expression, Expression), DatasetError> {
+    if from.work != to.work {
+        return Err(DatasetError::WorkMismatch {
+            from: from.work.clone(),
+            to: to.work.clone(),
+        });
+    }
+    let from_e = reader
+        .get_expression(from)?
+        .ok_or_else(|| DatasetError::ExpressionNotFound(from.clone()))?;
+    let to_e = reader
+        .get_expression(to)?
+        .ok_or_else(|| DatasetError::ExpressionNotFound(to.clone()))?;
+    Ok((from_e, to_e))
 }
 
 impl LinkReader for InMemoryStorage {
     fn get_annotations(
         &self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
     ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        let key = (from.to_string(), to.to_string());
+        let key = (from.clone(), to.clone());
         Ok(self.diff_annotations.get(&key).cloned())
     }
 
@@ -241,8 +294,10 @@ impl LinkReader for InMemoryStorage {
             .collect())
     }
 
-    fn annotation_pairs(&self) -> Result<Vec<VersionPair>, DatasetError> {
-        Ok(self.diff_annotations.keys().cloned().collect())
+    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
+        let mut pairs: Vec<ExpressionPair> = self.diff_annotations.keys().cloned().collect();
+        pairs.sort();
+        Ok(pairs)
     }
 }
 
@@ -294,12 +349,11 @@ impl DocumentWriter for InMemoryStorage {
         self.metadata = metadata;
     }
 
-    fn add_version(&mut self, snapshot: VersionSnapshot) -> Result<(), DatasetError> {
-        let pos = self
-            .versions
-            .binary_search_by(|v| v.date.cmp(&snapshot.date))
-            .unwrap_or_else(|pos| pos);
-        self.versions.insert(pos, snapshot);
+    fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
+        self.expressions
+            .entry(expression.id.work.clone())
+            .or_default()
+            .insert(expression.id.at.clone(), expression);
         Ok(())
     }
 }
@@ -307,12 +361,12 @@ impl DocumentWriter for InMemoryStorage {
 impl LinkWriter for InMemoryStorage {
     fn add_annotation(
         &mut self,
-        from: &str,
-        to: &str,
+        from: &ExpressionId,
+        to: &ExpressionId,
         annotation: ChangeAnnotation,
     ) -> Result<(), DatasetError> {
         self.diff_annotations
-            .entry((from.to_string(), to.to_string()))
+            .entry((from.clone(), to.clone()))
             .or_default()
             .push(annotation);
         Ok(())

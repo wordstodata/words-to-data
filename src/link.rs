@@ -10,12 +10,18 @@
 //! is ours. `judicial.cites` is ours. `westlaw.headnote` would not be.
 //!
 //! This module is additive today: [`ChangeAnnotation`] remains the stored form,
-//! and [`Link::from_annotation`] projects it into this shape. The storage
-//! migration is separate work.
+//! and [`Link::from_annotation`] projects it into this shape. Giving links
+//! their own storage — so that a kind we do not own can be carried — is
+//! separate work.
+//!
+//! A link's targets name the same things storage does. [`Target::Expression`]
+//! holds an [`ExpressionId`], the key an expression is actually stored under,
+//! so a link cannot point at something no reader could resolve.
 
 use serde::{Deserialize, Serialize};
 
 use crate::annotation::{AnnotationStatus, ChangeAnnotation};
+use crate::dataset::ExpressionId;
 use crate::diff::AmendmentSimilarity;
 
 /// The kind of a link, namespaced by the extension that defines it.
@@ -57,8 +63,12 @@ pub enum Target {
     /// provision identity when one exists
     /// (`docs/adr/0001-structural-paths-locate-not-identify.md`).
     Provision(String),
-    /// A provision as it read on one date.
-    Expression { path: String, date: String },
+    /// A work as it read on one date.
+    ///
+    /// The same [`ExpressionId`] storage keys on, so a link points at a thing
+    /// the dataset can actually be asked for. Two spellings of one concept
+    /// would let a link name something no reader could resolve.
+    Expression(ExpressionId),
     /// Something outside the core model, named in an extension's namespace.
     /// An amendment is reached this way, because amendments are legislature.
     External { reference: String, display: String },

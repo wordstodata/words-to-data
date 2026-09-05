@@ -9,6 +9,11 @@
 //! [`Scope`] removes the ambiguity. It reports what the dataset holds, so a
 //! caller can answer "out of scope" instead of "not found".
 //!
+//! It reports each work with its own dates, because a dataset need not hold
+//! every work on every date. Two flat lists would say a dataset holding title 9
+//! in July and title 51 in August holds both in both, which is a confident
+//! wrong answer of exactly the kind this type exists to prevent.
+//!
 //! Today the scope is **derived** from the contents. A producer cannot yet
 //! declare an intent, so "title 26 minus section 174, because the source
 //! failed" is not sayable, and neither is the gap between what a dataset meant
@@ -17,9 +22,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dataset::DatasetError;
+use crate::dataset::{DatasetError, WorkId};
 use crate::storage::DocumentReader;
-use crate::uslm::USLMElement;
 
 /// Whether a dataset covers something.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,60 +37,77 @@ pub enum Coverage {
     OutOfScope,
 }
 
+/// One work a dataset holds, and when it was published.
+///
+/// The work and its dates are kept together rather than as two flat lists. A
+/// dataset holding title 9 only in July and title 51 only in August holds no
+/// title 9 in August, and a pair of parallel lists cannot say so.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkCoverage {
+    pub work: WorkId,
+    /// The dates this work was published, oldest first.
+    pub dates: Vec<String>,
+}
+
 /// What a dataset covers, derived from its contents.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scope {
-    /// The coverage units held, such as `uscode/title_9`. Sorted, deduplicated.
-    pub held: Vec<String>,
-    /// The dates held, sorted.
-    pub dates: Vec<String>,
+    /// Every work held, with its dates. In work order.
+    pub held: Vec<WorkCoverage>,
 }
 
 impl Scope {
     /// Derive the scope of anything that can read documents.
+    ///
+    /// This reads keys only. Asking what a dataset holds no longer costs the
+    /// text of everything it holds.
     pub fn derive<R: DocumentReader + ?Sized>(reader: &R) -> Result<Self, DatasetError> {
-        let mut versions = Vec::new();
-        for info in reader.list_versions()? {
-            if let Some(snapshot) = reader.get_version(&info.date)? {
-                versions.push(snapshot);
-            }
+        let mut held = Vec::new();
+        for work in reader.works()? {
+            let dates = reader
+                .expressions(&work)?
+                .into_iter()
+                .map(|info| info.id.at)
+                .collect();
+            held.push(WorkCoverage { work, dates });
         }
-        Ok(Self::from_versions(
-            versions.iter().map(|v| (v.date.as_str(), &v.element)),
-        ))
+        Ok(Self { held })
     }
 
-    /// Build a scope from the root element of each version.
-    pub fn from_versions<'a>(versions: impl Iterator<Item = (&'a str, &'a USLMElement)>) -> Self {
-        let mut held = Vec::new();
-        let mut dates = Vec::new();
+    /// Every work held, in work order.
+    pub fn works(&self) -> impl Iterator<Item = &WorkId> {
+        self.held.iter().map(|coverage| &coverage.work)
+    }
 
-        for (date, root) in versions {
-            dates.push(date.to_string());
-            held.extend(coverage_units(root));
-        }
-
-        held.sort();
-        held.dedup();
+    /// Every date any work was published, sorted and deduplicated.
+    ///
+    /// A convenience for display. It says nothing about which work existed on
+    /// which date; ask [`Scope::held`] for that.
+    ///
+    /// [`Scope::held`]: Scope#structfield.held
+    pub fn dates(&self) -> Vec<String> {
+        let mut dates: Vec<String> = self
+            .held
+            .iter()
+            .flat_map(|coverage| coverage.dates.iter().cloned())
+            .collect();
         dates.sort();
         dates.dedup();
-        Self { held, dates }
+        dates
     }
 
     /// Whether this dataset covers the material a path names.
     ///
-    /// A path is in scope when it sits inside a held unit, or when it names an
+    /// A path is in scope when it sits inside a held work, or when it names an
     /// ancestor of one: asking about `uscode` is in scope for a dataset holding
     /// `uscode/title_9`, because the dataset does hold part of it.
     pub fn covers(&self, path: &str) -> Coverage {
         let inside_held = self
-            .held
-            .iter()
-            .any(|unit| path == unit || path.starts_with(&format!("{unit}/")));
+            .works()
+            .any(|work| path == work.as_str() || path.starts_with(&format!("{work}/")));
         let ancestor_of_held = self
-            .held
-            .iter()
-            .any(|unit| unit.starts_with(&format!("{path}/")));
+            .works()
+            .any(|work| work.as_str().starts_with(&format!("{path}/")));
 
         if inside_held || ancestor_of_held {
             Coverage::InScope
@@ -94,19 +115,4 @@ impl Scope {
             Coverage::OutOfScope
         }
     }
-}
-
-/// The coverage unit or units one version's root element stands for.
-///
-/// A root that already names a unit, such as `uscode/title_9`, is the unit. A
-/// bare container root, such as `uscode`, stands for each of its children.
-fn coverage_units(root: &USLMElement) -> Vec<String> {
-    let path = root.data.path.to_string();
-    if path.contains('/') {
-        return vec![path];
-    }
-    root.children
-        .iter()
-        .map(|child| child.data.path.to_string())
-        .collect()
 }

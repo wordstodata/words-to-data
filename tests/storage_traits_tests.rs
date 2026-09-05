@@ -11,15 +11,17 @@
 //! `get_member`, `get_sponsor_info`, and `get_bill_votes` from every backend.
 
 use words_to_data::dataset::{
-    Coverage, Dataset, DatasetError, DatasetMetadata, SearchResult, VersionSnapshot,
+    Coverage, Dataset, DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo,
+    SearchResult, WorkId,
 };
 use words_to_data::diff::TreeDiff;
-use words_to_data::storage::{DocumentReader, DocumentWriter, InMemoryStorage, VersionInfo};
+use words_to_data::storage::{DocumentReader, DocumentWriter, InMemoryStorage};
 use words_to_data::uslm::USLMElement;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 
 const TITLE_9: &str = "tests/test_data/usc/2025-07-18/usc09.xml";
+const EARLY: &str = "2025-07-18";
 const BILL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 const BILL_ID: &str = "119-21";
 
@@ -28,27 +30,31 @@ const BILL_ID: &str = "119-21";
 struct DocumentsOnly(InMemoryStorage);
 
 impl DocumentReader for DocumentsOnly {
-    fn list_versions(&self) -> Result<Vec<VersionInfo>, DatasetError> {
-        self.0.list_versions()
+    fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
+        self.0.works()
     }
 
-    fn get_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.0.get_version(date)
+    fn expressions(&self, work: &WorkId) -> Result<Vec<ExpressionInfo>, DatasetError> {
+        self.0.expressions(work)
     }
 
-    fn get_version_by_label(&self, label: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.0.get_version_by_label(label)
+    fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.0.get_expression(id)
     }
 
-    fn next_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.0.next_version(date)
+    fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.0.next_expression(id)
     }
 
-    fn prev_version(&self, date: &str) -> Result<Option<VersionSnapshot>, DatasetError> {
-        self.0.prev_version(date)
+    fn prev_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
+        self.0.prev_expression(id)
     }
 
-    fn compute_diff(&self, from: &str, to: &str) -> Result<TreeDiff, DatasetError> {
+    fn compute_diff(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError> {
         self.0.compute_diff(from, to)
     }
 
@@ -56,14 +62,28 @@ impl DocumentReader for DocumentsOnly {
         self.0.search_text(query)
     }
 
-    fn find_element(&self, path: &str) -> Result<Vec<(String, USLMElement)>, DatasetError> {
+    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         self.0.find_element(path)
     }
 }
 
 /// Accepts anything that can read documents, and asks for nothing else.
-fn count_versions(reader: &impl DocumentReader) -> usize {
-    reader.list_versions().expect("versions should list").len()
+fn count_works(reader: &impl DocumentReader) -> usize {
+    reader.works().expect("works should list").len()
+}
+
+/// Title 9 as one expression, split out of the parsed tree the same way the
+/// writer does it.
+fn title_9_expression(label: Option<String>) -> Expression {
+    let parsed = parse(TITLE_9, EARLY).expect("the corpus should parse");
+    let root = words_to_data::dataset::work_roots(parsed)
+        .pop()
+        .expect("the file holds one title");
+    Expression {
+        id: ExpressionId::new(WorkId::new(root.data.path.to_string()), EARLY),
+        label,
+        element: root,
+    }
 }
 
 #[test]
@@ -77,20 +97,16 @@ fn should_read_documents_from_a_backend_that_implements_no_legislature_methods()
         version: "1.0.0".to_string(),
     });
     storage
-        .add_version(VersionSnapshot {
-            date: "2025-07-18".to_string(),
-            label: Some("Only".to_string()),
-            element: parse(TITLE_9, "2025-07-18").expect("the corpus should parse"),
-        })
-        .expect("a version should be added");
+        .add_expression(title_9_expression(Some("Only".to_string())))
+        .expect("an expression should be added");
 
     let documents = DocumentsOnly(storage);
 
-    assert_eq!(count_versions(&documents), 1);
+    assert_eq!(count_works(&documents), 1);
     assert!(
         documents
-            .get_version("2025-07-18")
-            .expect("the version should be readable")
+            .get_expression(&ExpressionId::new(WorkId::new("uscode/title_9"), EARLY))
+            .expect("the expression should be readable")
             .is_some()
     );
     assert!(
@@ -113,12 +129,8 @@ fn dataset_holding(bill: bool) -> Dataset<InMemoryStorage> {
         version: "1.0.0".to_string(),
     });
     dataset
-        .add_version(VersionSnapshot {
-            date: "2025-07-18".to_string(),
-            label: None,
-            element: parse(TITLE_9, "2025-07-18").expect("the corpus should parse"),
-        })
-        .expect("a version should be added");
+        .add_uslm_xml(TITLE_9, EARLY, None)
+        .expect("the corpus should parse and load");
 
     if bill {
         let parsed = parse_bill_amendments(BILL_ID, BILL_XML).expect("the public law should parse");
@@ -165,8 +177,11 @@ fn should_report_out_of_scope_for_material_the_dataset_never_held() {
     let dataset = dataset_holding(false);
     let scope = dataset.scope().expect("scope should derive");
 
-    assert_eq!(scope.held, vec!["uscode/title_9".to_string()]);
-    assert_eq!(scope.dates, vec!["2025-07-18".to_string()]);
+    assert_eq!(
+        scope.works().collect::<Vec<_>>(),
+        vec![&WorkId::new("uscode/title_9")]
+    );
+    assert_eq!(scope.held[0].dates, vec![EARLY.to_string()]);
 
     assert_eq!(scope.covers("uscode/title_9"), Coverage::InScope);
     assert_eq!(

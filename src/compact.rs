@@ -12,10 +12,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 mod tuple_key_map {
     use super::*;
     use crate::annotation::ChangeAnnotation;
-    use crate::dataset::VersionPair;
+    use crate::dataset::ExpressionPair;
 
     pub fn serialize<S>(
-        map: &HashMap<VersionPair, Vec<ChangeAnnotation>>,
+        map: &HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -28,21 +28,21 @@ mod tuple_key_map {
 
     pub fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<HashMap<VersionPair, Vec<ChangeAnnotation>>, D::Error>
+    ) -> Result<HashMap<ExpressionPair, Vec<ChangeAnnotation>>, D::Error>
     where
         D: Deserializer<'de>,
     {
         // Deserialize as Vec of (key, value) pairs
-        let vec: Vec<(VersionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
+        let vec: Vec<(ExpressionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
         Ok(vec.into_iter().collect())
     }
 }
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, Member, SponsorInfo};
-use crate::dataset::{DatasetMetadata, VersionPair, VersionSnapshot};
+use crate::dataset::{DatasetMetadata, Expression, ExpressionId, ExpressionPair, WorkId};
 use crate::intern::StringInterner;
-use crate::storage::InMemoryStorage;
+use crate::storage::{InMemoryStorage, SCHEMA_VERSION, memory::ExpressionsByWork};
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::{DocumentType, ElementData, ElementType, RefPair, SourceCredit, USLMElement};
 
@@ -163,9 +163,10 @@ pub struct USLMElementCompact {
     pub children: Vec<USLMElementCompact>,
 }
 
-/// Compact VersionSnapshot
+/// Compact Expression
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VersionSnapshotCompact {
+pub struct ExpressionCompact {
+    pub work: StrIdx,
     pub date: StrIdx,
     pub label: Option<StrIdx>,
     pub element: USLMElementCompact,
@@ -174,15 +175,26 @@ pub struct VersionSnapshotCompact {
 /// Compact Dataset for serialization
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetCompact {
+    /// The schema this file was written by.
+    ///
+    /// Serialized first, and read on its own by [`schema_version_of`] before
+    /// the rest of the file is parsed. Most fields below default to empty, so
+    /// without a guard an older file would load as a dataset that simply holds
+    /// nothing — an empty answer that actually means "wrong schema".
+    ///
+    /// `#[serde(default)]` so a file written before the field existed reads 0
+    /// rather than failing to parse.
+    #[serde(default)]
+    pub schema_version: i32,
     pub string_table: StringTable,
     pub metadata: DatasetMetadata,
-    pub versions: Vec<VersionSnapshotCompact>,
+    pub expressions: Vec<ExpressionCompact>,
     /// Bills (stored as-is, no dedup needed)
     #[serde(default)]
     pub bills: HashMap<String, Bill>,
-    /// Annotations per version-pair (stored as-is)
+    /// Annotations per expression-pair (stored as-is)
     #[serde(default, with = "tuple_key_map")]
-    pub diff_annotations: HashMap<VersionPair, Vec<ChangeAnnotation>>,
+    pub diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
     /// Congress members (stored as-is)
     #[serde(default)]
     pub members: HashMap<String, Member>,
@@ -194,21 +206,50 @@ pub struct DatasetCompact {
     pub bill_votes: HashMap<String, BillVotes>,
 }
 
+/// Just the schema version, read without parsing the rest of the file.
+///
+/// The check has to come first. Every other field changes shape between
+/// schemas, so parsing the whole file to reach the version fails on one of
+/// those fields instead, and reports a serde error about a type mismatch deep
+/// in the document rather than the one thing the reader needs to be told: this
+/// file was written by another build, rebuild it.
+#[derive(Deserialize)]
+struct SchemaProbe {
+    #[serde(default)]
+    schema_version: i32,
+}
+
+/// Refuse a compact-JSON file this build cannot read.
+///
+/// The same guard SQLite has had since #68. Without it the JSON path fails the
+/// quiet way instead: an older file parses, every collection defaults to empty,
+/// and the dataset reports that it holds nothing.
+pub fn check_schema_version(json: &str) -> Result<(), crate::dataset::DatasetError> {
+    let probe: SchemaProbe = serde_json::from_str(json)?;
+    if probe.schema_version != SCHEMA_VERSION {
+        return Err(crate::dataset::DatasetError::SchemaVersionMismatch {
+            found: probe.schema_version,
+            expected: SCHEMA_VERSION,
+        });
+    }
+    Ok(())
+}
+
 impl DatasetCompact {
     /// Convert from InMemoryStorage
     pub fn from_storage(storage: &InMemoryStorage) -> Self {
         let mut table = StringTable::new();
 
-        let versions: Vec<VersionSnapshotCompact> = storage
-            .versions
-            .iter()
-            .map(|v| Self::compact_version(v, &mut table))
+        let expressions: Vec<ExpressionCompact> = storage
+            .all_expressions()
+            .map(|e| Self::compact_expression(e, &mut table))
             .collect();
 
         Self {
+            schema_version: SCHEMA_VERSION,
             string_table: table,
             metadata: storage.metadata.clone(),
-            versions,
+            expressions,
             bills: storage.bills.clone(),
             diff_annotations: storage.diff_annotations.clone(),
             members: storage.members.clone(),
@@ -217,14 +258,12 @@ impl DatasetCompact {
         }
     }
 
-    fn compact_version(
-        version: &VersionSnapshot,
-        table: &mut StringTable,
-    ) -> VersionSnapshotCompact {
-        VersionSnapshotCompact {
-            date: table.intern(&version.date),
-            label: version.label.as_ref().map(|l| table.intern(l)),
-            element: Self::compact_element(&version.element, table),
+    fn compact_expression(expression: &Expression, table: &mut StringTable) -> ExpressionCompact {
+        ExpressionCompact {
+            work: table.intern(expression.id.work.as_str()),
+            date: table.intern(&expression.id.at),
+            label: expression.label.as_ref().map(|l| table.intern(l)),
+            element: Self::compact_element(&expression.element, table),
         }
     }
 
@@ -278,15 +317,18 @@ impl DatasetCompact {
             interner.intern(s);
         }
 
-        let versions: Vec<VersionSnapshot> = self
-            .versions
-            .into_iter()
-            .map(|v| Self::expand_version(v, &self.string_table, &mut interner))
-            .collect();
+        let mut expressions = ExpressionsByWork::new();
+        for compact in self.expressions {
+            let expression = Self::expand_expression(compact, &self.string_table, &mut interner);
+            expressions
+                .entry(expression.id.work.clone())
+                .or_default()
+                .insert(expression.id.at.clone(), expression);
+        }
 
         InMemoryStorage::from_parts(
             self.metadata,
-            versions,
+            expressions,
             self.bills,
             self.diff_annotations,
             self.members,
@@ -296,15 +338,18 @@ impl DatasetCompact {
         )
     }
 
-    fn expand_version(
-        version: VersionSnapshotCompact,
+    fn expand_expression(
+        compact: ExpressionCompact,
         table: &StringTable,
         interner: &mut StringInterner,
-    ) -> VersionSnapshot {
-        VersionSnapshot {
-            date: table.get(version.date).to_string(),
-            label: version.label.map(|i| table.get(i).to_string()),
-            element: Self::expand_element(version.element, table, interner),
+    ) -> Expression {
+        Expression {
+            id: ExpressionId::new(
+                WorkId::new(table.get(compact.work)),
+                table.get(compact.date),
+            ),
+            label: compact.label.map(|i| table.get(i).to_string()),
+            element: Self::expand_element(compact.element, table, interner),
         }
     }
 

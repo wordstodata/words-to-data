@@ -9,20 +9,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::{Dataset, ExpressionId, Format};
 
 #[derive(ClapArgs)]
 pub struct Args {
-    /// Dataset (compact JSON) with extracted amendment changes and both US Code versions
+    /// Dataset (compact JSON) with extracted amendment changes and both expressions
     pub dataset: String,
 
-    /// Older US Code release-point date (YYYY-MM-DD)
+    /// Older expression, e.g. `uscode/title_26@2025-07-18`
     #[arg(long)]
-    pub from_date: String,
+    pub from: ExpressionId,
 
-    /// Newer US Code release-point date (YYYY-MM-DD)
+    /// Newer expression of the same work
     #[arg(long)]
-    pub to_date: String,
+    pub to: ExpressionId,
 
     /// Only keep similarity scores strictly above this cutoff
     #[arg(long, default_value_t = 0.4)]
@@ -37,7 +37,7 @@ pub fn run(args: Args) {
     let dataset = Dataset::load(&args.dataset, Format::Compact).expect("Error loading dataset");
 
     let diff = dataset
-        .compute_diff(&args.from_date, &args.to_date)
+        .compute_diff(&args.from, &args.to)
         .expect("Error computing diff");
 
     // Score every amendment (with changes) against the US Code diff.

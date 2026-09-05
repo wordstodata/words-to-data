@@ -7,8 +7,7 @@
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
-use words_to_data::dataset::{Dataset, DatasetMetadata, VersionSnapshot};
-use words_to_data::uslm::parser::parse;
+use words_to_data::dataset::{Dataset, DatasetMetadata};
 
 /// The two US Code release points held in `tests/test_data`.
 const EARLY: &str = "2025-07-18";
@@ -17,11 +16,18 @@ const LATE: &str = "2025-07-30";
 /// Title 9 (Arbitration) did not change between the two release points. Its two
 /// files differ by ten bytes of release stamp, which the parser ignores.
 const UNCHANGED_TITLE: &str = "usc09";
+const UNCHANGED_WORK: &str = "uscode/title_9";
 
 /// Title 51 (National and Commercial Space Programs) did change: it is the
 /// smallest title in the corpus that carries real amendments between the two
 /// release points, at 2.8 MB and +26 KB.
 const AMENDED_TITLE: &str = "usc51";
+const AMENDED_WORK: &str = "uscode/title_51";
+
+/// The `work@date` form the CLI takes and prints.
+fn expression(work: &str, date: &str) -> String {
+    format!("{work}@{date}")
+}
 
 /// Build a SQLite dataset holding one title at both release points.
 fn build_fixture(title: &str) -> String {
@@ -40,12 +46,8 @@ fn build_fixture(title: &str) -> String {
     for (date, label) in [(EARLY, "Before"), (LATE, "After")] {
         let xml = format!("tests/test_data/usc/{date}/{title}.xml");
         dataset
-            .add_version(VersionSnapshot {
-                date: date.to_string(),
-                label: Some(label.to_string()),
-                element: parse(&xml, date).expect("the corpus should parse"),
-            })
-            .expect("a version should be added");
+            .add_uslm_xml(&xml, date, Some(label.to_string()))
+            .expect("the corpus should parse and load");
     }
 
     dataset
@@ -64,6 +66,40 @@ fn amended_fixture() -> &'static str {
 fn unchanged_fixture() -> &'static str {
     static FIXTURE: OnceLock<String> = OnceLock::new();
     FIXTURE.get_or_init(|| build_fixture(UNCHANGED_TITLE))
+}
+
+/// A dataset holding two documents that share no publication date: title 9 at
+/// the earlier release point, title 51 at the later one.
+///
+/// This is the shape #69 exists for. Ten court opinions would look the same,
+/// and the old global version list could not hold it at all.
+fn two_works_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/cli_two_works.sqlite", env!("CARGO_TARGET_TMPDIR"));
+        let _ = std::fs::remove_file(&path);
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Two Works".to_string(),
+            description: "Two titles, no shared date".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+        });
+
+        for (title, date) in [(UNCHANGED_TITLE, EARLY), (AMENDED_TITLE, LATE)] {
+            let xml = format!("tests/test_data/usc/{date}/{title}.xml");
+            dataset
+                .add_uslm_xml(&xml, date, None)
+                .expect("the corpus should parse and load");
+        }
+
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
 }
 
 /// Run the CLI as a subprocess, the way an agent or a shell would.
@@ -88,19 +124,30 @@ fn should_report_metadata_and_counts_when_info_runs_on_a_dataset() {
         serde_json::from_slice(&output.stdout).expect("info --json should emit json");
 
     assert_eq!(info["name"], "CLI Test Fixture");
-    assert_eq!(info["version_count"], 2);
+    assert_eq!(info["work_count"], 1, "two releases of one title, one work");
+    assert_eq!(info["expression_count"], 2);
     assert_eq!(info["bill_count"], 0);
 
     // Scope answers "why did my query find nothing". Without it, an agent
     // reading this output cannot tell an absent provision from an absent title.
-    assert_eq!(info["scope"]["held"][0], "uscode/title_51");
-    assert_eq!(info["scope"]["dates"][0], EARLY);
-    assert_eq!(info["scope"]["dates"][1], LATE);
+    // Each work carries its own dates, so a dataset that holds one work in
+    // July and another in August cannot read as holding both in both.
+    assert_eq!(info["scope"]["held"][0]["work"], AMENDED_WORK);
+    assert_eq!(info["scope"]["held"][0]["dates"][0], EARLY);
+    assert_eq!(info["scope"]["held"][0]["dates"][1], LATE);
 }
 
 /// Run `diff` over a fixture and return its parsed JSON summary.
-fn diff_summary(dataset: &str) -> serde_json::Value {
-    let output = run(&["diff", dataset, "--from", EARLY, "--to", LATE, "--json"]);
+fn diff_summary(dataset: &str, work: &str) -> serde_json::Value {
+    let output = run(&[
+        "diff",
+        dataset,
+        "--from",
+        &expression(work, EARLY),
+        "--to",
+        &expression(work, LATE),
+        "--json",
+    ]);
 
     assert!(
         output.status.success(),
@@ -119,11 +166,12 @@ fn path_count(summary: &serde_json::Value, key: &str) -> usize {
 /// Title 51 gained 26 KB of text and 63 elements between the two release points.
 /// Those are pure insertions, which `from_elements` used to discard (#54).
 #[test]
-fn should_list_the_paths_that_changed_between_two_versions_when_diff_runs() {
-    let summary = diff_summary(amended_fixture());
+fn should_list_the_paths_that_changed_between_two_expressions_when_diff_runs() {
+    let summary = diff_summary(amended_fixture(), AMENDED_WORK);
 
-    assert_eq!(summary["from_date"], EARLY);
-    assert_eq!(summary["to_date"], LATE);
+    assert_eq!(summary["work"], AMENDED_WORK);
+    assert_eq!(summary["from"], expression(AMENDED_WORK, EARLY));
+    assert_eq!(summary["to"], expression(AMENDED_WORK, LATE));
 
     let total = path_count(&summary, "changed_paths")
         + path_count(&summary, "added_paths")
@@ -136,34 +184,59 @@ fn should_list_the_paths_that_changed_between_two_versions_when_diff_runs() {
 }
 
 #[test]
-fn should_list_every_version_with_its_element_count_when_versions_runs() {
-    let output = run(&["versions", amended_fixture(), "--json"]);
+fn should_list_every_expression_with_its_element_count_when_expressions_runs() {
+    let output = run(&["expressions", amended_fixture(), "--json"]);
 
-    assert!(output.status.success(), "versions should exit zero");
+    assert!(output.status.success(), "expressions should exit zero");
 
-    let versions: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("versions --json should emit json");
-    let versions = versions.as_array().expect("an array of versions");
+    let expressions: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("expressions --json should emit json");
+    let expressions = expressions.as_array().expect("an array of expressions");
 
-    assert_eq!(versions.len(), 2);
-    assert_eq!(versions[0]["date"], EARLY);
-    assert_eq!(versions[0]["label"], "Before");
-    assert_eq!(versions[1]["date"], LATE);
-    assert_eq!(versions[1]["label"], "After");
+    assert_eq!(expressions.len(), 2);
+    // The id is the form that goes straight back in on `--from` / `--to`.
+    assert_eq!(expressions[0]["id"], expression(AMENDED_WORK, EARLY));
+    assert_eq!(expressions[0]["work"], AMENDED_WORK);
+    assert_eq!(expressions[0]["date"], EARLY);
+    assert_eq!(expressions[0]["label"], "Before");
+    assert_eq!(expressions[1]["id"], expression(AMENDED_WORK, LATE));
+    assert_eq!(expressions[1]["label"], "After");
 
     // The later release carries the two sections title 51 gained, so it must
     // hold more elements than the earlier one.
     let count = |v: &serde_json::Value| v["element_count"].as_u64().expect("a count");
     assert!(
-        count(&versions[1]) > count(&versions[0]),
-        "the amended version should hold more elements: {} then {}",
-        count(&versions[0]),
-        count(&versions[1])
+        count(&expressions[1]) > count(&expressions[0]),
+        "the amended expression should hold more elements: {} then {}",
+        count(&expressions[0]),
+        count(&expressions[1])
     );
 }
 
+/// `--work` narrows the list to one document. On a one-work dataset it changes
+/// nothing, which is the point: it is a filter, not a required argument.
 #[test]
-fn should_find_matching_text_across_versions_when_search_runs() {
+fn should_list_only_the_named_work_when_expressions_is_given_one() {
+    let output = run(&[
+        "expressions",
+        amended_fixture(),
+        "--work",
+        AMENDED_WORK,
+        "--json",
+    ]);
+
+    assert!(output.status.success(), "expressions should exit zero");
+
+    let expressions: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("expressions --json should emit json");
+    let expressions = expressions.as_array().expect("an array of expressions");
+
+    assert_eq!(expressions.len(), 2);
+    assert!(expressions.iter().all(|e| e["work"] == AMENDED_WORK));
+}
+
+#[test]
+fn should_find_matching_text_across_expressions_when_search_runs() {
     let output = run(&["search", amended_fixture(), "space", "--json"]);
 
     assert!(output.status.success(), "search should exit zero");
@@ -175,10 +248,14 @@ fn should_find_matching_text_across_versions_when_search_runs() {
     assert!(!hits.is_empty(), "title 51 should contain the word 'space'");
 
     for hit in hits {
-        let date = hit["date"].as_str().expect("a date");
+        // A hit names the expression it was found in. A bare date could not
+        // say which document the text belongs to.
+        let work = hit["expression"]["work"].as_str().expect("a work");
+        let date = hit["expression"]["at"].as_str().expect("a date");
+        assert_eq!(work, AMENDED_WORK);
         assert!(
             date == EARLY || date == LATE,
-            "a hit should name one of the two versions, got {date}"
+            "a hit should name one of the two expressions, got {date}"
         );
         let path = hit["path"].as_str().expect("a path");
         assert!(
@@ -214,9 +291,9 @@ fn should_report_every_changed_path_as_unannotated_when_nothing_is_annotated() {
         "coverage",
         amended_fixture(),
         "--from",
-        EARLY,
+        &expression(AMENDED_WORK, EARLY),
         "--to",
-        LATE,
+        &expression(AMENDED_WORK, LATE),
         "--json",
     ]);
 
@@ -241,9 +318,9 @@ fn should_return_no_annotations_when_the_dataset_has_none() {
         "annotations",
         amended_fixture(),
         "--from",
-        EARLY,
+        &expression(AMENDED_WORK, EARLY),
         "--to",
-        LATE,
+        &expression(AMENDED_WORK, LATE),
         "--json",
     ]);
 
@@ -284,22 +361,163 @@ fn should_fail_when_the_dataset_file_does_not_exist() {
 }
 
 #[test]
-fn should_fail_when_the_version_date_is_unknown() {
+fn should_fail_when_the_expression_is_unknown() {
     let output = run(&[
         "diff",
         amended_fixture(),
         "--from",
-        "1999-01-01",
+        &expression(AMENDED_WORK, "1999-01-01"),
         "--to",
-        LATE,
+        &expression(AMENDED_WORK, LATE),
         "--json",
     ]);
 
     assert!(
         !output.status.success(),
-        "an unknown version must not look like an empty diff"
+        "an unknown expression must not look like an empty diff"
     );
     assert!(!output.stderr.is_empty(), "the failure should be explained");
+}
+
+/// A diff across two works would compare unrelated documents and report the
+/// whole of each as changed. It has to be refused, not answered.
+#[test]
+fn should_fail_when_a_diff_names_two_works() {
+    let output = run(&[
+        "diff",
+        amended_fixture(),
+        "--from",
+        &expression(AMENDED_WORK, EARLY),
+        "--to",
+        &expression(UNCHANGED_WORK, LATE),
+        "--json",
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "a diff across two works must not be answered"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("one work"),
+        "the failure should say why, got: {stderr}"
+    );
+}
+
+/// A malformed expression is caught when the argument is parsed, so a typo
+/// cannot become a lookup that quietly finds nothing.
+#[test]
+fn should_fail_when_an_expression_argument_is_malformed() {
+    let output = run(&[
+        "diff",
+        amended_fixture(),
+        "--from",
+        "2025-07-18",
+        "--to",
+        &expression(AMENDED_WORK, LATE),
+        "--json",
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "a bare date no longer names anything"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("work") && stderr.contains("date"),
+        "the failure should show the expected form, got: {stderr}"
+    );
+}
+
+// --- Two documents that share no publication date ---
+//
+// The clause #69 is done when: a dataset can hold two documents with unrelated
+// publication dates, and every command still answers correctly for both.
+
+#[test]
+fn should_report_each_work_with_its_own_dates_when_info_runs_on_two_works() {
+    let output = run(&["info", two_works_fixture(), "--json"]);
+
+    assert!(output.status.success(), "info should exit zero");
+    let info: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("info --json should emit json");
+
+    assert_eq!(info["work_count"], 2);
+    assert_eq!(info["expression_count"], 2);
+
+    // Each work carries only the date it was actually published on. Two flat
+    // lists would report both works on both dates, which is false.
+    let held = info["scope"]["held"].as_array().expect("held works");
+    let dates_of = |work: &str| {
+        held.iter()
+            .find(|h| h["work"] == work)
+            .map(|h| h["dates"].clone())
+            .unwrap_or_else(|| panic!("{work} should be held"))
+    };
+    assert_eq!(dates_of(UNCHANGED_WORK), serde_json::json!([EARLY]));
+    assert_eq!(dates_of(AMENDED_WORK), serde_json::json!([LATE]));
+}
+
+#[test]
+fn should_list_both_works_when_expressions_runs_on_two_works() {
+    let output = run(&["expressions", two_works_fixture(), "--json"]);
+
+    assert!(output.status.success(), "expressions should exit zero");
+    let expressions: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("expressions --json should emit json");
+    let expressions = expressions.as_array().expect("an array of expressions");
+
+    assert_eq!(expressions.len(), 2);
+    let ids: Vec<&str> = expressions
+        .iter()
+        .map(|e| e["id"].as_str().expect("an id"))
+        .collect();
+    assert!(ids.contains(&expression(UNCHANGED_WORK, EARLY).as_str()));
+    assert!(ids.contains(&expression(AMENDED_WORK, LATE).as_str()));
+}
+
+/// Each document is searchable, and every hit says which one it came from.
+#[test]
+fn should_attribute_search_hits_to_the_right_work_when_two_works_are_held() {
+    let dataset = two_works_fixture();
+
+    for (query, expected_work) in [("arbitration", UNCHANGED_WORK), ("space", AMENDED_WORK)] {
+        let output = run(&["search", dataset, query, "--json"]);
+        assert!(output.status.success(), "search should exit zero");
+
+        let hits: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("search --json should emit json");
+        let hits = hits.as_array().expect("an array of hits");
+
+        assert!(!hits.is_empty(), "{expected_work} should contain {query:?}");
+        assert!(
+            hits.iter()
+                .all(|h| h["expression"]["work"] == expected_work),
+            "every hit for {query:?} should name {expected_work}"
+        );
+    }
+}
+
+/// The old global list would answer this by handing back the other document.
+#[test]
+fn should_report_no_second_expression_for_a_work_published_once() {
+    let output = run(&[
+        "expressions",
+        two_works_fixture(),
+        "--work",
+        UNCHANGED_WORK,
+        "--json",
+    ]);
+
+    assert!(output.status.success(), "expressions should exit zero");
+    let expressions: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("expressions --json should emit json");
+
+    assert_eq!(
+        expressions.as_array().expect("an array").len(),
+        1,
+        "title 9 was published once here; title 51 is not a later reading of it"
+    );
 }
 
 /// The two files of an unchanged title differ by ten bytes of release stamp.
@@ -307,7 +525,7 @@ fn should_fail_when_the_version_date_is_unknown() {
 /// noise, so this pins that it reports nothing.
 #[test]
 fn should_report_no_changes_when_only_the_release_stamp_differs() {
-    let summary = diff_summary(unchanged_fixture());
+    let summary = diff_summary(unchanged_fixture(), UNCHANGED_WORK);
 
     assert_eq!(
         (

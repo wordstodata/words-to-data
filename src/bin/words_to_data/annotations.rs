@@ -1,6 +1,7 @@
 //! `words_to_data annotations` — list annotations, filtered by pair, bill, or path.
 
 use clap::Args as ClapArgs;
+use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect::{self, AnnotationQuery};
 
 use crate::load::{self, with_dataset};
@@ -10,13 +11,13 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Filter to a version pair (requires `--to`)
+    /// Older expression of the pair, e.g. `uscode/title_9@2025-07-18` (requires `--to`)
     #[arg(long, requires = "to")]
-    pub from: Option<String>,
+    pub from: Option<ExpressionId>,
 
-    /// Newer version date of the pair (requires `--from`)
+    /// Newer expression of the pair (requires `--from`)
     #[arg(long, requires = "from")]
-    pub to: Option<String>,
+    pub to: Option<ExpressionId>,
 
     /// Filter to annotations sourced from this bill
     #[arg(long, conflicts_with_all = ["from", "path"])]
@@ -43,9 +44,11 @@ pub fn run(args: Args) {
         std::process::exit(2);
     };
 
-    let ds = load::open(&args.dataset).expect("Error opening dataset");
-    let anns =
-        with_dataset!(ds, d => inspect::annotations(&d, query)).expect("Error reading annotations");
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    let anns = crate::fail::or_exit(
+        with_dataset!(ds, d => inspect::annotations(&d, query)),
+        "Error reading annotations",
+    );
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&anns).unwrap());
@@ -69,8 +72,16 @@ pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
         .unwrap_or_else(|| "-".to_string());
     let short_id: String = a.amendment_id.chars().take(12).collect();
     println!(
-        "  [{}] {} -> {}  {} {} amd {} (conf {}, by {})",
-        a.status, a.from_date, a.to_date, a.operation, a.bill_id, short_id, confidence, a.annotator
+        "  [{}] {} {} -> {}  {} {} amd {} (conf {}, by {})",
+        a.status,
+        a.work,
+        a.from_date,
+        a.to_date,
+        a.operation,
+        a.bill_id,
+        short_id,
+        confidence,
+        a.annotator
     );
     let text = a.causative_text.trim();
     if !text.is_empty() {
