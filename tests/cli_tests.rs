@@ -887,3 +887,85 @@ fn should_replace_the_output_when_converting_onto_an_existing_database() {
         "the converted database should hold the source's expressions"
     );
 }
+
+/// A dataset holding one work and one real public law, in both file formats.
+///
+/// `show-bill` needs a bill id, so something has to be able to hand one over.
+fn bill_fixtures() -> &'static (String, String) {
+    static FIXTURE: OnceLock<(String, String)> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let sqlite = format!("{}/cli_bills.sqlite", env!("CARGO_TARGET_TMPDIR"));
+        let json = format!("{}/cli_bills.json", env!("CARGO_TARGET_TMPDIR"));
+        let _ = std::fs::remove_file(&sqlite);
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Bills Fixture".to_string(),
+            description: "One title and one public law".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+        });
+        dataset
+            .add_uslm_xml(
+                &format!("tests/test_data/usc/{EARLY}/{UNCHANGED_TITLE}.xml"),
+                EARLY,
+                None,
+            )
+            .expect("the corpus should parse");
+        let bill = words_to_data::uslm::bill_parser::parse_bill_amendments(
+            "119-hr-1",
+            "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml",
+        )
+        .expect("the bill should parse");
+        dataset.add_bill(bill).expect("add bill");
+
+        dataset.save_to_sqlite(&sqlite).expect("save sqlite");
+        dataset.save(&json, Format::Compact).expect("save json");
+        (sqlite, json)
+    })
+}
+
+#[test]
+fn should_list_bill_ids_so_show_bill_can_be_used() {
+    let (sqlite, json) = bill_fixtures();
+
+    for dataset in [sqlite, json] {
+        let output = run(&["bills", dataset, "--json"]);
+        assert!(
+            output.status.success(),
+            "bills should exit zero for {dataset}, stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let listed: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("bills --json should emit json");
+        let bills = listed.as_array().expect("a list of bills");
+        assert_eq!(bills.len(), 1, "the fixture holds one bill");
+        assert_eq!(bills[0]["bill_id"], "119-hr-1");
+        assert!(
+            bills[0]["amendment_count"].as_u64().unwrap_or(0) > 0,
+            "a real public law carries amendments"
+        );
+    }
+}
+
+#[test]
+fn should_hand_show_bill_an_id_it_accepts() {
+    let (sqlite, _) = bill_fixtures();
+
+    // The point of the listing: an id read from it must work as an argument.
+    let listed = run(&["bills", sqlite, "--json"]);
+    let parsed: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    let id = parsed[0]["bill_id"]
+        .as_str()
+        .expect("a bill id")
+        .to_string();
+
+    let shown = run(&["show-bill", sqlite, &id]);
+    assert!(
+        shown.status.success(),
+        "show-bill should accept an id that `bills` listed, stderr: {}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+}
