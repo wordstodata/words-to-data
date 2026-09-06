@@ -52,6 +52,50 @@ pub struct ExpressionSummary {
     pub element_count: usize,
 }
 
+/// One bill's headline facts, for listing many at once.
+///
+/// Distinct from [`BillSummary`], which carries every amendment and is what
+/// `show-bill` returns for one bill.
+#[derive(Debug, Clone, Serialize)]
+pub struct BillListing {
+    /// The identifier `show-bill` takes, such as `119-hr-1`.
+    pub bill_id: String,
+    /// How many amendments the bill carries.
+    pub amendment_count: usize,
+    /// How many of those carry extracted word-level changes.
+    ///
+    /// Zero across the board means `extract-changes` has not run, which is the
+    /// difference between a dataset that can be scored and one that cannot.
+    pub amendments_with_changes: usize,
+}
+
+/// List every bill, ordered by id.
+///
+/// Without this a bill id could only be learned from outside the tool:
+/// `show-bill` demands one, `info` reports a count, and annotations carry ids
+/// but a dataset has none until `match-amendments` has run (#83).
+pub fn bills<S: Storage>(dataset: &S) -> Result<Vec<BillListing>, DatasetError> {
+    let mut ids = dataset.list_bill_ids()?;
+    ids.sort();
+
+    let mut summaries = Vec::new();
+    for id in ids {
+        let Some(bill) = dataset.get_bill(&id)? else {
+            continue;
+        };
+        summaries.push(BillListing {
+            bill_id: bill.bill_id,
+            amendment_count: bill.amendments.len(),
+            amendments_with_changes: bill
+                .amendments
+                .values()
+                .filter(|amendment| !amendment.changes.is_empty())
+                .count(),
+        });
+    }
+    Ok(summaries)
+}
+
 /// Count every element in a tree, including the root.
 fn count_elements(element: &USLMElement) -> usize {
     1 + element.children.iter().map(count_elements).sum::<usize>()

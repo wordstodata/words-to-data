@@ -4,6 +4,7 @@
 use clap::{Parser, Subcommand};
 
 mod annotations;
+mod bills;
 mod build_dataset;
 mod convert_dataset;
 mod coverage;
@@ -48,6 +49,9 @@ enum Command {
     Info(info::Args),
     /// List every expression (`work@date`) with its size
     Expressions(expressions::Args),
+    /// List every bill the dataset holds
+    Bills(bills::Args),
+
     /// Show a bill's amendments
     ShowBill(show_bill::Args),
     /// Full-text search across every expression
@@ -73,6 +77,7 @@ fn main() {
         Command::MatchAmendments(args) => match_amendments::run(args),
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),
+        Command::Bills(args) => bills::run(args),
         Command::ShowBill(args) => show_bill::run(args),
         Command::Search(args) => search::run(args),
         Command::Diff(args) => diff::run(args),
