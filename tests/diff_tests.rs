@@ -2,7 +2,7 @@ use rstest::rstest;
 use words_to_data::{
     diff::{MentionMatch, TreeDiff},
     legislature::BillDiff,
-    uslm::{TextContentField, bill_parser::parse_bill_amendments, parser::parse},
+    uslm::{TextContentField, USLMElement, bill_parser::parse_bill_amendments, parser::parse},
 };
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
@@ -268,4 +268,160 @@ fn test_scan_for_mentions_should_find_section_45f_mentions_in_bill() {
         "Should find a match containing '45F', got matches: {:?}",
         all_matches
     );
+}
+
+/// Flatten a diff tree into the exact order its nodes and children are stored,
+/// so that two diffs can be compared on ordering and not merely on membership.
+fn ordered_paths(diff: &TreeDiff) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(diff: &TreeDiff, out: &mut Vec<String>) {
+        out.push(format!("~{}", diff.root_path));
+        for element in &diff.added {
+            out.push(format!("+{}", element.path));
+        }
+        for element in &diff.removed {
+            out.push(format!("-{}", element.path));
+        }
+        for child in &diff.child_diffs {
+            walk(child, out);
+        }
+    }
+    walk(diff, &mut out);
+    out
+}
+
+#[test]
+fn should_order_diff_children_identically_when_the_same_diff_is_built_twice() {
+    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+        .expect("Error running parser");
+    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+
+    let first = ordered_paths(&TreeDiff::from_elements(&doc_old, &doc_new));
+    let second = ordered_paths(&TreeDiff::from_elements(&doc_old, &doc_new));
+
+    // Membership has never been the problem: the same paths come back every
+    // time. Only their order moves, so compare the sequences, not the sets.
+    let mut first_sorted = first.clone();
+    let mut second_sorted = second.clone();
+    first_sorted.sort();
+    second_sorted.sort();
+    assert_eq!(
+        first_sorted, second_sorted,
+        "The two diffs should contain the same paths"
+    );
+
+    let first_divergence = first
+        .iter()
+        .zip(second.iter())
+        .position(|(a, b)| a != b)
+        .map(|i| format!("index {i}: {:?} vs {:?}", first[i], second[i]))
+        .unwrap_or_else(|| "none".to_string());
+    assert_eq!(
+        first, second,
+        "Two diffs of the same input should be ordered identically. \
+         First divergence at {first_divergence}"
+    );
+}
+
+/// Assert that every list on this node follows the order of the source
+/// document, then recurse. `removed` and `child_diffs` follow the older
+/// expression; `added` follows the newer one.
+fn assert_document_order(diff: &TreeDiff, from: &USLMElement, to: &USLMElement) {
+    // A few siblings share a path. One element represents each path, and it is
+    // the last one, so resolve from the back to match what the diff records.
+    let position_in = |element: &USLMElement, path: &str| -> usize {
+        element
+            .children
+            .iter()
+            .rposition(|child| &*child.data.path == path)
+            .unwrap_or_else(|| panic!("{path} is not a child of {}", element.data.path))
+    };
+
+    let ascending = |positions: &[usize]| positions.windows(2).all(|pair| pair[0] < pair[1]);
+
+    let child_positions: Vec<usize> = diff
+        .child_diffs
+        .iter()
+        .map(|child| position_in(from, &child.root_path))
+        .collect();
+    assert!(
+        ascending(&child_positions),
+        "child_diffs of {} are not in document order: {:?}",
+        diff.root_path,
+        diff.child_diffs
+            .iter()
+            .map(|c| c.root_path.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    let removed_positions: Vec<usize> = diff
+        .removed
+        .iter()
+        .map(|element| position_in(from, &element.path))
+        .collect();
+    assert!(
+        ascending(&removed_positions),
+        "removed of {} is not in document order",
+        diff.root_path
+    );
+
+    let added_positions: Vec<usize> = diff
+        .added
+        .iter()
+        .map(|element| position_in(to, &element.path))
+        .collect();
+    assert!(
+        ascending(&added_positions),
+        "added of {} is not in document order",
+        diff.root_path
+    );
+
+    for child in &diff.child_diffs {
+        let from_child = &from.children[position_in(from, &child.root_path)];
+        let to_child = &to.children[position_in(to, &child.root_path)];
+        assert_document_order(child, from_child, to_child);
+    }
+}
+
+#[test]
+fn should_order_mentions_identically_when_scanning_the_same_bill_twice() {
+    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+        .expect("Error running parser");
+    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+
+    let first = diff.scan_for_mentions(&amendment_data);
+    let second = diff.scan_for_mentions(&amendment_data);
+
+    // Only amendments with more than one mention can expose an ordering bug.
+    let multi = first.values().filter(|m| m.len() > 1).count();
+    assert!(
+        multi > 0,
+        "This test needs an amendment with more than one mention to be meaningful"
+    );
+
+    for (amendment_id, mentions) in &first {
+        let other = second
+            .get(amendment_id)
+            .expect("both scans should cover the same amendments");
+        assert_eq!(
+            mentions, other,
+            "Mentions for amendment {amendment_id} should come back in the same order every scan"
+        );
+    }
+}
+
+#[test]
+fn should_order_diff_children_by_document_position_when_diffing_a_title() {
+    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+        .expect("Error running parser");
+    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+
+    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+
+    assert_document_order(&diff, &doc_old, &doc_new);
 }

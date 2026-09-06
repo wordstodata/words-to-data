@@ -12,6 +12,7 @@ pub mod intern;
 pub mod io;
 pub mod legislature;
 pub mod link;
+pub mod matching;
 pub mod storage;
 #[cfg(feature = "download")]
 pub mod uscode;
