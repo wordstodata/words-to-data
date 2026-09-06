@@ -284,8 +284,21 @@ impl TreeDiff {
         let mut added = vec![];
         let mut removed = vec![];
         let mut child_diffs = vec![];
-        // Iterate once through A - handle matched and removed
-        for (path, child_a) in &children_a {
+        // Walk the children themselves, not the maps built from them. The maps
+        // answer "is this path on the other side?"; the child vectors carry
+        // source document order, so `removed` and `child_diffs` come out in the
+        // order the provisions appear in the law. Iterating the maps instead let
+        // hash order decide, which changed between runs (#73).
+        //
+        // A handful of siblings share a path (11 of ~58,000 in title 26, where
+        // the parser generates the same path twice). The maps hold one element
+        // per path, so we skip any child the map does not hold. That keeps one
+        // entry per path, exactly as before; only the order is new.
+        for child_a in &from_element.children {
+            let path = &*child_a.data.path;
+            if !std::ptr::eq(children_a[path], child_a) {
+                continue;
+            }
             match children_b.get(path) {
                 Some(child_b) => {
                     // Matched - recurse
@@ -305,8 +318,12 @@ impl TreeDiff {
             }
         }
 
-        // Iterate through B for added only
-        for (path, child_b) in &children_b {
+        // Iterate through B for added only, again in document order.
+        for child_b in &to_element.children {
+            let path = &*child_b.data.path;
+            if !std::ptr::eq(children_b[path], child_b) {
+                continue;
+            }
             if !children_a.contains_key(path) {
                 added.push(child_b.data.clone()); //ElementSnapshot::from(child_b));
             }
@@ -544,17 +561,26 @@ impl TreeDiff {
                 })
                 .collect();
 
-            // Deduplicate: keep only the longest match per tree_diff_path
-            let mut best_by_path: HashMap<&str, &MentionMatch> = HashMap::new();
+            // Deduplicate: keep only the longest match per tree_diff_path.
+            // Collecting into a Vec rather than a map keeps the paths in the
+            // order the tree walk produced them, which is document order. A map
+            // returned them in hash order, which moved between runs (#73).
+            let mut best_by_path: Vec<&MentionMatch> = Vec::new();
             for m in &all_matches {
-                let dominated = best_by_path
-                    .get(m.tree_diff_path.as_str())
-                    .is_some_and(|existing| existing.matched_text.len() >= m.matched_text.len());
-                if !dominated {
-                    best_by_path.insert(&m.tree_diff_path, m);
+                match best_by_path
+                    .iter_mut()
+                    .find(|existing| existing.tree_diff_path == m.tree_diff_path)
+                {
+                    // Ties keep the match already held, as before.
+                    Some(existing) => {
+                        if m.matched_text.len() > existing.matched_text.len() {
+                            *existing = m;
+                        }
+                    }
+                    None => best_by_path.push(m),
                 }
             }
-            let matches: Vec<MentionMatch> = best_by_path.into_values().cloned().collect();
+            let matches: Vec<MentionMatch> = best_by_path.into_iter().cloned().collect();
 
             if !matches.is_empty() {
                 results.insert(amendment_id.clone(), matches);

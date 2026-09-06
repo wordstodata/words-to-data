@@ -5,7 +5,6 @@
 //! actually caused, and record the answer as a `ChangeAnnotation` written back
 //! into the dataset in place.
 
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -18,8 +17,8 @@ use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
 use words_to_data::dataset::{Dataset, Format};
-use words_to_data::diff::{AmendmentSimilarity, MentionMatch, TreeDiff};
 use words_to_data::legislature::AmendingAction;
+use words_to_data::matching::{AmendmentMatch, Candidate, build_matches};
 use words_to_data::uslm::TextContentField;
 
 use crate::llm::{ChatOptions, LlmClient};
@@ -50,16 +49,6 @@ pub struct Args {
     pub output: Option<String>,
 }
 
-/// A candidate US Code diff that an amendment might have caused.
-struct Candidate {
-    /// Shallow diff at this location (no children).
-    diff: TreeDiff,
-    /// Pre-computed similarity score for this amendment/location, if any.
-    similarity: Option<AmendmentSimilarity>,
-    /// Section mentions from the amendment text found at this location.
-    mentions: Vec<MentionMatch>,
-}
-
 /// One work's candidate view, tagged with the pair it was built from.
 ///
 /// A corpus run covers many works, and the candidates carry no work of their
@@ -70,15 +59,6 @@ struct CandidatesOfWork {
     from: String,
     to: String,
     amendments: Vec<serde_json::Value>,
-}
-
-/// One amendment plus the candidate diffs to disambiguate between.
-struct AmendmentMatch {
-    bill_id: String,
-    amendment_id: String,
-    amending_text: String,
-    action_types: Vec<AmendingAction>,
-    candidates: Vec<Candidate>,
 }
 
 pub fn run(args: Args) {
@@ -190,80 +170,6 @@ pub fn run(args: Args) {
     println!("Wrote {output}");
 }
 
-/// Gather, for every amendment across every bill, the candidate diffs it may explain.
-fn build_matches(
-    dataset: &Dataset<impl words_to_data::storage::Storage>,
-    diff: &TreeDiff,
-) -> Vec<AmendmentMatch> {
-    let mut matches = Vec::new();
-
-    for bill_id in dataset.list_bill_ids().expect("Error listing bills") {
-        let bill = dataset
-            .get_bill(&bill_id)
-            .expect("Error reading bill")
-            .expect("bill id from list_bill_ids should exist");
-
-        // Similarity scores keyed by tree-diff path; mentions keyed by amendment id.
-        let similarities = diff.calculate_amendment_similarities(&bill);
-        let mentions = diff.scan_for_mentions(&bill);
-
-        for amendment in bill.amendments.values() {
-            let amd_scores: Vec<&AmendmentSimilarity> = similarities
-                .values()
-                .filter(|s| s.amendment_id == amendment.id)
-                .collect();
-            let empty = Vec::new();
-            let amd_mentions = mentions.get(&amendment.id).unwrap_or(&empty);
-
-            // Union of every location implicated by a score or a mention.
-            let mut paths: HashSet<&str> = HashSet::new();
-            paths.extend(amd_scores.iter().map(|s| s.tree_diff_path.as_str()));
-            paths.extend(amd_mentions.iter().map(|m| m.tree_diff_path.as_str()));
-
-            let mut candidates = Vec::new();
-            for path in paths {
-                let similarity = amd_scores
-                    .iter()
-                    .find(|s| s.tree_diff_path == path)
-                    .map(|s| (*s).clone());
-                let cand_mentions: Vec<MentionMatch> = amd_mentions
-                    .iter()
-                    .filter(|m| m.tree_diff_path == path)
-                    .cloned()
-                    .collect();
-
-                // Only keep locations that actually have changes.
-                if let Some(node) = diff.find(path) {
-                    let shallow = node.shallow();
-                    if !shallow.added.is_empty()
-                        || !shallow.removed.is_empty()
-                        || !shallow.changes.is_empty()
-                    {
-                        candidates.push(Candidate {
-                            diff: shallow,
-                            similarity,
-                            mentions: cand_mentions,
-                        });
-                    }
-                }
-            }
-
-            if !candidates.is_empty() {
-                matches.push(AmendmentMatch {
-                    bill_id: bill.bill_id.clone(),
-                    amendment_id: amendment.id.clone(),
-                    amending_text: amendment.amending_text.clone(),
-                    action_types: amendment.action_types.clone(),
-                    candidates,
-                });
-            }
-        }
-    }
-
-    matches
-}
-
-/// Print a short summary of the candidate distribution.
 fn print_stats(matches: &[AmendmentMatch]) {
     let total = matches.len();
     if total == 0 {
