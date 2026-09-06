@@ -67,6 +67,26 @@ pub enum ParseError {
     /// placeholders, they are currently not supported.
     #[error("Reserved element")]
     ReservedElement,
+
+    /// Quoted statutory text encountered outside a `quotedContent` wrapper
+    ///
+    /// Amendment language quotes the text it enacts. That quoted text is not
+    /// law in force, and the publisher almost always wraps it in
+    /// `quotedContent`, which this parser does not descend into. Nine elements
+    /// in title 26 carry no wrapper and are marked only by a quotation mark
+    /// opening the number. Without this they enter the tree as provisions that
+    /// the U.S. Code website does not render, and become searchable, diffable
+    /// locations an annotation can name (#86).
+    ///
+    /// The subtree goes with the element. In title 26 that costs one real
+    /// provision, 1563(f)(5)(B), which sits inside a quoted block because the
+    /// publisher closed the paragraph it belongs to before opening the quote.
+    /// Every identifier in that block is generated from position rather than
+    /// asserted, and the position is wrong, so there is no sound home to move
+    /// it to. Dropping it is the decision; #87 records what was lost and the
+    /// signals a future rule could use to recover it.
+    #[error("Quoted amendment text")]
+    QuotedContent,
 }
 
 struct TextContents {
@@ -239,7 +259,8 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
                     Ok(e) => children.push(e),
                     Err(ParseError::UnknownElement)
                     | Err(ParseError::RepealedElement)
-                    | Err(ParseError::ReservedElement) => {}
+                    | Err(ParseError::ReservedElement)
+                    | Err(ParseError::QuotedContent) => {}
                     Err(other) => return Err(other),
                 }
             }
@@ -382,6 +403,20 @@ fn extract_source_credits(node: &roxmltree::Node) -> Vec<SourceCredit> {
     result
 }
 
+/// True when a number opens with a quotation mark, marking quoted text.
+///
+/// The publisher writes the enacted text of an amendment inside quotation
+/// marks. Where the surrounding `quotedContent` wrapper is missing, the opening
+/// mark on the number is the only thing that distinguishes `“(2)` — text a bill
+/// proposes — from `(2)`, the provision in force beside it.
+fn is_quoted_number(display: &str) -> bool {
+    matches!(
+        display.trim_start().chars().next(),
+        // Curly and straight, since the source uses both.
+        Some('\u{201C}') | Some('"')
+    )
+}
+
 fn parse_element(
     node: roxmltree::Node,
     document_type: &DocumentType,
@@ -406,6 +441,9 @@ fn parse_element(
     let uslm_uuid = rewrap_str(node.attribute("id"));
 
     let number = extract_number(element_type, &node)?;
+    if is_quoted_number(&number.display) {
+        return Err(ParseError::QuotedContent);
+    }
     // TODO
     // Source Credits
     let verbose_name = match parent_name {
@@ -523,6 +561,7 @@ fn parse_element(
                 ParseError::UnknownElement => {}
                 ParseError::RepealedElement => {}
                 ParseError::ReservedElement => {}
+                ParseError::QuotedContent => {}
                 // All other errors should cause the parser to stop and propogate the issue
                 other => {
                     return Err(other);
