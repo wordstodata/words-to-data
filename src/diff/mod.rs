@@ -262,6 +262,18 @@ impl TreeDiff {
             && self.child_diffs.is_empty()
     }
 
+    /// Group an element's children by path, keeping document order within each.
+    ///
+    /// A path can name more than one child, so the value is every child that
+    /// carries it rather than one of them.
+    fn children_by_path(element: &USLMElement) -> HashMap<&str, Vec<&USLMElement>> {
+        let mut by_path: HashMap<&str, Vec<&USLMElement>> = HashMap::new();
+        for child in &element.children {
+            by_path.entry(&child.data.path).or_default().push(child);
+        }
+        by_path
+    }
+
     pub fn from_elements(from_element: &USLMElement, to_element: &USLMElement) -> TreeDiff {
         assert!(from_element.data.path == to_element.data.path);
         let root_path = from_element.data.path.clone();
@@ -269,37 +281,34 @@ impl TreeDiff {
         let changes = diff_elements(from_element, to_element);
 
         // 2. Build HashMaps of children by path
-        let children_a: HashMap<String, &USLMElement> = from_element
-            .children
-            .iter()
-            .map(|child| (child.data.path.to_string(), child))
-            .collect();
-        let children_b: HashMap<String, &USLMElement> = to_element
-            .children
-            .iter()
-            .map(|child| (child.data.path.to_string(), child))
-            .collect();
+        // A path can name more than one child: the law sometimes numbers two
+        // provisions alike and the document records both (`docs/adr/0001`). So
+        // each path maps to the children that carry it, in document order,
+        // rather than to a single element. Keying by path alone made the second
+        // provision invisible — a change to it could not be reported at all.
+        let children_a = Self::children_by_path(from_element);
+        let children_b = Self::children_by_path(to_element);
 
         // 3. Find added, removed, matched
         let mut added = vec![];
         let mut removed = vec![];
         let mut child_diffs = vec![];
-        // Walk the children themselves, not the maps built from them. The maps
-        // answer "is this path on the other side?"; the child vectors carry
-        // source document order, so `removed` and `child_diffs` come out in the
-        // order the provisions appear in the law. Iterating the maps instead let
+        // Walk the children themselves, not the maps built from them. The child
+        // vectors carry source document order, so all three lists come out in
+        // the order the provisions appear in the law. Iterating the maps let
         // hash order decide, which changed between runs (#73).
         //
-        // A handful of siblings share a path (11 of ~58,000 in title 26, where
-        // the parser generates the same path twice). The maps hold one element
-        // per path, so we skip any child the map does not hold. That keeps one
-        // entry per path, exactly as before; only the order is new.
+        // Where a path names several provisions, they pair by position: the
+        // first on one side answers to the first on the other. Order therefore
+        // carries meaning, and a swap in the source is a real change.
+        let mut seen: HashMap<&str, usize> = HashMap::new();
         for child_a in &from_element.children {
             let path = &*child_a.data.path;
-            if !std::ptr::eq(children_a[path], child_a) {
-                continue;
-            }
-            match children_b.get(path) {
+            let occurrence = seen.entry(path).or_insert(0);
+            let index = *occurrence;
+            *occurrence += 1;
+
+            match children_b.get(path).and_then(|kin| kin.get(index)) {
                 Some(child_b) => {
                     // Matched - recurse
                     // Keep any child that records something. Testing only
@@ -312,19 +321,25 @@ impl TreeDiff {
                     }
                 }
                 None => {
-                    // Removed
+                    // Removed: nothing on the other side holds this position.
                     removed.push(child_a.data.clone()); //ElementSnapshot::from(child_a));
                 }
             }
         }
 
         // Iterate through B for added only, again in document order.
+        let mut seen = HashMap::new();
         for child_b in &to_element.children {
             let path = &*child_b.data.path;
-            if !std::ptr::eq(children_b[path], child_b) {
-                continue;
-            }
-            if !children_a.contains_key(path) {
+            let occurrence = seen.entry(path).or_insert(0);
+            let index = *occurrence;
+            *occurrence += 1;
+
+            if children_a
+                .get(path)
+                .and_then(|kin| kin.get(index))
+                .is_none()
+            {
                 added.push(child_b.data.clone()); //ElementSnapshot::from(child_b));
             }
         }
@@ -355,25 +370,36 @@ impl TreeDiff {
     /// Returns `Some(&TreeDiff)` if an element with the matching path is found,
     /// or `None` if no such element exists in this tree.
     pub fn find(&self, path: &str) -> Option<&TreeDiff> {
-        if path == self.root_path.as_str() {
-            return Some(self);
-        }
-        let remaining_path = path.strip_prefix(self.root_path.as_str())?;
-        let next_step: Vec<&str> = remaining_path.split("/").collect();
-        assert!(next_step.len() > 1);
+        self.find_all(path).into_iter().next()
+    }
 
-        let child_id = next_step[1];
-        let child_vec: Vec<&TreeDiff> = self
-            .child_diffs
-            .iter()
-            .filter(|c| c.root_path.ends_with(child_id))
-            .collect();
-        if child_vec.is_empty() {
-            None
-        } else {
-            assert!(child_vec.len() == 1);
-            child_vec[0].find(path)
+    /// Every diff node at this structural path, in document order
+    ///
+    /// A path can name more than one provision, so it can name more than one
+    /// diff node. Prefer this over [`TreeDiff::find`] wherever taking the first
+    /// would quietly drop a change to the others.
+    pub fn find_all(&self, path: &str) -> Vec<&TreeDiff> {
+        if path == self.root_path.as_str() {
+            return vec![self];
         }
+        // Requiring the separator keeps a shared prefix from reading as a
+        // descendant, and leaves nothing to assert about.
+        let Some(remaining) = path
+            .strip_prefix(self.root_path.as_str())
+            .and_then(|rest| rest.strip_prefix('/'))
+        else {
+            return Vec::new();
+        };
+
+        let segment = remaining.split('/').next().unwrap_or(remaining);
+        let child_path = format!("{}/{segment}", self.root_path);
+
+        self.child_diffs
+            .iter()
+            // Whole path, not a suffix of it.
+            .filter(|child| child.root_path == child_path)
+            .flat_map(|child| child.find_all(path))
+            .collect()
     }
 
     /// Calculate the similarity of diffs in the TreeDiff with the amendment data from a bill

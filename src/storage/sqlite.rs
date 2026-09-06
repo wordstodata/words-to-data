@@ -124,7 +124,19 @@ fn check_search_index(conn: &Connection, path: &str) -> Result<(), DatasetError>
         .iter()
         .all(|wanted| columns.iter().any(|held| held == wanted));
 
-    if complete {
+    // An index keyed by path holds one row per path, so it is missing a row for
+    // every provision that shares one. The columns alone cannot show that, and
+    // the remedy is the same: rebuild it.
+    let keyed_by_position: bool = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'element_index'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .map(|sql| sql.contains("PRIMARY KEY (work, date, ordinal)"))
+        .unwrap_or(false);
+
+    if complete && keyed_by_position {
         Ok(())
     } else {
         Err(DatasetError::StaleSearchIndex {
@@ -225,7 +237,11 @@ impl SqliteStorage {
                 -- back in the order a reader meets the provisions, matching the
                 -- in-memory backend.
                 ordinal INTEGER NOT NULL,
-                PRIMARY KEY (work, date, path)
+                -- Keyed by position, not by path. A path can name more than one
+                -- provision (`docs/adr/0001`), and keying by path meant the
+                -- second silently replaced the first: 16 of ~57,000 rows lost
+                -- per title 26 expression, and its text unfindable (#77).
+                PRIMARY KEY (work, date, ordinal)
             );
 
             CREATE TABLE IF NOT EXISTS bills (
@@ -1034,10 +1050,11 @@ impl DocumentReader for SqliteStorage {
 
         let mut results = Vec::new();
         for id in wanted {
-            if let Some(expression) = self.get_expression(&id)?
-                && let Some(found) = expression.element.find(path)
-            {
-                results.push((id, found.clone()));
+            if let Some(expression) = self.get_expression(&id)? {
+                // A path can name more than one provision within an expression.
+                for found in expression.element.find_all(path) {
+                    results.push((id.clone(), found.clone()));
+                }
             }
         }
 

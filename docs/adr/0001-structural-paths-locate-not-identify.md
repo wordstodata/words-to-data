@@ -10,6 +10,10 @@ We therefore give each provision a stable identity that is carried across versio
 
 Without this, three things break quietly. A `Move` reads as a delete plus an add, so the diff reports a change to law that did not change. Human-confirmed annotations, which point at path strings today (`ChangeAnnotation.paths`), silently attach to different text after a parser change, and the party who receives the file cannot detect it. And "is this the same provision as last year", which is the question a legal researcher actually asks, has no answer.
 
+A locator is not only stale across versions; it can be ambiguous within one. The law sometimes numbers two provisions alike — `26 U.S.C. § 45X(d)(4)` is two paragraphs (4), which the Code footnotes as "So in original" and the official site renders in full — so one path names both. Code that treats a path as unique within an expression does not fail loudly. It picks one and discards the other, which is the confident false statement this decision exists to avoid.
+
+Where a path names more than one provision, the document's order decides which is which. We inherit the order the source gives and pair provisions by position, so the first (4) of one version answers to the first of the next. Order therefore carries meaning: if the source swaps two provisions that share a path, that is a real change and is reported as one. The alternatives are worse. Pairing by content similarity invents a judgement the source did not make, and treating a collision as an error refuses to hold law that genuinely exists.
+
 The cost is one more identifier to mint and carry. We already do this for amendments, where `amendment_id` is a content hash, so the mechanism is not new.
 
 ## Considered and rejected
