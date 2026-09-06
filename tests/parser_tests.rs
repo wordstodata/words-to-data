@@ -150,3 +150,124 @@ fn test_parse_text_fields() {
     assert!(s174b.data.heading.is_some());
     assert!(s174b.data.content.is_some());
 }
+
+/// Every element in the tree, depth first.
+fn walk<'a>(
+    element: &'a words_to_data::uslm::USLMElement,
+    out: &mut Vec<&'a words_to_data::uslm::USLMElement>,
+) {
+    out.push(element);
+    for child in &element.children {
+        walk(child, out);
+    }
+}
+
+#[test]
+fn should_exclude_quoted_amendment_text_when_it_carries_no_quoted_content_wrapper() {
+    let doc = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+
+    let mut all = Vec::new();
+    walk(&doc, &mut all);
+
+    // Quoted statutory text is amendment language, not law in force. The
+    // publisher usually wraps it in `quotedContent`, which the parser skips,
+    // but nine elements in this title carry no wrapper and are marked only by
+    // a quotation mark opening the number (#86).
+    let quoted: Vec<String> = all
+        .iter()
+        .filter(|e| {
+            let n = e.data.number_display.trim_start();
+            n.starts_with('\u{201C}') || n.starts_with('"')
+        })
+        .map(|e| format!("{} num={}", e.data.path, e.data.number_display))
+        .collect();
+
+    assert!(
+        quoted.is_empty(),
+        "quoted text should not become a provision, found {}: {:#?}",
+        quoted.len(),
+        quoted
+    );
+}
+
+#[test]
+fn should_keep_the_real_provision_when_quoted_text_shares_its_number() {
+    let doc = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+
+    let mut all = Vec::new();
+    walk(&doc, &mut all);
+
+    // Section 1563(f)(2): the U.S. Code website renders one paragraph (2),
+    // "Operating rules". The quoted "Brother-sister controlled group" beside it
+    // is amendment text and must not survive, but the real one must.
+    const F2: &str = "uscode/title_26/subtitle_A/chapter_6/subchapter_B/part_II/section_1563/subsection_f/paragraph_2";
+    let paragraphs: Vec<&&words_to_data::uslm::USLMElement> =
+        all.iter().filter(|e| &*e.data.path == F2).collect();
+
+    assert_eq!(
+        paragraphs.len(),
+        1,
+        "the site renders one paragraph (2) here, got {:?}",
+        paragraphs
+            .iter()
+            .map(|e| e.data.heading.as_deref())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        paragraphs[0].data.heading.as_deref(),
+        Some(" Operating rules"),
+        "the surviving paragraph should be the real provision"
+    );
+}
+
+#[test]
+fn should_drop_a_real_provision_the_publisher_nested_inside_a_quoted_block() {
+    // A deliberate, known loss, recorded so it is not mistaken for an accident.
+    //
+    // 26 U.S.C. 1563(f)(5)(B) "Applicable provision" is law, and the U.S. Code
+    // website renders it. The publisher nested it inside the quoted block that
+    // (f)(5)(A) introduces, and stamped it `/us/usc/t26/s1563/f/2/B`, an
+    // identifier for a paragraph it has nothing to do with. Its position and
+    // its identifier are both wrong, so there is no sound place to put it.
+    //
+    // Skipping quoted text takes this with it, because it sits under a quoted
+    // parent. That was decided knowingly: salvaging it would mean inventing a
+    // location the source does not give. Tracked in #87.
+    //
+    // If this test starts failing, the parser has begun keeping it. That may be
+    // right, but it is a change of decision and wants saying out loud.
+    let doc = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+
+    let mut all = Vec::new();
+    walk(&doc, &mut all);
+
+    let applicable_provision_in_1563 = all.iter().any(|e| {
+        e.data.path.contains("section_1563")
+            && e.data
+                .heading
+                .as_deref()
+                .is_some_and(|h| h.contains("Applicable provision"))
+    });
+    assert!(
+        !applicable_provision_in_1563,
+        "1563(f)(5)(B) is dropped with the quoted block it was nested inside; see #87"
+    );
+
+    // The same heading elsewhere is untouched: only the misplaced one goes.
+    let elsewhere = all
+        .iter()
+        .filter(|e| {
+            e.data
+                .heading
+                .as_deref()
+                .is_some_and(|h| h.contains("Applicable provision"))
+        })
+        .count();
+    assert_eq!(
+        elsewhere, 1,
+        "the well-formed 'Applicable provision' at 414(s)(4) should survive"
+    );
+}
