@@ -132,21 +132,28 @@ pub fn path_report<S: Storage>(
         .collect();
     present_in.sort();
 
+    // A path can name more than one provision, so it can name more than one
+    // diff node. Report every node's changes: taking the first would hide a
+    // change to the second, which is the silent loss `docs/adr/0001` warns of.
+    //
+    // No committed expression pair reaches this today. Duplicated paths in the
+    // corpus are one provision against two, or two against one, so a duplicate
+    // is always an addition or a removal rather than two matched provisions
+    // that both changed. The corpus cannot exercise it, and inventing data to
+    // do so would prove nothing about real documents.
     let changes = match pair {
         Some((from, to)) => dataset
             .compute_diff(from, to)?
-            .find(path)
-            .map(|node| {
-                node.changes
-                    .iter()
-                    .map(|c| PathFieldChange {
-                        field: field_str(&c.field_name),
-                        old_value: c.old_value.clone(),
-                        new_value: c.new_value.clone(),
-                    })
-                    .collect()
+            .find_all(path)
+            .into_iter()
+            .flat_map(|node| {
+                node.changes.iter().map(|c| PathFieldChange {
+                    field: field_str(&c.field_name),
+                    old_value: c.old_value.clone(),
+                    new_value: c.new_value.clone(),
+                })
             })
-            .unwrap_or_default(),
+            .collect(),
         None => Vec::new(),
     };
 
