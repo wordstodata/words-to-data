@@ -151,9 +151,12 @@ fn test_similarities() {
 
     // Section 174(a) has "specified" -> "foreign" change
     // Both words are in the amendment, so precision should be 1.0
-    let s174a_sim = similarity
+    let s174a_scores = similarity
         .get("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
         .unwrap();
+    // Only one amendment carries changes in this fixture, so only one scores.
+    assert_eq!(s174a_scores.len(), 1);
+    let s174a_sim = &s174a_scores[0];
     assert_eq!(s174a_sim.matched_words, 2);
     assert_eq!(s174a_sim.tree_diff_words, 2);
     assert_eq!(s174a_sim.precision, 1.0);
@@ -166,11 +169,108 @@ fn test_similarities() {
     assert_eq!(s174a_sim.score, 1.0);
 
     // Section 174(a)(2)(B) has more changes, check it matches well
-    let s174a2b_sim = similarity.get("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a/paragraph_2/subparagraph_B").unwrap();
+    let s174a2b_scores = similarity.get("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a/paragraph_2/subparagraph_B").unwrap();
+    assert_eq!(s174a2b_scores.len(), 1);
+    let s174a2b_sim = &s174a2b_scores[0];
     assert_eq!(s174a2b_sim.matched_words, 17);
     assert!(
         s174a2b_sim.score > 0.0,
         "Score should be positive for a match"
+    );
+}
+
+const S174A: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a";
+
+#[test]
+fn should_return_every_amendment_scoring_above_zero_when_two_amendments_touch_one_path() {
+    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+        .expect("Error running parser");
+    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+
+    let mut amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+
+    // Word-level changes come from an LLM, which the library does not call, so
+    // stub them the way `test_similarities` does. Two amendments are given the
+    // same change, which is the real case this covers: one strikes and another
+    // inserts at the same subsection, so both explain it.
+    let shared_change = vec![BillDiff {
+        removed: vec!["specified".to_string()],
+        added: vec!["foreign".to_string()],
+    }];
+    let mut scoring_ids: Vec<String> = amendment_data.amendments.keys().take(2).cloned().collect();
+    scoring_ids.sort();
+    assert_eq!(scoring_ids.len(), 2, "The bill should hold two amendments");
+    for id in &scoring_ids {
+        amendment_data
+            .amendments
+            .get_mut(id)
+            .expect("amendment id came from the map")
+            .changes = shared_change.clone();
+    }
+
+    let similarities = diff.calculate_amendment_similarities(&amendment_data);
+    let at_174a = similarities
+        .get(S174A)
+        .expect("Section 174(a) should score against these amendments");
+
+    let scored_ids: Vec<&str> = at_174a.iter().map(|s| s.amendment_id.as_str()).collect();
+    assert_eq!(
+        scored_ids.len(),
+        2,
+        "Both amendments explain this path, so both should survive, got {scored_ids:?}"
+    );
+    for id in &scoring_ids {
+        assert!(
+            scored_ids.contains(&id.as_str()),
+            "Amendment {id} scores above zero here and should not be discarded"
+        );
+    }
+}
+
+#[test]
+fn should_order_similarities_by_score_then_amendment_id_when_several_score_at_one_path() {
+    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
+        .expect("Error running parser");
+    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
+        .expect("Error running parser");
+    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+
+    let mut amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+
+    // A weaker and a stronger explanation of the same change, plus a tie, so
+    // both halves of the ordering rule are exercised.
+    let strong = vec![BillDiff {
+        removed: vec!["specified".to_string()],
+        added: vec!["foreign".to_string()],
+    }];
+    let weak = vec![BillDiff {
+        removed: vec!["specified".to_string()],
+        added: vec!["unrelated".to_string(), "wording".to_string()],
+    }];
+    let mut ids: Vec<String> = amendment_data.amendments.keys().take(3).cloned().collect();
+    ids.sort();
+    assert_eq!(ids.len(), 3, "The bill should hold three amendments");
+    amendment_data.amendments.get_mut(&ids[0]).unwrap().changes = strong.clone();
+    amendment_data.amendments.get_mut(&ids[1]).unwrap().changes = strong;
+    amendment_data.amendments.get_mut(&ids[2]).unwrap().changes = weak;
+
+    let similarities = diff.calculate_amendment_similarities(&amendment_data);
+    let at_174a = similarities
+        .get(S174A)
+        .expect("Section 174(a) should score against these amendments");
+
+    let ordering: Vec<(f32, &str)> = at_174a
+        .iter()
+        .map(|s| (s.score, s.amendment_id.as_str()))
+        .collect();
+    let mut expected = ordering.clone();
+    expected.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+    assert_eq!(
+        ordering, expected,
+        "Similarities at one path should run from best score down, ties broken by amendment id"
     );
 }
 
