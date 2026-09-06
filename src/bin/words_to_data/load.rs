@@ -18,6 +18,22 @@ pub fn is_sqlite(path: &str) -> bool {
     path.ends_with(".sqlite") || path.ends_with(".db")
 }
 
+/// Stop, with an explanation, when a compact-JSON-only command is handed SQLite.
+///
+/// A command that writes back into the dataset cannot yet take a SQLite file.
+/// Without this check the path is read as JSON and the reader sees "stream did
+/// not contain valid UTF-8", which says nothing about what to do next.
+pub fn refuse_sqlite(path: &str, command: &str) {
+    if is_sqlite(path) {
+        eprintln!(
+            "{command} writes back into the dataset and needs a compact JSON file, \
+             but {path} is a SQLite database.\n\
+             Convert it first:\n    words_to_data convert-dataset {path}"
+        );
+        std::process::exit(1);
+    }
+}
+
 /// Open a dataset, choosing the backend from the file extension.
 pub fn open(path: &str) -> Result<OpenDataset, DatasetError> {
     if is_sqlite(path) {

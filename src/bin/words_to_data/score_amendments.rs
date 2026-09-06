@@ -10,14 +10,16 @@ use std::path::{Path, PathBuf};
 
 use clap::Args as ClapArgs;
 use serde::Serialize;
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::Dataset;
 use words_to_data::diff::AmendmentSimilarity;
+use words_to_data::storage::Storage;
 
+use crate::load::{self, with_dataset};
 use crate::span::Span;
 
 #[derive(ClapArgs)]
 pub struct Args {
-    /// Dataset (compact JSON) with extracted amendment changes and the expressions to score
+    /// Dataset (`.json` compact or `.sqlite`) with extracted amendment changes and the expressions to score
     pub dataset: String,
 
     #[command(flatten)]
@@ -46,11 +48,33 @@ struct ScoredWork {
 }
 
 pub fn run(args: Args) {
-    let dataset = crate::fail::or_exit(
-        Dataset::load(&args.dataset, Format::Compact),
-        "Error loading dataset",
+    // Scoring only reads the dataset, so it runs over either backend.
+    let opened = crate::fail::or_exit(load::open(&args.dataset), "Error loading dataset");
+    let (scored, total) = with_dataset!(opened, dataset => score(&args, &dataset));
+
+    let scores_path = args
+        .output
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| sibling(&args.dataset, "similarity_scores.json"));
+    crate::fail::or_exit(
+        fs::write(
+            &scores_path,
+            serde_json::to_string_pretty(&scored).expect("Error serializing scores"),
+        ),
+        "Error writing scores",
     );
 
+    println!(
+        "Scored {total} amendment match(es) above cutoff across {} work(s)",
+        scored.len()
+    );
+    println!("Wrote {}", scores_path.display());
+}
+
+/// Score every expression pair the span resolves to, returning the per-work
+/// scores and the total kept above the cutoff.
+fn score(args: &Args, dataset: &Dataset<impl Storage>) -> (Vec<ScoredWork>, usize) {
     let bills: Vec<_> = crate::fail::or_exit(dataset.list_bill_ids(), "Error listing bills")
         .into_iter()
         .map(|id| {
@@ -62,7 +86,7 @@ pub fn run(args: Args) {
     let mut scored = Vec::new();
     let mut total = 0;
 
-    for (from, to) in args.span.resolve(&dataset) {
+    for (from, to) in args.span.resolve(dataset) {
         let diff = crate::fail::or_exit(dataset.compute_diff(&from, &to), "Error computing diff");
 
         let mut scores: Vec<AmendmentSimilarity> = bills
@@ -94,23 +118,7 @@ pub fn run(args: Args) {
         });
     }
 
-    let scores_path = args
-        .output
-        .map(PathBuf::from)
-        .unwrap_or_else(|| sibling(&args.dataset, "similarity_scores.json"));
-    crate::fail::or_exit(
-        fs::write(
-            &scores_path,
-            serde_json::to_string_pretty(&scored).expect("Error serializing scores"),
-        ),
-        "Error writing scores",
-    );
-
-    println!(
-        "Scored {total} amendment match(es) above cutoff across {} work(s)",
-        scored.len()
-    );
-    println!("Wrote {}", scores_path.display());
+    (scored, total)
 }
 
 /// Build a path to `filename` in the same directory as `dataset_path`.
