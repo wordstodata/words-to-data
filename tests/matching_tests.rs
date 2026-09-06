@@ -8,7 +8,8 @@ use std::collections::HashMap;
 
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
 use words_to_data::diff::TreeDiff;
-use words_to_data::matching::build_matches;
+use words_to_data::legislature::BillDiff;
+use words_to_data::matching::{DEFAULT_SIMILARITY_CUTOFF, build_matches};
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
@@ -41,6 +42,77 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
     let bill = parse_bill_amendments("119-21", PL_XML).expect("parse bill");
     dataset.add_bill(bill).expect("add bill");
     dataset
+}
+
+/// The same fixture, but with word-level changes stubbed onto every amendment
+/// so that the similarity channel actually produces scores.
+///
+/// Word-level changes come from an LLM, which the library does not call, so a
+/// dataset built here carries none and only the mention channel fires.
+fn fixture_with_scored_amendments() -> Dataset<InMemoryStorage> {
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "Matching Fixture".to_string(),
+        description: "Title 26, two release points".to_string(),
+        author: "Tester".to_string(),
+        source_urls: vec!["https://uscode.house.gov".to_string()],
+        license: "Public Domain".to_string(),
+        version: "1.0".to_string(),
+    });
+    dataset
+        .add_uslm_xml(USC26_18, "2025-07-18", Some("Before".to_string()))
+        .expect("add first version");
+    dataset
+        .add_uslm_xml(USC26_30, "2025-07-30", Some("After".to_string()))
+        .expect("add second version");
+
+    let mut bill = parse_bill_amendments("119-21", PL_XML).expect("parse bill");
+    for amendment in bill.amendments.values_mut() {
+        amendment.changes = vec![BillDiff {
+            removed: vec!["specified".to_string()],
+            added: vec!["foreign".to_string()],
+        }];
+    }
+    dataset.add_bill(bill).expect("add bill");
+    dataset
+}
+
+#[test]
+fn should_drop_candidates_at_or_below_the_similarity_cutoff_when_building_matches() {
+    let dataset = fixture_with_scored_amendments();
+    let diff = dataset
+        .compute_diff(&at("2025-07-18"), &at("2025-07-30"))
+        .expect("compute diff");
+
+    let permissive = build_matches(&dataset, &diff, 0.0);
+    let strict = build_matches(&dataset, &diff, 0.99);
+
+    let scored = |matches: &[words_to_data::matching::AmendmentMatch]| -> usize {
+        matches
+            .iter()
+            .flat_map(|m| m.candidates.iter())
+            .filter(|c| c.similarity.is_some())
+            .count()
+    };
+    assert!(
+        scored(&permissive) > scored(&strict),
+        "A higher cutoff should leave fewer scored candidates, got {} then {}",
+        scored(&permissive),
+        scored(&strict)
+    );
+
+    // Nothing at or below the cutoff should survive it.
+    for m in &strict {
+        for candidate in &m.candidates {
+            if let Some(similarity) = &candidate.similarity {
+                assert!(
+                    similarity.score > 0.99,
+                    "Candidate {} scored {} and should have been dropped",
+                    candidate.diff.root_path,
+                    similarity.score
+                );
+            }
+        }
+    }
 }
 
 /// Position of every diff node in a document-order walk of the tree.
@@ -76,8 +148,8 @@ fn should_order_candidates_identically_when_matches_are_built_twice() {
         .compute_diff(&at("2025-07-18"), &at("2025-07-30"))
         .expect("compute diff");
 
-    let first = build_matches(&dataset, &diff);
-    let second = build_matches(&dataset, &diff);
+    let first = build_matches(&dataset, &diff, DEFAULT_SIMILARITY_CUTOFF);
+    let second = build_matches(&dataset, &diff, DEFAULT_SIMILARITY_CUTOFF);
 
     // Only an amendment with more than one candidate can expose an ordering bug.
     assert!(
@@ -107,7 +179,7 @@ fn should_order_candidates_by_document_position_when_building_matches() {
         .expect("compute diff");
     let order = document_order(&diff);
 
-    let matches = build_matches(&dataset, &diff);
+    let matches = build_matches(&dataset, &diff, DEFAULT_SIMILARITY_CUTOFF);
     assert!(
         matches.iter().any(|m| m.candidates.len() > 1),
         "This test needs an amendment with more than one candidate to be meaningful"

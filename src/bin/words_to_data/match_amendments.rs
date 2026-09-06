@@ -18,7 +18,9 @@ use words_to_data::annotation::{
 };
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::AmendingAction;
-use words_to_data::matching::{AmendmentMatch, Candidate, build_matches};
+use words_to_data::matching::{
+    AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches,
+};
 use words_to_data::uslm::TextContentField;
 
 use crate::llm::{ChatOptions, LlmClient};
@@ -43,6 +45,10 @@ pub struct Args {
     /// Number of concurrent LLM requests
     #[arg(long, default_value_t = 1)]
     pub threads: usize,
+
+    /// Only offer the model candidates scoring strictly above this cutoff
+    #[arg(long, default_value_t = DEFAULT_SIMILARITY_CUTOFF)]
+    pub similarity_cutoff: f32,
 
     /// Where to write the annotated dataset (defaults to overwriting the input)
     #[arg(long)]
@@ -85,7 +91,7 @@ pub fn run(args: Args) {
     for (from, to) in pairs {
         let diff = crate::fail::or_exit(dataset.compute_diff(&from, &to), "Error computing diff");
 
-        let matches = build_matches(&dataset, &diff);
+        let matches = build_matches(&dataset, &diff, args.similarity_cutoff);
         println!("\n{from} -> {to}");
         print_stats(&matches);
 

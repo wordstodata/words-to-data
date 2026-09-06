@@ -54,8 +54,23 @@ fn document_order_index(diff: &TreeDiff) -> HashMap<&str, usize> {
     index
 }
 
+/// The similarity score a candidate must beat to be worth showing a model.
+///
+/// The same value `score-amendments` uses, so the two commands agree on what
+/// counts as a plausible explanation.
+pub const DEFAULT_SIMILARITY_CUTOFF: f32 = 0.4;
+
 /// Gather, for every amendment across every bill, the candidate diffs it may explain.
-pub fn build_matches(dataset: &Dataset<impl Storage>, diff: &TreeDiff) -> Vec<AmendmentMatch> {
+///
+/// `similarity_cutoff` drops weak scores before they become candidates. Scoring
+/// returns every amendment above zero at a path, a far larger set than the one
+/// per path it used to return, so the cutoff is what holds the candidate volume
+/// down (#75).
+pub fn build_matches(
+    dataset: &Dataset<impl Storage>,
+    diff: &TreeDiff,
+    similarity_cutoff: f32,
+) -> Vec<AmendmentMatch> {
     let mut matches = Vec::new();
     let path_order = document_order_index(diff);
 
@@ -81,7 +96,8 @@ pub fn build_matches(dataset: &Dataset<impl Storage>, diff: &TreeDiff) -> Vec<Am
         for amendment in amendments {
             let amd_scores: Vec<&AmendmentSimilarity> = similarities
                 .values()
-                .filter(|s| s.amendment_id == amendment.id)
+                .flatten()
+                .filter(|s| s.amendment_id == amendment.id && s.score > similarity_cutoff)
                 .collect();
             let empty = Vec::new();
             let amd_mentions = mentions.get(&amendment.id).unwrap_or(&empty);
