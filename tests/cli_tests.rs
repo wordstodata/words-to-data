@@ -838,3 +838,52 @@ fn should_explain_the_conversion_when_a_writing_command_is_given_sqlite() {
         );
     }
 }
+
+/// Forge the element index an older build wrote, at a chosen path.
+fn forge_stale_sqlite(name: &str) -> String {
+    let path = format!("{}/{name}.sqlite", env!("CARGO_TARGET_TMPDIR"));
+    let _ = std::fs::remove_file(&path);
+    let conn = rusqlite::Connection::open(&path).expect("open forged db");
+    conn.execute_batch(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+         INSERT INTO schema_version (version) VALUES (3);
+         CREATE TABLE element_index (
+             work TEXT NOT NULL, date TEXT NOT NULL, path TEXT NOT NULL,
+             element_type TEXT, heading TEXT, content TEXT,
+             PRIMARY KEY (work, date, path)
+         );",
+    )
+    .expect("forge the older index");
+    drop(conn);
+    path
+}
+
+#[test]
+fn should_replace_the_output_when_converting_onto_an_existing_database() {
+    // Converting names an output. Writing into whatever sits at that path
+    // leaves a mixture of two datasets, and an index from an older build cannot
+    // even accept the rows — it failed with a raw SQL error about a missing
+    // column, which is the state a reader reaches by refreshing their database.
+    let occupied = forge_stale_sqlite("convert_onto_existing");
+
+    let output = run(&["convert-dataset", both_works_json_fixture(), &occupied]);
+    assert!(
+        output.status.success(),
+        "converting onto an existing database should replace it, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The result must be a usable dataset, not a hybrid of the two.
+    let info = run(&["info", &occupied, "--json"]);
+    assert!(
+        info.status.success(),
+        "the converted database should open, stderr: {}",
+        String::from_utf8_lossy(&info.stderr)
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&info.stdout).expect("info --json should emit json");
+    assert!(
+        parsed["expression_count"].as_i64().unwrap_or(0) > 0,
+        "the converted database should hold the source's expressions"
+    );
+}

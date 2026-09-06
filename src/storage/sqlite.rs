@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use rusqlite::{Connection, params};
 
@@ -24,6 +25,49 @@ use crate::uslm::bill_parser::Bill;
 pub struct SqliteStorage {
     conn: Connection,
     metadata: DatasetMetadata,
+}
+
+/// The columns of `element_index`, in the order the insert takes them.
+const ELEMENT_INDEX_INSERT: &str = "INSERT OR REPLACE INTO element_index \
+     (work, date, path, element_type, heading, chapeau, content, proviso, continuation, ordinal) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+
+/// One row of the element index: every searchable field of one element, plus
+/// where it sits in a document-order walk.
+///
+/// A struct rather than a tuple because two call sites write these rows, and a
+/// positional tuple let the two drift apart without the compiler noticing.
+struct ElementRow<'a> {
+    path: &'a str,
+    element_type: String,
+    heading: Option<&'a str>,
+    chapeau: Option<&'a str>,
+    content: Option<&'a str>,
+    proviso: Option<&'a str>,
+    continuation: Option<&'a str>,
+    ordinal: i64,
+}
+
+impl ElementRow<'_> {
+    fn execute(
+        &self,
+        stmt: &mut rusqlite::Statement,
+        id: &ExpressionId,
+    ) -> Result<(), DatasetError> {
+        stmt.execute(params![
+            id.work.as_str(),
+            &id.at,
+            self.path,
+            self.element_type,
+            self.heading,
+            self.chapeau,
+            self.content,
+            self.proviso,
+            self.continuation,
+            self.ordinal,
+        ])?;
+        Ok(())
+    }
 }
 
 /// Refuse a dataset this build cannot read.
@@ -51,13 +95,53 @@ fn check_schema_version(conn: &Connection) -> Result<(), DatasetError> {
     }
 }
 
+/// Refuse a search index that predates the columns this build searches.
+///
+/// `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a file built
+/// before the index covered every text field keeps its narrower table. Reading
+/// it would answer a search from two fields out of five and say nothing about
+/// the other three, which is the silence #82 exists to stop. The schema version
+/// does not catch this, because the compact JSON shares that number and its own
+/// contents are unaffected.
+fn check_search_index(conn: &Connection, path: &str) -> Result<(), DatasetError> {
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'element_index'",
+            [],
+            |row| row.get::<_, i32>(0),
+        )
+        .is_ok();
+    if !table_exists {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare("PRAGMA table_info(element_index)")?;
+    let columns: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<_, _>>()?;
+
+    let complete = ["chapeau", "proviso", "continuation", "ordinal"]
+        .iter()
+        .all(|wanted| columns.iter().any(|held| held == wanted));
+
+    if complete {
+        Ok(())
+    } else {
+        Err(DatasetError::StaleSearchIndex {
+            path: path.to_string(),
+        })
+    }
+}
+
 impl SqliteStorage {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DatasetError> {
+        let shown = path.as_ref().display().to_string();
         let conn = Connection::open(path)?;
         // Check before init_schema, which would otherwise add this build's
         // tables to an older file and leave a hybrid that answers queries with
         // nothing rather than saying it cannot read them.
         check_schema_version(&conn)?;
+        check_search_index(&conn, &shown)?;
         let mut storage = Self {
             conn,
             metadata: DatasetMetadata::default(),
@@ -129,8 +213,18 @@ impl SqliteStorage {
                 date TEXT NOT NULL,
                 path TEXT NOT NULL,
                 element_type TEXT,
+                -- One column per variant of TextContentField. Indexing only
+                -- some of them made their text unfindable, and silently, which
+                -- reads to a searcher as the law not being there (#82).
                 heading TEXT,
+                chapeau TEXT,
                 content TEXT,
+                proviso TEXT,
+                continuation TEXT,
+                -- Position in a document-order walk, so search results can come
+                -- back in the order a reader meets the provisions, matching the
+                -- in-memory backend.
+                ordinal INTEGER NOT NULL,
                 PRIMARY KEY (work, date, path)
             );
 
@@ -257,21 +351,12 @@ impl SqliteStorage {
 
         // Save element index for each expression (batch collect then insert)
         {
-            let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO element_index (work, date, path, element_type, heading, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            )?;
+            let mut stmt = tx.prepare(ELEMENT_INDEX_INSERT)?;
             for expression in storage.all_expressions() {
                 let mut rows = Vec::new();
                 Self::collect_element_rows(&expression.element, &mut rows);
-                for (path, elem_type, heading, content) in rows {
-                    stmt.execute(params![
-                        expression.id.work.as_str(),
-                        &expression.id.at,
-                        path,
-                        elem_type,
-                        heading,
-                        content
-                    ])?;
+                for row in rows {
+                    row.execute(&mut stmt, &expression.id)?;
                 }
             }
         }
@@ -391,14 +476,18 @@ impl SqliteStorage {
 
     /// Collect element data into rows for batch insert (no recursion overhead per-insert)
     #[allow(clippy::type_complexity)]
-    fn collect_element_rows<'a>(
-        element: &'a USLMElement,
-        rows: &mut Vec<(&'a str, String, Option<&'a str>, Option<&'a str>)>,
-    ) {
-        let element_type = format!("{:?}", element.data.element_type);
-        let heading = element.data.heading.as_ref().map(|s| s.as_ref());
-        let content = element.data.content.as_ref().map(|s| s.as_ref());
-        rows.push((element.data.path.as_ref(), element_type, heading, content));
+    fn collect_element_rows<'a>(element: &'a USLMElement, rows: &mut Vec<ElementRow<'a>>) {
+        let text = |field: &'a Option<Arc<str>>| field.as_ref().map(|s| s.as_ref());
+        rows.push(ElementRow {
+            path: element.data.path.as_ref(),
+            element_type: format!("{:?}", element.data.element_type),
+            heading: text(&element.data.heading),
+            chapeau: text(&element.data.chapeau),
+            content: text(&element.data.content),
+            proviso: text(&element.data.proviso),
+            continuation: text(&element.data.continuation),
+            ordinal: rows.len() as i64,
+        });
 
         for child in &element.children {
             Self::collect_element_rows(child, rows);
@@ -412,15 +501,8 @@ impl SqliteStorage {
     ) -> Result<(), DatasetError> {
         let mut rows = Vec::new();
         Self::collect_element_rows(element, &mut rows);
-        for (path, elem_type, heading, content) in rows {
-            stmt.execute(params![
-                id.work.as_str(),
-                &id.at,
-                path,
-                elem_type,
-                heading,
-                content
-            ])?;
+        for row in rows {
+            row.execute(stmt, id)?;
         }
         Ok(())
     }
@@ -889,12 +971,29 @@ impl DocumentReader for SqliteStorage {
     }
 
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
-        // Search using element_index table
+        // Every text field, not a chosen few: a field left out of this query is
+        // a field whose text reads as absent from the law (#82).
+        //
+        // The ordering reproduces the in-memory walk exactly, so the two
+        // backends answer alike: work, then date, then document position, then
+        // the field order that backend declares.
         let query_pattern = format!("%{}%", query.to_lowercase());
         let mut stmt = self.conn.prepare(
-            "SELECT work, date, path, 'heading', heading FROM element_index WHERE LOWER(heading) LIKE ?1
+            "SELECT work, date, path, ordinal, 0 AS field_rank, 'heading' AS field, heading AS snippet
+                 FROM element_index WHERE LOWER(heading) LIKE ?1
              UNION ALL
-             SELECT work, date, path, 'content', content FROM element_index WHERE LOWER(content) LIKE ?1",
+             SELECT work, date, path, ordinal, 1, 'chapeau', chapeau
+                 FROM element_index WHERE LOWER(chapeau) LIKE ?1
+             UNION ALL
+             SELECT work, date, path, ordinal, 2, 'content', content
+                 FROM element_index WHERE LOWER(content) LIKE ?1
+             UNION ALL
+             SELECT work, date, path, ordinal, 3, 'proviso', proviso
+                 FROM element_index WHERE LOWER(proviso) LIKE ?1
+             UNION ALL
+             SELECT work, date, path, ordinal, 4, 'continuation', continuation
+                 FROM element_index WHERE LOWER(continuation) LIKE ?1
+             ORDER BY work, date, ordinal, field_rank",
         )?;
         let mut rows = stmt.query(params![query_pattern])?;
 
@@ -903,8 +1002,8 @@ impl DocumentReader for SqliteStorage {
             let work: String = row.get(0)?;
             let date: String = row.get(1)?;
             let path: String = row.get(2)?;
-            let field: String = row.get(3)?;
-            let snippet: Option<String> = row.get(4)?;
+            let field: String = row.get(5)?;
+            let snippet: Option<String> = row.get(6)?;
             if let Some(snippet) = snippet {
                 results.push(SearchResult {
                     expression: ExpressionId::new(WorkId::new(work), date),
@@ -1315,9 +1414,7 @@ impl DocumentWriter for SqliteStorage {
         )?;
 
         // Index elements
-        let mut stmt = self.conn.prepare(
-            "INSERT OR REPLACE INTO element_index (work, date, path, element_type, heading, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        )?;
+        let mut stmt = self.conn.prepare(ELEMENT_INDEX_INSERT)?;
         Self::index_element(&mut stmt, &expression.id, &expression.element)?;
 
         Ok(())

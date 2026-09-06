@@ -22,20 +22,28 @@ pub fn run(args: Args) {
     match (is_sqlite(&args.input), is_sqlite(&output)) {
         (false, true) => {
             println!("Converting compact JSON -> SQLite...");
-            let dataset =
-                Dataset::load(&args.input, Format::Compact).expect("Error loading dataset");
-            dataset
-                .save_to_sqlite(&output)
-                .expect("Error saving SQLite");
+            let dataset = crate::fail::or_exit(
+                Dataset::load(&args.input, Format::Compact),
+                "Error loading dataset",
+            );
+            // Start from an empty file. Writing into an existing database keeps
+            // whatever it already held: rows of a different dataset that share
+            // no key survive, and a table from an older build keeps its narrower
+            // shape. Converting names an output, so producing that output rather
+            // than a mixture of it and its predecessor is the whole job.
+            crate::fail::or_exit(
+                remove_existing(&output),
+                "Error replacing the output dataset",
+            );
+            crate::fail::or_exit(dataset.save_to_sqlite(&output), "Error saving SQLite");
         }
         (true, false) => {
             println!("Converting SQLite -> compact JSON...");
-            let dataset = Dataset::open_sqlite(&args.input).expect("Error opening SQLite");
-            dataset
-                .to_memory()
-                .expect("Error reading SQLite")
-                .save(&output, Format::Compact)
-                .expect("Error saving JSON");
+            let dataset =
+                crate::fail::or_exit(Dataset::open_sqlite(&args.input), "Error opening SQLite");
+            let memory = crate::fail::or_exit(dataset.to_memory(), "Error reading SQLite");
+            // Writing JSON truncates, so this direction already replaces.
+            crate::fail::or_exit(memory.save(&output, Format::Compact), "Error saving JSON");
         }
         _ => {
             eprintln!(
@@ -48,6 +56,16 @@ pub fn run(args: Args) {
     }
 
     println!("{output}");
+}
+
+/// Delete the output file if it is already there, so the conversion starts clean.
+///
+/// A missing file is the normal case and not an error.
+fn remove_existing(path: &str) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
 }
 
 /// Swap a `.json` input for `.sqlite` output and vice versa.
