@@ -67,10 +67,22 @@ pub fn run(args: Args) {
 
         let mut scores: Vec<AmendmentSimilarity> = bills
             .iter()
-            .flat_map(|bill| diff.calculate_amendment_similarities(bill).into_values())
+            .flat_map(|bill| {
+                diff.calculate_amendment_similarities(bill)
+                    .into_values()
+                    .flatten()
+            })
             .collect();
         scores.retain(|s| s.score > args.similarity_cutoff);
-        scores.sort_by(|a, b| b.score.total_cmp(&a.score));
+        // Sorting by score alone left ties in the order the paths came out of a
+        // hash map, so the file was not reproducible. Settle ties by path, then
+        // by amendment id, both of which are stable.
+        scores.sort_by(|a, b| {
+            b.score
+                .total_cmp(&a.score)
+                .then_with(|| a.tree_diff_path.cmp(&b.tree_diff_path))
+                .then_with(|| a.amendment_id.cmp(&b.amendment_id))
+        });
 
         println!("{from} -> {to}: {} above cutoff", scores.len());
         total += scores.len();

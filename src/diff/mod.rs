@@ -378,25 +378,42 @@ impl TreeDiff {
 
     /// Calculate the similarity of diffs in the TreeDiff with the amendment data from a bill
     ///
-    /// Returns a hashmap with the key being the root_path in the tree diff and the value
-    /// being the similarity data
+    /// Returns a hashmap keyed by the root_path in the tree diff. Each value
+    /// holds every amendment that scores above zero at that path, best score
+    /// first, ties broken by amendment id.
+    ///
+    /// More than one amendment can genuinely explain one change: one strikes
+    /// text while another inserts at the same subsection. Keeping only the
+    /// highest score discarded the rest, so the caller now narrows the list
+    /// itself, by cutoff or by asking a model (#75).
     pub fn calculate_amendment_similarities(
         &self,
         data: &Bill,
-    ) -> HashMap<String, AmendmentSimilarity> {
-        let mut result = HashMap::new();
+    ) -> HashMap<String, Vec<AmendmentSimilarity>> {
+        let mut result: HashMap<String, Vec<AmendmentSimilarity>> = HashMap::new();
         self.calculate_similarities_recursive(&mut result, data);
+
+        // The amendments were walked in hash order, so sort each path's list.
+        // Score alone is not enough to settle it: ties are common, and every
+        // difference seen between two runs was a tie (#75).
+        for similarities in result.values_mut() {
+            similarities.sort_by(|a, b| {
+                b.score
+                    .total_cmp(&a.score)
+                    .then_with(|| a.amendment_id.cmp(&b.amendment_id))
+            });
+        }
         result
     }
 
     fn calculate_similarities_recursive(
         &self,
-        result: &mut HashMap<String, AmendmentSimilarity>,
+        result: &mut HashMap<String, Vec<AmendmentSimilarity>>,
         data: &Bill,
     ) {
         // Check if this TreeDiff has any changes
         if !self.changes.is_empty() {
-            // Find the best matching amendment
+            // Keep every amendment that explains any of them
             for (amendment_id, amendment) in &data.amendments {
                 if amendment.changes.is_empty() {
                     continue;
@@ -405,14 +422,10 @@ impl TreeDiff {
                 let similarity = self.calculate_match_with_amendment(amendment_id, amendment);
 
                 if similarity.score > 0.0 {
-                    // Insert or update if this is a better match
-                    let entry = result
+                    result
                         .entry(self.root_path.clone())
-                        .or_insert(similarity.clone());
-
-                    if similarity.score > entry.score {
-                        *entry = similarity;
-                    }
+                        .or_default()
+                        .push(similarity);
                 }
             }
         }
