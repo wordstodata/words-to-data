@@ -68,6 +68,7 @@ struct CandidatesOfWork {
 }
 
 pub fn run(args: Args) {
+    crate::load::refuse_sqlite(&args.dataset, "match-amendments");
     let mut dataset = crate::fail::or_exit(
         Dataset::load(&args.dataset, Format::Compact),
         "Error loading dataset",

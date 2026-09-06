@@ -772,3 +772,69 @@ fn should_report_and_succeed_when_a_valid_span_covers_no_work() {
         "it must say it did nothing"
     );
 }
+
+#[test]
+fn should_score_amendments_when_the_dataset_is_sqlite() {
+    let output = run(&[
+        "score-amendments",
+        amended_fixture(),
+        "--from",
+        &expression(AMENDED_WORK, EARLY),
+        "--to",
+        &expression(AMENDED_WORK, LATE),
+        "--output",
+        &format!("{}/sqlite_scores.json", env!("CARGO_TARGET_TMPDIR")),
+    ]);
+
+    // Scoring only reads the dataset, so it must work over either backend.
+    // Handing it SQLite used to read the database as JSON and report
+    // "stream did not contain valid UTF-8", which named neither cause nor cure.
+    assert!(
+        output.status.success(),
+        "score-amendments should accept a SQLite dataset, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn should_explain_the_conversion_when_a_writing_command_is_given_sqlite() {
+    // These two write back into the dataset, which SQLite does not yet support.
+    // Refusing is fine; refusing without saying what to do next is not.
+    let from = expression(AMENDED_WORK, EARLY);
+    let to = expression(AMENDED_WORK, LATE);
+    let invocations: [Vec<&str>; 2] = [
+        vec![
+            "match-amendments",
+            amended_fixture(),
+            "--from",
+            &from,
+            "--to",
+            &to,
+        ],
+        vec!["extract-changes", amended_fixture()],
+    ];
+
+    for args in invocations {
+        let command = args[0];
+        let output = run(&args);
+
+        assert!(
+            !output.status.success(),
+            "{command} should refuse a SQLite dataset"
+        );
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("SQLite database"),
+            "{command} should say the file is a SQLite database, got: {stderr}"
+        );
+        assert!(
+            stderr.contains("convert-dataset"),
+            "{command} should name the command that converts it, got: {stderr}"
+        );
+        assert!(
+            !stderr.contains("valid UTF-8"),
+            "{command} should not leak the raw decoding error, got: {stderr}"
+        );
+    }
+}

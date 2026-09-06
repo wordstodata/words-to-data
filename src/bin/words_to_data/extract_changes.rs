@@ -60,7 +60,11 @@ struct RawDiff {
 }
 
 pub fn run(args: Args) {
-    let mut dataset = Dataset::load(&args.dataset, Format::Compact).expect("Error loading dataset");
+    crate::load::refuse_sqlite(&args.dataset, "extract-changes");
+    let mut dataset = crate::fail::or_exit(
+        Dataset::load(&args.dataset, Format::Compact),
+        "Error loading dataset",
+    );
 
     // Amendments that already carry changes are done — don't re-extract or
     // re-apply them (applying twice would duplicate changes in the dataset).
