@@ -51,7 +51,7 @@ pub fn run(args: Args) {
         if report.present_in.is_empty() {
             "(no expression)".to_string()
         } else {
-            report.present_in.join(", ")
+            describe_presence(&report.present_in)
         }
     );
 
@@ -66,4 +66,30 @@ pub fn run(args: Args) {
     for a in &report.annotations {
         crate::annotations::print_annotation(a);
     }
+}
+
+/// Name each expression once, saying how many provisions sit at the path there.
+///
+/// A path can name more than one provision, so an expression can appear more
+/// than once in the report. Repeating the same `work@date` reads as a bug;
+/// counting it says what is actually true.
+fn describe_presence(present_in: &[String]) -> String {
+    let mut counted: Vec<(&str, usize)> = Vec::new();
+    for id in present_in {
+        match counted.last_mut() {
+            Some((seen, n)) if *seen == id.as_str() => *n += 1,
+            _ => counted.push((id.as_str(), 1)),
+        }
+    }
+    counted
+        .into_iter()
+        .map(|(id, n)| {
+            if n == 1 {
+                id.to_string()
+            } else {
+                format!("{id} ({n} provisions)")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

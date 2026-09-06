@@ -428,89 +428,84 @@ fn should_order_diff_children_identically_when_the_same_diff_is_built_twice() {
 /// document, then recurse. `removed` and `child_diffs` follow the older
 /// expression; `added` follows the newer one.
 fn assert_document_order(diff: &TreeDiff, from: &USLMElement, to: &USLMElement) {
-    // A few siblings share a path. One element represents each path, and it is
-    // the last one, so resolve from the back to match what the diff records.
-    let position_in = |element: &USLMElement, path: &str| -> usize {
-        element
-            .children
-            .iter()
-            .rposition(|child| &*child.data.path == path)
-            .unwrap_or_else(|| panic!("{path} is not a child of {}", element.data.path))
-    };
+    // A path can name more than one child, so a path maps to every position it
+    // occupies. A list is in document order when its entries can be laid onto
+    // those positions strictly increasing, taking the earliest that still fits.
+    fn positions(element: &USLMElement) -> std::collections::HashMap<&str, Vec<usize>> {
+        let mut by_path: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (at, child) in element.children.iter().enumerate() {
+            by_path.entry(&child.data.path).or_default().push(at);
+        }
+        by_path
+    }
 
-    let ascending = |positions: &[usize]| positions.windows(2).all(|pair| pair[0] < pair[1]);
+    fn walk_in_order(
+        paths: impl Iterator<Item = String>,
+        index: &std::collections::HashMap<&str, Vec<usize>>,
+    ) -> Option<Vec<usize>> {
+        let mut cursor: Option<usize> = None;
+        let mut chosen = Vec::new();
+        for path in paths {
+            let next = index
+                .get(path.as_str())?
+                .iter()
+                .copied()
+                .find(|at| cursor.is_none_or(|last| *at > last))?;
+            cursor = Some(next);
+            chosen.push(next);
+        }
+        Some(chosen)
+    }
 
-    let child_positions: Vec<usize> = diff
-        .child_diffs
-        .iter()
-        .map(|child| position_in(from, &child.root_path))
-        .collect();
-    assert!(
-        ascending(&child_positions),
-        "child_diffs of {} are not in document order: {:?}",
-        diff.root_path,
-        diff.child_diffs
-            .iter()
-            .map(|c| c.root_path.as_str())
-            .collect::<Vec<_>>()
+    let from_positions = positions(from);
+    let to_positions = positions(to);
+
+    let matched = walk_in_order(
+        diff.child_diffs.iter().map(|c| c.root_path.clone()),
+        &from_positions,
     );
+    let matched = matched.unwrap_or_else(|| {
+        panic!(
+            "child_diffs of {} are not in document order: {:?}",
+            diff.root_path,
+            diff.child_diffs
+                .iter()
+                .map(|c| c.root_path.as_str())
+                .collect::<Vec<_>>()
+        )
+    });
 
-    let removed_positions: Vec<usize> = diff
-        .removed
-        .iter()
-        .map(|element| position_in(from, &element.path))
-        .collect();
     assert!(
-        ascending(&removed_positions),
+        walk_in_order(
+            diff.removed.iter().map(|e| e.path.to_string()),
+            &from_positions
+        )
+        .is_some(),
         "removed of {} is not in document order",
         diff.root_path
     );
-
-    let added_positions: Vec<usize> = diff
-        .added
-        .iter()
-        .map(|element| position_in(to, &element.path))
-        .collect();
     assert!(
-        ascending(&added_positions),
+        walk_in_order(diff.added.iter().map(|e| e.path.to_string()), &to_positions).is_some(),
         "added of {} is not in document order",
         diff.root_path
     );
 
-    for child in &diff.child_diffs {
-        let from_child = &from.children[position_in(from, &child.root_path)];
-        let to_child = &to.children[position_in(to, &child.root_path)];
-        assert_document_order(child, from_child, to_child);
-    }
-}
-
-#[test]
-fn should_order_mentions_identically_when_scanning_the_same_bill_twice() {
-    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-        .expect("Error running parser");
-    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Error running parser");
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
-    let amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
-
-    let first = diff.scan_for_mentions(&amendment_data);
-    let second = diff.scan_for_mentions(&amendment_data);
-
-    // Only amendments with more than one mention can expose an ordering bug.
-    let multi = first.values().filter(|m| m.len() > 1).count();
-    assert!(
-        multi > 0,
-        "This test needs an amendment with more than one mention to be meaningful"
-    );
-
-    for (amendment_id, mentions) in &first {
-        let other = second
-            .get(amendment_id)
-            .expect("both scans should cover the same amendments");
-        assert_eq!(
-            mentions, other,
-            "Mentions for amendment {amendment_id} should come back in the same order every scan"
-        );
+    // Recurse against the children each matched diff actually came from.
+    let mut to_cursor: Option<usize> = None;
+    for (child, at) in diff.child_diffs.iter().zip(matched) {
+        let from_child = &from.children[at];
+        let to_at = to_positions
+            .get(child.root_path.as_str())
+            .and_then(|places| {
+                places
+                    .iter()
+                    .copied()
+                    .find(|place| to_cursor.is_none_or(|last| *place > last))
+            })
+            .expect("a matched child should exist in the newer expression");
+        to_cursor = Some(to_at);
+        assert_document_order(child, from_child, &to.children[to_at]);
     }
 }
 

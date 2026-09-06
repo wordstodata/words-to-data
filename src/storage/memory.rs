@@ -228,12 +228,16 @@ impl DocumentReader for InMemoryStorage {
     }
 
     fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
+        // A path can name more than one provision, so an expression can answer
+        // with several. Taking the first would drop law that is really there.
         Ok(self
             .all_expressions()
-            .filter_map(|e| {
+            .flat_map(|e| {
                 e.element
-                    .find(path)
+                    .find_all(path)
+                    .into_iter()
                     .map(|found| (e.id.clone(), found.clone()))
+                    .collect::<Vec<_>>()
             })
             .collect())
     }

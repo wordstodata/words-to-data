@@ -49,7 +49,7 @@ A unit of law that stays the same thing across versions, even when its text chan
 _Avoid_: Section, node, element
 
 **Structural path**:
-The address of an element, derived from the hierarchy that the parser found. It does not depend on the source document to supply an identifier. It locates a provision at one point in time. It does not identify one.
+The address of an element, derived from the hierarchy that the parser found. It does not depend on the source document to supply an identifier. It locates a provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both.
 _Avoid_: Path, breadcrumb
 
 **USLM ID**:

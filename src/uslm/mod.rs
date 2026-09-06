@@ -507,25 +507,50 @@ impl USLMElement {
     /// assert!(missing.is_none());
     /// ```
     pub fn find(&self, path: &str) -> Option<&USLMElement> {
-        if *path == *self.data.path {
-            return Some(self);
-        }
-        let remaining_path = path.strip_prefix(self.data.path.as_ref())?;
-        let next_step: Vec<&str> = remaining_path.split("/").collect();
-        assert!(next_step.len() > 1);
+        self.find_all(path).into_iter().next()
+    }
 
-        let child_id = next_step[1];
-        let child_vec: Vec<&USLMElement> = self
-            .children
-            .iter()
-            .filter(|c| c.data.path.ends_with(child_id))
-            .collect();
-        if child_vec.is_empty() {
-            None
-        } else {
-            assert!(child_vec.len() == 1);
-            child_vec[0].find(path)
+    /// Every element at this structural path, in document order
+    ///
+    /// A path can name more than one provision: the law sometimes numbers two
+    /// provisions alike, and the document records both. `26 U.S.C. § 45X(d)(4)`
+    /// is two paragraphs (4), and the U.S. Code renders both. Prefer this over
+    /// [`USLMElement::find`] wherever discarding the others would be a silent
+    /// loss rather than a convenience.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use words_to_data::uslm::parser::parse;
+    /// # let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
+    /// let found = element.find_all("uscode/title_7/chapter_1/section_2");
+    /// assert_eq!(found.len(), 1);
+    /// ```
+    pub fn find_all(&self, path: &str) -> Vec<&USLMElement> {
+        if *path == *self.data.path {
+            return vec![self];
         }
+        // A near miss is a question with an answer. Requiring the separator
+        // keeps `uscode/title_26x` from reading as a descendant of
+        // `uscode/title_26`, and leaves nothing to assert about.
+        let Some(remaining) = path
+            .strip_prefix(self.data.path.as_ref())
+            .and_then(|rest| rest.strip_prefix('/'))
+        else {
+            return Vec::new();
+        };
+
+        let segment = remaining.split('/').next().unwrap_or(remaining);
+        let child_path = format!("{}/{segment}", self.data.path);
+
+        self.children
+            .iter()
+            // Compare the whole path, not a suffix of it: `ends_with` asks
+            // whether a child's address happens to end this way, which is a
+            // different question from whether it is the child named here.
+            .filter(|child| *child.data.path == *child_path)
+            .flat_map(|child| child.find_all(path))
+            .collect()
     }
 
     /// Merge the children of one node into another
