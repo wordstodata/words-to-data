@@ -44,6 +44,13 @@ use crate::uslm::bill_parser::Bill;
 /// 3 is the work-scoped schema: an expression is `(work, date)` with its own
 /// tree, and annotations are keyed by a pair of expressions
 /// (`docs/adr/0003-storage-is-keyed-by-work.md`).
+///
+/// One number covering both forms cannot describe a change to only one of
+/// them. Widening the SQLite search index (#82) left the compact JSON
+/// untouched, because its element trees always carried every text field, so
+/// bumping this would have rejected valid JSON datasets to fix a SQLite table.
+/// That case is caught where it happens, when the database is opened, rather
+/// than here. A change that alters both forms still belongs to this number.
 pub const SCHEMA_VERSION: i32 = 3;
 
 /// Reading the documents a dataset holds.

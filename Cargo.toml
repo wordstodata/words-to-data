@@ -49,3 +49,6 @@ required-features = ["tools"]
 
 [dev-dependencies]
 rstest = "0.18"
+# Tests forge a dataset written by an older build, which needs raw SQL: the
+# public API can only produce files this build considers current.
+rusqlite = { version = "0.35", features = ["bundled", "serialize"] }

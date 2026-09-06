@@ -34,4 +34,11 @@ pub enum DatasetError {
          {expected}. Datasets are rebuilt rather than migrated, so regenerate it."
     )]
     SchemaVersionMismatch { found: i32, expected: i32 },
+
+    #[error(
+        "This dataset's search index was written before this build and covers only some of the \
+         text fields, so a search over it would report law as absent. Regenerate the dataset: \
+         `words_to_data convert-dataset <source> {path}`."
+    )]
+    StaleSearchIndex { path: String },
 }
