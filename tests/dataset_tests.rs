@@ -2,13 +2,25 @@ use std::fs::File;
 use std::io::BufReader;
 
 use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Format, VersionSnapshot};
+use words_to_data::dataset::{
+    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
+};
 use words_to_data::diff::TreeDiff;
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// Title 7 is Agriculture. It is the work every expression below belongs to.
+const TITLE_7: &str = "uscode/title_7";
+
+fn title_7() -> WorkId {
+    WorkId::new(TITLE_7)
+}
+
+fn at(date: &str) -> ExpressionId {
+    ExpressionId::new(title_7(), date)
+}
 
 #[test]
 fn should_serialize_roundtrip_json() {
@@ -41,7 +53,7 @@ fn should_serialize_roundtrip_json() {
     let annotations = make_annotations();
     for annotation in annotations.into_iter() {
         dataset
-            .add_annotation("2025-07-18", "2025-07-30", annotation)
+            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
             .unwrap();
     }
 
@@ -51,15 +63,13 @@ fn should_serialize_roundtrip_json() {
     let roundtripped = Dataset::load(path, Format::Compact).unwrap();
 
     assert_eq!(roundtripped.metadata().name, "Test Dataset");
-    assert_eq!(roundtripped.storage().versions.len(), 2);
-    assert_eq!(roundtripped.storage().versions[0].date, "2025-07-18");
-    assert_eq!(
-        roundtripped.storage().versions[0].label,
-        Some("test".to_string())
-    );
+    let expressions = roundtripped.expressions(&title_7()).unwrap();
+    assert_eq!(expressions.len(), 2);
+    assert_eq!(expressions[0].id, at("2025-07-18"));
+    assert_eq!(expressions[0].label, Some("test".to_string()));
     assert_eq!(
         roundtripped
-            .get_annotations("2025-07-18", "2025-07-30")
+            .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
             .unwrap()
             .unwrap()
             .len(),
@@ -67,7 +77,7 @@ fn should_serialize_roundtrip_json() {
     );
     assert!(
         roundtripped
-            .get_annotations("2025-07-18", "2025-07-20")
+            .get_annotations(&at("2025-07-18"), &at("2025-07-20"))
             .unwrap()
             .is_none()
     );
@@ -87,87 +97,140 @@ fn make_test_dataset() -> Dataset<InMemoryStorage> {
     Dataset::new(metadata)
 }
 
-fn make_snapshot(date: &str, label: Option<&str>) -> VersionSnapshot {
-    let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-    VersionSnapshot {
-        date: date.to_string(),
+/// Title 7's tree, labelled with `date`. The file is one real release of title
+/// 7; the date is a label on it, which is what lets these tests pin ordering
+/// without needing three real releases on disk.
+fn make_expression(date: &str, label: Option<&str>) -> Expression {
+    let parsed = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
+    let root = work_roots(parsed).pop().expect("the file holds one title");
+    Expression {
+        id: at(date),
         label: label.map(|s| s.to_string()),
-        element,
+        element: root,
     }
 }
 
 #[test]
-fn should_add_version_maintaining_order() {
+fn should_hold_expressions_of_one_work_in_date_order() {
     let mut dataset = make_test_dataset();
 
     // Add out of order
     dataset
-        .add_version(make_snapshot("2024-06-01", None))
+        .add_expression(make_expression("2024-06-01", None))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .add_expression(make_expression("2024-01-01", Some("First")))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2024-12-01", Some("Last")))
+        .add_expression(make_expression("2024-12-01", Some("Last")))
         .unwrap();
 
-    assert_eq!(dataset.storage().versions.len(), 3);
-    assert_eq!(dataset.storage().versions[0].date, "2024-01-01");
-    assert_eq!(dataset.storage().versions[1].date, "2024-06-01");
-    assert_eq!(dataset.storage().versions[2].date, "2024-12-01");
+    let ids: Vec<ExpressionId> = dataset
+        .expressions(&title_7())
+        .unwrap()
+        .into_iter()
+        .map(|info| info.id)
+        .collect();
+    assert_eq!(
+        ids,
+        vec![at("2024-01-01"), at("2024-06-01"), at("2024-12-01")]
+    );
+}
+
+/// Adding the same work and date twice replaces rather than duplicating. Two
+/// trees both claiming to be title 7 on one day is not a state a reader can
+/// resolve.
+#[test]
+fn should_replace_an_expression_when_the_same_work_and_date_is_added_twice() {
+    let mut dataset = make_test_dataset();
+
+    dataset
+        .add_expression(make_expression("2024-01-01", Some("First")))
+        .unwrap();
+    dataset
+        .add_expression(make_expression("2024-01-01", Some("Corrected")))
+        .unwrap();
+
+    let expressions = dataset.expressions(&title_7()).unwrap();
+    assert_eq!(expressions.len(), 1);
+    assert_eq!(expressions[0].label, Some("Corrected".to_string()));
 }
 
 #[test]
-fn should_get_version_by_date() {
+fn should_get_an_expression_by_its_id() {
     let mut dataset = make_test_dataset();
     dataset
-        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .add_expression(make_expression("2024-01-01", Some("First")))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2024-06-01", None))
+        .add_expression(make_expression("2024-06-01", None))
         .unwrap();
 
-    let found = dataset.get_version("2024-01-01").unwrap();
+    let found = dataset.get_expression(&at("2024-01-01")).unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().label, Some("First".to_string()));
 
-    let not_found = dataset.get_version("2024-03-01").unwrap();
+    let not_found = dataset.get_expression(&at("2024-03-01")).unwrap();
     assert!(not_found.is_none());
 }
 
 #[test]
-fn should_navigate_versions() {
+fn should_navigate_expressions_of_one_work() {
     let mut dataset = make_test_dataset();
     dataset
-        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .add_expression(make_expression("2024-01-01", Some("First")))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2024-06-01", Some("Middle")))
+        .add_expression(make_expression("2024-06-01", Some("Middle")))
         .unwrap();
     dataset
-        .add_version(make_snapshot("2024-12-01", Some("Last")))
+        .add_expression(make_expression("2024-12-01", Some("Last")))
         .unwrap();
 
-    // next_version
-    let next = dataset.next_version("2024-01-01").unwrap();
-    assert!(next.is_some());
-    assert_eq!(next.unwrap().date, "2024-06-01");
+    let next = dataset.next_expression(&at("2024-01-01")).unwrap();
+    assert_eq!(next.map(|e| e.id), Some(at("2024-06-01")));
 
-    // prev_version
-    let prev = dataset.prev_version("2024-12-01").unwrap();
-    assert!(prev.is_some());
-    assert_eq!(prev.unwrap().date, "2024-06-01");
+    let prev = dataset.prev_expression(&at("2024-12-01")).unwrap();
+    assert_eq!(prev.map(|e| e.id), Some(at("2024-06-01")));
 
     // Edge cases
-    assert!(dataset.next_version("2024-12-01").unwrap().is_none()); // no next after last
-    assert!(dataset.prev_version("2024-01-01").unwrap().is_none()); // no prev before first
+    assert!(
+        dataset
+            .next_expression(&at("2024-12-01"))
+            .unwrap()
+            .is_none()
+    ); // no next after last
+    assert!(
+        dataset
+            .prev_expression(&at("2024-01-01"))
+            .unwrap()
+            .is_none()
+    ); // no prev before first
+}
+
+/// The label names one printing of one work. It survives a save and load, and
+/// it is reported beside the id rather than being a key of its own: two works
+/// may reasonably carry the same label.
+#[test]
+fn should_carry_a_label_alongside_each_expression() {
+    let mut dataset = make_test_dataset();
+    dataset
+        .add_expression(make_expression("2024-01-01", Some("Pre-Tax Cuts Act")))
+        .unwrap();
+    dataset
+        .add_expression(make_expression("2024-06-01", None))
+        .unwrap();
+
+    let expressions = dataset.expressions(&title_7()).unwrap();
+    assert_eq!(expressions[0].label, Some("Pre-Tax Cuts Act".to_string()));
+    assert_eq!(expressions[1].label, None);
 }
 
 #[test]
 fn should_save_and_load_file() {
     let mut dataset = make_test_dataset();
     dataset
-        .add_version(make_snapshot("2024-01-01", Some("First")))
+        .add_expression(make_expression("2024-01-01", Some("First")))
         .unwrap();
 
     let path = "/tmp/dataset_test_save_load.json";
@@ -181,40 +244,42 @@ fn should_save_and_load_file() {
     let loaded = Dataset::load(path, Format::Compact).expect("load should succeed");
 
     assert_eq!(loaded.metadata().name, "Test");
-    assert_eq!(loaded.storage().versions.len(), 1);
-    assert_eq!(loaded.storage().versions[0].date, "2024-01-01");
+    assert_eq!(loaded.works().unwrap(), vec![title_7()]);
+    let expressions = loaded.expressions(&title_7()).unwrap();
+    assert_eq!(expressions.len(), 1);
+    assert_eq!(expressions[0].id, at("2024-01-01"));
 
     // Cleanup
     std::fs::remove_file(path).ok();
 }
 
 #[test]
-fn should_compute_diff_between_versions() {
+fn should_compute_diff_between_two_expressions_of_one_work() {
     let mut dataset = make_test_dataset();
 
-    // Use two real versions
-    let elem1 = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-    let elem2 = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
-
+    // Use two real releases of title 7
     dataset
-        .add_version(VersionSnapshot {
-            date: "2025-07-18".to_string(),
-            label: Some("First".to_string()),
-            element: elem1,
-        })
+        .add_uslm_xml(
+            "tests/test_data/usc/2025-07-18/usc07.xml",
+            "2025-07-18",
+            Some("First".to_string()),
+        )
         .unwrap();
     dataset
-        .add_version(VersionSnapshot {
-            date: "2025-07-30".to_string(),
-            label: Some("Second".to_string()),
-            element: elem2,
-        })
+        .add_uslm_xml(
+            "tests/test_data/usc/2025-07-30/usc07.xml",
+            "2025-07-30",
+            Some("Second".to_string()),
+        )
         .unwrap();
 
-    let diff: TreeDiff = dataset.compute_diff("2025-07-18", "2025-07-30").unwrap();
+    let diff: TreeDiff = dataset
+        .compute_diff(&at("2025-07-18"), &at("2025-07-30"))
+        .unwrap();
 
-    // Should have same root path
-    assert_eq!(diff.root_path, "uscode");
+    // The diff is rooted at the work, not at the container the release
+    // point happened to arrive in.
+    assert_eq!(diff.root_path, TITLE_7);
 }
 
 #[test]
@@ -262,7 +327,7 @@ fn should_query_annotations_by_path() {
 
     for annotation in make_annotations().into_iter() {
         dataset
-            .add_annotation("2025-07-18", "2025-07-30", annotation)
+            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
             .unwrap();
     }
 
@@ -283,71 +348,41 @@ fn should_query_annotations_by_path() {
 }
 
 #[test]
-fn should_find_element_across_versions() {
+fn should_find_element_across_expressions() {
     let mut dataset = make_test_dataset();
 
-    let elem1 = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-    let elem2 = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
-
     dataset
-        .add_version(VersionSnapshot {
-            date: "2025-07-18".to_string(),
-            label: None,
-            element: elem1,
-        })
+        .add_uslm_xml(
+            "tests/test_data/usc/2025-07-18/usc07.xml",
+            "2025-07-18",
+            None,
+        )
         .unwrap();
     dataset
-        .add_version(VersionSnapshot {
-            date: "2025-07-30".to_string(),
-            label: None,
-            element: elem2,
-        })
+        .add_uslm_xml(
+            "tests/test_data/usc/2025-07-30/usc07.xml",
+            "2025-07-30",
+            None,
+        )
         .unwrap();
 
-    // Find element across versions
-    let results = dataset.find_element("uscode/title_7").unwrap();
+    let results = dataset.find_element(TITLE_7).unwrap();
 
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0].0, "2025-07-18");
-    assert_eq!(results[1].0, "2025-07-30");
+    assert_eq!(results[0].0, at("2025-07-18"));
+    assert_eq!(results[1].0, at("2025-07-30"));
 }
 
 #[test]
-fn should_get_version_by_label() {
-    let mut dataset = make_test_dataset();
-    dataset
-        .add_version(make_snapshot("2024-01-01", Some("Pre-Tax Cuts Act")))
-        .unwrap();
-    dataset
-        .add_version(make_snapshot("2024-06-01", None))
-        .unwrap();
-    dataset
-        .add_version(make_snapshot("2024-12-01", Some("Post-Tax Cuts Act")))
-        .unwrap();
-
-    let found = dataset.get_version_by_label("Pre-Tax Cuts Act").unwrap();
-    assert!(found.is_some());
-    assert_eq!(found.unwrap().date, "2024-01-01");
-
-    let found = dataset.get_version_by_label("Post-Tax Cuts Act").unwrap();
-    assert!(found.is_some());
-    assert_eq!(found.unwrap().date, "2024-12-01");
-
-    let not_found = dataset.get_version_by_label("Nonexistent").unwrap();
-    assert!(not_found.is_none());
-}
-
-#[test]
-fn should_search_text_across_versions() {
+fn should_search_text_across_expressions() {
     let mut dataset = make_test_dataset();
 
-    let elem = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
     dataset
-        .add_version(VersionSnapshot {
-            date: "2025-07-18".to_string(),
-            label: None,
-            element: elem,
-        })
+        .add_uslm_xml(
+            "tests/test_data/usc/2025-07-18/usc07.xml",
+            "2025-07-18",
+            None,
+        )
         .unwrap();
 
     // Search for text that exists in Title 7 (Agriculture)
@@ -355,6 +390,7 @@ fn should_search_text_across_versions() {
 
     // Should find at least one match
     assert!(!results.is_empty());
-    // Results should include version date and path
-    assert_eq!(results[0].date, "2025-07-18");
+    // A hit names the expression it was found in, not a bare date: the date
+    // alone cannot say which document the text belongs to.
+    assert_eq!(results[0].expression, at("2025-07-18"));
 }

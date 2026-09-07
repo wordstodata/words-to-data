@@ -1,7 +1,8 @@
 //! `words_to_data path` — everything about one structural path: where it
-//! exists, its field-level changes for a version pair, and its annotations.
+//! exists, its field-level changes for an expression pair, and its annotations.
 
 use clap::Args as ClapArgs;
+use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
 
 use crate::load::{self, with_dataset};
@@ -14,13 +15,13 @@ pub struct Args {
     /// Structural path to inspect (e.g. `uscode/title_9/chapter_1/section_1`)
     pub path: String,
 
-    /// Older version date for field changes (requires `--to`)
+    /// Older expression for field changes, e.g. `uscode/title_9@2025-07-18` (requires `--to`)
     #[arg(long, requires = "to")]
-    pub from: Option<String>,
+    pub from: Option<ExpressionId>,
 
-    /// Newer version date for field changes (requires `--from`)
+    /// Newer expression of the same work (requires `--from`)
     #[arg(long, requires = "from")]
-    pub to: Option<String>,
+    pub to: Option<ExpressionId>,
 
     /// Emit JSON instead of human-readable text
     #[arg(long)]
@@ -29,13 +30,15 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let pair = match (&args.from, &args.to) {
-        (Some(from), Some(to)) => Some((from.as_str(), to.as_str())),
+        (Some(from), Some(to)) => Some((from, to)),
         _ => None,
     };
 
-    let ds = load::open(&args.dataset).expect("Error opening dataset");
-    let report = with_dataset!(ds, d => inspect::path_report(&d, &args.path, pair))
-        .expect("Error building path report");
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    let report = crate::fail::or_exit(
+        with_dataset!(ds, d => inspect::path_report(&d, &args.path, pair)),
+        "Error building path report",
+    );
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -46,9 +49,9 @@ pub fn run(args: Args) {
     println!(
         "Present in: {}",
         if report.present_in.is_empty() {
-            "(no version)".to_string()
+            "(no expression)".to_string()
         } else {
-            report.present_in.join(", ")
+            describe_presence(&report.present_in)
         }
     );
 
@@ -63,4 +66,30 @@ pub fn run(args: Args) {
     for a in &report.annotations {
         crate::annotations::print_annotation(a);
     }
+}
+
+/// Name each expression once, saying how many provisions sit at the path there.
+///
+/// A path can name more than one provision, so an expression can appear more
+/// than once in the report. Repeating the same `work@date` reads as a bug;
+/// counting it says what is actually true.
+fn describe_presence(present_in: &[String]) -> String {
+    let mut counted: Vec<(&str, usize)> = Vec::new();
+    for id in present_in {
+        match counted.last_mut() {
+            Some((seen, n)) if *seen == id.as_str() => *n += 1,
+            _ => counted.push((id.as_str(), 1)),
+        }
+    }
+    counted
+        .into_iter()
+        .map(|(id, n)| {
+            if n == 1 {
+                id.to_string()
+            } else {
+                format!("{id} ({n} provisions)")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

@@ -305,7 +305,8 @@ fn website_example_dataset_workflow() {
         )
         .expect("add version");
 
-    assert_eq!(dataset.storage().versions.len(), 2);
+    let work = words_to_data::dataset::WorkId::new("uscode/title_26");
+    assert_eq!(dataset.expressions(&work).unwrap().len(), 2);
 
     // Add bill
     let bill = parse_bill_amendments("119-21", PL_XML_PATH).expect("parse bill");
@@ -313,7 +314,10 @@ fn website_example_dataset_workflow() {
 
     // Compute diff via dataset
     let diff = dataset
-        .compute_diff("2025-07-18", "2025-07-30")
+        .compute_diff(
+            &words_to_data::dataset::ExpressionId::new(work.clone(), "2025-07-18"),
+            &words_to_data::dataset::ExpressionId::new(work, "2025-07-30"),
+        )
         .expect("diff");
     assert!(
         diff.find(

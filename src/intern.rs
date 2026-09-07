@@ -5,7 +5,7 @@ use std::{collections::HashSet, sync::Arc};
 
 #[derive(Debug, Clone, Default)]
 pub struct StringInterner {
-    /// Note: this needs to be Arc instead of Rc for python bindings to work
+    /// Note: this is Arc instead of Rc so interned strings can cross threads
     strings: HashSet<Arc<str>>,
 }
 

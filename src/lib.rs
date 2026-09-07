@@ -10,8 +10,9 @@ pub mod diff;
 pub mod inspect;
 pub mod intern;
 pub mod io;
-#[cfg(feature = "python")]
-pub mod python;
+pub mod legislature;
+pub mod link;
+pub mod matching;
 pub mod storage;
 #[cfg(feature = "download")]
 pub mod uscode;

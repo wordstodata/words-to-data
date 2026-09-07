@@ -1,12 +1,12 @@
 [workspace]
-members = [".", "annotator"]
+members = ["."]
 resolver = "2"
 
 [package]
 name = "words-to-data"
 version = "0.3.0"
 edition = "2024"
-exclude = ["tests/", "annotator/"]
+exclude = ["tests/"]
 description = "Convert Legal Documents Into Diffable Data Structures"
 repository = "https://github.com/Scronkfinkle/words-to-data"
 license = "MIT OR Apache-2.0"
@@ -14,7 +14,7 @@ license = "MIT OR Apache-2.0"
 [lib]
 name = "words_to_data"
 path = "src/lib.rs"
-crate-type = ["rlib", "cdylib"] # rlib = Rust consumers, cdylib = Python
+crate-type = ["rlib"]
 
 [dependencies]
 rayon = "1.11.0"
@@ -24,13 +24,6 @@ serde_json = "1.0.148"
 similar = "2.7.0"
 thiserror = "2.0.17"
 time = { version = "0.3.44", features = ["serde", "formatting", "parsing"] }
-pyo3 = { version = "0.28", features = [
-    "extension-module",
-    "serde",
-], optional = true }
-pythonize = { version = "0.28", features = [
-    "arbitrary_precision",
-], optional = true }
 rusqlite = { version = "0.35", features = ["bundled", "serialize"] }
 sha2 = "0.11.0"
 hex = "0.4.3"
@@ -43,7 +36,6 @@ zip = { version = "2", optional = true }
 
 [features]
 default = ["tools"]
-python = ["pyo3", "pythonize"]
 # Mirror downloader: fetch the manifest + release-point zips from our host.
 download = ["zip"]
 tools = ["clap", "download"]
@@ -57,3 +49,6 @@ required-features = ["tools"]
 
 [dev-dependencies]
 rstest = "0.18"
+# Tests forge a dataset written by an older build, which needs raw SQL: the
+# public API can only produce files this build considers current.
+rusqlite = { version = "0.35", features = ["bundled", "serialize"] }

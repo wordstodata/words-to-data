@@ -12,10 +12,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     io::load_xml_file,
-    uslm::{
-        AmendingAction, BillAmendment,
-        parser::{ParseError, normalize_quotes},
-    },
+    legislature::{AmendingAction, BillAmendment},
+    uslm::parser::{ParseError, normalize_quotes},
 };
 
 /// Data extracted from a bill document

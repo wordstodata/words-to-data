@@ -19,9 +19,11 @@ pub struct Args {
 }
 
 pub fn run(args: Args) {
-    let ds = load::open(&args.dataset).expect("Error opening dataset");
-    let hits =
-        with_dataset!(ds, d => inspect::search(&d, &args.query)).expect("Error searching dataset");
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    let hits = crate::fail::or_exit(
+        with_dataset!(ds, d => inspect::search(&d, &args.query)),
+        "Error searching dataset",
+    );
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&hits).unwrap());
@@ -29,7 +31,7 @@ pub fn run(args: Args) {
     }
 
     for h in &hits {
-        println!("{}  {}  [{}]", h.date, h.path, h.field);
+        println!("{}  {}  [{}]", h.expression, h.path, h.field);
         println!("    {}", h.snippet.trim());
     }
     println!("{} match(es)", hits.len());

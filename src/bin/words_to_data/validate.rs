@@ -18,8 +18,11 @@ pub struct Args {
 }
 
 pub fn run(args: Args) {
-    let ds = load::open(&args.dataset).expect("Error opening dataset");
-    let report = with_dataset!(ds, d => inspect::validate(&d)).expect("Error validating dataset");
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    let report = crate::fail::or_exit(
+        with_dataset!(ds, d => inspect::validate(&d)),
+        "Error validating dataset",
+    );
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());

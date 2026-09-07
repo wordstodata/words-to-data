@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::uslm::AmendingAction;
+use crate::legislature::AmendingAction;
 
 /// An annotation linking a change to its legal cause
 #[derive(Debug, Clone, Serialize, Deserialize)]

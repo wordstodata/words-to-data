@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, vibes ]
+  # No branch filter: every pull request runs CI, whatever it targets. Filtering
+  # on `main` meant no PR into `vibes` was ever tested, and it would also skip a
+  # stacked PR that targets a feature branch.
   pull_request:
-    branches: [ main ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,7 +32,7 @@ jobs:
     - name: Run clippy
       run: cargo clippy --all-targets --all-features -- -D warnings
 
-    - name: Build (Rust only)
+    - name: Build
       run: cargo build -p words-to-data --lib --verbose
 
     - name: Unzip test files
@@ -38,56 +40,3 @@ jobs:
 
     - name: Run Rust tests
       run: cargo test -p words-to-data --verbose
-
-    - name: Build with Python feature
-      run: cargo build -p words-to-data --lib --features python --verbose
-
-  python-test:
-    name: Python Tests (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.14"]
-
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        lfs: true
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install maturin
-      run: pip install maturin pytest
-
-    - name: Build Python package
-      run: maturin build --release
-
-    - name: Unzip test files
-      run: cd tests/test_data && tar xvf test_files.tar.xz
-
-    - name: Install Python package
-      run: pip install target/wheels/words_to_data*.whl
-
-    - name: Run Python tests
-      run: python -m pytest python/tests/ -v
-
-    - name: Test Python import
-      run: python -c "from words_to_data import parse_uslm_xml, compute_diff, USLMElement, TreeDiff; print('Import successful!')"
