@@ -194,6 +194,11 @@ impl SqliteStorage {
         ])?;
         stmt.execute(params!["license", &self.metadata.license])?;
         stmt.execute(params!["version", &self.metadata.version])?;
+        // Only written when there is one, so "declared nothing" and "declared
+        // an empty scope" stay distinguishable on disk.
+        if let Some(declaration) = &self.metadata.declaration {
+            stmt.execute(params!["declaration", serde_json::to_string(declaration)?])?;
+        }
         Ok(())
     }
 
@@ -347,6 +352,9 @@ impl SqliteStorage {
             ])?;
             stmt.execute(params!["license", &storage.metadata.license])?;
             stmt.execute(params!["version", &storage.metadata.version])?;
+            if let Some(declaration) = &storage.metadata.declaration {
+                stmt.execute(params!["declaration", serde_json::to_string(declaration)?])?;
+            }
         }
 
         // Save expressions
@@ -597,6 +605,7 @@ impl SqliteStorage {
         let mut source_urls = Vec::new();
         let mut license = String::new();
         let mut version = String::new();
+        let mut declaration = None;
 
         while let Some(row) = rows.next()? {
             let key: String = row.get(0)?;
@@ -608,6 +617,7 @@ impl SqliteStorage {
                 "source_urls" => source_urls = serde_json::from_str(&value)?,
                 "license" => license = value,
                 "version" => version = value,
+                "declaration" => declaration = Some(serde_json::from_str(&value)?),
                 _ => {}
             }
         }
@@ -619,6 +629,7 @@ impl SqliteStorage {
             source_urls,
             license,
             version,
+            declaration,
         })
     }
 
@@ -919,6 +930,10 @@ impl SqliteStorage {
 }
 
 impl DocumentReader for SqliteStorage {
+    fn metadata(&self) -> &DatasetMetadata {
+        &self.metadata
+    }
+
     fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
         let mut stmt = self
             .conn
@@ -1409,10 +1424,6 @@ impl LegislatureReader for SqliteStorage {
 }
 
 impl DocumentWriter for SqliteStorage {
-    fn metadata(&self) -> &DatasetMetadata {
-        &self.metadata
-    }
-
     fn set_metadata(&mut self, metadata: DatasetMetadata) {
         self.metadata = metadata;
         let _ = self.save_metadata();
@@ -1563,10 +1574,15 @@ impl SqliteStorage {
 
 impl Storage for SqliteStorage {
     fn legislature(&self) -> Option<&dyn LegislatureReader> {
+        let declared = self
+            .metadata
+            .declaration
+            .as_ref()
+            .is_some_and(|d| d.declares_namespace(crate::link::LinkKind::LEGISLATURE));
         // A database error here means we cannot show legislative material, so
-        // the honest answer is that this dataset offers none.
-        self.holds_legislature()
-            .unwrap_or(false)
-            .then_some(self as &dyn LegislatureReader)
+        // the honest answer is that this dataset offers none. A declaration
+        // still counts: it is a statement, not a read that can fail.
+        let holds_legislature = self.holds_legislature().unwrap_or(false);
+        (declared || holds_legislature).then_some(self as &dyn LegislatureReader)
     }
 }

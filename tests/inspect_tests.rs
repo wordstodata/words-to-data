@@ -41,6 +41,7 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
         source_urls: vec!["https://uscode.house.gov".to_string()],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(USC09_18, "2025-07-18", Some("Before".to_string()))
@@ -348,6 +349,7 @@ fn should_pass_validation_for_a_consistent_dataset() {
         source_urls: vec![],
         license: String::new(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(USC09_18, "2025-07-18", None)
@@ -540,6 +542,7 @@ fn should_account_coverage_against_the_real_diff() {
         source_urls: vec![],
         license: String::new(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(

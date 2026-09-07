@@ -51,7 +51,7 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 /// Reading the documents a dataset holds.
 ///
@@ -62,6 +62,13 @@ pub const SCHEMA_VERSION: i32 = 3;
 /// name anything in a dataset whose documents share no release cycle, which is
 /// every dataset except a statutory one.
 pub trait DocumentReader {
+    /// What this dataset says about itself, including any declared scope.
+    ///
+    /// Reading metadata is a read. It sat on [`DocumentWriter`] until a scope
+    /// needed the declaration, which put a fact the reader depends on behind a
+    /// trait a reader has no reason to implement.
+    fn metadata(&self) -> &DatasetMetadata;
+
     /// Every work this dataset holds, in path order.
     fn works(&self) -> Result<Vec<WorkId>, DatasetError>;
 
@@ -161,10 +168,9 @@ pub trait LegislatureReader {
 }
 
 /// Writing documents and dataset metadata.
+///
+/// Reading metadata lives on [`DocumentReader`], not here.
 pub trait DocumentWriter {
-    /// Get metadata
-    fn metadata(&self) -> &DatasetMetadata;
-
     /// Set metadata
     fn set_metadata(&mut self, metadata: DatasetMetadata);
 
@@ -221,8 +227,11 @@ pub trait Storage:
     /// `impl DocumentReader + LegislatureReader` instead, and let the compiler
     /// enforce it.
     ///
-    /// Today the answer comes from the contents. Once a dataset declares its
-    /// scope, the declaration decides, and a mismatch between the two becomes
-    /// a reported gap.
+    /// A dataset that declares the `legislature` namespace holds a legislature,
+    /// whatever its contents. Deciding from contents alone reported that a
+    /// legislative dataset held no legislature until the first bill arrived,
+    /// which is absence mistaken for intent. A dataset that declares nothing
+    /// still answers from its contents, because that is every dataset written
+    /// before declarations existed.
     fn legislature(&self) -> Option<&dyn LegislatureReader>;
 }

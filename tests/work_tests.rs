@@ -23,6 +23,7 @@ fn empty_dataset() -> Dataset<words_to_data::storage::InMemoryStorage> {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     })
 }
 

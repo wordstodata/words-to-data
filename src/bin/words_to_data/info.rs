@@ -62,4 +62,32 @@ pub fn run(args: Args) {
             }
         }
     }
+
+    // A dataset that declared nothing prints exactly what it always printed.
+    let Some(declared) = &info.scope.declared else {
+        return;
+    };
+
+    if !declared.intends.is_empty() {
+        println!("Declared:    {}", declared.intends.join(", "));
+    }
+    if let Some(dates) = &declared.dates {
+        println!("Dates:       {} to {}", dates.from, dates.to);
+    }
+    if !declared.namespaces.is_empty() {
+        println!("Namespaces:  {}", declared.namespaces.join(", "));
+    }
+
+    // A stated hole is not a fault, but a reader seeing "title 26" has to know
+    // section 174 is deliberately absent, and why.
+    for hole in &declared.excludes {
+        println!("Excluded:    {} — {}", hole.path, hole.reason);
+    }
+
+    // Only printed when there is one. A gap means the build did not do what it
+    // said it would, which is the one thing here a reader must not miss.
+    let gaps = info.scope.gaps();
+    if !gaps.is_empty() {
+        println!("INCOMPLETE:  declared but not held: {}", gaps.join(", "));
+    }
 }

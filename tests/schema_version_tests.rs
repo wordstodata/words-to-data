@@ -29,6 +29,7 @@ fn metadata() -> DatasetMetadata {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     }
 }
 

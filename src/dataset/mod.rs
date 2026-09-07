@@ -8,7 +8,7 @@ mod scope;
 mod work;
 
 pub use error::DatasetError;
-pub use scope::{Coverage, Scope, WorkCoverage};
+pub use scope::{Coverage, DateRange, Declaration, Exclusion, Scope, WorkCoverage};
 pub use work::{
     Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
     work_roots, works_between,
@@ -56,6 +56,12 @@ pub struct DatasetMetadata {
     pub source_urls: Vec<String>,
     pub license: String,
     pub version: String,
+    /// What this dataset was meant to carry, when the producer said.
+    ///
+    /// `None` means nothing was declared, and every scope question is answered
+    /// from the contents alone.
+    #[serde(default)]
+    pub declaration: Option<Declaration>,
 }
 
 /// A search result from text search
@@ -551,6 +557,10 @@ impl Dataset<SqliteStorage> {
 // --- Implement traits for Dataset<S> ---
 
 impl<S: Storage> DocumentReader for Dataset<S> {
+    fn metadata(&self) -> &DatasetMetadata {
+        self.storage.metadata()
+    }
+
     fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
         self.storage.works()
     }
@@ -640,10 +650,6 @@ impl<S: Storage> LegislatureReader for Dataset<S> {
 }
 
 impl<S: Storage> DocumentWriter for Dataset<S> {
-    fn metadata(&self) -> &DatasetMetadata {
-        self.storage.metadata()
-    }
-
     fn set_metadata(&mut self, metadata: DatasetMetadata) {
         self.storage.set_metadata(metadata)
     }

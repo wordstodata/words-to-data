@@ -29,6 +29,10 @@ use crate::diff::AmendmentSimilarity;
 pub struct LinkKind(pub String);
 
 impl LinkKind {
+    /// The namespace the legislature extension defines. A dataset declaring it
+    /// carries legislative material, whether or not any has arrived yet.
+    pub const LEGISLATURE: &'static str = "legislature";
+
     /// A change to the law, caused by an amendment in a bill.
     pub const AMENDED_BY: &'static str = "legislature.amended_by";
 

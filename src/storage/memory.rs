@@ -171,6 +171,10 @@ impl InMemoryStorage {
 }
 
 impl DocumentReader for InMemoryStorage {
+    fn metadata(&self) -> &DatasetMetadata {
+        &self.metadata
+    }
+
     fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
         Ok(self.expressions.keys().cloned().collect())
     }
@@ -345,10 +349,6 @@ impl LegislatureReader for InMemoryStorage {
 }
 
 impl DocumentWriter for InMemoryStorage {
-    fn metadata(&self) -> &DatasetMetadata {
-        &self.metadata
-    }
-
     fn set_metadata(&mut self, metadata: DatasetMetadata) {
         self.metadata = metadata;
     }
@@ -401,10 +401,18 @@ impl LegislatureWriter for InMemoryStorage {
 
 impl Storage for InMemoryStorage {
     fn legislature(&self) -> Option<&dyn LegislatureReader> {
+        let declared = self
+            .metadata
+            .declaration
+            .as_ref()
+            .is_some_and(|d| d.declares_namespace(crate::link::LinkKind::LEGISLATURE));
         let holds_legislature = !self.bills.is_empty()
             || !self.members.is_empty()
             || !self.sponsors.is_empty()
             || !self.bill_votes.is_empty();
-        holds_legislature.then_some(self as &dyn LegislatureReader)
+        // Either answer is a yes. Declaring it covers a dataset that has not
+        // been given bills yet; holding it covers a producer who under-declared,
+        // and hiding material we demonstrably have would be the worse lie.
+        (declared || holds_legislature).then_some(self as &dyn LegislatureReader)
     }
 }

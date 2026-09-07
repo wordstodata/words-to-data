@@ -31,6 +31,7 @@ fn make_test_dataset() -> Dataset<InMemoryStorage> {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "0.1.0".to_string(),
+        ..Default::default()
     };
     Dataset::new(metadata)
 }

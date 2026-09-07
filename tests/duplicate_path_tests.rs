@@ -146,6 +146,7 @@ fn title_26_both_expressions()
         source_urls: vec![],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(USC26_18, "2025-07-18", None)
@@ -368,6 +369,7 @@ fn dataset_both_backends(
         source_urls: vec![],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     memory
         .add_uslm_xml(USC26_30, "2025-07-30", None)
