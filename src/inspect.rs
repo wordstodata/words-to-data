@@ -141,15 +141,68 @@ pub struct PathFieldChange {
     pub new_value: String,
 }
 
-/// Everything known about one structural path: where it exists, what changed
-/// there between two versions, and which annotations touch it.
+/// One expression that holds a path, and how many provisions sit there.
+///
+/// A path can name more than one provision (`docs/adr/0001`), so an expression
+/// is named once with a count. Repeating the same `work@date` once per
+/// provision reads as a duplication bug rather than as a fact about the law.
+#[derive(Debug, Clone, Serialize)]
+pub struct PathPresence {
+    /// The expression, as `work@date`.
+    pub expression: String,
+    /// How many provisions this expression holds at the path.
+    pub provisions: usize,
+}
+
+/// Whether a provision at a path survived an expression pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Presence {
+    /// In both expressions, so its field changes are comparable.
+    InBoth,
+    /// Only in the newer expression: new law at this path.
+    Added,
+    /// Only in the older expression.
+    Removed,
+}
+
+/// One provision at a structural path, across an expression pair.
+///
+/// Provisions that share a path pair by position within their parent, so the
+/// index can differ per side: a parent that itself shares a path may gain a
+/// provision and shift every later index on one side only. Both indices are
+/// therefore recorded, and neither can be derived from the other. A `None` is
+/// what makes an entry an addition or a removal, and `presence` says which
+/// rather than leaving the reader to infer it.
+///
+/// The pairing assumes that when the number of provisions at a path falls, the
+/// survivors are the leading ones. A source that instead drops the first and
+/// keeps the second is reported as a large edit plus a removal, rather than as
+/// the removal it is. A stable provision identity is what fixes this; until
+/// then position is what the source gives us. See issue #93.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvisionAtPath {
+    /// Document-order index among the provisions at this path in the older
+    /// expression, or `None` when the provision was added.
+    pub from_position: Option<usize>,
+    /// The same for the newer expression, or `None` when it was removed.
+    pub to_position: Option<usize>,
+    pub presence: Presence,
+    /// Field-level changes for this provision. Always empty for an addition or
+    /// a removal, which have nothing on the other side to compare against.
+    pub changes: Vec<PathFieldChange>,
+}
+
+/// Everything known about one structural path: where it exists, what happened
+/// to each provision there between two versions, and which annotations touch it.
 #[derive(Debug, Clone, Serialize)]
 pub struct PathReport {
     pub path: String,
-    /// The expressions in which the element exists, as `work@date`.
-    pub present_in: Vec<String>,
-    /// Field-level changes for the requested expression pair (empty if none given).
-    pub changes: Vec<PathFieldChange>,
+    /// The expressions that hold the path, each named once with a count.
+    pub present_in: Vec<PathPresence>,
+    /// Each provision at the path across the requested expression pair, in
+    /// document order. Empty when no pair was given.
+    pub provisions: Vec<ProvisionAtPath>,
     /// Annotations that reference this path (across all expression pairs).
     pub annotations: Vec<AnnotationSummary>,
 }
@@ -162,42 +215,25 @@ fn field_str(field: &crate::uslm::TextContentField) -> String {
         .unwrap_or_default()
 }
 
-/// Assemble a combined view of a single path: presence, field changes for an
+/// Assemble a combined view of a single path: which expressions hold it and
+/// how many provisions sit there, what happened to each provision across an
 /// optional expression pair, and every annotation that references it.
 pub fn path_report<S: Storage>(
     dataset: &S,
     path: &str,
     pair: Option<(&ExpressionId, &ExpressionId)>,
 ) -> Result<PathReport, DatasetError> {
-    let mut present_in: Vec<String> = dataset
-        .find_element(path)?
-        .into_iter()
-        .map(|(id, _)| id.to_string())
-        .collect();
-    present_in.sort();
+    let present_in = presence_counts(dataset, path)?;
 
-    // A path can name more than one provision, so it can name more than one
-    // diff node. Report every node's changes: taking the first would hide a
-    // change to the second, which is the silent loss `docs/adr/0001` warns of.
-    //
-    // No committed expression pair reaches this today. Duplicated paths in the
-    // corpus are one provision against two, or two against one, so a duplicate
-    // is always an addition or a removal rather than two matched provisions
-    // that both changed. The corpus cannot exercise it, and inventing data to
-    // do so would prove nothing about real documents.
-    let changes = match pair {
-        Some((from, to)) => dataset
-            .compute_diff(from, to)?
-            .find_all(path)
-            .into_iter()
-            .flat_map(|node| {
-                node.changes.iter().map(|c| PathFieldChange {
-                    field: field_str(&c.field_name),
-                    old_value: c.old_value.clone(),
-                    new_value: c.new_value.clone(),
-                })
-            })
-            .collect(),
+    let provisions = match pair {
+        Some((from, to)) => {
+            match (dataset.get_expression(from)?, dataset.get_expression(to)?) {
+                (Some(from), Some(to)) => pair_provisions(&from.element, &to.element, path),
+                // An expression the dataset does not hold is not an error here:
+                // `present_in` still answers where the path lives.
+                _ => Vec::new(),
+            }
+        }
         None => Vec::new(),
     };
 
@@ -206,9 +242,163 @@ pub fn path_report<S: Storage>(
     Ok(PathReport {
         path: path.to_string(),
         present_in,
-        changes,
+        provisions,
         annotations,
     })
+}
+
+/// Which expressions hold the path, each named once with a provision count.
+fn presence_counts<S: Storage>(dataset: &S, path: &str) -> Result<Vec<PathPresence>, DatasetError> {
+    let mut ids: Vec<String> = dataset
+        .find_element(path)?
+        .into_iter()
+        .map(|(id, _)| id.to_string())
+        .collect();
+    ids.sort();
+
+    let mut counted: Vec<PathPresence> = Vec::new();
+    for id in ids {
+        match counted.last_mut() {
+            Some(last) if last.expression == id => last.provisions += 1,
+            _ => counted.push(PathPresence {
+                expression: id,
+                provisions: 1,
+            }),
+        }
+    }
+    Ok(counted)
+}
+
+/// The children of `parent` that sit at `path`, in document order.
+fn kin_at<'a>(parent: &'a USLMElement, path: &str) -> Vec<&'a USLMElement> {
+    parent
+        .children
+        .iter()
+        .filter(|child| *child.data.path == *path)
+        .collect()
+}
+
+/// The field-level changes between two provisions that share a path.
+fn field_changes(from: &USLMElement, to: &USLMElement) -> Vec<PathFieldChange> {
+    TreeDiff::from_elements(from, to)
+        .changes
+        .iter()
+        .map(|c| PathFieldChange {
+            field: field_str(&c.field_name),
+            old_value: c.old_value.clone(),
+            new_value: c.new_value.clone(),
+        })
+        .collect()
+}
+
+/// Pair the provisions at one path between two expression trees.
+///
+/// A provision that was added or removed is recorded on its *parent*, not at
+/// the path itself, so the parent is what has to be found. Walking the diff
+/// tree instead cannot answer this: it keeps only the children that record
+/// something, so an unchanged provision leaves no node at all.
+fn pair_provisions(
+    from_root: &USLMElement,
+    to_root: &USLMElement,
+    path: &str,
+) -> Vec<ProvisionAtPath> {
+    let Some((parent_path, _)) = path.rsplit_once('/') else {
+        return Vec::new();
+    };
+
+    let from_parents = from_root.find_all(parent_path);
+    let to_parents = to_root.find_all(parent_path);
+
+    // The root of an expression has no parent inside its own tree, so the
+    // lookup above finds nothing. It is still a real path to ask about.
+    if from_parents.is_empty() && to_parents.is_empty() {
+        return root_provision(from_root, to_root, path);
+    }
+
+    // A parent path can itself name several provisions, and those pair by
+    // position too. Stepping through the parents in document order keeps each
+    // comparison inside the parent it belongs to, and keeps the running
+    // indices in the order the provisions appear in the law.
+    let mut provisions = Vec::new();
+    let mut from_position = 0;
+    let mut to_position = 0;
+
+    for i in 0..from_parents.len().max(to_parents.len()) {
+        let from_kin = from_parents
+            .get(i)
+            .map(|p| kin_at(p, path))
+            .unwrap_or_default();
+        let to_kin = to_parents
+            .get(i)
+            .map(|p| kin_at(p, path))
+            .unwrap_or_default();
+        let paired = from_kin.len().min(to_kin.len());
+
+        for j in 0..paired {
+            provisions.push(ProvisionAtPath {
+                from_position: Some(from_position),
+                to_position: Some(to_position),
+                presence: Presence::InBoth,
+                changes: field_changes(from_kin[j], to_kin[j]),
+            });
+            from_position += 1;
+            to_position += 1;
+        }
+
+        // Pairing is a prefix, so whichever side is longer carries the tail.
+        // Under one parent a path is therefore added or removed, never both.
+        for _ in paired..from_kin.len() {
+            provisions.push(ProvisionAtPath {
+                from_position: Some(from_position),
+                to_position: None,
+                presence: Presence::Removed,
+                changes: Vec::new(),
+            });
+            from_position += 1;
+        }
+        for _ in paired..to_kin.len() {
+            provisions.push(ProvisionAtPath {
+                from_position: None,
+                to_position: Some(to_position),
+                presence: Presence::Added,
+                changes: Vec::new(),
+            });
+            to_position += 1;
+        }
+    }
+
+    provisions
+}
+
+/// The expression root as a single provision. Nothing inside the tree can add
+/// or remove it, so it is in both expressions, in one, or in neither.
+fn root_provision(
+    from_root: &USLMElement,
+    to_root: &USLMElement,
+    path: &str,
+) -> Vec<ProvisionAtPath> {
+    match (*from_root.data.path == *path, *to_root.data.path == *path) {
+        (true, true) => vec![ProvisionAtPath {
+            from_position: Some(0),
+            to_position: Some(0),
+            presence: Presence::InBoth,
+            changes: field_changes(from_root, to_root),
+        }],
+        (true, false) => vec![ProvisionAtPath {
+            from_position: Some(0),
+            to_position: None,
+            presence: Presence::Removed,
+            changes: Vec::new(),
+        }],
+        (false, true) => vec![ProvisionAtPath {
+            from_position: None,
+            to_position: Some(0),
+            presence: Presence::Added,
+            changes: Vec::new(),
+        }],
+        // The path names nothing in either expression.
+        (false, false) => Vec::new(),
+    }
 }
 
 /// The outcome of a dataset integrity check.

@@ -440,11 +440,73 @@ fn should_report_presence_and_field_changes_for_a_real_path() {
         inspect::path_report(&dataset, &real_path, Some((&from, &to))).expect("path_report");
 
     assert!(
-        report.present_in.contains(&from.to_string()),
-        "root path should be present in the from-expression, got {:?}",
+        report
+            .present_in
+            .iter()
+            .any(|p| p.expression == from.to_string() && p.provisions == 1),
+        "root path should be present once in the from-expression, got {:?}",
         report.present_in
     );
-    assert_eq!(report.changes.len(), expected_changes);
+
+    // The root of an expression cannot be added or removed inside its own
+    // tree, so it is one provision present in both, carrying every change.
+    assert_eq!(report.provisions.len(), 1);
+    assert_eq!(report.provisions[0].presence, inspect::Presence::InBoth);
+    assert_eq!(report.provisions[0].from_position, Some(0));
+    assert_eq!(report.provisions[0].to_position, Some(0));
+    assert_eq!(report.provisions[0].changes.len(), expected_changes);
+}
+
+#[test]
+fn should_report_one_provision_in_both_when_an_ordinary_path_is_unchanged() {
+    let dataset = make_fixture();
+    let (from, to) = pair();
+
+    // Title 9 section 1 is in both expressions. Whatever it did or did not do
+    // to its own fields, it is one provision and it survived.
+    let report =
+        inspect::path_report(&dataset, ANNOTATED_PATH, Some((&from, &to))).expect("path_report");
+
+    assert_eq!(
+        report.present_in.len(),
+        2,
+        "both expressions hold the path, each once: {:?}",
+        report.present_in
+    );
+    assert!(report.present_in.iter().all(|p| p.provisions == 1));
+
+    assert_eq!(report.provisions.len(), 1);
+    assert_eq!(report.provisions[0].presence, inspect::Presence::InBoth);
+    assert_eq!(report.provisions[0].from_position, Some(0));
+    assert_eq!(report.provisions[0].to_position, Some(0));
+}
+
+#[test]
+fn should_report_the_same_provisions_on_both_backends() {
+    let fixture = make_fixture();
+    let sqlite = to_sqlite(&fixture, "path_provisions");
+    let (from, to) = pair();
+
+    let from_memory =
+        inspect::path_report(&fixture, ANNOTATED_PATH, Some((&from, &to))).expect("memory");
+    let from_sqlite =
+        inspect::path_report(&sqlite, ANNOTATED_PATH, Some((&from, &to))).expect("sqlite");
+
+    // Storage must not change the answer. Both backends must agree on the
+    // counts, the verdicts, and the positions.
+    let shape = |r: &inspect::PathReport| {
+        (
+            r.present_in
+                .iter()
+                .map(|p| (p.expression.clone(), p.provisions))
+                .collect::<Vec<_>>(),
+            r.provisions
+                .iter()
+                .map(|p| (p.from_position, p.to_position, p.presence, p.changes.len()))
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(shape(&from_memory), shape(&from_sqlite));
 }
 
 #[test]
