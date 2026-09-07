@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::BillDiff;
 
-use crate::llm::{ChatOptions, LlmClient};
+use words_to_data::llm::{ChatOptions, LlmClient};
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -30,6 +30,13 @@ pub struct Args {
     /// Model name to request (llama.cpp ignores this; DeepSeek etc. require it)
     #[arg(long, default_value = "")]
     pub model: String,
+
+    /// API key for a hosted endpoint (DeepSeek and the like)
+    ///
+    /// Prefer the `W2D_API_KEY` environment variable: a key passed as a flag
+    /// lands in shell history and in `ps`. A local llama.cpp server needs none.
+    #[arg(long)]
+    pub api_key: Option<String>,
 
     /// Number of concurrent LLM requests
     #[arg(long, default_value_t = 1)]
@@ -132,7 +139,11 @@ pub fn run(args: Args) {
     );
 
     if !todo.is_empty() {
-        let llm = LlmClient::new(args.base_url.clone(), args.model.clone(), None);
+        let llm = LlmClient::new(
+            args.base_url.clone(),
+            args.model.clone(),
+            words_to_data::llm::api_key_from(args.api_key.as_deref()),
+        );
         // The cache is updated and flushed to disk after every successful call so
         // an interrupted run can be resumed without losing completed extractions.
         let shared = Mutex::new(cache);

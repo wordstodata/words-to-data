@@ -4,6 +4,10 @@
 //! `/v1/chat/completions` endpoint (DeepSeek, etc.). Deliberately blocking:
 //! callers that want concurrency spawn OS threads and share `&LlmClient`,
 //! which is `Send + Sync` because `ureq::Agent` is.
+//!
+//! It lives in the library rather than the binary so it can be tested against a
+//! stub server. An HTTP endpoint is a system boundary, which is the one place
+//! `CLAUDE.md` allows a test to stand something in.
 
 use std::thread::sleep;
 use std::time::Duration;
@@ -49,6 +53,16 @@ impl LlmClient {
         }
     }
 
+    /// Shorten the backoff ladder.
+    ///
+    /// The default first wait is five seconds, which is right for a real
+    /// endpoint and far too slow for a test that only wants to prove a retry
+    /// happened.
+    pub fn retry_after(&mut self, initial_backoff: Duration) -> &mut Self {
+        self.initial_backoff = initial_backoff;
+        self
+    }
+
     /// Send a system+user prompt and return the assistant's message content.
     ///
     /// Retries transient failures with exponential backoff before giving up.
@@ -76,8 +90,11 @@ impl LlmClient {
         for attempt in 0..self.max_retries {
             match self.try_once(&url, &body) {
                 Ok(content) => return Ok(content),
-                Err(err) => {
+                Err((err, retryable)) => {
                     last_err = err;
+                    if !retryable {
+                        return Err(last_err);
+                    }
                     if attempt + 1 < self.max_retries {
                         let backoff = self.initial_backoff * 2u32.pow(attempt);
                         eprintln!(
@@ -94,8 +111,21 @@ impl LlmClient {
         Err(last_err)
     }
 
+    /// Whether trying the same request again could plausibly succeed.
+    ///
+    /// A rejected key is not a transient failure. Retrying one costs the full
+    /// backoff ladder — 75 seconds here — and then fails anyway, which reads as
+    /// a hang rather than as the mistyped key it is.
+    fn retryable(status: u16) -> bool {
+        // 408 and 429 are the server asking for another go; 5xx is its problem,
+        // not the request's. Every other 4xx is a fault in what we sent.
+        status == 408 || status == 429 || status >= 500
+    }
+
     /// A single request attempt (no retry).
-    fn try_once(&self, url: &str, body: &serde_json::Value) -> Result<String, String> {
+    ///
+    /// The `bool` says whether a retry is worth attempting.
+    fn try_once(&self, url: &str, body: &serde_json::Value) -> Result<String, (String, bool)> {
         let mut request = self
             .agent
             .post(url)
@@ -105,18 +135,48 @@ impl LlmClient {
         }
 
         // Serialize/parse JSON ourselves so we don't need ureq's optional `json` feature.
-        let payload = serde_json::to_vec(body).map_err(|e| e.to_string())?;
-        let text = request
-            .send(&payload)
-            .map_err(|e| e.to_string())?
+        let payload = serde_json::to_vec(body).map_err(|e| (e.to_string(), false))?;
+        let mut response = request.send(&payload).map_err(|err| match err {
+            ureq::Error::StatusCode(status) => (describe_status(status), Self::retryable(status)),
+            other => (other.to_string(), true),
+        })?;
+        let text = response
             .body_mut()
             .read_to_string()
-            .map_err(|e| e.to_string())?;
-        let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            .map_err(|e| (e.to_string(), true))?;
+        let value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| (e.to_string(), false))?;
 
         value["choices"][0]["message"]["content"]
             .as_str()
             .map(str::to_string)
-            .ok_or_else(|| format!("Unexpected response shape: {value}"))
+            .ok_or_else(|| (format!("Unexpected response shape: {value}"), false))
     }
+}
+
+/// Say what an HTTP status means for this request, so a rejected key does not
+/// read as an unexplained failure.
+fn describe_status(status: u16) -> String {
+    match status {
+        401 => {
+            "401 Unauthorized: the server rejected the API key. Pass --api-key or set W2D_API_KEY."
+                .to_string()
+        }
+        403 => "403 Forbidden: the API key is not allowed to use this model.".to_string(),
+        404 => "404 Not Found: check --base-url; the path /v1/chat/completions is appended to it."
+            .to_string(),
+        429 => "429 Too Many Requests: rate limited.".to_string(),
+        other => format!("HTTP status {other}"),
+    }
+}
+
+/// The API key to use, from the flag or the environment.
+///
+/// An environment variable is the default because a key passed as a flag lands
+/// in shell history and in `ps`. The flag stays for scripted runs that source
+/// the key some other way.
+pub fn api_key_from(flag: Option<&str>) -> Option<String> {
+    flag.map(str::to_string)
+        .or_else(|| std::env::var("W2D_API_KEY").ok())
+        .filter(|key| !key.trim().is_empty())
 }

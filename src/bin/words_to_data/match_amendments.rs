@@ -24,8 +24,8 @@ use words_to_data::matching::{
 };
 use words_to_data::uslm::TextContentField;
 
-use crate::llm::{ChatOptions, LlmClient};
 use crate::span::Span;
+use words_to_data::llm::{ChatOptions, LlmClient};
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -42,6 +42,13 @@ pub struct Args {
     /// Model name to request (llama.cpp ignores this; DeepSeek etc. require it)
     #[arg(long, default_value = "")]
     pub model: String,
+
+    /// API key for a hosted endpoint (DeepSeek and the like)
+    ///
+    /// Prefer the `W2D_API_KEY` environment variable: a key passed as a flag
+    /// lands in shell history and in `ps`. A local llama.cpp server needs none.
+    #[arg(long)]
+    pub api_key: Option<String>,
 
     /// Number of concurrent LLM requests
     #[arg(long, default_value_t = 1)]
@@ -75,7 +82,11 @@ pub fn run(args: Args) {
         "Error loading dataset",
     );
 
-    let llm = LlmClient::new(args.base_url.clone(), args.model.clone(), None);
+    let llm = LlmClient::new(
+        args.base_url.clone(),
+        args.model.clone(),
+        words_to_data::llm::api_key_from(args.api_key.as_deref()),
+    );
     let model_name = if args.model.is_empty() {
         "local".to_string()
     } else {
