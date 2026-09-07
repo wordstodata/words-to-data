@@ -13,7 +13,6 @@ mod expressions;
 mod extract_changes;
 mod fail;
 mod info;
-mod llm;
 mod load;
 mod match_amendments;
 mod path;

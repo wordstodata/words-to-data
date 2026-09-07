@@ -8,21 +8,34 @@
 //!
 //! One reply produces many statements, so a reply is stored once under the hash
 //! of its own text and referenced, rather than copied onto every link.
+//!
+//! The fixture is real recorded output. The first sweep to use this mechanism
+//! produced 1,237 replies behind 893 links.
 
 use words_to_data::dataset::{Dataset, DatasetMetadata, WorkId};
 use words_to_data::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
 use words_to_data::storage::{EvidenceReader, InMemoryStorage, LinkReader};
 
-/// A reply as a model really emits one: prose, a fence, then the payload.
+/// A reply a model really emitted, recorded by a `words_to_data` sweep.
 ///
-/// **Stubbed.** No raw reply has ever been recorded, so this stands in until a
-/// real `match-amendments` sweep records some and they replace it. It exercises
-/// storage, which is what this issue builds; it is not the messy-reply corpus
-/// the parser will eventually be tested against.
-const STUB_REPLY: &str = "tests/test_data/processed/stub_model_reply.txt";
+/// Real output rather than text written to look like it: a reply reconstructed
+/// from stored results is well-formed by construction, so it would not exercise
+/// the fence a model actually wraps its JSON in.
+const REPLIES: &str = "tests/test_data/processed/model_replies.json";
 
-fn stub_reply() -> String {
-    std::fs::read_to_string(STUB_REPLY).expect("the stub reply should be readable")
+fn recorded_reply() -> String {
+    #[derive(serde::Deserialize)]
+    struct RecordedReply {
+        reply: String,
+    }
+    let json = std::fs::read_to_string(REPLIES).expect("the fixture should be readable");
+    let replies: Vec<RecordedReply> =
+        serde_json::from_str(&json).expect("the fixture should parse");
+    replies
+        .into_iter()
+        .next()
+        .expect("the fixture should hold a reply")
+        .reply
 }
 
 fn dataset() -> Dataset<InMemoryStorage> {
@@ -61,7 +74,7 @@ fn a_link(evidence: Option<Evidence>) -> Link {
 #[test]
 fn should_store_a_reply_once_under_the_hash_of_its_own_text() {
     let mut dataset = dataset();
-    let reply = stub_reply();
+    let reply = recorded_reply();
 
     let first = dataset.add_reply(&reply).expect("the reply should store");
     let second = dataset
@@ -87,7 +100,7 @@ fn should_store_a_reply_once_under_the_hash_of_its_own_text() {
 #[test]
 fn should_reach_the_reply_from_a_links_evidence() {
     let mut dataset = dataset();
-    let reply_id = dataset.add_reply(&stub_reply()).expect("stored");
+    let reply_id = dataset.add_reply(&recorded_reply()).expect("stored");
 
     dataset
         .add_link(a_link(Some(Evidence {
@@ -119,14 +132,14 @@ fn should_reach_the_reply_from_a_links_evidence() {
         dataset
             .get_reply(evidence.reply.as_ref().expect("a reply reference"))
             .expect("readable"),
-        Some(stub_reply())
+        Some(recorded_reply())
     );
 }
 
 #[test]
 fn should_keep_a_reply_whose_statement_was_superseded() {
     let mut dataset = dataset();
-    let reply_id = dataset.add_reply(&stub_reply()).expect("stored");
+    let reply_id = dataset.add_reply(&recorded_reply()).expect("stored");
 
     dataset
         .add_link(a_link(Some(Evidence {
@@ -152,7 +165,7 @@ fn should_keep_a_reply_whose_statement_was_superseded() {
     // supported was superseded destroys the trail this exists to create.
     assert_eq!(
         dataset.get_reply(&reply_id).expect("readable"),
-        Some(stub_reply()),
+        Some(recorded_reply()),
         "an orphaned reply is a record that something was said, not garbage"
     );
 }
@@ -160,7 +173,7 @@ fn should_keep_a_reply_whose_statement_was_superseded() {
 #[test]
 fn should_carry_replies_and_evidence_through_sqlite() {
     let mut memory = dataset();
-    let reply_id = memory.add_reply(&stub_reply()).expect("stored");
+    let reply_id = memory.add_reply(&recorded_reply()).expect("stored");
     memory
         .add_link(a_link(Some(Evidence {
             reasoning: Some("why".to_string()),
@@ -181,7 +194,7 @@ fn should_carry_replies_and_evidence_through_sqlite() {
     // it was sent to, which is the whole reason for keeping it.
     assert_eq!(
         sqlite.get_reply(&reply_id).expect("readable"),
-        Some(stub_reply())
+        Some(recorded_reply())
     );
     let stored = sqlite
         .links_by_kind(LinkKind::AMENDED_BY)
@@ -229,7 +242,7 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
         "the amending text is a fact from a source; its word-level changes are not"
     );
 
-    let reply_id = dataset.add_reply(&stub_reply()).expect("stored");
+    let reply_id = dataset.add_reply(&recorded_reply()).expect("stored");
     dataset.set_amendment_provenance(
         &amendment_id,
         Provenance {
@@ -268,6 +281,6 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
         sqlite
             .get_reply(stored.evidence.unwrap().reply.as_ref().unwrap())
             .expect("readable"),
-        Some(stub_reply())
+        Some(recorded_reply())
     );
 }

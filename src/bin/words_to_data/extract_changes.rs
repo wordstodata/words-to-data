@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::BillDiff;
 
-use crate::llm::{ChatOptions, LlmClient};
+use words_to_data::llm::{ChatOptions, LlmClient};
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -30,6 +30,32 @@ pub struct Args {
     /// Model name to request (llama.cpp ignores this; DeepSeek etc. require it)
     #[arg(long, default_value = "")]
     pub model: String,
+
+    /// API key for a hosted endpoint (DeepSeek and the like)
+    ///
+    /// Prefer the `W2D_API_KEY` environment variable: a key passed as a flag
+    /// lands in shell history and in `ps`. A local llama.cpp server needs none.
+    #[arg(long)]
+    pub api_key: Option<String>,
+
+    /// Extra parameters for the endpoint, as `key=value` (repeatable)
+    ///
+    /// Sent verbatim in the request body, so a provider-specific switch this
+    /// build has never heard of still gets through — for example
+    /// `--llm-param reasoning_effort=low`. The value is read as JSON when it
+    /// parses as JSON, and as a plain string otherwise.
+    #[arg(long = "llm-param", value_name = "KEY=VALUE")]
+    pub llm_params: Vec<String>,
+
+    /// Sampling temperature
+    #[arg(long)]
+    pub temperature: Option<f32>,
+
+    /// Cap on the tokens the model may generate
+    ///
+    /// A reasoning model with no ceiling can think for a very long time.
+    #[arg(long)]
+    pub max_tokens: Option<u64>,
 
     /// Number of concurrent LLM requests
     #[arg(long, default_value_t = 1)]
@@ -75,15 +101,6 @@ impl Cached {
 struct Task {
     amendment_id: String,
     amending_text: String,
-}
-
-/// The `{"added": [...], "removed": [...]}` shape the model returns.
-#[derive(Deserialize)]
-struct RawDiff {
-    #[serde(default)]
-    added: Vec<String>,
-    #[serde(default)]
-    removed: Vec<String>,
 }
 
 pub fn run(args: Args) {
@@ -132,11 +149,23 @@ pub fn run(args: Args) {
     );
 
     if !todo.is_empty() {
-        let llm = LlmClient::new(args.base_url.clone(), args.model.clone(), None);
+        let opts = crate::fail::or_exit(
+            chat_options(
+                &args.llm_params,
+                args.temperature.unwrap_or(1.0),
+                args.max_tokens.or(Some(64_000)),
+            ),
+            "Error reading --llm-param",
+        );
+        let llm = LlmClient::new(
+            args.base_url.clone(),
+            args.model.clone(),
+            words_to_data::llm::api_key_from(args.api_key.as_deref()),
+        );
         // The cache is updated and flushed to disk after every successful call so
         // an interrupted run can be resumed without losing completed extractions.
         let shared = Mutex::new(cache);
-        extract_all(&llm, &todo, args.threads, &shared, &cache_path);
+        extract_all(&llm, &todo, args.threads, &shared, &cache_path, &opts);
         cache = shared.into_inner().unwrap();
     }
 
@@ -207,6 +236,7 @@ fn extract_all(
     threads: usize,
     cache: &Mutex<HashMap<String, Cached>>,
     cache_path: &Path,
+    opts: &ChatOptions,
 ) {
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
@@ -219,7 +249,7 @@ fn extract_all(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(task) = tasks.get(i) else { break };
 
-                    match extract_changes(llm, &task.amending_text) {
+                    match extract_changes(llm, &task.amending_text, opts) {
                         Ok(cached) => {
                             // Insert and persist while holding the lock so the on-disk
                             // cache is always consistent with in-memory state.
@@ -245,18 +275,19 @@ fn extract_all(
 /// The reply is carried out rather than dropped. Nothing of the model's words
 /// used to survive this command at all — the parsed result went to the cache
 /// and the raw text only ever appeared in an error message (#58).
-fn extract_changes(llm: &LlmClient, amending_text: &str) -> Result<Cached, String> {
+fn extract_changes(
+    llm: &LlmClient,
+    amending_text: &str,
+    opts: &ChatOptions,
+) -> Result<Cached, String> {
     let user_prompt = format!(
         "Extract the word-level changes from this amendment text:\n\n<amendment>\n{amending_text}\n</amendment>"
     );
-    let opts = ChatOptions {
-        temperature: 1.0,
-        max_tokens: Some(64_000),
-    };
-    let reply = llm.chat(EXTRACT_SYSTEM_PROMPT, &user_prompt, &opts)?;
+
+    let reply = llm.chat(EXTRACT_SYSTEM_PROMPT, &user_prompt, opts)?;
     // Include the full raw model output on any parse failure so it can be inspected.
-    let changes =
-        parse_changes(&reply).map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
+    let changes = words_to_data::llm::parse_changes(&reply)
+        .map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
     Ok(Cached::WithReply {
         changes,
         prompt_hash: prompt_hash(EXTRACT_SYSTEM_PROMPT, &user_prompt),
@@ -273,27 +304,6 @@ fn prompt_hash(system: &str, user: &str) -> String {
     hasher.update([0u8]);
     hasher.update(user.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-/// Pull the JSON array out of `<response>...</response>` and into `BillDiff`s.
-fn parse_changes(raw: &str) -> Result<Vec<BillDiff>, String> {
-    let start = raw
-        .find("<response>")
-        .ok_or("no <response> tag in model output")?
-        + "<response>".len();
-    let end = raw[start..]
-        .find("</response>")
-        .ok_or("no </response> tag in model output")?;
-    let json_str = raw[start..start + end].trim();
-
-    let raw_diffs: Vec<RawDiff> = serde_json::from_str(json_str).map_err(|e| e.to_string())?;
-    Ok(raw_diffs
-        .into_iter()
-        .map(|d| BillDiff {
-            added: d.added,
-            removed: d.removed,
-        })
-        .collect())
 }
 
 /// Build a path to `filename` in the same directory as `dataset_path`.
@@ -408,3 +418,21 @@ RULES:
    a, an, the, and, or, of, in, to, by, at, on, with, is, are, was, were, be, been, being, it, its, as, all, each,
    into, up, out, do, does, did, have, has, had, they, them, their, there, this, these, those, that
 "#;
+
+/// Build the request options from the CLI flags.
+fn chat_options(
+    params: &[String],
+    temperature: f32,
+    max_tokens: Option<u64>,
+) -> Result<ChatOptions, String> {
+    let mut extra = serde_json::Map::new();
+    for param in params {
+        let (key, value) = words_to_data::llm::parse_param(param)?;
+        extra.insert(key, value);
+    }
+    Ok(ChatOptions {
+        temperature,
+        max_tokens,
+        extra,
+    })
+}

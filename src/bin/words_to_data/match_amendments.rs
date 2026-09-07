@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use clap::Args as ClapArgs;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
@@ -24,8 +24,8 @@ use words_to_data::matching::{
 };
 use words_to_data::uslm::TextContentField;
 
-use crate::llm::{ChatOptions, LlmClient};
 use crate::span::Span;
+use words_to_data::llm::{ChatOptions, LlmAnnotation, LlmClient};
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -42,6 +42,32 @@ pub struct Args {
     /// Model name to request (llama.cpp ignores this; DeepSeek etc. require it)
     #[arg(long, default_value = "")]
     pub model: String,
+
+    /// API key for a hosted endpoint (DeepSeek and the like)
+    ///
+    /// Prefer the `W2D_API_KEY` environment variable: a key passed as a flag
+    /// lands in shell history and in `ps`. A local llama.cpp server needs none.
+    #[arg(long)]
+    pub api_key: Option<String>,
+
+    /// Extra parameters for the endpoint, as `key=value` (repeatable)
+    ///
+    /// Sent verbatim in the request body, so a provider-specific switch this
+    /// build has never heard of still gets through — for example
+    /// `--llm-param reasoning_effort=low`. The value is read as JSON when it
+    /// parses as JSON, and as a plain string otherwise.
+    #[arg(long = "llm-param", value_name = "KEY=VALUE")]
+    pub llm_params: Vec<String>,
+
+    /// Sampling temperature
+    #[arg(long)]
+    pub temperature: Option<f32>,
+
+    /// Cap on the tokens the model may generate
+    ///
+    /// A reasoning model with no ceiling can think for a very long time.
+    #[arg(long)]
+    pub max_tokens: Option<u64>,
 
     /// Number of concurrent LLM requests
     #[arg(long, default_value_t = 1)]
@@ -75,7 +101,19 @@ pub fn run(args: Args) {
         "Error loading dataset",
     );
 
-    let llm = LlmClient::new(args.base_url.clone(), args.model.clone(), None);
+    let opts = crate::fail::or_exit(
+        chat_options(
+            &args.llm_params,
+            args.temperature.unwrap_or(0.0),
+            args.max_tokens,
+        ),
+        "Error reading --llm-param",
+    );
+    let llm = LlmClient::new(
+        args.base_url.clone(),
+        args.model.clone(),
+        words_to_data::llm::api_key_from(args.api_key.as_deref()),
+    );
     let model_name = if args.model.is_empty() {
         "local".to_string()
     } else {
@@ -96,7 +134,7 @@ pub fn run(args: Args) {
         print_stats(&matches);
 
         // Ask the LLM which candidate(s) each amendment matches.
-        let matched = classify_all(&llm, &matches, args.threads);
+        let matched = classify_all(&llm, &matches, args.threads, &opts);
 
         // Apply the LLM's annotations single-threaded.
         for (match_idx, classification) in matched {
@@ -218,6 +256,7 @@ fn classify_all(
     llm: &LlmClient,
     matches: &[AmendmentMatch],
     threads: usize,
+    opts: &ChatOptions,
 ) -> Vec<(usize, Classification)> {
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
@@ -231,7 +270,7 @@ fn classify_all(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(m) = matches.get(i) else { break };
 
-                    match classify(llm, m) {
+                    match classify(llm, m, opts) {
                         Ok(classification) => {
                             results.lock().unwrap().push((i, classification));
                         }
@@ -262,15 +301,15 @@ struct Classification {
 }
 
 /// Query the LLM for one amendment and parse its annotation list.
-fn classify(llm: &LlmClient, m: &AmendmentMatch) -> Result<Classification, String> {
+fn classify(
+    llm: &LlmClient,
+    m: &AmendmentMatch,
+    opts: &ChatOptions,
+) -> Result<Classification, String> {
     let user_prompt = build_user_prompt(m);
-    let opts = ChatOptions {
-        temperature: 0.0,
-        max_tokens: None,
-    };
-    let reply = llm.chat(SYSTEM_PROMPT, &user_prompt, &opts)?;
-    let annotations =
-        parse_response(&reply).map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
+    let reply = llm.chat(SYSTEM_PROMPT, &user_prompt, opts)?;
+    let annotations = words_to_data::llm::parse_annotations(&reply)
+        .map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
     Ok(Classification {
         annotations,
         prompt_hash: prompt_hash(SYSTEM_PROMPT, &user_prompt),
@@ -291,48 +330,6 @@ fn prompt_hash(system: &str, user: &str) -> String {
     hasher.update([0u8]);
     hasher.update(user.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-/// The LLM's JSON response envelope.
-#[derive(Deserialize)]
-struct LlmResponse {
-    #[serde(default)]
-    annotations: Vec<LlmAnnotation>,
-}
-
-/// One annotation the LLM proposes for an amendment.
-#[derive(Deserialize)]
-struct LlmAnnotation {
-    /// Index into the match's candidate list (negative means "no match").
-    #[serde(default = "neg_one")]
-    candidate_index: i64,
-    #[serde(default)]
-    operation: Option<String>,
-    #[serde(default)]
-    causative_text: Option<String>,
-    #[serde(default)]
-    confidence: Option<f32>,
-    #[serde(default)]
-    reasoning: Option<String>,
-}
-
-fn neg_one() -> i64 {
-    -1
-}
-
-/// Parse the model's JSON response, tolerating a ```json fenced block.
-fn parse_response(raw: &str) -> Result<Vec<LlmAnnotation>, String> {
-    let mut text = raw.trim();
-    if let Some(stripped) = text.strip_prefix("```") {
-        // Drop the opening fence line (e.g. "```json") and the closing fence.
-        let after_lang = stripped
-            .find('\n')
-            .map(|n| &stripped[n + 1..])
-            .unwrap_or("");
-        text = after_lang.strip_suffix("```").unwrap_or(after_lang).trim();
-    }
-    let response: LlmResponse = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    Ok(response.annotations)
 }
 
 /// Build the user prompt: the amendment plus its formatted candidates.
@@ -588,3 +585,21 @@ Return valid JSON with `annotations` array:
 - Trust high similarity scores but verify section references
 - Parse legislative language carefully (e.g., "paragraph (2)(A)" = subparagraph A of paragraph 2)
 "#;
+
+/// Build the request options from the CLI flags.
+fn chat_options(
+    params: &[String],
+    temperature: f32,
+    max_tokens: Option<u64>,
+) -> Result<ChatOptions, String> {
+    let mut extra = serde_json::Map::new();
+    for param in params {
+        let (key, value) = words_to_data::llm::parse_param(param)?;
+        extra.insert(key, value);
+    }
+    Ok(ChatOptions {
+        temperature,
+        max_tokens,
+        extra,
+    })
+}
