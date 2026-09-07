@@ -29,8 +29,12 @@ An instruction in a bill that tells a reader how to change existing law.
 _Avoid_: Edit, modification, revision
 
 **Link**:
-A statement that connects one provision to something else. It carries a subject, a namespaced kind, an object, and its provenance. Every reader can read a link, even a reader that does not know the kind.
+A statement that connects one provision to something else. It carries a subject, a namespaced kind, an object, and its provenance. Every reader can read a link, even a reader that does not know the kind. Its identity comes from its subject, its kind, and its object, so restating the same fact updates one link rather than making a second one.
 _Avoid_: Relation, edge, reference
+
+**Kind payload**:
+The facts about a link that only the extension defining its kind understands, such as the amending action behind a change annotation. The core stores it, hands it back unchanged, and never reads it. Nothing a reader needs in order to report a link may live here.
+_Avoid_: Extra, metadata, blob
 
 **Change annotation**:
 The link of kind `legislature.amended_by`. It connects one change in a diff to the amendment that caused it.
