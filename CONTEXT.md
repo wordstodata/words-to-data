@@ -71,9 +71,17 @@ One portable file that carries a Dataset to another party.
 _Avoid_: Export, dump, archive
 
 **Scope**:
-The statement of what a Dataset covers. A Dataset declares the scope it intends, and reports the scope it holds. A reader uses the scope to answer "out of scope" instead of "not found".
+The statement of what a Dataset covers. A Dataset declares the scope it intends, and reports the scope it holds. A reader uses the scope to answer "out of scope" instead of "not found". The difference between the two halves is a Gap.
 _Avoid_: Coverage, extent, contents
 
+**Gap**:
+Material a Dataset declared, did not exclude, and does not hold. A gap says the build did not do what it said it would, so it is a fault in the Dataset rather than a statement about the law. This is why it is a separate answer from "out of scope": one means incomplete, the other means out of its lane.
+_Avoid_: Missing, hole, omission
+
+**Exclusion**:
+A hole a producer states, together with the reason for it. An excluded path is answered rather than merely absent, so it is not a Gap. The reason is part of the statement: a hole with no reason cannot be told apart from an oversight, which is the ambiguity the Scope exists to remove.
+_Avoid_: Skip, filter, ignore
+
 **Verification state**:
-The trust level of one statement in a Dataset: `Asserted` by a source, `MachineSuggested`, `HumanConfirmed`, or `Disputed`. Every statement that a machine made carries this state and its evidence.
+The trust level of one statement in a Dataset: `Asserted` by a source, `MachineSuggested`, `HumanConfirmed`, `Disputed`, or `Refuted`. Every statement that a machine made carries this state and its evidence. `Disputed` means someone objects and it is unsettled; `Refuted` means it was checked and found wrong, which is settled.
 _Avoid_: Confidence, score, accuracy
