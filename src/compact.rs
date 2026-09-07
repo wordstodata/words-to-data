@@ -6,42 +6,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
-/// Custom serializer for HashMap with tuple keys (JSON doesn't support non-string keys)
-mod tuple_key_map {
-    use super::*;
-    use crate::annotation::ChangeAnnotation;
-    use crate::dataset::ExpressionPair;
-
-    pub fn serialize<S>(
-        map: &HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Serialize as Vec of (key, value) pairs
-        let vec: Vec<_> = map.iter().collect();
-        vec.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<HashMap<ExpressionPair, Vec<ChangeAnnotation>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Deserialize as Vec of (key, value) pairs
-        let vec: Vec<(ExpressionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
-        Ok(vec.into_iter().collect())
-    }
-}
-
-use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, Member, SponsorInfo};
-use crate::dataset::{DatasetMetadata, Expression, ExpressionId, ExpressionPair, WorkId};
+use crate::dataset::{DatasetMetadata, Expression, ExpressionId, WorkId};
 use crate::intern::StringInterner;
+/// Custom serializer for HashMap with tuple keys (JSON doesn't support non-string keys)
+use crate::link::Link;
 use crate::storage::{InMemoryStorage, SCHEMA_VERSION, memory::ExpressionsByWork};
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::{DocumentType, ElementData, ElementType, RefPair, SourceCredit, USLMElement};
@@ -192,9 +163,9 @@ pub struct DatasetCompact {
     /// Bills (stored as-is, no dedup needed)
     #[serde(default)]
     pub bills: HashMap<String, Bill>,
-    /// Annotations per expression-pair (stored as-is)
-    #[serde(default, with = "tuple_key_map")]
-    pub diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
+    /// Every link, by its content-hash id (stored as-is)
+    #[serde(default)]
+    pub links: std::collections::BTreeMap<String, Link>,
     /// Congress members (stored as-is)
     #[serde(default)]
     pub members: HashMap<String, Member>,
@@ -251,7 +222,7 @@ impl DatasetCompact {
             metadata: storage.metadata.clone(),
             expressions,
             bills: storage.bills.clone(),
-            diff_annotations: storage.diff_annotations.clone(),
+            links: storage.links.clone(),
             members: storage.members.clone(),
             sponsors: storage.sponsors.clone(),
             bill_votes: storage.bill_votes.clone(),
@@ -330,7 +301,7 @@ impl DatasetCompact {
             self.metadata,
             expressions,
             self.bills,
-            self.diff_annotations,
+            self.links,
             self.members,
             self.sponsors,
             self.bill_votes,

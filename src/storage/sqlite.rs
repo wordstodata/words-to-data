@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use rusqlite::{Connection, params};
 
-use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, MemberVote, SponsorInfo, VotePosition};
 use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, ExpressionPair,
@@ -14,6 +13,7 @@ use crate::dataset::{
 };
 use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
+use crate::link::{Link, LinkKind, Provenance, Target};
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
     DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
@@ -67,6 +67,112 @@ impl ElementRow<'_> {
             self.ordinal,
         ])?;
         Ok(())
+    }
+}
+
+/// The name of a target's variant, for the tag column.
+fn target_tag(target: &Target) -> &'static str {
+    match target {
+        Target::Provision(_) => "provision",
+        Target::Expression(_) => "expression",
+        Target::Change { .. } => "change",
+        Target::External { .. } => "external",
+    }
+}
+
+/// One row of `links`: the record as JSON, plus the columns promoted out of it.
+///
+/// A struct rather than a tuple because two call sites write these rows — one
+/// link at a time, and the bulk save — and a positional tuple let the two drift
+/// apart without the compiler noticing, the same reason [`ElementRow`] exists.
+struct LinkRow {
+    id: String,
+    kind: String,
+    subject_tag: String,
+    subject_json: String,
+    object_tag: String,
+    object_json: String,
+    provenance_json: String,
+    payload_json: Option<String>,
+    subject_work: Option<String>,
+    subject_path: Option<String>,
+    subject_from_date: Option<String>,
+    subject_to_date: Option<String>,
+    object_reference: Option<String>,
+}
+
+const LINK_INSERT: &str = "INSERT OR REPLACE INTO links \
+     (id, kind, subject_tag, subject_json, object_tag, object_json, provenance_json, \
+      payload_json, subject_work, subject_path, subject_from_date, subject_to_date, \
+      object_reference) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+
+impl LinkRow {
+    fn new(id: &str, link: &Link) -> Result<Self, DatasetError> {
+        // Promoted columns, derived from the subject on write. Only a change
+        // and a provision carry a path; only a change carries a pair.
+        let (work, path, from_date, to_date) = match &link.subject {
+            Target::Change {
+                work,
+                path,
+                from_date,
+                to_date,
+            } => (
+                Some(work.to_string()),
+                Some(path.clone()),
+                Some(from_date.clone()),
+                Some(to_date.clone()),
+            ),
+            Target::Provision(path) => (None, Some(path.clone()), None, None),
+            _ => (None, None, None, None),
+        };
+
+        Ok(Self {
+            id: id.to_string(),
+            kind: link.kind.0.clone(),
+            subject_tag: target_tag(&link.subject).to_string(),
+            subject_json: serde_json::to_string(&link.subject)?,
+            object_tag: target_tag(&link.object).to_string(),
+            object_json: serde_json::to_string(&link.object)?,
+            provenance_json: serde_json::to_string(&link.provenance)?,
+            payload_json: link
+                .payload
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+            subject_work: work,
+            subject_path: path,
+            subject_from_date: from_date,
+            subject_to_date: to_date,
+            object_reference: match &link.object {
+                Target::External { reference, .. } => Some(reference.clone()),
+                _ => None,
+            },
+        })
+    }
+
+    fn bind(&self, stmt: &mut rusqlite::Statement) -> Result<(), DatasetError> {
+        stmt.execute(params![
+            self.id,
+            self.kind,
+            self.subject_tag,
+            self.subject_json,
+            self.object_tag,
+            self.object_json,
+            self.provenance_json,
+            self.payload_json,
+            self.subject_work,
+            self.subject_path,
+            self.subject_from_date,
+            self.subject_to_date,
+            self.object_reference,
+        ])?;
+        Ok(())
+    }
+
+    fn execute(&self, conn: &Connection) -> Result<(), DatasetError> {
+        let mut stmt = conn.prepare(LINK_INSERT)?;
+        self.bind(&mut stmt)
     }
 }
 
@@ -264,39 +370,39 @@ impl SqliteStorage {
                 data_json TEXT NOT NULL
             );
 
-            -- Normalized annotations. Keyed by the work plus the two dates,
-            -- which together name the two expressions the diff ran between.
-            CREATE TABLE IF NOT EXISTS annotations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                work TEXT NOT NULL,
-                from_date TEXT NOT NULL,
-                to_date TEXT NOT NULL,
-                operation TEXT NOT NULL,
-                bill_id TEXT NOT NULL,
-                amendment_id TEXT NOT NULL,
-                causative_text TEXT NOT NULL,
-                status TEXT NOT NULL,
-                confidence REAL,
-                annotator TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                notes TEXT,
-                reasoning TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS annotation_paths (
-                annotation_id INTEGER NOT NULL,
-                path TEXT NOT NULL,
-                PRIMARY KEY (annotation_id, path),
-                FOREIGN KEY (annotation_id) REFERENCES annotations(id)
+            -- One table for every kind of link, including kinds this build
+            -- has never seen. A schema whose only link table has columns for
+            -- bills can hold exactly one kind, which is the limitation
+            -- docs/adr/0004 exists to remove.
+            CREATE TABLE IF NOT EXISTS links (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                subject_tag TEXT NOT NULL,
+                subject_json TEXT NOT NULL,
+                object_tag TEXT NOT NULL,
+                object_json TEXT NOT NULL,
+                provenance_json TEXT NOT NULL,
+                payload_json TEXT,
+                -- Promoted out of the JSON so the queries LinkReader answers
+                -- can be indexed. The JSON is the record; these are derived
+                -- from it on write and nothing reads them as the truth.
+                subject_work TEXT,
+                subject_path TEXT,
+                subject_from_date TEXT,
+                subject_to_date TEXT,
+                object_reference TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_expr_work ON expressions(work);
             -- Finding a path is now a keyed lookup rather than a scan that
             -- deserializes one whole tree per date.
             CREATE INDEX IF NOT EXISTS idx_elem_path ON element_index(path);
-            CREATE INDEX IF NOT EXISTS idx_ann_pair ON annotations(work, from_date, to_date);
-            CREATE INDEX IF NOT EXISTS idx_ann_bill ON annotations(bill_id);
-            CREATE INDEX IF NOT EXISTS idx_ann_paths_path ON annotation_paths(path);
+            -- A namespace is a prefix of a kind, so one index serves both.
+            CREATE INDEX IF NOT EXISTS idx_links_kind ON links(kind);
+            CREATE INDEX IF NOT EXISTS idx_links_subject_path ON links(subject_path);
+            CREATE INDEX IF NOT EXISTS idx_links_pair
+                ON links(subject_work, subject_from_date, subject_to_date);
+            CREATE INDEX IF NOT EXISTS idx_links_object_ref ON links(object_reference);
 
             -- Normalized votes
             CREATE TABLE IF NOT EXISTS roll_calls (
@@ -416,47 +522,14 @@ impl SqliteStorage {
             }
         }
 
-        // Save annotations (normalized)
+        // Save links
         {
-            tx.execute("DELETE FROM annotation_paths", [])?;
-            tx.execute("DELETE FROM annotations", [])?;
-
-            let mut ann_stmt = tx.prepare(
-                "INSERT INTO annotations (work, from_date, to_date, operation, bill_id, amendment_id, causative_text, status, confidence, annotator, timestamp, notes, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            )?;
-            let mut path_stmt =
-                tx.prepare("INSERT INTO annotation_paths (annotation_id, path) VALUES (?1, ?2)")?;
-
-            for ((from, to), annotations) in &storage.diff_annotations {
-                for ann in annotations {
-                    let operation = format!("{:?}", ann.operation);
-                    let status = format!("{:?}", ann.metadata.status);
-                    let timestamp = ann.metadata.timestamp.to_string();
-
-                    ann_stmt.execute(params![
-                        from.work.as_str(),
-                        &from.at,
-                        &to.at,
-                        operation,
-                        &ann.source_bill.bill_id,
-                        &ann.source_bill.amendment_id,
-                        &ann.source_bill.causative_text,
-                        status,
-                        ann.metadata.confidence,
-                        &ann.metadata.annotator,
-                        timestamp,
-                        &ann.metadata.notes,
-                        &ann.metadata.reasoning,
-                    ])?;
-
-                    let ann_id = tx.last_insert_rowid();
-                    for path in &ann.paths {
-                        path_stmt.execute(params![ann_id, path])?;
-                    }
-                }
+            tx.execute("DELETE FROM links", [])?;
+            let mut stmt = tx.prepare(LINK_INSERT)?;
+            for (id, link) in &storage.links {
+                LinkRow::new(id, link)?.bind(&mut stmt)?;
             }
         }
-
         // Save bill_votes (normalized)
         {
             tx.execute("DELETE FROM member_votes", [])?;
@@ -531,9 +604,9 @@ impl SqliteStorage {
         Ok(())
     }
 
-    /// Load a window of two expressions with their annotations
+    /// Load a window of two expressions with the links about them
     ///
-    /// Returns InMemoryStorage with only the specified expressions and their annotations.
+    /// Returns InMemoryStorage with only the specified expressions and their links.
     /// Bills, members, sponsors are NOT loaded - query them from storage as needed.
     pub fn load_window(
         &self,
@@ -549,17 +622,18 @@ impl SqliteStorage {
         by_date.insert(from_e.id.at.clone(), from_e);
         by_date.insert(to_e.id.at.clone(), to_e);
 
-        // Load annotations for this pair only
-        let mut diff_annotations = HashMap::new();
-        if let Some(anns) = self.get_annotations(from, to)? {
-            diff_annotations.insert((from.clone(), to.clone()), anns);
-        }
+        // Load links about this pair only
+        let links = self
+            .links_for_pair(from, to)?
+            .into_iter()
+            .map(|link| (link.id(), link))
+            .collect();
 
         let mut storage = InMemoryStorage::from_parts(
             metadata,
             expressions,
             HashMap::new(), // bills - query from storage
-            diff_annotations,
+            links,
             HashMap::new(), // members - query from storage
             HashMap::new(), // sponsors - query from storage
             HashMap::new(), // bill_votes - query from storage
@@ -577,14 +651,14 @@ impl SqliteStorage {
         let bills = self.load_bills()?;
         let members = self.load_members()?;
         let sponsors = self.load_sponsors()?;
-        let diff_annotations = self.load_annotations()?;
+        let links = self.load_links()?;
         let bill_votes = self.load_bill_votes()?;
 
         let mut storage = InMemoryStorage::from_parts(
             metadata,
             expressions,
             bills,
-            diff_annotations,
+            links,
             members,
             sponsors,
             bill_votes,
@@ -706,109 +780,17 @@ impl SqliteStorage {
         Ok(sponsors)
     }
 
-    fn load_annotations(
-        &self,
-    ) -> Result<HashMap<ExpressionPair, Vec<ChangeAnnotation>>, DatasetError> {
-        use crate::annotation::{AnnotationMetadata, AnnotationStatus, BillReference};
-        use crate::legislature::AmendingAction;
-        use std::str::FromStr;
-
-        // Load all annotations with their paths
-        let mut stmt = self.conn.prepare(
-            "SELECT a.id, a.work, a.from_date, a.to_date, a.operation, a.bill_id, a.amendment_id,
-                    a.causative_text, a.status, a.confidence, a.annotator, a.timestamp,
-                    a.notes, a.reasoning
-             FROM annotations a
-             ORDER BY a.work, a.from_date, a.to_date, a.id",
-        )?;
-        let mut rows = stmt.query([])?;
-
-        let mut annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>> = HashMap::new();
-        let mut ann_ids: Vec<(i64, ExpressionPair)> = Vec::new();
-
-        while let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
-            let work: String = row.get(1)?;
-            let from_date: String = row.get(2)?;
-            let to_date: String = row.get(3)?;
-            let operation_str: String = row.get(4)?;
-            let bill_id: String = row.get(5)?;
-            let amendment_id: String = row.get(6)?;
-            let causative_text: String = row.get(7)?;
-            let status_str: String = row.get(8)?;
-            let confidence: Option<f32> = row.get(9)?;
-            let annotator: String = row.get(10)?;
-            let timestamp_str: String = row.get(11)?;
-            let notes: Option<String> = row.get(12)?;
-            let reasoning: Option<String> = row.get(13)?;
-
-            let operation =
-                AmendingAction::from_str(&operation_str).unwrap_or(AmendingAction::Amend);
-            let status = match status_str.as_str() {
-                "Verified" => AnnotationStatus::Verified,
-                "Disputed" => AnnotationStatus::Disputed,
-                "Rejected" => AnnotationStatus::Rejected,
-                _ => AnnotationStatus::Pending,
-            };
-            let timestamp = time::OffsetDateTime::parse(
-                &timestamp_str,
-                &time::format_description::well_known::Rfc3339,
-            )
-            .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-
-            let ann = ChangeAnnotation {
-                operation,
-                source_bill: BillReference {
-                    bill_id,
-                    amendment_id,
-                    causative_text,
-                },
-                paths: Vec::new(), // Fill in below
-                metadata: AnnotationMetadata {
-                    status,
-                    confidence,
-                    annotator,
-                    timestamp,
-                    notes,
-                    reasoning,
-                },
-            };
-
-            let work = WorkId::new(work);
-            let key = (
-                ExpressionId::new(work.clone(), from_date),
-                ExpressionId::new(work, to_date),
-            );
-            annotations.entry(key.clone()).or_default().push(ann);
-            ann_ids.push((id, key));
-        }
-
-        // Load paths for each annotation
-        let mut path_stmt = self
+    /// Every link in the database, by id.
+    fn load_links(&self) -> Result<std::collections::BTreeMap<String, Link>, DatasetError> {
+        let mut stmt = self
             .conn
-            .prepare("SELECT path FROM annotation_paths WHERE annotation_id = ?1")?;
-
-        for (id, key) in ann_ids {
-            let mut path_rows = path_stmt.query(params![id])?;
-            let mut paths = Vec::new();
-            while let Some(row) = path_rows.next()? {
-                let path: String = row.get(0)?;
-                paths.push(path);
-            }
-
-            // Find the annotation and set paths
-            if let Some(anns) = annotations.get_mut(&key) {
-                // Find the annotation with matching id (it's the one with empty paths)
-                for ann in anns.iter_mut() {
-                    if ann.paths.is_empty() {
-                        ann.paths = paths;
-                        break;
-                    }
-                }
-            }
-        }
-
-        Ok(annotations)
+            .prepare(&format!("SELECT {LINK_COLUMNS} FROM links"))?;
+        let links = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>("id")?, link_from_row(row)?))
+            })?
+            .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
+        Ok(links)
     }
 
     fn load_bill_votes(&self) -> Result<HashMap<String, BillVotes>, DatasetError> {
@@ -1077,202 +1059,121 @@ impl DocumentReader for SqliteStorage {
     }
 }
 
+/// Rebuild a link from one row of `links`.
+///
+/// The JSON columns are the record. The promoted columns exist only so the
+/// queries can be indexed, and are never read back here.
+fn link_from_row(row: &rusqlite::Row) -> Result<Link, rusqlite::Error> {
+    let subject_json: String = row.get("subject_json")?;
+    let object_json: String = row.get("object_json")?;
+    let provenance_json: String = row.get("provenance_json")?;
+    let payload_json: Option<String> = row.get("payload_json")?;
+    let kind: String = row.get("kind")?;
+
+    // A function rather than a closure: it is called at four different types,
+    // and a closure fixes itself to the first one.
+    fn parse<T: serde::de::DeserializeOwned>(
+        text: &str,
+        column: &str,
+    ) -> Result<T, rusqlite::Error> {
+        serde_json::from_str(text).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::other(format!("{column}: {e}"))),
+            )
+        })
+    }
+
+    Ok(Link {
+        subject: parse(&subject_json, "subject_json")?,
+        kind: LinkKind::new(kind),
+        object: parse(&object_json, "object_json")?,
+        provenance: parse(&provenance_json, "provenance_json")?,
+        payload: match payload_json {
+            Some(text) => Some(parse(&text, "payload_json")?),
+            None => None,
+        },
+    })
+}
+
+impl SqliteStorage {
+    /// Run one link query and collect the rows.
+    fn query_links<P: rusqlite::Params>(
+        &self,
+        sql: &str,
+        params: P,
+    ) -> Result<Vec<Link>, DatasetError> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let links = stmt
+            .query_map(params, link_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(links)
+    }
+}
+
+const LINK_COLUMNS: &str =
+    "id, kind, subject_tag, subject_json, object_tag, object_json, provenance_json, payload_json";
+
 impl LinkReader for SqliteStorage {
-    fn get_annotations(
+    fn links_for_path(&self, path: &str) -> Result<Vec<Link>, DatasetError> {
+        self.query_links(
+            &format!("SELECT {LINK_COLUMNS} FROM links WHERE subject_path = ?1"),
+            params![path],
+        )
+    }
+
+    fn links_for_pair(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        let all = self.load_annotations()?;
-        let key = (from.clone(), to.clone());
-        Ok(all.get(&key).cloned())
+    ) -> Result<Vec<Link>, DatasetError> {
+        self.query_links(
+            &format!(
+                "SELECT {LINK_COLUMNS} FROM links \
+                 WHERE subject_work = ?1 AND subject_from_date = ?2 AND subject_to_date = ?3"
+            ),
+            params![from.work.as_str(), &from.at, &to.at],
+        )
     }
 
-    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
-        use crate::annotation::{AnnotationMetadata, AnnotationStatus, BillReference};
-        use crate::legislature::AmendingAction;
-        use std::str::FromStr;
-
-        // Find annotation IDs that have this path
-        let mut id_stmt = self
-            .conn
-            .prepare("SELECT DISTINCT annotation_id FROM annotation_paths WHERE path = ?1")?;
-        let mut id_rows = id_stmt.query(params![path])?;
-
-        let mut ann_ids: Vec<i64> = Vec::new();
-        while let Some(row) = id_rows.next()? {
-            ann_ids.push(row.get(0)?);
-        }
-
-        if ann_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Load those annotations
-        let placeholders: String = ann_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let query = format!(
-            "SELECT id, from_date, to_date, operation, bill_id, amendment_id, causative_text,
-                    status, confidence, annotator, timestamp, notes, reasoning
-             FROM annotations WHERE id IN ({})",
-            placeholders
-        );
-
-        let mut stmt = self.conn.prepare(&query)?;
-        let mut rows = stmt.query(rusqlite::params_from_iter(ann_ids.iter()))?;
-
-        let mut annotations = Vec::new();
-        let mut loaded_ids = Vec::new();
-
-        while let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
-            let operation_str: String = row.get(3)?;
-            let bill_id: String = row.get(4)?;
-            let amendment_id: String = row.get(5)?;
-            let causative_text: String = row.get(6)?;
-            let status_str: String = row.get(7)?;
-            let confidence: Option<f32> = row.get(8)?;
-            let annotator: String = row.get(9)?;
-            let timestamp_str: String = row.get(10)?;
-            let notes: Option<String> = row.get(11)?;
-            let reasoning: Option<String> = row.get(12)?;
-
-            let operation =
-                AmendingAction::from_str(&operation_str).unwrap_or(AmendingAction::Amend);
-            let status = match status_str.as_str() {
-                "Verified" => AnnotationStatus::Verified,
-                "Disputed" => AnnotationStatus::Disputed,
-                "Rejected" => AnnotationStatus::Rejected,
-                _ => AnnotationStatus::Pending,
-            };
-            let timestamp = time::OffsetDateTime::parse(
-                &timestamp_str,
-                &time::format_description::well_known::Rfc3339,
-            )
-            .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-
-            annotations.push(ChangeAnnotation {
-                operation,
-                source_bill: BillReference {
-                    bill_id,
-                    amendment_id,
-                    causative_text,
-                },
-                paths: Vec::new(),
-                metadata: AnnotationMetadata {
-                    status,
-                    confidence,
-                    annotator,
-                    timestamp,
-                    notes,
-                    reasoning,
-                },
-            });
-            loaded_ids.push(id);
-        }
-
-        // Load paths for each annotation
-        let mut path_stmt = self
-            .conn
-            .prepare("SELECT path FROM annotation_paths WHERE annotation_id = ?1")?;
-
-        for (ann, id) in annotations.iter_mut().zip(loaded_ids.iter()) {
-            let mut path_rows = path_stmt.query(params![id])?;
-            while let Some(row) = path_rows.next()? {
-                ann.paths.push(row.get(0)?);
-            }
-        }
-
-        Ok(annotations)
+    fn links_by_kind(&self, kind: &str) -> Result<Vec<Link>, DatasetError> {
+        self.query_links(
+            &format!("SELECT {LINK_COLUMNS} FROM links WHERE kind = ?1"),
+            params![kind],
+        )
     }
 
-    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
-        use crate::annotation::{AnnotationMetadata, AnnotationStatus, BillReference};
-        use crate::legislature::AmendingAction;
-        use std::str::FromStr;
+    fn links_by_namespace(&self, namespace: &str) -> Result<Vec<Link>, DatasetError> {
+        // A namespace is the part of a kind before the dot, so the index on
+        // kind answers this too.
+        self.query_links(
+            &format!("SELECT {LINK_COLUMNS} FROM links WHERE kind LIKE ?1"),
+            params![format!("{namespace}.%")],
+        )
+    }
 
+    fn links_for_object_prefix(&self, prefix: &str) -> Result<Vec<Link>, DatasetError> {
+        self.query_links(
+            &format!("SELECT {LINK_COLUMNS} FROM links WHERE object_reference LIKE ?1"),
+            params![format!("{}%", prefix.replace('%', "\\%"))],
+        )
+    }
+
+    fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, from_date, to_date, operation, bill_id, amendment_id, causative_text,
-                    status, confidence, annotator, timestamp, notes, reasoning
-             FROM annotations WHERE bill_id = ?1",
-        )?;
-        let mut rows = stmt.query(params![bill_id])?;
-
-        let mut annotations = Vec::new();
-        let mut loaded_ids = Vec::new();
-
-        while let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
-            let operation_str: String = row.get(3)?;
-            let bill_id: String = row.get(4)?;
-            let amendment_id: String = row.get(5)?;
-            let causative_text: String = row.get(6)?;
-            let status_str: String = row.get(7)?;
-            let confidence: Option<f32> = row.get(8)?;
-            let annotator: String = row.get(9)?;
-            let timestamp_str: String = row.get(10)?;
-            let notes: Option<String> = row.get(11)?;
-            let reasoning: Option<String> = row.get(12)?;
-
-            let operation =
-                AmendingAction::from_str(&operation_str).unwrap_or(AmendingAction::Amend);
-            let status = match status_str.as_str() {
-                "Verified" => AnnotationStatus::Verified,
-                "Disputed" => AnnotationStatus::Disputed,
-                "Rejected" => AnnotationStatus::Rejected,
-                _ => AnnotationStatus::Pending,
-            };
-            let timestamp = time::OffsetDateTime::parse(
-                &timestamp_str,
-                &time::format_description::well_known::Rfc3339,
-            )
-            .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-
-            annotations.push(ChangeAnnotation {
-                operation,
-                source_bill: BillReference {
-                    bill_id,
-                    amendment_id,
-                    causative_text,
-                },
-                paths: Vec::new(),
-                metadata: AnnotationMetadata {
-                    status,
-                    confidence,
-                    annotator,
-                    timestamp,
-                    notes,
-                    reasoning,
-                },
-            });
-            loaded_ids.push(id);
-        }
-
-        // Load paths
-        let mut path_stmt = self
-            .conn
-            .prepare("SELECT path FROM annotation_paths WHERE annotation_id = ?1")?;
-
-        for (ann, id) in annotations.iter_mut().zip(loaded_ids.iter()) {
-            let mut path_rows = path_stmt.query(params![id])?;
-            while let Some(row) = path_rows.next()? {
-                ann.paths.push(row.get(0)?);
-            }
-        }
-
-        Ok(annotations)
-    }
-
-    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT work, from_date, to_date FROM annotations \
-             ORDER BY work, from_date, to_date",
+            "SELECT DISTINCT subject_work, subject_from_date, subject_to_date FROM links \
+             WHERE subject_work IS NOT NULL \
+             ORDER BY subject_work, subject_from_date, subject_to_date",
         )?;
         let pairs = stmt
             .query_map([], |row| {
-                let work = WorkId::new(row.get::<_, String>(0)?);
+                let work: String = row.get(0)?;
+                let from: String = row.get(1)?;
+                let to: String = row.get(2)?;
                 Ok((
-                    ExpressionId::new(work.clone(), row.get::<_, String>(1)?),
-                    ExpressionId::new(work, row.get::<_, String>(2)?),
+                    ExpressionId::new(WorkId::new(work.clone()), from),
+                    ExpressionId::new(WorkId::new(work), to),
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1450,44 +1351,27 @@ impl DocumentWriter for SqliteStorage {
 }
 
 impl LinkWriter for SqliteStorage {
-    fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError> {
-        let operation = format!("{:?}", annotation.operation);
-        let status = format!("{:?}", annotation.metadata.status);
-        let timestamp = annotation.metadata.timestamp.to_string();
+    fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
+        let id = link.id();
 
-        self.conn.execute(
-            "INSERT INTO annotations (work, from_date, to_date, operation, bill_id, amendment_id, causative_text, status, confidence, annotator, timestamp, notes, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![
-                from.work.as_str(),
-                &from.at,
-                &to.at,
-                operation,
-                &annotation.source_bill.bill_id,
-                &annotation.source_bill.amendment_id,
-                &annotation.source_bill.causative_text,
-                status,
-                annotation.metadata.confidence,
-                &annotation.metadata.annotator,
-                timestamp,
-                &annotation.metadata.notes,
-                &annotation.metadata.reasoning,
-            ],
-        )?;
-
-        let ann_id = self.conn.last_insert_rowid();
-        for path in &annotation.paths {
-            self.conn.execute(
-                "INSERT INTO annotation_paths (annotation_id, path) VALUES (?1, ?2)",
-                params![ann_id, path],
-            )?;
+        // A human's verdict is not overwritten by a machine restating the fact.
+        let stored: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT provenance_json FROM links WHERE id = ?1",
+                params![&id],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(text) = stored
+            && let Ok(provenance) = serde_json::from_str::<Provenance>(&text)
+            && provenance.verification.is_human_touched()
+        {
+            return Ok(());
         }
 
-        Ok(())
+        let row = LinkRow::new(&id, &link)?;
+        row.execute(&self.conn)
     }
 }
 

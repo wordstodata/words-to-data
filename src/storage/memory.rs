@@ -2,9 +2,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
-use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
 use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, ExpressionPair,
@@ -12,38 +11,13 @@ use crate::dataset::{
 };
 use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
+use crate::link::{Link, Target};
 use crate::storage::{
     DocumentReader, DocumentWriter, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
     Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
-
-/// Custom serializer for HashMap with tuple keys (JSON doesn't support non-string keys)
-mod tuple_key_map {
-    use super::*;
-
-    pub fn serialize<S>(
-        map: &HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let vec: Vec<_> = map.iter().collect();
-        vec.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<HashMap<ExpressionPair, Vec<ChangeAnnotation>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let vec: Vec<(ExpressionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
-        Ok(vec.into_iter().collect())
-    }
-}
 
 /// Every expression a dataset holds, by work and then by date.
 ///
@@ -63,8 +37,9 @@ pub struct InMemoryStorage {
     pub metadata: DatasetMetadata,
     pub expressions: ExpressionsByWork,
     pub bills: HashMap<String, Bill>,
-    #[serde(with = "tuple_key_map")]
-    pub diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
+    /// Every link, by its content-hash id. Keying on the id is what makes
+    /// restating a fact update one link rather than grow the map.
+    pub links: BTreeMap<String, Link>,
     pub members: HashMap<String, Member>,
     pub sponsors: HashMap<String, SponsorInfo>,
     pub bill_votes: HashMap<String, BillVotes>,
@@ -78,7 +53,7 @@ impl InMemoryStorage {
             metadata,
             expressions: BTreeMap::new(),
             bills: HashMap::new(),
-            diff_annotations: HashMap::new(),
+            links: BTreeMap::new(),
             members: HashMap::new(),
             sponsors: HashMap::new(),
             bill_votes: HashMap::new(),
@@ -103,7 +78,7 @@ impl InMemoryStorage {
         metadata: DatasetMetadata,
         expressions: ExpressionsByWork,
         bills: HashMap<String, Bill>,
-        diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
+        links: BTreeMap<String, Link>,
         members: HashMap<String, Member>,
         sponsors: HashMap<String, SponsorInfo>,
         bill_votes: HashMap<String, BillVotes>,
@@ -113,7 +88,7 @@ impl InMemoryStorage {
             metadata,
             expressions,
             bills,
-            diff_annotations,
+            links,
             members,
             sponsors,
             bill_votes,
@@ -273,40 +248,92 @@ pub(crate) fn require_same_work<R: DocumentReader + ?Sized>(
 }
 
 impl LinkReader for InMemoryStorage {
-    fn get_annotations(
+    fn links_for_path(&self, path: &str) -> Result<Vec<Link>, DatasetError> {
+        Ok(self
+            .links
+            .values()
+            .filter(|link| subject_path(link).is_some_and(|p| p == path))
+            .cloned()
+            .collect())
+    }
+
+    fn links_for_pair(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        let key = (from.clone(), to.clone());
-        Ok(self.diff_annotations.get(&key).cloned())
-    }
-
-    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+    ) -> Result<Vec<Link>, DatasetError> {
         Ok(self
-            .diff_annotations
+            .links
             .values()
-            .flatten()
-            .filter(|a| a.paths.iter().any(|p| p == path))
+            .filter(|link| about_pair(link, from, to))
             .cloned()
             .collect())
     }
 
-    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+    fn links_by_kind(&self, kind: &str) -> Result<Vec<Link>, DatasetError> {
         Ok(self
-            .diff_annotations
+            .links
             .values()
-            .flatten()
-            .filter(|a| a.source_bill.bill_id == bill_id)
+            .filter(|link| link.kind.0 == kind)
             .cloned()
             .collect())
     }
 
-    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
-        let mut pairs: Vec<ExpressionPair> = self.diff_annotations.keys().cloned().collect();
+    fn links_by_namespace(&self, namespace: &str) -> Result<Vec<Link>, DatasetError> {
+        Ok(self
+            .links
+            .values()
+            .filter(|link| link.kind.namespace() == namespace)
+            .cloned()
+            .collect())
+    }
+
+    fn links_for_object_prefix(&self, prefix: &str) -> Result<Vec<Link>, DatasetError> {
+        Ok(self
+            .links
+            .values()
+            .filter(|link| match &link.object {
+                Target::External { reference, .. } => reference.starts_with(prefix),
+                _ => false,
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
+        let mut pairs: Vec<ExpressionPair> = self.links.values().filter_map(pair_of).collect();
         pairs.sort();
+        pairs.dedup();
         Ok(pairs)
     }
+}
+
+/// The structural path a link's subject names, when it names one.
+fn subject_path(link: &Link) -> Option<&str> {
+    match &link.subject {
+        Target::Change { path, .. } | Target::Provision(path) => Some(path),
+        _ => None,
+    }
+}
+
+/// The expression pair a link is about, when it is about a change.
+fn pair_of(link: &Link) -> Option<ExpressionPair> {
+    match &link.subject {
+        Target::Change {
+            work,
+            from_date,
+            to_date,
+            ..
+        } => Some((
+            ExpressionId::new(work.clone(), from_date),
+            ExpressionId::new(work.clone(), to_date),
+        )),
+        _ => None,
+    }
+}
+
+fn about_pair(link: &Link, from: &ExpressionId, to: &ExpressionId) -> bool {
+    pair_of(link).is_some_and(|(f, t)| &f == from && &t == to)
 }
 
 impl LegislatureReader for InMemoryStorage {
@@ -363,16 +390,15 @@ impl DocumentWriter for InMemoryStorage {
 }
 
 impl LinkWriter for InMemoryStorage {
-    fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError> {
-        self.diff_annotations
-            .entry((from.clone(), to.clone()))
-            .or_default()
-            .push(annotation);
+    fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
+        let id = link.id();
+        // A human's verdict is not overwritten by a machine restating the fact.
+        if let Some(stored) = self.links.get(&id)
+            && stored.provenance.verification.is_human_touched()
+        {
+            return Ok(());
+        }
+        self.links.insert(id, link);
         Ok(())
     }
 }

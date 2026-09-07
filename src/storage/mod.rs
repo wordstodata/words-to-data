@@ -32,6 +32,7 @@ use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
+use crate::link::Link;
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
@@ -41,8 +42,10 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
-/// 3 is the work-scoped schema: an expression is `(work, date)` with its own
-/// tree, and annotations are keyed by a pair of expressions
+/// 5 stores links directly: one table for every kind, including kinds this
+/// build has never seen, with `ChangeAnnotation` projected out of them rather
+/// than stored (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+/// 4 added the declared scope; 3 was the work-scoped schema
 /// (`docs/adr/0003-storage-is-keyed-by-work.md`).
 ///
 /// One number covering both forms cannot describe a change to only one of
@@ -51,7 +54,7 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 4;
+pub const SCHEMA_VERSION: i32 = 5;
 
 /// Reading the documents a dataset holds.
 ///
@@ -121,21 +124,73 @@ pub trait DocumentReader {
 /// query by link object, and the bill id is an opaque string here: this trait
 /// does not need to know what a bill is.
 pub trait LinkReader {
-    /// Get annotations recorded for a pair of expressions of one work.
+    /// Every link whose subject names this structural path.
+    fn links_for_path(&self, path: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link about a change between two expressions of one work.
+    fn links_for_pair(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link of one kind, such as `legislature.amended_by`.
+    fn links_by_kind(&self, kind: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link in one namespace, understood or not.
+    ///
+    /// This is the query a reader uses to report links it cannot interpret,
+    /// which is the whole point of the kind being an open string
+    /// (`docs/adr/0002-links-live-in-the-core.md`).
+    fn links_by_namespace(&self, namespace: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link whose object reference starts with this prefix.
+    ///
+    /// An amendment reference is `legislature.amendment:<bill>:<amendment>`, so
+    /// a bill's links are a prefix query.
+    fn links_for_object_prefix(&self, prefix: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every expression pair that carries links.
+    fn link_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError>;
+
+    // --- Projections ---
+    //
+    // `ChangeAnnotation` is a view of links, the reverse of how it once was.
+    // These are implemented once here rather than per backend: they are the
+    // same regrouping whatever holds the links.
+
+    /// Annotations recorded for a pair of expressions of one work.
     fn get_annotations(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError>;
+    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
+        let links = self.links_for_pair(from, to)?;
+        if links.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(crate::link::annotations_from_links(&links)))
+    }
 
-    /// Find all annotations that include the given path (across all pairs)
-    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError>;
+    /// Every annotation naming this path, across all pairs.
+    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        Ok(crate::link::annotations_from_links(
+            &self.links_for_path(path)?,
+        ))
+    }
 
-    /// Find all annotations from a specific bill (across all pairs)
-    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError>;
+    /// Every annotation from one bill, across all pairs.
+    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        let prefix = format!("legislature.amendment:{bill_id}:");
+        Ok(crate::link::annotations_from_links(
+            &self.links_for_object_prefix(&prefix)?,
+        ))
+    }
 
-    /// List every expression pair that carries annotations
-    fn annotation_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError>;
+    /// Every expression pair that carries annotations.
+    fn annotation_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError> {
+        self.link_pairs()
+    }
 }
 
 /// Reading the legislature facts a dataset holds.
@@ -183,13 +238,20 @@ pub trait DocumentWriter {
 
 /// Writing links.
 pub trait LinkWriter {
-    /// Add an annotation for a pair of expressions of one work.
-    fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError>;
+    /// Record one link.
+    ///
+    /// A link is identified by what it says, so writing the same subject, kind,
+    /// and object twice leaves one link. When the stored link has been touched
+    /// by a human — `HumanConfirmed`, `Disputed`, or `Refuted` — its provenance
+    /// survives, and the incoming one is dropped. Otherwise the new provenance
+    /// replaces the old. Without that rule, re-running the pipeline destroys
+    /// human review quietly
+    /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    ///
+    /// There is deliberately no annotation-shaped convenience beside this. Two
+    /// ways to write one fact means the convenient one is used, and the
+    /// convenient one can only express the single kind we own.
+    fn add_link(&mut self, link: Link) -> Result<(), DatasetError>;
 }
 
 /// Writing legislature facts. An extension, like [`LegislatureReader`].
