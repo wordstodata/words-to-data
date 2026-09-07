@@ -9,6 +9,12 @@
 *.json
 parsed/
 
+# Committed test fixtures. `*.json` above is for data dumps, but the fixtures
+# under tests/ are the real data the suite runs against and must be tracked.
+# Without this a new fixture is skipped by `git add` in silence, and the tests
+# only fail once CI checks out a tree that never had it.
+!tests/test_data/processed/*.json
+
 # Main directories for dumping data while testing
 usc_data/
 bill_data/
