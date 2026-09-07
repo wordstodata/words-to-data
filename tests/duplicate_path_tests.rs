@@ -7,6 +7,7 @@
 
 use words_to_data::uslm::{USLMElement, parser::parse};
 
+const USC26_18: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
 const USC26_30: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
 
 /// Both paragraphs (4) of § 45X(d), which the U.S. Code renders in full.
@@ -130,6 +131,224 @@ fn should_report_a_new_provision_that_shares_a_path_with_an_existing_one() {
     assert!(
         added.iter().any(|p| p == DUPLICATED),
         "the new paragraph (4) should be reported as added"
+    );
+}
+
+/// Title 26 at both release points, so a path report has a pair to compare.
+fn title_26_both_expressions()
+-> words_to_data::dataset::Dataset<words_to_data::storage::InMemoryStorage> {
+    use words_to_data::dataset::{Dataset, DatasetMetadata};
+
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "Duplicate Path Pair".to_string(),
+        description: "Title 26, two release points".to_string(),
+        author: "words_to_data tests".to_string(),
+        source_urls: vec![],
+        license: "Public Domain".to_string(),
+        version: "1.0".to_string(),
+    });
+    dataset
+        .add_uslm_xml(USC26_18, "2025-07-18", None)
+        .expect("the earlier fixture should parse");
+    dataset
+        .add_uslm_xml(USC26_30, "2025-07-30", None)
+        .expect("the later fixture should parse");
+    dataset
+}
+
+fn title_26_at(date: &str) -> words_to_data::dataset::ExpressionId {
+    use words_to_data::dataset::{ExpressionId, WorkId};
+    ExpressionId::new(WorkId::new("uscode/title_26"), date)
+}
+
+#[test]
+fn should_say_which_provision_was_added_when_a_path_gains_one() {
+    use words_to_data::inspect::{self, Presence};
+
+    let dataset = title_26_both_expressions();
+    let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
+
+    let report =
+        inspect::path_report(&dataset, DUPLICATED, Some((&from, &to))).expect("path_report");
+
+    // Each expression is named once, with the number of provisions it holds.
+    // Naming the later expression twice was the whole defect (#90).
+    let presence: Vec<(&str, usize)> = report
+        .present_in
+        .iter()
+        .map(|p| (p.expression.as_str(), p.provisions))
+        .collect();
+    assert_eq!(
+        presence,
+        vec![
+            ("uscode/title_26@2025-07-18", 1),
+            ("uscode/title_26@2025-07-30", 2),
+        ]
+    );
+
+    assert_eq!(
+        report.provisions.len(),
+        2,
+        "the later expression holds two paragraphs (4), so the pair has two slots"
+    );
+
+    // The first paragraph (4) survived, and it is the one the footnote was
+    // added to. Attributing that heading change to the new provision inverts
+    // the meaning of the report.
+    assert_eq!(report.provisions[0].presence, Presence::InBoth);
+    assert_eq!(report.provisions[0].from_position, Some(0));
+    assert_eq!(report.provisions[0].to_position, Some(0));
+    assert!(
+        report.provisions[0]
+            .changes
+            .iter()
+            .any(|c| c.field == "heading"),
+        "the surviving provision carries the heading change, got {:?}",
+        report.provisions[0].changes
+    );
+
+    // The second is new law. It has no counterpart, so it has no changes.
+    assert_eq!(report.provisions[1].presence, Presence::Added);
+    assert_eq!(report.provisions[1].from_position, None);
+    assert_eq!(report.provisions[1].to_position, Some(1));
+    assert!(
+        report.provisions[1].changes.is_empty(),
+        "a provision that did not exist before has nothing to compare against"
+    );
+}
+
+/// `26 U.S.C. § 6724(d)(2)(JJ)` is two subparagraphs at 2025-07-18 and one at
+/// 2025-07-30. The survivor is the first: the one citing section 6226(a)(2).
+const LOST_ONE: &str = "uscode/title_26/subtitle_F/chapter_68/subchapter_B/part_II/section_6724/subsection_d/paragraph_2/subparagraph_JJ";
+/// `26 U.S.C. § 951A(d)(3)`: two paragraphs at 2025-07-18, none at 2025-07-30.
+const LOST_BOTH: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A/subsection_d/paragraph_3";
+/// `26 U.S.C. § 45Y(b)(1)(E)`: absent at 2025-07-18, two subparagraphs at 2025-07-30.
+const GAINED_BOTH: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45Y/subsection_b/paragraph_1/subparagraph_E";
+
+#[test]
+fn should_say_which_provision_was_removed_when_a_path_loses_one() {
+    use words_to_data::inspect::{self, Presence};
+
+    let dataset = title_26_both_expressions();
+    let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
+
+    let report = inspect::path_report(&dataset, LOST_ONE, Some((&from, &to))).expect("path_report");
+
+    let presence: Vec<(&str, usize)> = report
+        .present_in
+        .iter()
+        .map(|p| (p.expression.as_str(), p.provisions))
+        .collect();
+    assert_eq!(
+        presence,
+        vec![
+            ("uscode/title_26@2025-07-18", 2),
+            ("uscode/title_26@2025-07-30", 1),
+        ]
+    );
+
+    assert_eq!(report.provisions.len(), 2);
+
+    // Position pairing keeps the leading provision. The document agrees here:
+    // the subparagraph citing section 6226(a)(2) is the one that survived, and
+    // it lost the "two subpars. (JJ) have been enacted" footnote with it.
+    assert_eq!(report.provisions[0].presence, Presence::InBoth);
+    assert_eq!(report.provisions[0].to_position, Some(0));
+    let content = report.provisions[0]
+        .changes
+        .iter()
+        .find(|c| c.field == "content")
+        .expect("the surviving subparagraph changed its content");
+    assert!(
+        content
+            .old_value
+            .contains("Two subpars. (JJ) have been enacted"),
+        "the older text should carry the footnote, got {:?}",
+        content.old_value
+    );
+    assert!(
+        content.new_value.contains("section 6226(a)(2)")
+            && !content.new_value.contains("Two subpars"),
+        "the newer text should keep the 6226 citation and drop the footnote, got {:?}",
+        content.new_value
+    );
+
+    // The second is gone, and a removal has nothing to compare against.
+    assert_eq!(report.provisions[1].presence, Presence::Removed);
+    assert_eq!(report.provisions[1].from_position, Some(1));
+    assert_eq!(report.provisions[1].to_position, None);
+    assert!(report.provisions[1].changes.is_empty());
+}
+
+#[test]
+fn should_report_every_provision_as_removed_when_a_path_disappears() {
+    use words_to_data::inspect::{self, Presence};
+
+    let dataset = title_26_both_expressions();
+    let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
+
+    let report =
+        inspect::path_report(&dataset, LOST_BOTH, Some((&from, &to))).expect("path_report");
+
+    // Only the earlier expression holds the path at all.
+    assert_eq!(report.present_in.len(), 1);
+    assert_eq!(
+        report.present_in[0].expression,
+        "uscode/title_26@2025-07-18"
+    );
+    assert_eq!(report.present_in[0].provisions, 2);
+
+    assert_eq!(report.provisions.len(), 2);
+    for (i, provision) in report.provisions.iter().enumerate() {
+        assert_eq!(provision.presence, Presence::Removed);
+        assert_eq!(provision.from_position, Some(i));
+        assert_eq!(provision.to_position, None);
+    }
+}
+
+#[test]
+fn should_report_every_provision_as_added_when_a_path_is_new() {
+    use words_to_data::inspect::{self, Presence};
+
+    let dataset = title_26_both_expressions();
+    let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
+
+    let report =
+        inspect::path_report(&dataset, GAINED_BOTH, Some((&from, &to))).expect("path_report");
+
+    assert_eq!(report.present_in.len(), 1);
+    assert_eq!(
+        report.present_in[0].expression,
+        "uscode/title_26@2025-07-30"
+    );
+    assert_eq!(report.present_in[0].provisions, 2);
+
+    assert_eq!(report.provisions.len(), 2);
+    for (i, provision) in report.provisions.iter().enumerate() {
+        assert_eq!(provision.presence, Presence::Added);
+        assert_eq!(provision.from_position, None);
+        assert_eq!(provision.to_position, Some(i));
+    }
+}
+
+#[test]
+fn should_report_counts_but_no_provisions_when_no_expression_pair_is_given() {
+    use words_to_data::inspect;
+
+    let dataset = title_26_both_expressions();
+
+    let report = inspect::path_report(&dataset, DUPLICATED, None).expect("path_report");
+
+    // Without a pair there is nothing to compare, but where the path lives is
+    // still answerable and is still the question `present_in` exists for.
+    assert!(report.provisions.is_empty());
+    assert_eq!(
+        report
+            .present_in
+            .iter()
+            .map(|p| p.provisions)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
     );
 }
 
