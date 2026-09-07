@@ -51,6 +51,7 @@ mod dataset_integration {
             source_urls: vec![],
             license: "MIT".into(),
             version: "1.0".into(),
+            ..Default::default()
         }
     }
     #[test]

@@ -105,6 +105,7 @@ fn dataset_with_one_amendment(name: &str) -> String {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     });
     dataset.add_bill(bill).expect("the bill should be added");
 

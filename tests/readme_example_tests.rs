@@ -33,6 +33,7 @@ fn readme_example_dataset_workflow() {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     };
     let mut dataset = Dataset::new(metadata);
 
@@ -97,6 +98,7 @@ fn readme_example_dataset_workflow_results() {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     };
     let mut dataset = Dataset::new(metadata);
 

@@ -31,6 +31,7 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
         source_urls: vec!["https://uscode.house.gov".to_string()],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(USC26_18, "2025-07-18", Some("Before".to_string()))
@@ -57,6 +58,7 @@ fn fixture_with_scored_amendments() -> Dataset<InMemoryStorage> {
         source_urls: vec!["https://uscode.house.gov".to_string()],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(USC26_18, "2025-07-18", Some("Before".to_string()))

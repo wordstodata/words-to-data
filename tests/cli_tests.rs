@@ -41,6 +41,7 @@ fn build_fixture(title: &str) -> String {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     });
 
     for (date, label) in [(EARLY, "Before"), (LATE, "After")] {
@@ -86,6 +87,7 @@ fn two_works_fixture() -> &'static str {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
 
         for (title, date) in [(UNCHANGED_TITLE, EARLY), (AMENDED_TITLE, LATE)] {
@@ -119,6 +121,7 @@ fn both_works_json_fixture() -> &'static str {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
 
         for title in [UNCHANGED_TITLE, AMENDED_TITLE] {
@@ -150,6 +153,7 @@ fn two_works_json_fixture() -> &'static str {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
 
         for (title, date) in [(UNCHANGED_TITLE, EARLY), (AMENDED_TITLE, LATE)] {
@@ -905,6 +909,7 @@ fn bill_fixtures() -> &'static (String, String) {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
         dataset
             .add_uslm_xml(

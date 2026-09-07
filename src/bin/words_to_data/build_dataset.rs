@@ -3,7 +3,7 @@
 
 use clap::Args as ClapArgs;
 use words_to_data::congress::CongressClient;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, Format};
 use words_to_data::uscode;
 
 /// Default mirror manifest (release-point date -> zip URL).
@@ -30,6 +30,28 @@ pub struct Args {
     /// (default: the shared `<user cache dir>/words_to_data`)
     #[arg(long)]
     pub cache_dir: Option<String>,
+
+    /// JSON file declaring what this dataset is meant to cover
+    ///
+    /// A declaration is a statement someone should have to look at, so it is a
+    /// file that can be committed and reviewed rather than a flag. Without one
+    /// the dataset reports only what it holds.
+    #[arg(long)]
+    pub declaration: Option<String>,
+}
+
+/// Read a declaration file, or `None` when none was given.
+///
+/// A declaration that will not parse is fatal rather than skipped. Building a
+/// dataset that silently declares nothing is how a gap goes unreported, which
+/// is the failure this whole feature exists to prevent.
+fn read_declaration(path: Option<&String>) -> Option<Declaration> {
+    let path = path?;
+    let text = crate::fail::or_exit(std::fs::read_to_string(path), "Error reading declaration");
+    Some(crate::fail::or_exit(
+        serde_json::from_str(&text),
+        "Error parsing declaration",
+    ))
 }
 
 pub fn run(args: Args) {
@@ -52,6 +74,7 @@ pub fn run(args: Args) {
         source_urls: vec![args.mirror_index.clone()],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        declaration: read_declaration(args.declaration.as_ref()),
     });
 
     for date in &dates {
