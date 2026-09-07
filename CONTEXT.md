@@ -45,8 +45,16 @@ A named set of facts that only some datasets carry, such as the legislature fact
 _Avoid_: Plugin, module, add-on
 
 **Provenance**:
-The record of where one statement came from: its source, the method that produced it, its evidence, and its verification state.
+The record of where one statement came from: its source, the method that produced it, when it was made, its evidence, and its verification state.
 _Avoid_: Lineage, history, audit
+
+**Evidence**:
+What a statement was based on: the maker's reasoning in their own words, and the verbatim reply that produced it. A machine's claim is only checkable if the party receiving the Dataset can see what the machine actually said, so evidence is what stops a verification state being a label with nothing behind it.
+_Avoid_: Proof, justification, backing
+
+**Model reply**:
+The text a model returned, kept exactly as it arrived. One reply usually makes several statements, so it is stored once and referred to, never copied onto each. It is never deleted, even when the statement it supported has been superseded: an unreferenced reply is a record that something was said.
+_Avoid_: Response, output, completion
 
 **Provision**:
 A unit of law that stays the same thing across versions, even when its text changes or it moves to a new address. Its identity does not depend on its location.
