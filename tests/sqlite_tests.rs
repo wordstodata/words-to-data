@@ -119,9 +119,12 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
 
     // Add annotations
     for annotation in load_annotations() {
-        dataset
-            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
-            .unwrap();
+        store_annotation(
+            &mut dataset,
+            annotation,
+            &at("2025-07-18"),
+            &at("2025-07-30"),
+        );
     }
 
     let path = "/tmp/test_dataset_full.db";
@@ -134,12 +137,16 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
     let loaded_bill = loaded.get_bill("119-21").unwrap().unwrap();
     assert_eq!(loaded_bill.bill_id, "119-21");
 
-    // Verify annotations
+    // Verify annotations. Links regroup by amendment and asserter, so one
+    // record now carries every path that amendment touched; the fixture's 753
+    // single-path records hold 718 distinct (amendment, path) statements.
     let anns = loaded
         .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
         .unwrap()
         .unwrap();
-    assert_eq!(anns.len(), 753);
+    assert_eq!(anns.len(), 317);
+    let paths: usize = anns.iter().map(|a| a.paths.len()).sum();
+    assert_eq!(paths, 718, "every statement must survive the round trip");
 
     std::fs::remove_file(path).ok();
 }
@@ -196,9 +203,12 @@ fn should_query_via_trait_interface() {
     dataset.add_bill(bill).unwrap();
 
     for annotation in load_annotations() {
-        dataset
-            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
-            .unwrap();
+        store_annotation(
+            &mut dataset,
+            annotation,
+            &at("2025-07-18"),
+            &at("2025-07-30"),
+        );
     }
 
     let path = "/tmp/test_trait_query.db";
@@ -222,12 +232,14 @@ fn should_query_via_trait_interface() {
         let bill = reader.get_bill("119-21").unwrap().unwrap();
         assert_eq!(bill.bill_id, "119-21");
 
-        // get_annotations
+        // get_annotations, projected out of the stored links
         let anns = reader
             .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
             .unwrap()
             .unwrap();
-        assert_eq!(anns.len(), 753);
+        assert_eq!(anns.len(), 317);
+        let paths: usize = anns.iter().map(|a| a.paths.len()).sum();
+        assert_eq!(paths, 718);
 
         // compute_diff
         let diff = reader
@@ -268,12 +280,18 @@ fn should_load_window_with_two_expressions() {
         .unwrap();
 
     for annotation in load_annotations() {
-        dataset
-            .add_annotation(&at("2024-01-01"), &at("2024-06-01"), annotation.clone())
-            .unwrap();
-        dataset
-            .add_annotation(&at("2024-06-01"), &at("2024-12-01"), annotation)
-            .unwrap();
+        store_annotation(
+            &mut dataset,
+            annotation.clone(),
+            &at("2024-01-01"),
+            &at("2024-06-01"),
+        );
+        store_annotation(
+            &mut dataset,
+            annotation,
+            &at("2024-06-01"),
+            &at("2024-12-01"),
+        );
     }
 
     let path = "/tmp/test_load_window.db";
@@ -294,16 +312,19 @@ fn should_load_window_with_two_expressions() {
         vec![at("2024-01-01"), at("2024-06-01")]
     );
 
-    // Should have annotations for that pair only
-    assert!(
-        windowed
-            .diff_annotations
-            .contains_key(&(at("2024-01-01"), at("2024-06-01")))
-    );
+    // Should have links about that pair only
+    use words_to_data::storage::LinkReader;
     assert!(
         !windowed
-            .diff_annotations
-            .contains_key(&(at("2024-06-01"), at("2024-12-01")))
+            .links_for_pair(&at("2024-01-01"), &at("2024-06-01"))
+            .expect("links should read")
+            .is_empty()
+    );
+    assert!(
+        windowed
+            .links_for_pair(&at("2024-06-01"), &at("2024-12-01"))
+            .expect("links should read")
+            .is_empty()
     );
 
     // Bills/members/sponsors should be empty (query from storage when needed)
@@ -323,9 +344,12 @@ fn should_query_annotations_for_path_via_trait() {
         .unwrap();
 
     for annotation in load_annotations() {
-        dataset
-            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
-            .unwrap();
+        store_annotation(
+            &mut dataset,
+            annotation,
+            &at("2025-07-18"),
+            &at("2025-07-30"),
+        );
     }
 
     let path = "/tmp/test_ann_path.db";
@@ -347,4 +371,20 @@ fn should_query_annotations_for_path_via_trait() {
     check_annotations_for_path(&storage);
 
     std::fs::remove_file(path).ok();
+}
+
+/// Store an annotation the way the pipeline does: one link per path it names.
+///
+/// There is deliberately no writer convenience for this in the library — two
+/// ways to write one fact means the convenient one is used, and it could only
+/// express the single kind we own (`docs/adr/0004`).
+fn store_annotation<S: words_to_data::storage::Storage>(
+    dataset: &mut Dataset<S>,
+    annotation: ChangeAnnotation,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) {
+    for link in words_to_data::link::Link::from_annotation(&annotation, from, to) {
+        dataset.add_link(link).expect("the link should be added");
+    }
 }

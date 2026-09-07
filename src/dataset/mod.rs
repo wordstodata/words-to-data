@@ -24,6 +24,7 @@ use crate::congress::{
 };
 use crate::diff::TreeDiff;
 use crate::legislature::BillDiff;
+use crate::link::Link;
 use crate::storage::{
     DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
     LinkReader, LinkWriter, SqliteStorage, Storage,
@@ -267,13 +268,14 @@ impl<S: Storage> Dataset<S> {
         self.storage.add_bill(bill)
     }
 
-    pub fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError> {
-        self.storage.add_annotation(from, to, annotation)
+    /// Record one link.
+    ///
+    /// There is no annotation-shaped convenience beside this: two ways to write
+    /// one fact means the convenient one is used, and the convenient one can
+    /// only ever express the single kind we own
+    /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    pub fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
+        self.storage.add_link(link)
     }
 
     pub fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
@@ -599,24 +601,32 @@ impl<S: Storage> DocumentReader for Dataset<S> {
 }
 
 impl<S: Storage> LinkReader for Dataset<S> {
-    fn get_annotations(
+    fn links_for_path(&self, path: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_for_path(path)
+    }
+
+    fn links_for_pair(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        self.storage.get_annotations(from, to)
+    ) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_for_pair(from, to)
     }
 
-    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
-        self.storage.annotations_for_path(path)
+    fn links_by_kind(&self, kind: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_by_kind(kind)
     }
 
-    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
-        self.storage.annotations_for_bill(bill_id)
+    fn links_by_namespace(&self, namespace: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_by_namespace(namespace)
     }
 
-    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
-        self.storage.annotation_pairs()
+    fn links_for_object_prefix(&self, prefix: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_for_object_prefix(prefix)
+    }
+
+    fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
+        self.storage.link_pairs()
     }
 }
 
@@ -660,13 +670,8 @@ impl<S: Storage> DocumentWriter for Dataset<S> {
 }
 
 impl<S: Storage> LinkWriter for Dataset<S> {
-    fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError> {
-        self.storage.add_annotation(from, to, annotation)
+    fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
+        self.storage.add_link(link)
     }
 }
 

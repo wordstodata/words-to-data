@@ -18,6 +18,7 @@ use words_to_data::annotation::{
 };
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::AmendingAction;
+use words_to_data::link::Link;
 use words_to_data::matching::{
     AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches,
 };
@@ -134,10 +135,12 @@ pub fn run(args: Args) {
                         reasoning: ann.reasoning,
                     },
                 };
-                crate::fail::or_exit(
-                    dataset.add_annotation(&from, &to, annotation),
-                    "Error adding annotation",
-                );
+                // Links are what is stored, so this writes links rather than
+                // handing an annotation to a convenience that fans out. One
+                // annotation is one link per path it names.
+                for link in Link::from_annotation(&annotation, &from, &to) {
+                    crate::fail::or_exit(dataset.add_link(link), "Error adding link");
+                }
                 applied += 1;
             }
         }

@@ -71,9 +71,7 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
         },
     };
     let (from, to) = pair();
-    dataset
-        .add_annotation(&from, &to, annotation)
-        .expect("add annotation");
+    store_annotation(&mut dataset, annotation, &from, &to);
     dataset
 }
 
@@ -373,29 +371,28 @@ fn should_pass_validation_for_a_consistent_dataset() {
         .path
         .to_string();
 
-    dataset
-        .add_annotation(
-            &from,
-            &to,
-            ChangeAnnotation {
-                operation: AmendingAction::Amend,
-                source_bill: BillReference {
-                    bill_id: "119-hr-1".to_string(),
-                    amendment_id,
-                    causative_text: "real".to_string(),
-                },
-                paths: vec![real_path],
-                metadata: AnnotationMetadata {
-                    status: AnnotationStatus::Verified,
-                    confidence: None,
-                    annotator: "human:tester".to_string(),
-                    timestamp: time::OffsetDateTime::UNIX_EPOCH,
-                    notes: None,
-                    reasoning: None,
-                },
+    store_annotation(
+        &mut dataset,
+        ChangeAnnotation {
+            operation: AmendingAction::Amend,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id,
+                causative_text: "real".to_string(),
             },
-        )
-        .expect("add annotation");
+            paths: vec![real_path],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Verified,
+                confidence: None,
+                annotator: "human:tester".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        },
+        &from,
+        &to,
+    );
 
     let report = inspect::validate(&dataset).expect("validate");
     assert!(
@@ -579,29 +576,28 @@ fn should_account_coverage_against_the_real_diff() {
     assert!(before.unannotated_paths.contains(&target));
 
     // Annotate one real changed path.
-    dataset
-        .add_annotation(
-            &from,
-            &to,
-            ChangeAnnotation {
-                operation: AmendingAction::Amend,
-                source_bill: BillReference {
-                    bill_id: "119-hr-1".to_string(),
-                    amendment_id: "amd".to_string(),
-                    causative_text: "x".to_string(),
-                },
-                paths: vec![target.clone()],
-                metadata: AnnotationMetadata {
-                    status: AnnotationStatus::Pending,
-                    confidence: None,
-                    annotator: "test".to_string(),
-                    timestamp: time::OffsetDateTime::UNIX_EPOCH,
-                    notes: None,
-                    reasoning: None,
-                },
+    store_annotation(
+        &mut dataset,
+        ChangeAnnotation {
+            operation: AmendingAction::Amend,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id: "amd".to_string(),
+                causative_text: "x".to_string(),
             },
-        )
-        .expect("annotate");
+            paths: vec![target.clone()],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Pending,
+                confidence: None,
+                annotator: "test".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        },
+        &from,
+        &to,
+    );
 
     // After: that path is covered and drops out of the work queue.
     let after = inspect::coverage(&dataset, &from, &to).expect("coverage");
@@ -641,4 +637,20 @@ fn should_report_identical_info_for_sqlite_backend() {
     // The scope pairs each work with its own dates, and both backends must
     // derive the same pairing.
     assert_eq!(actual.scope.held, expected.scope.held);
+}
+
+/// Store an annotation the way the pipeline does: one link per path it names.
+///
+/// There is deliberately no writer convenience for this in the library — two
+/// ways to write one fact means the convenient one is used, and it could only
+/// express the single kind we own (`docs/adr/0004`).
+fn store_annotation<S: words_to_data::storage::Storage>(
+    dataset: &mut Dataset<S>,
+    annotation: ChangeAnnotation,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) {
+    for link in words_to_data::link::Link::from_annotation(&annotation, from, to) {
+        dataset.add_link(link).expect("the link should be added");
+    }
 }

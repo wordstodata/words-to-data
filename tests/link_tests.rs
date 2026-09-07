@@ -4,10 +4,23 @@
 //! real matching run, not invented data.
 
 use words_to_data::annotation::{AnnotationStatus, ChangeAnnotation};
+use words_to_data::dataset::{ExpressionId, WorkId};
 use words_to_data::diff::AmendmentSimilarity;
 use words_to_data::link::{Corroboration, Link, LinkKind, Target, VerificationState};
 
 const ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+
+/// The pair the fixture's annotations sit between.
+///
+/// A link's subject is a change, and a change is not addressable without the
+/// dates it changed between, so the projection now needs the pair.
+fn from() -> ExpressionId {
+    ExpressionId::new(WorkId::new("uscode/title_26"), "2025-07-18")
+}
+
+fn to() -> ExpressionId {
+    ExpressionId::new(WorkId::new("uscode/title_26"), "2025-07-30")
+}
 
 fn real_annotations() -> Vec<ChangeAnnotation> {
     let json = std::fs::read_to_string(ANNOTATIONS).expect("the fixture should be readable");
@@ -19,7 +32,7 @@ fn should_project_a_stored_annotation_into_one_link_per_path() {
     let annotations = real_annotations();
     let annotation = annotations.first().expect("the fixture should hold some");
 
-    let links = Link::from_annotation(annotation);
+    let links = Link::from_annotation(annotation, &from(), &to());
 
     assert_eq!(
         links.len(),
@@ -30,10 +43,18 @@ fn should_project_a_stored_annotation_into_one_link_per_path() {
     let link = links.first().expect("at least one link");
     assert_eq!(link.kind, LinkKind::new(LinkKind::AMENDED_BY));
     assert_eq!(link.kind.namespace(), "legislature");
+    // The subject is the *change*, not the provision. A bare provision cannot
+    // say when it was amended, so the expression pair had nowhere to live and
+    // was silently dropped (#70, `docs/adr/0004`).
     assert_eq!(
         link.subject,
-        Target::Provision(annotation.paths[0].clone()),
-        "the subject is the provision that changed"
+        Target::Change {
+            work: from().work.clone(),
+            path: annotation.paths[0].clone(),
+            from_date: from().at.clone(),
+            to_date: to().at.clone(),
+        },
+        "the subject is the change, which is the provision plus its two dates"
     );
 }
 
@@ -45,7 +66,7 @@ fn should_reach_the_amendment_as_an_external_reference() {
     let annotations = real_annotations();
     let annotation = annotations.first().expect("the fixture should hold some");
 
-    let links = Link::from_annotation(annotation);
+    let links = Link::from_annotation(annotation, &from(), &to());
     let link = links.first().expect("at least one link");
 
     match &link.object {
@@ -81,7 +102,7 @@ fn should_mark_unreviewed_model_output_as_machine_suggested() {
     );
 
     for annotation in from_model {
-        for link in Link::from_annotation(annotation) {
+        for link in Link::from_annotation(annotation, &from(), &to()) {
             assert_eq!(
                 link.provenance.verification,
                 VerificationState::MachineSuggested
@@ -108,12 +129,12 @@ fn should_mark_a_rejected_annotation_as_refuted_rather_than_disputed() {
         .expect("the fixture should hold some");
 
     annotation.metadata.status = AnnotationStatus::Rejected;
-    for link in Link::from_annotation(&annotation) {
+    for link in Link::from_annotation(&annotation, &from(), &to()) {
         assert_eq!(link.provenance.verification, VerificationState::Refuted);
     }
 
     annotation.metadata.status = AnnotationStatus::Disputed;
-    for link in Link::from_annotation(&annotation) {
+    for link in Link::from_annotation(&annotation, &from(), &to()) {
         assert_eq!(
             link.provenance.verification,
             VerificationState::Disputed,
@@ -130,7 +151,7 @@ fn should_carry_corroboration_without_raising_the_verification_state() {
     let annotations = real_annotations();
     let annotation = annotations.first().expect("the fixture should hold some");
 
-    let link = Link::from_annotation(annotation)
+    let link = Link::from_annotation(annotation, &from(), &to())
         .into_iter()
         .next()
         .expect("at least one link")
@@ -212,7 +233,7 @@ fn should_carry_the_models_reasoning_as_evidence() {
     );
 
     for annotation in with_reasoning {
-        for link in Link::from_annotation(annotation) {
+        for link in Link::from_annotation(annotation, &from(), &to()) {
             let evidence = link
                 .provenance
                 .evidence
