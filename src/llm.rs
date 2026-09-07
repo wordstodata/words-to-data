@@ -27,6 +27,16 @@ pub struct LlmClient {
 pub struct ChatOptions {
     pub temperature: f32,
     pub max_tokens: Option<u64>,
+    /// Extra body fields, merged into the request as sent.
+    ///
+    /// Providers disagree about how to turn features on and off — reasoning
+    /// effort, thinking budgets, sampling — and the names change faster than
+    /// this client does. Rather than model each one and guess wrong, whatever
+    /// is put here is sent verbatim, so a parameter this build has never heard
+    /// of still reaches the endpoint.
+    ///
+    /// A key set here overrides the field of the same name above.
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for ChatOptions {
@@ -34,8 +44,26 @@ impl Default for ChatOptions {
         Self {
             temperature: 1.0,
             max_tokens: None,
+            extra: serde_json::Map::new(),
         }
     }
+}
+
+/// Parse a `key=value` request parameter.
+///
+/// The value is read as JSON so numbers, booleans, and objects survive, and
+/// falls back to a plain string, which is what `reasoning_effort=low` should
+/// mean without making the caller quote it.
+pub fn parse_param(text: &str) -> Result<(String, serde_json::Value), String> {
+    let (key, raw) = text
+        .split_once('=')
+        .ok_or_else(|| format!("expected key=value, got {text:?}"))?;
+    if key.trim().is_empty() {
+        return Err(format!("empty parameter name in {text:?}"));
+    }
+    let value =
+        serde_json::from_str(raw).unwrap_or_else(|_| serde_json::Value::String(raw.to_string()));
+    Ok((key.trim().to_string(), value))
 }
 
 impl LlmClient {
@@ -82,6 +110,10 @@ impl LlmClient {
         });
         if let Some(max_tokens) = opts.max_tokens {
             body["max_tokens"] = serde_json::json!(max_tokens);
+        }
+        // Merged last, so a caller can override anything set above.
+        for (key, value) in &opts.extra {
+            body[key.as_str()] = value.clone();
         }
 
         let url = format!("{}/v1/chat/completions", self.base_url);

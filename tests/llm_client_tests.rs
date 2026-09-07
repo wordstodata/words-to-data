@@ -10,9 +10,10 @@ use std::sync::mpsc;
 
 use words_to_data::llm::{ChatOptions, LlmClient};
 
-/// One recorded request: its headers, so a test can assert what was sent.
+/// One recorded request: what a test needs to assert about what was sent.
 struct Recorded {
     headers: Vec<String>,
+    body: String,
 }
 
 /// Serve `count` requests with the given status and body, recording each.
@@ -62,7 +63,10 @@ fn serve_one(mut stream: TcpStream, status: u16, body: &str, tx: &mpsc::Sender<R
     let mut body_buf = vec![0u8; content_length];
     let _ = reader.read_exact(&mut body_buf);
 
-    let _ = tx.send(Recorded { headers });
+    let _ = tx.send(Recorded {
+        headers,
+        body: String::from_utf8_lossy(&body_buf).to_string(),
+    });
 
     let reason = if status == 200 { "OK" } else { "Error" };
     let response = format!(
@@ -71,6 +75,11 @@ fn serve_one(mut stream: TcpStream, status: u16, body: &str, tx: &mpsc::Sender<R
     );
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.flush();
+}
+
+/// A stub that serves one request, for tests that assert on the body.
+fn stub_body_server(status: u16, body: &'static str) -> (String, mpsc::Receiver<Recorded>) {
+    stub_server(1, status, body)
 }
 
 const OK_BODY: &str = r#"{"choices":[{"message":{"content":"hello"}}]}"#;
@@ -171,4 +180,79 @@ fn should_retry_when_the_server_asks_for_another_go() {
             .is_ok(),
         "a rate limit should be retried"
     );
+}
+
+#[test]
+fn should_send_a_provider_parameter_this_build_has_never_heard_of() {
+    let (base_url, requests) = stub_body_server(200, OK_BODY);
+    let client = LlmClient::new(base_url, "deepseek-chat".to_string(), None);
+
+    let mut extra = serde_json::Map::new();
+    // Providers disagree about how reasoning is turned down, and the names
+    // change faster than this client does. Whatever it is called, it must
+    // reach the endpoint unaltered.
+    extra.insert("reasoning_effort".to_string(), serde_json::json!("low"));
+    extra.insert("enable_thinking".to_string(), serde_json::json!(false));
+
+    client
+        .chat(
+            "system",
+            "user",
+            &ChatOptions {
+                temperature: 0.0,
+                max_tokens: Some(4096),
+                extra,
+            },
+        )
+        .expect("the stub answers");
+
+    let sent: serde_json::Value =
+        serde_json::from_str(&requests.recv().expect("a request").body).expect("valid JSON body");
+    assert_eq!(sent["reasoning_effort"], "low");
+    assert_eq!(sent["enable_thinking"], false);
+    assert_eq!(sent["max_tokens"], 4096);
+    assert_eq!(sent["temperature"], 0.0);
+    assert_eq!(sent["model"], "deepseek-chat");
+}
+
+#[test]
+fn should_let_a_parameter_override_a_field_it_shares_a_name_with() {
+    let (base_url, requests) = stub_body_server(200, OK_BODY);
+    let client = LlmClient::new(base_url, "m".to_string(), None);
+
+    let mut extra = serde_json::Map::new();
+    extra.insert("temperature".to_string(), serde_json::json!(0.7));
+
+    client
+        .chat(
+            "system",
+            "user",
+            &ChatOptions {
+                temperature: 0.0,
+                max_tokens: None,
+                extra,
+            },
+        )
+        .expect("the stub answers");
+
+    // Otherwise a caller could not correct a default this build got wrong.
+    let sent: serde_json::Value =
+        serde_json::from_str(&requests.recv().expect("a request").body).expect("valid JSON body");
+    assert_eq!(sent["temperature"], 0.7);
+}
+
+#[test]
+fn should_read_a_parameter_value_as_json_when_it_is_json() {
+    use words_to_data::llm::parse_param;
+
+    assert_eq!(parse_param("reasoning_effort=low").unwrap().1, "low");
+    assert_eq!(parse_param("enable_thinking=false").unwrap().1, false);
+    assert_eq!(parse_param("top_p=0.9").unwrap().1, 0.9);
+    assert_eq!(
+        parse_param(r#"thinking={"type":"disabled"}"#).unwrap().1,
+        serde_json::json!({"type": "disabled"})
+    );
+    // A bare word is a string, so `reasoning_effort=low` needs no quoting.
+    assert!(parse_param("nokeyvalue").is_err());
+    assert!(parse_param("=novalue").is_err());
 }

@@ -50,6 +50,25 @@ pub struct Args {
     #[arg(long)]
     pub api_key: Option<String>,
 
+    /// Extra parameters for the endpoint, as `key=value` (repeatable)
+    ///
+    /// Sent verbatim in the request body, so a provider-specific switch this
+    /// build has never heard of still gets through — for example
+    /// `--llm-param reasoning_effort=low`. The value is read as JSON when it
+    /// parses as JSON, and as a plain string otherwise.
+    #[arg(long = "llm-param", value_name = "KEY=VALUE")]
+    pub llm_params: Vec<String>,
+
+    /// Sampling temperature
+    #[arg(long)]
+    pub temperature: Option<f32>,
+
+    /// Cap on the tokens the model may generate
+    ///
+    /// A reasoning model with no ceiling can think for a very long time.
+    #[arg(long)]
+    pub max_tokens: Option<u64>,
+
     /// Number of concurrent LLM requests
     #[arg(long, default_value_t = 1)]
     pub threads: usize,
@@ -82,6 +101,14 @@ pub fn run(args: Args) {
         "Error loading dataset",
     );
 
+    let opts = crate::fail::or_exit(
+        chat_options(
+            &args.llm_params,
+            args.temperature.unwrap_or(0.0),
+            args.max_tokens,
+        ),
+        "Error reading --llm-param",
+    );
     let llm = LlmClient::new(
         args.base_url.clone(),
         args.model.clone(),
@@ -107,7 +134,7 @@ pub fn run(args: Args) {
         print_stats(&matches);
 
         // Ask the LLM which candidate(s) each amendment matches.
-        let matched = classify_all(&llm, &matches, args.threads);
+        let matched = classify_all(&llm, &matches, args.threads, &opts);
 
         // Apply the LLM's annotations single-threaded.
         for (match_idx, classification) in matched {
@@ -229,6 +256,7 @@ fn classify_all(
     llm: &LlmClient,
     matches: &[AmendmentMatch],
     threads: usize,
+    opts: &ChatOptions,
 ) -> Vec<(usize, Classification)> {
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
@@ -242,7 +270,7 @@ fn classify_all(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(m) = matches.get(i) else { break };
 
-                    match classify(llm, m) {
+                    match classify(llm, m, opts) {
                         Ok(classification) => {
                             results.lock().unwrap().push((i, classification));
                         }
@@ -273,13 +301,13 @@ struct Classification {
 }
 
 /// Query the LLM for one amendment and parse its annotation list.
-fn classify(llm: &LlmClient, m: &AmendmentMatch) -> Result<Classification, String> {
+fn classify(
+    llm: &LlmClient,
+    m: &AmendmentMatch,
+    opts: &ChatOptions,
+) -> Result<Classification, String> {
     let user_prompt = build_user_prompt(m);
-    let opts = ChatOptions {
-        temperature: 0.0,
-        max_tokens: None,
-    };
-    let reply = llm.chat(SYSTEM_PROMPT, &user_prompt, &opts)?;
+    let reply = llm.chat(SYSTEM_PROMPT, &user_prompt, opts)?;
     let annotations =
         parse_response(&reply).map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
     Ok(Classification {
@@ -599,3 +627,21 @@ Return valid JSON with `annotations` array:
 - Trust high similarity scores but verify section references
 - Parse legislative language carefully (e.g., "paragraph (2)(A)" = subparagraph A of paragraph 2)
 "#;
+
+/// Build the request options from the CLI flags.
+fn chat_options(
+    params: &[String],
+    temperature: f32,
+    max_tokens: Option<u64>,
+) -> Result<ChatOptions, String> {
+    let mut extra = serde_json::Map::new();
+    for param in params {
+        let (key, value) = words_to_data::llm::parse_param(param)?;
+        extra.insert(key, value);
+    }
+    Ok(ChatOptions {
+        temperature,
+        max_tokens,
+        extra,
+    })
+}
