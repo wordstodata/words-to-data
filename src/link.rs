@@ -128,6 +128,55 @@ impl VerificationState {
     }
 }
 
+/// What a statement was based on.
+///
+/// A machine's claim is checkable only if a receiving party can see what the
+/// machine actually said. The reasoning explains the claim; the reply is what
+/// lets someone confirm the reasoning was parsed out of it faithfully. Without
+/// the reply, "never lie" rests on a label rather than on evidence (#58).
+///
+/// The reply is a reference, not the text. One reply produces many statements,
+/// so copying it onto each would claim each statement had its own reply, and
+/// would store it many times over. The text lives once in the dataset, under
+/// the hash of itself.
+///
+/// The prompt is hashed rather than stored. It is built from material the
+/// dataset already holds, so keeping it would duplicate the file's own
+/// contents; the hash still says whether the prompt that produced this reply is
+/// the one this build produces now.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Evidence {
+    /// Why the maker says it reached this answer, in their own words.
+    ///
+    /// For a machine-made annotation this is the reasoning the model gave.
+    #[serde(default)]
+    pub reasoning: Option<String>,
+    /// The verbatim reply that produced the statement, by its id.
+    ///
+    /// Resolve it with `EvidenceReader::get_reply`. `None` means no reply was
+    /// recorded, which is every statement made before this was built.
+    #[serde(default)]
+    pub reply: Option<String>,
+    /// Which model answered, as configured when it ran.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// A hash of the exact prompt that was sent.
+    #[serde(default)]
+    pub prompt_hash: Option<String>,
+}
+
+impl Evidence {
+    /// Evidence that carries only the maker's reasoning.
+    ///
+    /// The shape of every statement made before replies were recorded.
+    pub fn from_reasoning(reasoning: Option<String>) -> Option<Self> {
+        reasoning.map(|reasoning| Self {
+            reasoning: Some(reasoning),
+            ..Self::default()
+        })
+    }
+}
+
 /// Where a statement came from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Provenance {
@@ -137,13 +186,8 @@ pub struct Provenance {
     pub method: Option<String>,
     /// How far the statement can be trusted.
     pub verification: VerificationState,
-    /// What the statement was based on, in the maker's own words.
-    ///
-    /// For a machine-made annotation this is the reasoning the model gave for
-    /// its answer. It is not the verbatim reply: the text around the answer,
-    /// including any fences and prose, was never persisted (#58). So this
-    /// explains a claim without being enough to reproduce how it was parsed.
-    pub evidence: Option<String>,
+    /// What the statement was based on.
+    pub evidence: Option<Evidence>,
     /// The raw score a model reported, kept as diagnostic data only. It is not
     /// a probability and must not be presented as one.
     ///
@@ -231,6 +275,17 @@ pub struct Link {
     pub payload: Option<KindPayload>,
 }
 
+/// The id of a verbatim model reply: the hash of its own text.
+///
+/// Identified by what it says, like a link and like an amendment, so the same
+/// reply recorded twice is one record and a rebuild is idempotent.
+pub fn reply_id(reply: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(reply.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 /// How an amendment is named as a link object.
 ///
 /// Fully qualified — the bill and the amendment — so a reader that does not
@@ -287,7 +342,7 @@ impl Link {
             source: annotation.metadata.annotator.clone(),
             method: None,
             verification: verification_of(annotation),
-            evidence: annotation.metadata.reasoning.clone(),
+            evidence: Evidence::from_reasoning(annotation.metadata.reasoning.clone()),
             raw_score: annotation.metadata.confidence,
             timestamp: Some(annotation.metadata.timestamp),
             corroboration: None,
@@ -407,7 +462,11 @@ pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
                         .timestamp
                         .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
                     notes: field("notes"),
-                    reasoning: link.provenance.evidence.clone(),
+                    reasoning: link
+                        .provenance
+                        .evidence
+                        .as_ref()
+                        .and_then(|e| e.reasoning.clone()),
                 },
             })
             .paths

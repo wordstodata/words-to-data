@@ -18,7 +18,7 @@ use words_to_data::annotation::{
 };
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::AmendingAction;
-use words_to_data::link::Link;
+use words_to_data::link::{Evidence, Link};
 use words_to_data::matching::{
     AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches,
 };
@@ -76,14 +76,12 @@ pub fn run(args: Args) {
     );
 
     let llm = LlmClient::new(args.base_url.clone(), args.model.clone(), None);
-    let annotator = format!(
-        "model:{}",
-        if args.model.is_empty() {
-            "local"
-        } else {
-            &args.model
-        }
-    );
+    let model_name = if args.model.is_empty() {
+        "local".to_string()
+    } else {
+        args.model.clone()
+    };
+    let annotator = format!("model:{model_name}");
 
     let pairs = args.span.resolve(&dataset);
     let mut candidates_by_work = Vec::new();
@@ -101,9 +99,15 @@ pub fn run(args: Args) {
         let matched = classify_all(&llm, &matches, args.threads);
 
         // Apply the LLM's annotations single-threaded.
-        for (match_idx, annotations) in matched {
+        for (match_idx, classification) in matched {
             let m = &matches[match_idx];
-            for ann in annotations {
+            // One reply produced every annotation below, so it is recorded once
+            // and referenced, not copied onto each.
+            let reply_id = crate::fail::or_exit(
+                dataset.add_reply(&classification.reply),
+                "Error recording the model reply",
+            );
+            for ann in classification.annotations {
                 let Some(candidate) = usize::try_from(ann.candidate_index)
                     .ok()
                     .and_then(|i| m.candidates.get(i))
@@ -138,7 +142,13 @@ pub fn run(args: Args) {
                 // Links are what is stored, so this writes links rather than
                 // handing an annotation to a convenience that fans out. One
                 // annotation is one link per path it names.
-                for link in Link::from_annotation(&annotation, &from, &to) {
+                for mut link in Link::from_annotation(&annotation, &from, &to) {
+                    link.provenance.evidence = Some(Evidence {
+                        reasoning: annotation.metadata.reasoning.clone(),
+                        reply: Some(reply_id.clone()),
+                        model: Some(model_name.clone()),
+                        prompt_hash: Some(classification.prompt_hash.clone()),
+                    });
                     crate::fail::or_exit(dataset.add_link(link), "Error adding link");
                 }
                 applied += 1;
@@ -208,10 +218,10 @@ fn classify_all(
     llm: &LlmClient,
     matches: &[AmendmentMatch],
     threads: usize,
-) -> Vec<(usize, Vec<LlmAnnotation>)> {
+) -> Vec<(usize, Classification)> {
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
-    let results: Mutex<Vec<(usize, Vec<LlmAnnotation>)>> = Mutex::new(Vec::new());
+    let results: Mutex<Vec<(usize, Classification)>> = Mutex::new(Vec::new());
     let worker_count = threads.max(1);
 
     std::thread::scope(|scope| {
@@ -222,8 +232,8 @@ fn classify_all(
                     let Some(m) = matches.get(i) else { break };
 
                     match classify(llm, m) {
-                        Ok(annotations) => {
-                            results.lock().unwrap().push((i, annotations));
+                        Ok(classification) => {
+                            results.lock().unwrap().push((i, classification));
                         }
                         Err(err) => {
                             eprintln!("ERROR matching {}: {err}", m.amendment_id);
@@ -240,15 +250,47 @@ fn classify_all(
     results.into_inner().unwrap()
 }
 
+/// One amendment's answer: what the model said, and what it was parsed into.
+///
+/// The reply is carried out of here rather than dropped. It is what lets a
+/// receiving party check that the parse was faithful, and it is the only thing
+/// that can prove the parser survives what a model really emits (#58).
+struct Classification {
+    annotations: Vec<LlmAnnotation>,
+    reply: String,
+    prompt_hash: String,
+}
+
 /// Query the LLM for one amendment and parse its annotation list.
-fn classify(llm: &LlmClient, m: &AmendmentMatch) -> Result<Vec<LlmAnnotation>, String> {
+fn classify(llm: &LlmClient, m: &AmendmentMatch) -> Result<Classification, String> {
     let user_prompt = build_user_prompt(m);
     let opts = ChatOptions {
         temperature: 0.0,
         max_tokens: None,
     };
-    let raw = llm.chat(SYSTEM_PROMPT, &user_prompt, &opts)?;
-    parse_response(&raw).map_err(|e| format!("{e}\n--- raw model output ---\n{raw}"))
+    let reply = llm.chat(SYSTEM_PROMPT, &user_prompt, &opts)?;
+    let annotations =
+        parse_response(&reply).map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
+    Ok(Classification {
+        annotations,
+        prompt_hash: prompt_hash(SYSTEM_PROMPT, &user_prompt),
+        reply,
+    })
+}
+
+/// A hash of the exact prompt that was sent.
+///
+/// The prompt itself is not stored: it is built from material the dataset
+/// already holds, so keeping it would duplicate the file's own contents. The
+/// hash still answers the question that matters — whether the prompt behind
+/// this reply is the one this build produces now.
+fn prompt_hash(system: &str, user: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(system.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(user.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// The LLM's JSON response envelope.

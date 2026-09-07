@@ -1,0 +1,29 @@
+STUB FIXTURE — replace with a real recorded reply.
+
+No verbatim model reply had ever been persisted when #58 was built, so this
+file stands in for one. It carries the shapes a parser has to survive — prose
+before the payload, a fenced JSON block, and trailing commentary — but it was
+written by hand, not emitted by a model, so it proves nothing about what models
+actually do.
+
+Replace it after a full `match-amendments` sweep records real replies, and move
+the parser tests onto those. The annotation content below is taken from a real
+matching run against 26 U.S.C. § 163(j)(8)(A)(v).
+
+Looking at the amendment and the candidate diffs, candidate 0 is the match.
+
+```json
+{
+  "annotations": [
+    {
+      "candidate_index": 0,
+      "operation": "strike",
+      "causative_text": "Section 163(j)(8)(A)(v) is amended by striking \"in the case of taxable years beginning before January 1, 2022,\".",
+      "confidence": 0.95,
+      "reasoning": "Section reference matches exactly (Section 163(j)(8)(A)(v)), and the old text in the diff ('in the case of taxable years beginning before') is a truncated version of the text being struck."
+    }
+  ]
+}
+```
+
+That is the only candidate whose text overlaps the amending instruction.

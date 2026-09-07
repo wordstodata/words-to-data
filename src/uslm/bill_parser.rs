@@ -192,6 +192,8 @@ fn get_amendment_data(node: &Node, bill_id: &str) -> BillAmendment {
     let id = compute_amendment_id(bill_id, &amending_text);
 
     BillAmendment {
+        // Parsed from the bill, so nothing has been asserted about `changes` yet.
+        provenance: None,
         id,
         action_types,
         amending_text,

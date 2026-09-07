@@ -26,8 +26,8 @@ use crate::diff::TreeDiff;
 use crate::legislature::BillDiff;
 use crate::link::Link;
 use crate::storage::{
-    DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
-    LinkReader, LinkWriter, SqliteStorage, Storage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
+    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -268,6 +268,16 @@ impl<S: Storage> Dataset<S> {
         self.storage.add_bill(bill)
     }
 
+    /// Record a verbatim model reply and return its id.
+    pub fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError> {
+        self.storage.add_reply(reply)
+    }
+
+    /// One verbatim model reply, by its id.
+    pub fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError> {
+        self.storage.get_reply(id)
+    }
+
     /// Record one link.
     ///
     /// There is no annotation-shaped convenience beside this: two ways to write
@@ -356,6 +366,24 @@ impl Dataset<InMemoryStorage> {
         for bill in self.storage.bills.values_mut() {
             if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
                 amendment.changes.push(bill_diff.clone());
+                return;
+            }
+        }
+    }
+
+    /// Record where an amendment's word-level changes came from.
+    ///
+    /// The amending text is parsed from the bill and is a fact from a source.
+    /// The changes are a model's reading of it, and until this existed nothing
+    /// said so (#58).
+    pub fn set_amendment_provenance(
+        &mut self,
+        amendment_id: &str,
+        provenance: crate::link::Provenance,
+    ) {
+        for bill in self.storage.bills.values_mut() {
+            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
+                amendment.provenance = Some(provenance);
                 return;
             }
         }
@@ -627,6 +655,22 @@ impl<S: Storage> LinkReader for Dataset<S> {
 
     fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
         self.storage.link_pairs()
+    }
+}
+
+impl<S: Storage> EvidenceReader for Dataset<S> {
+    fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError> {
+        self.storage.get_reply(id)
+    }
+
+    fn replies(&self) -> Result<Vec<String>, DatasetError> {
+        self.storage.replies()
+    }
+}
+
+impl<S: Storage> EvidenceWriter for Dataset<S> {
+    fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError> {
+        self.storage.add_reply(reply)
     }
 }
 

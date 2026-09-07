@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use clap::Args as ClapArgs;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::BillDiff;
 
@@ -42,6 +42,33 @@ pub struct Args {
     /// Where to write the enriched dataset (defaults to overwriting the input)
     #[arg(long)]
     pub output: Option<String>,
+}
+
+/// One amendment's cached extraction.
+///
+/// Untagged so a cache written before replies were recorded still loads: it is
+/// a cache, not a record, and forcing a re-extraction of everything to add a
+/// field nobody had yet would be a poor trade.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Cached {
+    /// The current form: what was parsed, and what the model actually said.
+    WithReply {
+        changes: Vec<BillDiff>,
+        reply: String,
+        prompt_hash: String,
+    },
+    /// Written before replies were recorded. Usable, but carries no evidence.
+    ChangesOnly(Vec<BillDiff>),
+}
+
+impl Cached {
+    fn changes(&self) -> &[BillDiff] {
+        match self {
+            Self::WithReply { changes, .. } => changes,
+            Self::ChangesOnly(changes) => changes,
+        }
+    }
 }
 
 /// One amendment queued for LLM extraction.
@@ -105,7 +132,7 @@ pub fn run(args: Args) {
     );
 
     if !todo.is_empty() {
-        let llm = LlmClient::new(args.base_url, args.model, None);
+        let llm = LlmClient::new(args.base_url.clone(), args.model.clone(), None);
         // The cache is updated and flushed to disk after every successful call so
         // an interrupted run can be resumed without losing completed extractions.
         let shared = Mutex::new(cache);
@@ -114,13 +141,51 @@ pub fn run(args: Args) {
     }
 
     // Apply cached changes for every amendment not already populated.
-    for (amendment_id, changes) in &cache {
+    let model_name = if args.model.is_empty() {
+        "local".to_string()
+    } else {
+        args.model.clone()
+    };
+    for (amendment_id, cached) in &cache {
         if done.contains(amendment_id) {
             continue;
         }
-        for change in changes {
+        for change in cached.changes() {
             dataset.add_changes_to_amendment(amendment_id, change);
         }
+
+        // The amending text is a fact from the bill; these word-level changes
+        // are a model's reading of it. Recording the evidence without the
+        // verification state would read as corroboration for a machine guess.
+        let evidence = match cached {
+            Cached::WithReply {
+                reply, prompt_hash, ..
+            } => {
+                let reply_id = crate::fail::or_exit(
+                    dataset.add_reply(reply),
+                    "Error recording the model reply",
+                );
+                Some(words_to_data::link::Evidence {
+                    reasoning: None,
+                    reply: Some(reply_id),
+                    model: Some(model_name.clone()),
+                    prompt_hash: Some(prompt_hash.clone()),
+                })
+            }
+            Cached::ChangesOnly(_) => None,
+        };
+        dataset.set_amendment_provenance(
+            amendment_id,
+            words_to_data::link::Provenance {
+                source: format!("model:{model_name}"),
+                method: Some("extract-changes".to_string()),
+                verification: words_to_data::link::VerificationState::MachineSuggested,
+                evidence,
+                raw_score: None,
+                timestamp: Some(time::OffsetDateTime::now_utc()),
+                corroboration: None,
+            },
+        );
     }
 
     let output = args.output.as_deref().unwrap_or(&args.dataset);
@@ -140,7 +205,7 @@ fn extract_all(
     llm: &LlmClient,
     tasks: &[Task],
     threads: usize,
-    cache: &Mutex<HashMap<String, Vec<BillDiff>>>,
+    cache: &Mutex<HashMap<String, Cached>>,
     cache_path: &Path,
 ) {
     let next = AtomicUsize::new(0);
@@ -155,11 +220,11 @@ fn extract_all(
                     let Some(task) = tasks.get(i) else { break };
 
                     match extract_changes(llm, &task.amending_text) {
-                        Ok(changes) => {
+                        Ok(cached) => {
                             // Insert and persist while holding the lock so the on-disk
                             // cache is always consistent with in-memory state.
                             let mut guard = cache.lock().unwrap();
-                            guard.insert(task.amendment_id.clone(), changes);
+                            guard.insert(task.amendment_id.clone(), cached);
                             write_cache(cache_path, &guard);
                         }
                         Err(err) => {
@@ -176,7 +241,11 @@ fn extract_all(
 }
 
 /// Query the LLM for one amendment and parse its `<response>` payload.
-fn extract_changes(llm: &LlmClient, amending_text: &str) -> Result<Vec<BillDiff>, String> {
+///
+/// The reply is carried out rather than dropped. Nothing of the model's words
+/// used to survive this command at all — the parsed result went to the cache
+/// and the raw text only ever appeared in an error message (#58).
+fn extract_changes(llm: &LlmClient, amending_text: &str) -> Result<Cached, String> {
     let user_prompt = format!(
         "Extract the word-level changes from this amendment text:\n\n<amendment>\n{amending_text}\n</amendment>"
     );
@@ -184,9 +253,26 @@ fn extract_changes(llm: &LlmClient, amending_text: &str) -> Result<Vec<BillDiff>
         temperature: 1.0,
         max_tokens: Some(64_000),
     };
-    let raw = llm.chat(EXTRACT_SYSTEM_PROMPT, &user_prompt, &opts)?;
+    let reply = llm.chat(EXTRACT_SYSTEM_PROMPT, &user_prompt, &opts)?;
     // Include the full raw model output on any parse failure so it can be inspected.
-    parse_changes(&raw).map_err(|e| format!("{e}\n--- raw model output ---\n{raw}"))
+    let changes =
+        parse_changes(&reply).map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
+    Ok(Cached::WithReply {
+        changes,
+        prompt_hash: prompt_hash(EXTRACT_SYSTEM_PROMPT, &user_prompt),
+        reply,
+    })
+}
+
+/// A hash of the exact prompt that was sent. The prompt itself is not stored:
+/// it is built from the amending text, which the dataset already holds.
+fn prompt_hash(system: &str, user: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(system.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(user.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// Pull the JSON array out of `<response>...</response>` and into `BillDiff`s.
@@ -220,7 +306,7 @@ fn sibling(dataset_path: &str, filename: &str) -> PathBuf {
 }
 
 /// Load the extraction cache from disk, or start empty when it doesn't exist yet.
-fn load_cache(path: &Path) -> HashMap<String, Vec<BillDiff>> {
+fn load_cache(path: &Path) -> HashMap<String, Cached> {
     match fs::read_to_string(path) {
         Ok(text) => serde_json::from_str(&text).expect("Error parsing cache file"),
         Err(_) => HashMap::new(),
@@ -231,7 +317,7 @@ fn load_cache(path: &Path) -> HashMap<String, Vec<BillDiff>> {
 ///
 /// Writes to a temp file then renames, so an interrupt mid-write can never leave
 /// a half-written (corrupt, unresumable) cache on disk.
-fn write_cache(path: &Path, cache: &HashMap<String, Vec<BillDiff>>) {
+fn write_cache(path: &Path, cache: &HashMap<String, Cached>) {
     let json = serde_json::to_string_pretty(cache).expect("Error serializing cache");
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, json).expect("Error writing cache");

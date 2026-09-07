@@ -166,6 +166,9 @@ pub struct DatasetCompact {
     /// Every link, by its content-hash id (stored as-is)
     #[serde(default)]
     pub links: std::collections::BTreeMap<String, Link>,
+    /// Every verbatim model reply, by the hash of its own text
+    #[serde(default)]
+    pub replies: std::collections::BTreeMap<String, String>,
     /// Congress members (stored as-is)
     #[serde(default)]
     pub members: HashMap<String, Member>,
@@ -223,6 +226,7 @@ impl DatasetCompact {
             expressions,
             bills: storage.bills.clone(),
             links: storage.links.clone(),
+            replies: storage.replies.clone(),
             members: storage.members.clone(),
             sponsors: storage.sponsors.clone(),
             bill_votes: storage.bill_votes.clone(),
@@ -302,6 +306,7 @@ impl DatasetCompact {
             expressions,
             self.bills,
             self.links,
+            self.replies,
             self.members,
             self.sponsors,
             self.bill_votes,

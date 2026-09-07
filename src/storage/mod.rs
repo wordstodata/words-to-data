@@ -42,6 +42,8 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
+/// 6 keeps the verbatim model reply as evidence, stored once under the hash of
+/// its own text and referenced from a statement's provenance (#58).
 /// 5 stores links directly: one table for every kind, including kinds this
 /// build has never seen, with `ChangeAnnotation` projected out of them rather
 /// than stored (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
@@ -54,7 +56,7 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 /// Reading the documents a dataset holds.
 ///
@@ -222,6 +224,33 @@ pub trait LegislatureReader {
     ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError>;
 }
 
+/// Reading the evidence a dataset holds.
+///
+/// Core, not an extension. A reader that does not know the legislature must
+/// still be able to see what a machine's claim was based on, or the claim's
+/// verification state is a label rather than something checkable (#58).
+pub trait EvidenceReader {
+    /// One verbatim model reply, by its id, or `None` when unheld.
+    ///
+    /// `None` is an answer: a dataset that never recorded a reply is a
+    /// different thing from one whose reply was empty.
+    fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError>;
+
+    /// Every reply id this dataset holds, in id order.
+    fn replies(&self) -> Result<Vec<String>, DatasetError>;
+}
+
+/// Writing evidence.
+pub trait EvidenceWriter {
+    /// Record a verbatim model reply and return its id.
+    ///
+    /// A reply is identified by the hash of its own text, so recording the same
+    /// reply twice leaves one record. Evidence is append-only: a reply whose
+    /// statement was later superseded is kept, because deleting it destroys the
+    /// trail it exists to create.
+    fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError>;
+}
+
 /// Writing documents and dataset metadata.
 ///
 /// Reading metadata lives on [`DocumentReader`], not here.
@@ -275,7 +304,14 @@ pub trait LegislatureWriter {
 /// should bind to [`DocumentReader`] instead, so it keeps working against a
 /// dataset that carries no legislative material.
 pub trait Storage:
-    DocumentReader + LinkReader + LegislatureReader + DocumentWriter + LinkWriter + LegislatureWriter
+    DocumentReader
+    + LinkReader
+    + EvidenceReader
+    + LegislatureReader
+    + DocumentWriter
+    + LinkWriter
+    + EvidenceWriter
+    + LegislatureWriter
 {
     /// The legislature extension, when this dataset actually carries one.
     ///

@@ -13,8 +13,8 @@ use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
 use crate::link::{Link, Target};
 use crate::storage::{
-    DocumentReader, DocumentWriter, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
-    Storage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, LegislatureReader,
+    LegislatureWriter, LinkReader, LinkWriter, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -40,6 +40,9 @@ pub struct InMemoryStorage {
     /// Every link, by its content-hash id. Keying on the id is what makes
     /// restating a fact update one link rather than grow the map.
     pub links: BTreeMap<String, Link>,
+    /// Every verbatim model reply, by the hash of its own text.
+    #[serde(default)]
+    pub replies: BTreeMap<String, String>,
     pub members: HashMap<String, Member>,
     pub sponsors: HashMap<String, SponsorInfo>,
     pub bill_votes: HashMap<String, BillVotes>,
@@ -54,6 +57,7 @@ impl InMemoryStorage {
             expressions: BTreeMap::new(),
             bills: HashMap::new(),
             links: BTreeMap::new(),
+            replies: BTreeMap::new(),
             members: HashMap::new(),
             sponsors: HashMap::new(),
             bill_votes: HashMap::new(),
@@ -79,6 +83,7 @@ impl InMemoryStorage {
         expressions: ExpressionsByWork,
         bills: HashMap<String, Bill>,
         links: BTreeMap<String, Link>,
+        replies: BTreeMap<String, String>,
         members: HashMap<String, Member>,
         sponsors: HashMap<String, SponsorInfo>,
         bill_votes: HashMap<String, BillVotes>,
@@ -89,6 +94,7 @@ impl InMemoryStorage {
             expressions,
             bills,
             links,
+            replies,
             members,
             sponsors,
             bill_votes,
@@ -334,6 +340,24 @@ fn pair_of(link: &Link) -> Option<ExpressionPair> {
 
 fn about_pair(link: &Link, from: &ExpressionId, to: &ExpressionId) -> bool {
     pair_of(link).is_some_and(|(f, t)| &f == from && &t == to)
+}
+
+impl EvidenceReader for InMemoryStorage {
+    fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError> {
+        Ok(self.replies.get(id).cloned())
+    }
+
+    fn replies(&self) -> Result<Vec<String>, DatasetError> {
+        Ok(self.replies.keys().cloned().collect())
+    }
+}
+
+impl EvidenceWriter for InMemoryStorage {
+    fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError> {
+        let id = crate::link::reply_id(reply);
+        self.replies.insert(id.clone(), reply.to_string());
+        Ok(id)
+    }
 }
 
 impl LegislatureReader for InMemoryStorage {
