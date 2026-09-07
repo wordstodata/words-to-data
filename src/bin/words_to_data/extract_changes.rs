@@ -103,15 +103,6 @@ struct Task {
     amending_text: String,
 }
 
-/// The `{"added": [...], "removed": [...]}` shape the model returns.
-#[derive(Deserialize)]
-struct RawDiff {
-    #[serde(default)]
-    added: Vec<String>,
-    #[serde(default)]
-    removed: Vec<String>,
-}
-
 pub fn run(args: Args) {
     crate::load::refuse_sqlite(&args.dataset, "extract-changes");
     let mut dataset = crate::fail::or_exit(
@@ -295,8 +286,8 @@ fn extract_changes(
 
     let reply = llm.chat(EXTRACT_SYSTEM_PROMPT, &user_prompt, opts)?;
     // Include the full raw model output on any parse failure so it can be inspected.
-    let changes =
-        parse_changes(&reply).map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
+    let changes = words_to_data::llm::parse_changes(&reply)
+        .map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
     Ok(Cached::WithReply {
         changes,
         prompt_hash: prompt_hash(EXTRACT_SYSTEM_PROMPT, &user_prompt),
@@ -313,27 +304,6 @@ fn prompt_hash(system: &str, user: &str) -> String {
     hasher.update([0u8]);
     hasher.update(user.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-/// Pull the JSON array out of `<response>...</response>` and into `BillDiff`s.
-fn parse_changes(raw: &str) -> Result<Vec<BillDiff>, String> {
-    let start = raw
-        .find("<response>")
-        .ok_or("no <response> tag in model output")?
-        + "<response>".len();
-    let end = raw[start..]
-        .find("</response>")
-        .ok_or("no </response> tag in model output")?;
-    let json_str = raw[start..start + end].trim();
-
-    let raw_diffs: Vec<RawDiff> = serde_json::from_str(json_str).map_err(|e| e.to_string())?;
-    Ok(raw_diffs
-        .into_iter()
-        .map(|d| BillDiff {
-            added: d.added,
-            removed: d.removed,
-        })
-        .collect())
 }
 
 /// Build a path to `filename` in the same directory as `dataset_path`.

@@ -212,3 +212,87 @@ pub fn api_key_from(flag: Option<&str>) -> Option<String> {
         .or_else(|| std::env::var("W2D_API_KEY").ok())
         .filter(|key| !key.trim().is_empty())
 }
+
+/// One annotation the model proposes for an amendment.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LlmAnnotation {
+    /// Index into the match's candidate list (negative means "no match").
+    #[serde(default = "neg_one")]
+    pub candidate_index: i64,
+    #[serde(default)]
+    pub operation: Option<String>,
+    #[serde(default)]
+    pub causative_text: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+    #[serde(default)]
+    pub reasoning: Option<String>,
+}
+
+fn neg_one() -> i64 {
+    -1
+}
+
+/// The envelope the model wraps its annotations in.
+///
+/// Unknown fields are ignored on purpose: models add their own, such as a
+/// `no_match_reasoning` beside an empty list, and a reply is not wrong for
+/// saying more than we asked.
+#[derive(serde::Deserialize)]
+struct LlmResponse {
+    #[serde(default)]
+    annotations: Vec<LlmAnnotation>,
+}
+
+/// Strip a fenced code block, if the reply is wrapped in one.
+///
+/// Models fence their JSON far more often than not — 563 of the replies in the
+/// first recorded sweep did — so this is the common path, not a fallback.
+fn unfence(raw: &str) -> &str {
+    let text = raw.trim();
+    let Some(stripped) = text.strip_prefix("```") else {
+        return text;
+    };
+    // Drop the opening fence's language tag line, then the closing fence.
+    let after_lang = stripped
+        .find('\n')
+        .map(|n| &stripped[n + 1..])
+        .unwrap_or("");
+    after_lang.strip_suffix("```").unwrap_or(after_lang).trim()
+}
+
+/// Parse the annotations out of a `match-amendments` reply.
+pub fn parse_annotations(raw: &str) -> Result<Vec<LlmAnnotation>, String> {
+    let response: LlmResponse = serde_json::from_str(unfence(raw)).map_err(|e| e.to_string())?;
+    Ok(response.annotations)
+}
+
+/// The word-level change shape the model emits for `extract-changes`.
+#[derive(serde::Deserialize)]
+struct RawDiff {
+    #[serde(default)]
+    added: Vec<String>,
+    #[serde(default)]
+    removed: Vec<String>,
+}
+
+/// Pull the JSON array out of `<response>...</response>` and into `BillDiff`s.
+pub fn parse_changes(raw: &str) -> Result<Vec<crate::legislature::BillDiff>, String> {
+    let start = raw
+        .find("<response>")
+        .ok_or("no <response> tag in model output")?
+        + "<response>".len();
+    let end = raw[start..]
+        .find("</response>")
+        .ok_or("no </response> tag in model output")?;
+    let json_str = raw[start..start + end].trim();
+
+    let raw_diffs: Vec<RawDiff> = serde_json::from_str(json_str).map_err(|e| e.to_string())?;
+    Ok(raw_diffs
+        .into_iter()
+        .map(|d| crate::legislature::BillDiff {
+            added: d.added,
+            removed: d.removed,
+        })
+        .collect())
+}

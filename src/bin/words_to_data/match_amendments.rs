@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use clap::Args as ClapArgs;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
@@ -25,7 +25,7 @@ use words_to_data::matching::{
 use words_to_data::uslm::TextContentField;
 
 use crate::span::Span;
-use words_to_data::llm::{ChatOptions, LlmClient};
+use words_to_data::llm::{ChatOptions, LlmAnnotation, LlmClient};
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -308,8 +308,8 @@ fn classify(
 ) -> Result<Classification, String> {
     let user_prompt = build_user_prompt(m);
     let reply = llm.chat(SYSTEM_PROMPT, &user_prompt, opts)?;
-    let annotations =
-        parse_response(&reply).map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
+    let annotations = words_to_data::llm::parse_annotations(&reply)
+        .map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
     Ok(Classification {
         annotations,
         prompt_hash: prompt_hash(SYSTEM_PROMPT, &user_prompt),
@@ -330,48 +330,6 @@ fn prompt_hash(system: &str, user: &str) -> String {
     hasher.update([0u8]);
     hasher.update(user.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-/// The LLM's JSON response envelope.
-#[derive(Deserialize)]
-struct LlmResponse {
-    #[serde(default)]
-    annotations: Vec<LlmAnnotation>,
-}
-
-/// One annotation the LLM proposes for an amendment.
-#[derive(Deserialize)]
-struct LlmAnnotation {
-    /// Index into the match's candidate list (negative means "no match").
-    #[serde(default = "neg_one")]
-    candidate_index: i64,
-    #[serde(default)]
-    operation: Option<String>,
-    #[serde(default)]
-    causative_text: Option<String>,
-    #[serde(default)]
-    confidence: Option<f32>,
-    #[serde(default)]
-    reasoning: Option<String>,
-}
-
-fn neg_one() -> i64 {
-    -1
-}
-
-/// Parse the model's JSON response, tolerating a ```json fenced block.
-fn parse_response(raw: &str) -> Result<Vec<LlmAnnotation>, String> {
-    let mut text = raw.trim();
-    if let Some(stripped) = text.strip_prefix("```") {
-        // Drop the opening fence line (e.g. "```json") and the closing fence.
-        let after_lang = stripped
-            .find('\n')
-            .map(|n| &stripped[n + 1..])
-            .unwrap_or("");
-        text = after_lang.strip_suffix("```").unwrap_or(after_lang).trim();
-    }
-    let response: LlmResponse = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    Ok(response.annotations)
 }
 
 /// Build the user prompt: the amendment plus its formatted candidates.
