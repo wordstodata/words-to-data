@@ -110,8 +110,12 @@ fn should_mark_unreviewed_model_output_as_machine_suggested() {
             assert_eq!(link.provenance.source, annotation.metadata.annotator);
             assert_eq!(link.provenance.raw_score, annotation.metadata.confidence);
             assert_eq!(
-                link.provenance.evidence, annotation.metadata.reasoning,
-                "the model's stated reasoning is the evidence we do have"
+                link.provenance
+                    .evidence
+                    .as_ref()
+                    .and_then(|e| e.reasoning.clone()),
+                annotation.metadata.reasoning,
+                "the model's stated reasoning is one part of the evidence"
             );
         }
     }
@@ -234,11 +238,12 @@ fn should_carry_the_models_reasoning_as_evidence() {
 
     for annotation in with_reasoning {
         for link in Link::from_annotation(annotation, &from(), &to()) {
-            let evidence = link
+            let reasoning = link
                 .provenance
                 .evidence
+                .and_then(|e| e.reasoning)
                 .expect("a link should carry the reasoning behind it");
-            assert!(!evidence.trim().is_empty());
+            assert!(!reasoning.trim().is_empty());
         }
     }
 }

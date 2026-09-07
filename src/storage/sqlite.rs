@@ -16,8 +16,8 @@ use crate::intern::StringInterner;
 use crate::link::{Link, LinkKind, Provenance, Target};
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
-    DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
-    LinkReader, LinkWriter, SCHEMA_VERSION, Storage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
+    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SCHEMA_VERSION, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -397,6 +397,14 @@ impl SqliteStorage {
             -- Finding a path is now a keyed lookup rather than a scan that
             -- deserializes one whole tree per date.
             CREATE INDEX IF NOT EXISTS idx_elem_path ON element_index(path);
+            -- Verbatim model replies, by the hash of their own text. Append
+            -- only: a reply whose statement was later superseded is kept,
+            -- because deleting it destroys the trail it exists to create.
+            CREATE TABLE IF NOT EXISTS model_replies (
+                id TEXT PRIMARY KEY,
+                reply TEXT NOT NULL
+            );
+
             -- A namespace is a prefix of a kind, so one index serves both.
             CREATE INDEX IF NOT EXISTS idx_links_kind ON links(kind);
             CREATE INDEX IF NOT EXISTS idx_links_subject_path ON links(subject_path);
@@ -522,6 +530,16 @@ impl SqliteStorage {
             }
         }
 
+        // Save replies. Append-only, so no DELETE: a reply the incoming
+        // storage no longer references is still a record that it was said.
+        {
+            let mut stmt =
+                tx.prepare("INSERT OR REPLACE INTO model_replies (id, reply) VALUES (?1, ?2)")?;
+            for (id, reply) in &storage.replies {
+                stmt.execute(params![id, reply])?;
+            }
+        }
+
         // Save links
         {
             tx.execute("DELETE FROM links", [])?;
@@ -628,12 +646,14 @@ impl SqliteStorage {
             .into_iter()
             .map(|link| (link.id(), link))
             .collect();
+        let replies = self.load_replies()?;
 
         let mut storage = InMemoryStorage::from_parts(
             metadata,
             expressions,
             HashMap::new(), // bills - query from storage
             links,
+            replies,
             HashMap::new(), // members - query from storage
             HashMap::new(), // sponsors - query from storage
             HashMap::new(), // bill_votes - query from storage
@@ -652,6 +672,7 @@ impl SqliteStorage {
         let members = self.load_members()?;
         let sponsors = self.load_sponsors()?;
         let links = self.load_links()?;
+        let replies = self.load_replies()?;
         let bill_votes = self.load_bill_votes()?;
 
         let mut storage = InMemoryStorage::from_parts(
@@ -659,6 +680,7 @@ impl SqliteStorage {
             expressions,
             bills,
             links,
+            replies,
             members,
             sponsors,
             bill_votes,
@@ -778,6 +800,17 @@ impl SqliteStorage {
         }
 
         Ok(sponsors)
+    }
+
+    /// Every verbatim model reply, by id.
+    fn load_replies(&self) -> Result<std::collections::BTreeMap<String, String>, DatasetError> {
+        let mut stmt = self.conn.prepare("SELECT id, reply FROM model_replies")?;
+        let replies = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
+        Ok(replies)
     }
 
     /// Every link in the database, by id.
@@ -1178,6 +1211,40 @@ impl LinkReader for SqliteStorage {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(pairs)
+    }
+}
+
+impl EvidenceReader for SqliteStorage {
+    fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT reply FROM model_replies WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .ok())
+    }
+
+    fn replies(&self) -> Result<Vec<String>, DatasetError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM model_replies ORDER BY id")?;
+        let ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(ids)
+    }
+}
+
+impl EvidenceWriter for SqliteStorage {
+    fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError> {
+        let id = crate::link::reply_id(reply);
+        self.conn.execute(
+            "INSERT OR REPLACE INTO model_replies (id, reply) VALUES (?1, ?2)",
+            params![&id, reply],
+        )?;
+        Ok(id)
     }
 }
 

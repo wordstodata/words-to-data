@@ -93,7 +93,11 @@ pub struct UscReference {
 }
 
 /// An amending action found in a bill
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+///
+/// Not `Eq` or `Hash`: its provenance carries a raw model score, which is a
+/// float. It was never used as a key — only as a map value — so nothing is
+/// lost. Its identity is `id`, a content hash.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BillAmendment {
     /// Content-based ID: sha256("{bill_id}:{amending_text}")
     /// This provides a stable, deterministic identifier that works regardless of source format.
@@ -107,6 +111,19 @@ pub struct BillAmendment {
 
     /// List of word-level changes that an amendment enacts
     pub changes: Vec<BillDiff>,
+
+    /// Where `changes` came from.
+    ///
+    /// The amending text is parsed from the bill and is a fact from a source.
+    /// The word-level changes are not: a model produced them, and until this
+    /// existed nothing recorded that. Evidence without a verification state
+    /// reads as corroboration, so the whole provenance is carried rather than
+    /// the evidence alone (#58).
+    ///
+    /// `None` means nothing was recorded, which is every amendment extracted
+    /// before this was built.
+    #[serde(default)]
+    pub provenance: Option<crate::link::Provenance>,
 }
 
 impl BillAmendment {
@@ -116,6 +133,7 @@ impl BillAmendment {
             action_types: self.action_types.clone(),
             amending_text: self.amending_text.clone(),
             changes: changes.to_vec(),
+            provenance: self.provenance.clone(),
         }
     }
 }
