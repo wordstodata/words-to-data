@@ -16,6 +16,7 @@ mod info;
 mod load;
 mod match_amendments;
 mod path;
+mod report;
 mod score_amendments;
 mod search;
 mod show_bill;

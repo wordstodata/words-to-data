@@ -148,6 +148,10 @@ pub fn run(args: Args) {
         todo.len(),
     );
 
+    // Amendments whose reply never parsed. They are lost from this sweep, so the
+    // run has to name them rather than let the totals imply everything landed.
+    let mut failed: Vec<String> = Vec::new();
+
     if !todo.is_empty() {
         let opts = crate::fail::or_exit(
             chat_options(
@@ -165,7 +169,7 @@ pub fn run(args: Args) {
         // The cache is updated and flushed to disk after every successful call so
         // an interrupted run can be resumed without losing completed extractions.
         let shared = Mutex::new(cache);
-        extract_all(&llm, &todo, args.threads, &shared, &cache_path, &opts);
+        failed = extract_all(&llm, &todo, args.threads, &shared, &cache_path, &opts);
         cache = shared.into_inner().unwrap();
     }
 
@@ -222,6 +226,7 @@ pub fn run(args: Args) {
         .save(output, Format::Compact)
         .expect("Error saving dataset");
 
+    crate::report::failed_amendments(&failed);
     println!("Wrote {output}");
 }
 
@@ -230,6 +235,10 @@ pub fn run(args: Args) {
 /// Each successful extraction is inserted into `cache` and flushed to
 /// `cache_path` immediately (under the lock), so an interrupted run leaves a
 /// complete, resumable cache on disk. The dataset itself is untouched here.
+///
+/// Returns the ids of the amendments that failed, so the caller can report the
+/// loss. A failure is deliberately kept out of the cache: that is what makes
+/// running the command again retry it, with no flag (`docs/adr/0005`).
 fn extract_all(
     llm: &LlmClient,
     tasks: &[Task],
@@ -237,9 +246,10 @@ fn extract_all(
     cache: &Mutex<HashMap<String, Cached>>,
     cache_path: &Path,
     opts: &ChatOptions,
-) {
+) -> Vec<String> {
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
+    let failed: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let worker_count = threads.max(1);
 
     std::thread::scope(|scope| {
@@ -249,25 +259,35 @@ fn extract_all(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(task) = tasks.get(i) else { break };
 
-                    match extract_changes(llm, &task.amending_text, opts) {
+                    let outcome = match extract_changes(llm, &task.amending_text, opts) {
                         Ok(cached) => {
                             // Insert and persist while holding the lock so the on-disk
                             // cache is always consistent with in-memory state.
                             let mut guard = cache.lock().unwrap();
                             guard.insert(task.amendment_id.clone(), cached);
                             write_cache(cache_path, &guard);
+                            "extracted"
                         }
                         Err(err) => {
+                            // One call, so the raw reply inside `err` stays in one
+                            // piece even when several workers fail at once.
                             eprintln!("ERROR extracting {}: {err}", task.amendment_id);
+                            failed.lock().unwrap().push(task.amendment_id.clone());
+                            "failed"
                         }
-                    }
+                    };
 
                     let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    println!("[{n}/{}] extracted", tasks.len());
+                    println!("[{n}/{}] {outcome}", tasks.len());
                 }
             });
         }
     });
+
+    // Workers race, so sort for a report that reads the same on every run.
+    let mut failed = failed.into_inner().unwrap();
+    failed.sort();
+    failed
 }
 
 /// Query the LLM for one amendment and parse its `<response>` payload.
