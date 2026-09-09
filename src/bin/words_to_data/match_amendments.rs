@@ -125,6 +125,9 @@ pub fn run(args: Args) {
     let mut candidates_by_work = Vec::new();
     let mut applied = 0;
     let mut annotated_paths = 0;
+    // Amendments whose reply never parsed, gathered across every pair in the
+    // span so one run reports one total.
+    let mut failed: Vec<String> = Vec::new();
 
     for (from, to) in pairs {
         let diff = crate::fail::or_exit(dataset.compute_diff(&from, &to), "Error computing diff");
@@ -134,7 +137,8 @@ pub fn run(args: Args) {
         print_stats(&matches);
 
         // Ask the LLM which candidate(s) each amendment matches.
-        let matched = classify_all(&llm, &matches, args.threads, &opts);
+        let (matched, lost) = classify_all(&llm, &matches, args.threads, &opts);
+        failed.extend(lost);
 
         // Apply the LLM's annotations single-threaded.
         for (match_idx, classification) in matched {
@@ -224,6 +228,7 @@ pub fn run(args: Args) {
         candidates_by_work.len()
     );
     println!("Annotated paths: {annotated_paths}");
+    crate::report::failed_amendments(&failed);
     println!("Wrote {}", candidates_path.display());
     println!("Wrote {output}");
 }
@@ -252,15 +257,20 @@ fn print_stats(matches: &[AmendmentMatch]) {
 ///
 /// Workers only read match data and return `(match_index, annotations)`; the
 /// caller applies the annotations to the dataset single-threaded.
+/// Returns the classifications that succeeded, and the ids of the amendments
+/// that failed so the caller can report the loss. A reply that does not parse
+/// is not kept: it backs no statement, so it is not evidence
+/// (`docs/adr/0005`). Running the command again is the retry.
 fn classify_all(
     llm: &LlmClient,
     matches: &[AmendmentMatch],
     threads: usize,
     opts: &ChatOptions,
-) -> Vec<(usize, Classification)> {
+) -> (Vec<(usize, Classification)>, Vec<String>) {
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
     let results: Mutex<Vec<(usize, Classification)>> = Mutex::new(Vec::new());
+    let failed: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let worker_count = threads.max(1);
 
     std::thread::scope(|scope| {
@@ -270,23 +280,31 @@ fn classify_all(
                     let i = next.fetch_add(1, Ordering::Relaxed);
                     let Some(m) = matches.get(i) else { break };
 
-                    match classify(llm, m, opts) {
+                    let outcome = match classify(llm, m, opts) {
                         Ok(classification) => {
                             results.lock().unwrap().push((i, classification));
+                            "matched"
                         }
                         Err(err) => {
+                            // One call, so the raw reply inside `err` stays in one
+                            // piece even when several workers fail at once.
                             eprintln!("ERROR matching {}: {err}", m.amendment_id);
+                            failed.lock().unwrap().push(m.amendment_id.clone());
+                            "failed"
                         }
-                    }
+                    };
 
                     let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    println!("[{n}/{}] matched", matches.len());
+                    println!("[{n}/{}] {outcome}", matches.len());
                 }
             });
         }
     });
 
-    results.into_inner().unwrap()
+    // Workers race, so sort for a report that reads the same on every run.
+    let mut failed = failed.into_inner().unwrap();
+    failed.sort();
+    (results.into_inner().unwrap(), failed)
 }
 
 /// One amendment's answer: what the model said, and what it was parsed into.

@@ -38,7 +38,11 @@ The evidence store is **core**, not part of an extension. A reader that does not
 
 A dataset grows by the size of its replies. The first sweep added 1,210 KB against a 1.9 GB dataset, so the proportion is small, and it is not optional: evidence you can switch off is evidence you will not have on the run that mattered.
 
-**A reply is only recorded when it parses.** Both commands still log a parse failure and drop the reply, so the malformed output this decision most wants to capture is the one thing it does not. That is a gap in the implementation rather than in this decision, and it is tracked separately.
+**A reply is only recorded when it parses.** This is the decision, not an unfinished part of it. Evidence is what a statement was based on, and a reply that no parser could read produced no statement. Keeping it would put text in the W2D file that the receiving party cannot check anything against, which is the opposite of what this ADR exists for.
+
+A parse failure is reported instead of kept. The run counts the failures, names the amendments that failed, and prints the model's raw text to stderr, where a person can read it and a redirect can save it. Running the command again retries every amendment that failed, because a failure never enters the extraction cache.
+
+The cost is real and we accept it. #58 gave parser-regression testing as a reason to record replies, and no sweep can now supply a fixture for truncation, for a refusal, or for a stray thinking block. A fixture like that has to be kept by hand from a run's stderr.
 
 ## Considered and rejected
 
@@ -49,3 +53,5 @@ A dataset grows by the size of its replies. The first sweep added 1,210 KB again
 **Storing the prompt alongside the reply.** The most complete record, and it duplicates data the dataset already holds while roughly multiplying the storage cost of evidence. Revisit if prompt construction ever changes often enough that the hash stops being informative.
 
 **Reference-counting replies and deleting the orphans.** Keeps the store tidy. It also throws away the record of a claim that was later revised, which is exactly the history an auditor asks for.
+
+**Keeping a reply that failed to parse.** It would give the parser the malformed fixtures that have no other source, and it would let a receiving party measure what a sweep lost. It also fills the evidence store with text that backs no statement. Worse, it makes an unreferenced reply ambiguous: a reader could no longer tell a superseded reply from one that never parsed, and telling the two apart needs a stored marker, which costs a schema version. Reported and retried beats stored (#101).
