@@ -53,7 +53,7 @@ What a statement was based on: the maker's reasoning in their own words, and the
 _Avoid_: Proof, justification, backing
 
 **Model reply**:
-The text a model returned, kept exactly as it arrived. One reply usually makes several statements, so it is stored once and referred to, never copied onto each. It is never deleted, even when the statement it supported has been superseded: an unreferenced reply is a record that something was said.
+The text a model returned, kept exactly as it arrived. One reply usually makes several statements, so it is stored once and referred to, never copied onto each. It is never deleted, even when the statement it supported has been superseded: an unreferenced reply is a record that something was said. A reply that no parser could read makes no statement, so the Dataset does not carry it at all.
 _Avoid_: Response, output, completion
 
 **Provision**:
