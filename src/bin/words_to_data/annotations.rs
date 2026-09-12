@@ -2,7 +2,7 @@
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
-use words_to_data::inspect::{self, AnnotationQuery};
+use words_to_data::inspect::{self, AnnotationQuery, PathMatch};
 
 use crate::load::{self, with_dataset};
 
@@ -23,9 +23,13 @@ pub struct Args {
     #[arg(long, conflicts_with_all = ["from", "path"])]
     pub bill: Option<String>,
 
-    /// Filter to annotations touching this structural path
+    /// Filter to annotations on this structural path or on any path beneath it
     #[arg(long, conflicts_with_all = ["from", "bill"])]
     pub path: Option<String>,
+
+    /// Match `--path` exactly: keep only annotations recorded on that path itself
+    #[arg(long, requires = "path")]
+    pub exact: bool,
 
     /// Emit JSON instead of human-readable text
     #[arg(long)]
@@ -38,7 +42,10 @@ pub fn run(args: Args) {
     } else if let Some(bill) = &args.bill {
         AnnotationQuery::Bill(bill)
     } else if let Some(path) = &args.path {
-        AnnotationQuery::Path(path)
+        AnnotationQuery::Path {
+            path,
+            matching: path_matching(args.exact),
+        }
     } else {
         eprintln!("Provide a filter: --from/--to, --bill, or --path");
         std::process::exit(2);
@@ -60,6 +67,19 @@ pub fn run(args: Args) {
         println!("    paths: {}", a.paths.join(", "));
     }
     println!("{} annotation(s)", anns.len());
+}
+
+/// Read the `--exact` flag both path-taking commands carry.
+///
+/// The subtree is the default: a person names a section, and a bill amends a
+/// clause inside it. Shared with the `path` command so one flag cannot come to
+/// mean two things.
+pub fn path_matching(exact: bool) -> PathMatch {
+    if exact {
+        PathMatch::Exact
+    } else {
+        PathMatch::Subtree
+    }
 }
 
 /// Print one annotation's headline: status, operation, bill, short amendment id,

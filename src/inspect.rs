@@ -262,10 +262,14 @@ fn field_str(field: &crate::uslm::TextContentField) -> String {
 /// Assemble a combined view of a single path: which expressions hold it and
 /// how many provisions sit there, what happened to each provision across an
 /// optional expression pair, and every annotation that references it.
+///
+/// `matching` decides which annotations reference the path: the whole subtree
+/// beneath it, or that path alone. See [`PathMatch`].
 pub fn path_report<S: Storage>(
     dataset: &S,
     path: &str,
     pair: Option<(&ExpressionId, &ExpressionId)>,
+    matching: PathMatch,
 ) -> Result<PathReport, DatasetError> {
     let present_in = presence_counts(dataset, path)?;
 
@@ -281,7 +285,7 @@ pub fn path_report<S: Storage>(
         None => Vec::new(),
     };
 
-    let annotations = annotations(dataset, AnnotationQuery::Path(path))?;
+    let annotations = annotations(dataset, AnnotationQuery::Path { path, matching })?;
 
     Ok(PathReport {
         path: path.to_string(),
@@ -525,6 +529,33 @@ pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetErro
     })
 }
 
+/// Which paths a path filter accepts.
+///
+/// A bill amends a subsection, paragraph, subparagraph or clause, so that is
+/// where a change annotation lands. A section is the unit a person names. The
+/// two are therefore almost never the same path, and matching them for equality
+/// answers nothing for most of the annotated law.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PathMatch {
+    /// The path given and every path beneath it. The default, because it is
+    /// what naming a section means.
+    #[default]
+    Subtree,
+    /// Only an annotation recorded on exactly the path given.
+    Exact,
+}
+
+impl PathMatch {
+    /// Whether an annotation recorded on `annotated` answers for `asked`.
+    fn accepts(self, asked: &str, annotated: &str) -> bool {
+        match self {
+            // Segment-aware, so `section_16` does not answer for `section_163`.
+            Self::Subtree => crate::uslm::path::covers_path(asked, annotated),
+            Self::Exact => asked == annotated,
+        }
+    }
+}
+
 /// Which annotations to list. The three variants map to the mutually exclusive
 /// filters of the `annotations` subcommand.
 pub enum AnnotationQuery<'a> {
@@ -536,7 +567,11 @@ pub enum AnnotationQuery<'a> {
     /// Annotations sourced from a specific bill (across all pairs).
     Bill(&'a str),
     /// Annotations touching a specific structural path (across all pairs).
-    Path(&'a str),
+    Path {
+        path: &'a str,
+        /// Which paths count as touching it.
+        matching: PathMatch,
+    },
 }
 
 /// A flattened annotation for display, tagged with the expression pair it belongs to.
@@ -607,10 +642,10 @@ pub fn annotations<S: Storage>(
                 }
             }
         }
-        AnnotationQuery::Path(path) => {
+        AnnotationQuery::Path { path, matching } => {
             for (from, to) in dataset.annotation_pairs()? {
                 for ann in dataset.get_annotations(&from, &to)?.unwrap_or_default() {
-                    if ann.paths.iter().any(|p| p == path) {
+                    if ann.paths.iter().any(|p| matching.accepts(path, p)) {
                         out.push(summarize(&from, &to, &ann));
                     }
                 }

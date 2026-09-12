@@ -5,6 +5,7 @@
 //! site renders both. Code that assumes a path is unique within an expression
 //! does not fail loudly — it picks one and discards the other.
 
+use words_to_data::inspect::PathMatch;
 use words_to_data::uslm::{USLMElement, parser::parse};
 
 const USC26_18: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
@@ -169,8 +170,8 @@ fn should_say_which_provision_was_added_when_a_path_gains_one() {
     let dataset = title_26_both_expressions();
     let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
 
-    let report =
-        inspect::path_report(&dataset, DUPLICATED, Some((&from, &to))).expect("path_report");
+    let report = inspect::path_report(&dataset, DUPLICATED, Some((&from, &to)), PathMatch::Subtree)
+        .expect("path_report");
 
     // Each expression is named once, with the number of provisions it holds.
     // Naming the later expression twice was the whole defect (#90).
@@ -233,7 +234,8 @@ fn should_say_which_provision_was_removed_when_a_path_loses_one() {
     let dataset = title_26_both_expressions();
     let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
 
-    let report = inspect::path_report(&dataset, LOST_ONE, Some((&from, &to))).expect("path_report");
+    let report = inspect::path_report(&dataset, LOST_ONE, Some((&from, &to)), PathMatch::Subtree)
+        .expect("path_report");
 
     let presence: Vec<(&str, usize)> = report
         .present_in
@@ -288,8 +290,8 @@ fn should_report_every_provision_as_removed_when_a_path_disappears() {
     let dataset = title_26_both_expressions();
     let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
 
-    let report =
-        inspect::path_report(&dataset, LOST_BOTH, Some((&from, &to))).expect("path_report");
+    let report = inspect::path_report(&dataset, LOST_BOTH, Some((&from, &to)), PathMatch::Subtree)
+        .expect("path_report");
 
     // Only the earlier expression holds the path at all.
     assert_eq!(report.present_in.len(), 1);
@@ -314,8 +316,13 @@ fn should_report_every_provision_as_added_when_a_path_is_new() {
     let dataset = title_26_both_expressions();
     let (from, to) = (title_26_at("2025-07-18"), title_26_at("2025-07-30"));
 
-    let report =
-        inspect::path_report(&dataset, GAINED_BOTH, Some((&from, &to))).expect("path_report");
+    let report = inspect::path_report(
+        &dataset,
+        GAINED_BOTH,
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("path_report");
 
     assert_eq!(report.present_in.len(), 1);
     assert_eq!(
@@ -338,7 +345,8 @@ fn should_report_counts_but_no_provisions_when_no_expression_pair_is_given() {
 
     let dataset = title_26_both_expressions();
 
-    let report = inspect::path_report(&dataset, DUPLICATED, None).expect("path_report");
+    let report =
+        inspect::path_report(&dataset, DUPLICATED, None, PathMatch::Subtree).expect("path_report");
 
     // Without a pair there is nothing to compare, but where the path lives is
     // still answerable and is still the question `present_in` exists for.
