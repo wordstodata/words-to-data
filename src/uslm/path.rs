@@ -1,9 +1,36 @@
-//! Path generation utilities for USLM elements
+//! Path utilities for USLM elements
 //!
-//! This module contains pure functions for generating structural paths
-//! and determining USLM path inclusion for elements.
+//! This module contains pure functions for generating structural paths,
+//! comparing them, and determining USLM path inclusion for elements.
 
 use super::ElementType;
+
+/// Whether `prefix` names `path` or an ancestor of it.
+///
+/// Compares whole segments, so a shorter number is not an ancestor of a longer
+/// one: `section_16` does not cover `section_163`. Every caller that takes a
+/// path and means "this path and everything beneath it" asks here, because a
+/// raw string prefix answers that question wrongly.
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::path::covers_path;
+///
+/// // The path itself, and anything beneath it.
+/// assert!(covers_path("uscode/title_26/section_163", "uscode/title_26/section_163"));
+/// assert!(covers_path(
+///     "uscode/title_26/section_163",
+///     "uscode/title_26/section_163/subsection_j/paragraph_8"
+/// ));
+///
+/// // A whole segment, not a string prefix.
+/// assert!(!covers_path("uscode/title_26/section_16", "uscode/title_26/section_163"));
+/// assert!(!covers_path("uscode/title_2", "uscode/title_26"));
+/// ```
+pub fn covers_path(prefix: &str, path: &str) -> bool {
+    path == prefix || path.starts_with(&format!("{prefix}/"))
+}
 
 /// Determines if an element type should be included in the USLM path
 ///

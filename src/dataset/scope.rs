@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dataset::{DatasetError, WorkId};
 use crate::storage::DocumentReader;
+use crate::uslm::path::covers_path;
 
 /// Whether a dataset covers something.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,14 +105,6 @@ impl Declaration {
     fn intends_path(&self, path: &str) -> bool {
         self.intends.iter().any(|want| covers_path(want, path))
     }
-}
-
-/// Whether `prefix` names `path` or an ancestor of it.
-///
-/// Compares whole segments: `uscode/title_2` must not answer for
-/// `uscode/title_26`.
-fn covers_path(prefix: &str, path: &str) -> bool {
-    path == prefix || path.starts_with(&format!("{prefix}/"))
 }
 
 /// One work a dataset holds, and when it was published.
@@ -214,12 +207,8 @@ impl Scope {
     /// A dataset that declared nothing answers exactly as it did before
     /// declarations existed: held or not held, and no third answer.
     pub fn covers(&self, path: &str) -> Coverage {
-        let inside_held = self
-            .works()
-            .any(|work| path == work.as_str() || path.starts_with(&format!("{work}/")));
-        let ancestor_of_held = self
-            .works()
-            .any(|work| work.as_str().starts_with(&format!("{path}/")));
+        let inside_held = self.works().any(|work| covers_path(work.as_str(), path));
+        let ancestor_of_held = self.works().any(|work| covers_path(path, work.as_str()));
 
         if inside_held || ancestor_of_held {
             return Coverage::InScope;

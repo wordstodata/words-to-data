@@ -19,6 +19,16 @@ use words_to_data::link::Link;
 const EARLY: &str = "2025-07-18";
 const LATE: &str = "2025-07-30";
 
+/// Every statement a real matching run of H.R. 1 recorded.
+const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+
+/// Section 163 of title 26, the section H.R. 1 changed more than any other.
+/// Every statement recorded there sits beneath the section, because an
+/// amendment acts on a subsection, paragraph, subparagraph or clause.
+const SECTION_163: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163";
+/// No such section, and a raw string prefix of [`SECTION_163`].
+const SECTION_16: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_16";
+
 /// Title 9 (Arbitration) did not change between the two release points. Its two
 /// files differ by ten bytes of release stamp, which the parser ignores.
 const UNCHANGED_TITLE: &str = "usc09";
@@ -249,6 +259,63 @@ fn annotated_fixture() -> &'static str {
         let to = ExpressionId::new(WorkId::new(UNCHANGED_WORK), LATE);
         for link in Link::from_annotation(&annotation, &from, &to) {
             dataset.add_link(link).expect("the link should be added");
+        }
+
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+/// A dataset carrying every statement a real matching run of H.R. 1 recorded.
+///
+/// Separate from [`annotated_fixture`], which holds one link on purpose so that
+/// `info` can count each kind of fact exactly. This one holds 753 statements
+/// over hundreds of paths, because a path filter is only tested by a real spread
+/// of paths.
+///
+/// The documents are title 9 while the statements name title 26. A path filter
+/// compares paths and never reads a document, so holding the amended title
+/// itself would add a minute of parsing and prove nothing more; `inspect_tests`
+/// says the same of the same fixture file.
+fn matched_statements_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!(
+            "{}/cli_matched_statements.sqlite",
+            env!("CARGO_TARGET_TMPDIR")
+        );
+        let _ = std::fs::remove_file(&path);
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Matched Statements".to_string(),
+            description: "One title, plus the statements a real run recorded".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+            ..Default::default()
+        });
+
+        for date in [EARLY, LATE] {
+            let xml = format!("tests/test_data/usc/{date}/{UNCHANGED_TITLE}.xml");
+            dataset
+                .add_uslm_xml(&xml, date, None)
+                .expect("the corpus should parse and load");
+        }
+
+        let file = std::fs::File::open(REAL_ANNOTATIONS).expect("open the recorded annotations");
+        let annotations: Vec<ChangeAnnotation> =
+            serde_json::from_reader(std::io::BufReader::new(file)).expect("read the annotations");
+
+        let work = WorkId::new(UNCHANGED_WORK);
+        let from = ExpressionId::new(work.clone(), EARLY);
+        let to = ExpressionId::new(work, LATE);
+        for annotation in &annotations {
+            for link in Link::from_annotation(annotation, &from, &to) {
+                dataset.add_link(link).expect("the link should be added");
+            }
         }
 
         dataset
@@ -557,6 +624,132 @@ fn should_return_no_annotations_when_the_dataset_has_none() {
         serde_json::from_slice(&output.stdout).expect("annotations --json should emit json");
 
     assert_eq!(annotations.as_array().expect("an array").len(), 0);
+}
+
+/// The annotation list of a `path` or `annotations` run, as JSON.
+fn annotation_list(args: &[&str]) -> Vec<serde_json::Value> {
+    let output = run(args);
+    assert!(
+        output.status.success(),
+        "{args:?} should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("--json should emit json");
+    // `path` wraps its annotations in a report; `annotations` emits the list.
+    let list = match json.get("annotations") {
+        Some(annotations) => annotations,
+        None => &json,
+    };
+    list.as_array().expect("an array").clone()
+}
+
+#[test]
+fn should_report_the_annotations_beneath_a_section_when_path_names_a_section() {
+    let dataset = matched_statements_fixture();
+
+    let by_default = annotation_list(&["path", dataset, SECTION_163, "--json"]);
+    let exactly_there = annotation_list(&["path", dataset, SECTION_163, "--exact", "--json"]);
+
+    assert_eq!(
+        by_default.len(),
+        9,
+        "naming a section must report the records held beneath it"
+    );
+    assert!(
+        exactly_there.is_empty(),
+        "--exact keeps the answer this section used to give"
+    );
+}
+
+#[test]
+fn should_report_the_annotations_beneath_a_section_when_annotations_is_given_one() {
+    let dataset = matched_statements_fixture();
+
+    let by_default = annotation_list(&["annotations", dataset, "--path", SECTION_163, "--json"]);
+    let exactly_there = annotation_list(&[
+        "annotations",
+        dataset,
+        "--path",
+        SECTION_163,
+        "--exact",
+        "--json",
+    ]);
+
+    assert_eq!(
+        by_default.len(),
+        9,
+        "both commands must answer a section the same way"
+    );
+    assert!(exactly_there.is_empty(), "--exact means exactly");
+}
+
+#[test]
+fn should_not_report_a_longer_section_number_when_the_path_is_a_string_prefix() {
+    let dataset = matched_statements_fixture();
+
+    let shorter_number = annotation_list(&["annotations", dataset, "--path", SECTION_16, "--json"]);
+
+    assert!(
+        shorter_number.is_empty(),
+        "§16 is not §163: a path matches whole segments, not characters"
+    );
+}
+
+/// The subtree changes which annotations are listed, and nothing else. An agent
+/// reading `--json` must not have to change how it reads the answer.
+#[test]
+fn should_keep_the_annotation_fields_when_reporting_a_subtree() {
+    let dataset = matched_statements_fixture();
+
+    let reported = annotation_list(&["annotations", dataset, "--path", SECTION_163, "--json"]);
+
+    let first = reported.first().expect("a reported annotation");
+    for field in [
+        "work",
+        "from",
+        "to",
+        "from_date",
+        "to_date",
+        "operation",
+        "bill_id",
+        "amendment_id",
+        "causative_text",
+        "status",
+        "confidence",
+        "annotator",
+        "paths",
+    ] {
+        assert!(
+            first.get(field).is_some(),
+            "the annotation shape must not change, {field} is missing from {first}"
+        );
+    }
+}
+
+#[test]
+fn should_say_which_paths_the_filter_matches_when_either_command_is_asked_for_help() {
+    let annotations = String::from_utf8_lossy(&run(&["annotations", "--help"]).stdout).to_string();
+    let path = String::from_utf8_lossy(&run(&["path", "--help"]).stdout).to_string();
+
+    for help in [&annotations, &path] {
+        assert!(
+            help.contains("beneath"),
+            "the help must say the filter takes the subtree, got: {help}"
+        );
+        assert!(
+            help.contains("--exact"),
+            "the help must offer the exact rule, got: {help}"
+        );
+    }
+    assert!(
+        annotations.contains("path itself"),
+        "the exact rule must say what it matches, got: {annotations}"
+    );
+    assert!(
+        path.contains("this path itself"),
+        "the exact rule must say what it matches, got: {path}"
+    );
 }
 
 /// `annotations` needs one of three filters. Asking for everything is a usage

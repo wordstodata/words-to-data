@@ -12,7 +12,8 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Structural path to inspect (e.g. `uscode/title_9/chapter_1/section_1`)
+    /// Structural path to inspect (e.g. `uscode/title_9/chapter_1/section_1`).
+    /// Annotations on this path and on every path beneath it are reported
     pub path: String,
 
     /// Older expression for field changes, e.g. `uscode/title_9@2025-07-18` (requires `--to`)
@@ -22,6 +23,10 @@ pub struct Args {
     /// Newer expression of the same work (requires `--from`)
     #[arg(long, requires = "from")]
     pub to: Option<ExpressionId>,
+
+    /// Report only the annotations recorded on this path itself, not those beneath it
+    #[arg(long)]
+    pub exact: bool,
 
     /// Emit JSON instead of human-readable text
     #[arg(long)]
@@ -34,9 +39,10 @@ pub fn run(args: Args) {
         _ => None,
     };
 
+    let matching = crate::annotations::path_matching(args.exact);
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let report = crate::fail::or_exit(
-        with_dataset!(ds, d => inspect::path_report(&d, &args.path, pair)),
+        with_dataset!(ds, d => inspect::path_report(&d, &args.path, pair, matching)),
         "Error building path report",
     );
 
@@ -73,7 +79,14 @@ pub fn run(args: Args) {
         }
     }
 
-    println!("\nAnnotations ({}):", report.annotations.len());
+    // Say which paths the count covers. A bare "Annotations (0)" reads as
+    // "nothing was attributed here", which is a different statement.
+    let scope = if args.exact {
+        "on this path exactly"
+    } else {
+        "at or beneath this path"
+    };
+    println!("\nAnnotations {scope} ({}):", report.annotations.len());
     for a in &report.annotations {
         crate::annotations::print_annotation(a);
     }
