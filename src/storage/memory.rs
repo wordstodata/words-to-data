@@ -13,8 +13,8 @@ use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
 use crate::link::{Link, Target};
 use crate::storage::{
-    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, LegislatureReader,
-    LegislatureWriter, LinkReader, LinkWriter, Storage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, LegislatureCounts,
+    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -312,6 +312,14 @@ impl LinkReader for InMemoryStorage {
         pairs.dedup();
         Ok(pairs)
     }
+
+    fn count_links_by_kind(&self) -> Result<BTreeMap<String, usize>, DatasetError> {
+        let mut counts = BTreeMap::new();
+        for link in self.links.values() {
+            *counts.entry(link.kind.0.clone()).or_insert(0) += 1;
+        }
+        Ok(counts)
+    }
 }
 
 /// The structural path a link's subject names, when it names one.
@@ -349,6 +357,10 @@ impl EvidenceReader for InMemoryStorage {
 
     fn replies(&self) -> Result<Vec<String>, DatasetError> {
         Ok(self.replies.keys().cloned().collect())
+    }
+
+    fn count_replies(&self) -> Result<usize, DatasetError> {
+        Ok(self.replies.len())
     }
 }
 
@@ -396,6 +408,17 @@ impl LegislatureReader for InMemoryStorage {
             }
         }
         Ok(results)
+    }
+
+    fn legislature_counts(&self) -> Result<LegislatureCounts, DatasetError> {
+        let roll_calls = || self.bill_votes.values().flat_map(|v| v.roll_calls.iter());
+        Ok(LegislatureCounts {
+            bills: self.bills.len(),
+            members: self.members.len(),
+            sponsors: self.sponsors.len(),
+            roll_calls: roll_calls().count(),
+            member_votes: roll_calls().map(|rc| rc.member_votes.len()).sum(),
+        })
     }
 }
 

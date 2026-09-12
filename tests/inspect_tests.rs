@@ -8,10 +8,12 @@
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
+use words_to_data::congress::CongressClient;
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
 use words_to_data::inspect;
 use words_to_data::inspect::AnnotationQuery;
 use words_to_data::legislature::AmendingAction;
+use words_to_data::link::LinkKind;
 use words_to_data::storage::{InMemoryStorage, SqliteStorage};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
@@ -22,6 +24,11 @@ const TITLE_9: &str = "uscode/title_9";
 const USC09_18: &str = "tests/test_data/usc/2025-07-18/usc09.xml";
 const USC09_30: &str = "tests/test_data/usc/2025-07-30/usc09.xml";
 const PL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// The committed download of one real bill: its sponsor, its cosponsors, the
+/// members of the House, and the roll call they voted in.
+const CONGRESS_CACHE: &str = "tests/test_data/congress_client_cache";
+/// Replies a model really emitted, the evidence a sweep keeps (#58).
+const MODEL_REPLIES: &str = "tests/test_data/processed/model_replies.json";
 
 fn at(date: &str) -> ExpressionId {
     ExpressionId::new(WorkId::new(TITLE_9), date)
@@ -75,6 +82,42 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
     dataset
 }
 
+/// The fixture plus everything else an annotated legislative dataset carries:
+/// the bill's sponsor, the members of the House, the roll call they voted in,
+/// and the model replies the links were read out of.
+///
+/// All of it is committed data, read through the same cache the pipeline reads.
+fn make_full_fixture() -> Dataset<InMemoryStorage> {
+    let mut dataset = make_fixture();
+
+    // No API key and no expiry: the fixtures are committed, and a read must
+    // never reach the network or delete them for being old.
+    let client = CongressClient::with_ttl(String::new(), Some(CONGRESS_CACHE.to_string()), None);
+    let download = client
+        .download_bill("119-hr-1")
+        .expect("the cached bill should read");
+    dataset
+        .load_bill_download(&download)
+        .expect("the download should load");
+
+    for reply in recorded_replies() {
+        dataset.add_reply(&reply).expect("the reply should store");
+    }
+    dataset
+}
+
+/// Every reply in the recorded fixture.
+fn recorded_replies() -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct RecordedReply {
+        reply: String,
+    }
+    let json = std::fs::read_to_string(MODEL_REPLIES).expect("the fixture should be readable");
+    let replies: Vec<RecordedReply> =
+        serde_json::from_str(&json).expect("the fixture should parse");
+    replies.into_iter().map(|r| r.reply).collect()
+}
+
 /// Round-trip the fixture through SQLite so tests can exercise that backend too.
 ///
 /// `name` must be unique per test: tests run in parallel and each needs its own
@@ -101,6 +144,87 @@ fn should_report_metadata_and_counts_when_given_in_memory_dataset() {
     assert_eq!(info.work_count, 1, "two releases of one title are one work");
     assert_eq!(info.expression_count, 2);
     assert_eq!(info.bill_count, 1);
+}
+
+#[test]
+fn should_count_links_replies_members_sponsors_and_votes_when_the_dataset_holds_them() {
+    let dataset = make_full_fixture();
+
+    let info = inspect::info(&dataset).expect("info");
+
+    // Links are what this project produces; the US Code text is the input.
+    assert_eq!(
+        info.link_count, 1,
+        "the fixture's annotation names one path"
+    );
+    assert_eq!(
+        info.link_counts_by_kind.get(LinkKind::AMENDED_BY).copied(),
+        Some(1),
+        "the kind is named in full, namespace included"
+    );
+    assert_eq!(info.reply_count, 5, "the recorded fixture holds five");
+    assert_eq!(info.member_count, 432);
+    assert_eq!(info.sponsor_count, 1, "one bill, one sponsor record");
+    assert_eq!(info.roll_call_count, 1);
+    assert_eq!(info.member_vote_count, 432);
+}
+
+#[test]
+fn should_omit_a_zero_count_from_json_when_the_dataset_holds_none_of_it() {
+    // Two release points of one title and nothing else: no legislature
+    // extension, no links, no evidence.
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "Documents only".to_string(),
+        ..Default::default()
+    });
+    dataset
+        .add_uslm_xml(USC09_18, "2025-07-18", None)
+        .expect("add first version");
+
+    let info = inspect::info(&dataset).expect("info");
+    let json = serde_json::to_value(&info).expect("info should serialize");
+
+    // A wall of zeroes reads as "this tool measured nothing". Absence is the
+    // answer, and it is the same answer for every one of the new counts.
+    for key in [
+        "link_count",
+        "link_counts_by_kind",
+        "reply_count",
+        "member_count",
+        "sponsor_count",
+        "roll_call_count",
+        "member_vote_count",
+    ] {
+        assert!(
+            json.get(key).is_none(),
+            "{key} is zero here and must be left out"
+        );
+    }
+
+    // The counts that were reported before this rule are still reported, so an
+    // agent reading them keeps its fields.
+    assert_eq!(json["work_count"], 1);
+    assert_eq!(json["expression_count"], 1);
+    assert_eq!(json["bill_count"], 0);
+}
+
+#[test]
+fn should_report_identical_counts_for_both_backends() {
+    let fixture = make_full_fixture();
+    let expected = inspect::info(&fixture).expect("info mem");
+
+    let sqlite = to_sqlite(&fixture, "counts");
+    let actual = inspect::info(&sqlite).expect("info sqlite");
+
+    assert_eq!(actual.link_count, expected.link_count);
+    assert_eq!(actual.link_counts_by_kind, expected.link_counts_by_kind);
+    assert_eq!(actual.reply_count, expected.reply_count);
+    assert_eq!(actual.member_count, expected.member_count);
+    assert_eq!(actual.sponsor_count, expected.sponsor_count);
+    assert_eq!(actual.roll_call_count, expected.roll_call_count);
+    assert_eq!(actual.member_vote_count, expected.member_vote_count);
+    // Same numbers, and the numbers the dataset really holds.
+    assert_eq!(actual.member_vote_count, 432);
 }
 
 #[test]

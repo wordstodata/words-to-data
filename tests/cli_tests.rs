@@ -7,7 +7,13 @@
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
-use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
+use words_to_data::annotation::{
+    AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
+};
+use words_to_data::congress::CongressClient;
+use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
+use words_to_data::legislature::AmendingAction;
+use words_to_data::link::Link;
 
 /// The two US Code release points held in `tests/test_data`.
 const EARLY: &str = "2025-07-18";
@@ -170,6 +176,88 @@ fn two_works_json_fixture() -> &'static str {
     })
 }
 
+/// A dataset carrying what this project produces as well as its input: one link
+/// over a real provision, the bill behind it, and that bill's legislature facts
+/// — its sponsor, the members of the House, and the roll call they voted in.
+///
+/// `info` on a dataset like this is how a person tells an annotated dataset from
+/// a bare corpus.
+fn annotated_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/cli_annotated.sqlite", env!("CARGO_TARGET_TMPDIR"));
+        let _ = std::fs::remove_file(&path);
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Annotated Fixture".to_string(),
+            description: "One title, one public law, one link".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+            ..Default::default()
+        });
+        for date in [EARLY, LATE] {
+            let xml = format!("tests/test_data/usc/{date}/{UNCHANGED_TITLE}.xml");
+            dataset
+                .add_uslm_xml(&xml, date, None)
+                .expect("the corpus should parse and load");
+        }
+
+        // The committed download of one real bill. No API key and no expiry:
+        // the fixtures must be read without the network and never deleted for
+        // being old.
+        let client = CongressClient::with_ttl(
+            String::new(),
+            Some("tests/test_data/congress_client_cache".to_string()),
+            None,
+        );
+        let download = client
+            .download_bill("119-hr-1")
+            .expect("the cached bill should read");
+        dataset
+            .load_bill_download(&download)
+            .expect("the download should load");
+
+        let amendment_id = dataset
+            .get_bill("119-hr-1")
+            .expect("the bill should read")
+            .expect("the download holds it")
+            .amendments
+            .keys()
+            .next()
+            .expect("a real public law carries amendments")
+            .clone();
+        let annotation = ChangeAnnotation {
+            operation: AmendingAction::Strike,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id,
+                causative_text: "by striking 'foo'".to_string(),
+            },
+            paths: vec![format!("{UNCHANGED_WORK}/chapter_1/section_1")],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Pending,
+                confidence: Some(0.9),
+                annotator: "model:test".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        };
+        let from = ExpressionId::new(WorkId::new(UNCHANGED_WORK), EARLY);
+        let to = ExpressionId::new(WorkId::new(UNCHANGED_WORK), LATE);
+        for link in Link::from_annotation(&annotation, &from, &to) {
+            dataset.add_link(link).expect("the link should be added");
+        }
+
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
 /// Run the CLI as a subprocess, the way an agent or a shell would.
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_words_to_data"))
@@ -203,6 +291,77 @@ fn should_report_metadata_and_counts_when_info_runs_on_a_dataset() {
     assert_eq!(info["scope"]["held"][0]["work"], AMENDED_WORK);
     assert_eq!(info["scope"]["held"][0]["dates"][0], EARLY);
     assert_eq!(info["scope"]["held"][0]["dates"][1], LATE);
+}
+
+#[test]
+fn should_name_the_link_kind_when_info_reports_links() {
+    let output = run(&["info", annotated_fixture()]);
+
+    assert!(
+        output.status.success(),
+        "info should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    // The kind is named in full, namespace included. A reader who meets a
+    // namespace it does not know must see it named rather than folded into a
+    // total (`docs/adr/0002-links-live-in-the-core.md`).
+    assert!(
+        text.contains("legislature.amended_by  1"),
+        "the link breakdown should name the kind and its count, got:\n{text}"
+    );
+    assert!(text.contains("Links:       1"), "got:\n{text}");
+    assert!(text.contains("Members:     432"), "got:\n{text}");
+    assert!(text.contains("Votes:       432"), "got:\n{text}");
+    assert!(text.contains("Roll calls:  1"), "got:\n{text}");
+    assert!(text.contains("Sponsors:    1"), "got:\n{text}");
+    // This dataset holds no evidence, so it says nothing about evidence.
+    assert!(!text.contains("Replies:"), "got:\n{text}");
+}
+
+#[test]
+fn should_carry_the_link_and_legislature_counts_when_info_emits_json() {
+    let output = run(&["info", annotated_fixture(), "--json"]);
+    let info: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("info --json should emit json");
+
+    // `--json` is what an agent reads, so it carries the same counts.
+    assert_eq!(info["link_count"], 1);
+    assert_eq!(info["link_counts_by_kind"]["legislature.amended_by"], 1);
+    assert_eq!(info["member_count"], 432);
+    assert_eq!(info["member_vote_count"], 432);
+    assert_eq!(info["roll_call_count"], 1);
+    assert_eq!(info["sponsor_count"], 1);
+    assert_eq!(info["bill_count"], 1);
+    assert!(
+        info.get("reply_count").is_none(),
+        "a count of zero is left out"
+    );
+}
+
+#[test]
+fn should_omit_a_count_of_zero_when_info_runs_on_a_dataset_without_legislature() {
+    let output = run(&["info", amended_fixture()]);
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    // A dataset with no legislature extension must not grow a wall of zeroes.
+    for label in [
+        "Links:",
+        "Replies:",
+        "Members:",
+        "Sponsors:",
+        "Roll calls:",
+        "Votes:",
+    ] {
+        assert!(
+            !text.contains(label),
+            "{label} is zero here and must not be printed, got:\n{text}"
+        );
+    }
+    // The counts reported before this rule are still reported.
+    assert!(text.contains("Works:       1"), "got:\n{text}");
+    assert!(text.contains("Bills:       0"), "got:\n{text}");
 }
 
 /// Run `diff` over a fixture and return its parsed JSON summary.

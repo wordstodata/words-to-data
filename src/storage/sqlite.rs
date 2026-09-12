@@ -1,6 +1,6 @@
 //! SQLite storage backend for datasets
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -17,7 +17,8 @@ use crate::link::{Link, LinkKind, Provenance, Target};
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
-    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SCHEMA_VERSION, Storage,
+    LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
+    SCHEMA_VERSION, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -1131,6 +1132,19 @@ fn link_from_row(row: &rusqlite::Row) -> Result<Link, rusqlite::Error> {
 }
 
 impl SqliteStorage {
+    /// How many rows one of this schema's tables holds.
+    ///
+    /// `table` is always a literal from this file — a table name cannot be a
+    /// bound parameter, so it must never come from a caller.
+    fn count_rows(&self, table: &str) -> Result<usize, DatasetError> {
+        let count: i64 =
+            self.conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })?;
+        Ok(count as usize)
+    }
+
     /// Run one link query and collect the rows.
     fn query_links<P: rusqlite::Params>(
         &self,
@@ -1193,6 +1207,18 @@ impl LinkReader for SqliteStorage {
         )
     }
 
+    fn count_links_by_kind(&self) -> Result<BTreeMap<String, usize>, DatasetError> {
+        // One grouped count. Building the links to count them would read every
+        // subject, object, and provenance document in the table.
+        let mut stmt = self
+            .conn
+            .prepare("SELECT kind, COUNT(*) FROM links GROUP BY kind ORDER BY kind")?;
+        let counts = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as usize)))?
+            .collect::<Result<BTreeMap<String, usize>, _>>()?;
+        Ok(counts)
+    }
+
     fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT subject_work, subject_from_date, subject_to_date FROM links \
@@ -1234,6 +1260,10 @@ impl EvidenceReader for SqliteStorage {
             .query_map([], |row| row.get(0))?
             .collect::<Result<Vec<String>, _>>()?;
         Ok(ids)
+    }
+
+    fn count_replies(&self) -> Result<usize, DatasetError> {
+        self.count_rows("model_replies")
     }
 }
 
@@ -1388,6 +1418,16 @@ impl LegislatureReader for SqliteStorage {
         }
 
         Ok(results)
+    }
+
+    fn legislature_counts(&self) -> Result<LegislatureCounts, DatasetError> {
+        Ok(LegislatureCounts {
+            bills: self.count_rows("bills")?,
+            members: self.count_rows("members")?,
+            sponsors: self.count_rows("sponsors")?,
+            roll_calls: self.count_rows("roll_calls")?,
+            member_votes: self.count_rows("member_votes")?,
+        })
     }
 }
 
