@@ -28,6 +28,14 @@ _Avoid_: Delta, comparison, change set
 An instruction in a bill that tells a reader how to change existing law.
 _Avoid_: Edit, modification, revision
 
+**Member**:
+A person who sits in a legislature. The person does not change. Almost everything the source says about them is true only of a date.
+_Avoid_: Legislator, representative
+
+**Party affiliation**:
+The party a Member held, with the years the source gives for it. A Member carries a history of these and never one undated party, because the affiliation is dated in the same way that an Expression is one Work on one date: the person is the Work, the affiliation on a day is the Expression. A vote carries a date, so the party reported beside a vote is the party held on that day. The source gives years and not days, and the year of a change belongs to two affiliations, so a date in that year is answered as unresolved. An unresolved affiliation is a different answer from a known one, and every reader can tell them apart.
+_Avoid_: Current party, the member's party
+
 **Link**:
 A statement that connects one provision to something else. It carries a subject, a namespaced kind, an object, and its provenance. Every reader can read a link, even a reader that does not know the kind. Its identity comes from its subject, its kind, and its object, so restating the same fact updates one link rather than making a second one.
 _Avoid_: Relation, edge, reference

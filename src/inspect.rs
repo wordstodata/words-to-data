@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::annotation::ChangeAnnotation;
+use crate::congress::{Party, PartyOnDate, VotePosition};
 use crate::dataset::{DatasetError, ExpressionId, Scope, SearchResult, WorkId};
 use crate::diff::TreeDiff;
 use crate::storage::Storage;
@@ -853,6 +854,107 @@ pub fn show_bill<S: Storage>(
         amendment_count: amendments.len(),
         amendments,
     }))
+}
+
+/// How many members of one party took one position on a roll call.
+#[derive(Debug, Clone, Serialize)]
+pub struct PartyVoteCount {
+    pub party: Party,
+    pub position: VotePosition,
+    pub count: usize,
+}
+
+/// One vote whose party the roll call's date cannot settle.
+#[derive(Debug, Clone, Serialize)]
+pub struct UnresolvedVote {
+    pub bioguide_id: String,
+    /// `None` when this dataset holds no member under that id.
+    pub name: Option<String>,
+    pub position: VotePosition,
+    /// Why the party is unresolved: years two parties share, or nothing on file.
+    pub party: PartyOnDate,
+}
+
+/// One roll call, with every party taken from the day the vote was held.
+///
+/// A member's affiliation is dated, so a roll call cannot be reported through
+/// the party a member holds today: that restates a 2025 vote as a 2026 fact
+/// (#105).
+#[derive(Debug, Clone, Serialize)]
+pub struct RollCallTally {
+    pub roll_number: u32,
+    /// The date of the roll call, as the source gave it.
+    pub date: String,
+    pub question: String,
+    pub result: String,
+    /// One row per party and position, in party then position order. It counts
+    /// only the votes whose party the day of the roll call settles.
+    pub by_party: Vec<PartyVoteCount>,
+    /// The votes no row counts, each with the reason. These and `by_party`
+    /// together are every vote on the roll call: a party that cannot be told is
+    /// left uncounted rather than guessed at.
+    pub unresolved: Vec<UnresolvedVote>,
+}
+
+/// Tally every roll call on one bill, or `None` if the bill has no votes here.
+pub fn votes<S: Storage>(
+    dataset: &S,
+    bill_id: &str,
+) -> Result<Option<Vec<RollCallTally>>, DatasetError> {
+    let Some(bill_votes) = dataset.get_bill_votes(bill_id)? else {
+        return Ok(None);
+    };
+
+    let mut tallies = Vec::new();
+    for roll_call in &bill_votes.roll_calls {
+        let day = roll_call.day();
+        let mut counted: BTreeMap<(Party, VotePosition), usize> = BTreeMap::new();
+        let mut unresolved = Vec::new();
+
+        for vote in &roll_call.member_votes {
+            let member = dataset.get_member(&vote.bioguide_id)?;
+            let party = match (day, &member) {
+                (Some(day), Some(member)) => member.party_on(day),
+                // Either the date is unreadable or the member is not held. In
+                // both cases the party is not known from this dataset.
+                _ => PartyOnDate::Unknown,
+            };
+
+            match party.resolved() {
+                Some(resolved) => {
+                    *counted
+                        .entry((resolved.clone(), vote.position))
+                        .or_default() += 1;
+                }
+                None => unresolved.push(UnresolvedVote {
+                    bioguide_id: vote.bioguide_id.clone(),
+                    name: member.map(|member| member.name),
+                    position: vote.position,
+                    party,
+                }),
+            }
+        }
+
+        unresolved.sort_by(|a, b| a.bioguide_id.cmp(&b.bioguide_id));
+        tallies.push(RollCallTally {
+            roll_number: roll_call.roll_number,
+            date: roll_call.date.clone(),
+            question: roll_call.question.clone(),
+            result: roll_call.result.clone(),
+            by_party: counted
+                .into_iter()
+                .map(|((party, position), count)| PartyVoteCount {
+                    party,
+                    position,
+                    count,
+                })
+                .collect(),
+            unresolved,
+        });
+    }
+
+    tallies.sort_by_key(|tally| tally.roll_number);
+    Ok(Some(tallies))
 }
 
 /// Summarize a dataset's metadata and contents.
