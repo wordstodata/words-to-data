@@ -88,27 +88,28 @@ fn should_refuse_a_dataset_written_by_a_different_schema() {
     }
 }
 
-/// Dating a member's party changed a type written into every form of the file,
-/// so a dataset from the build before it must be refused by name (#105).
+/// Giving a numberless container a readable path segment changed the paths that
+/// `element_index` is keyed on, so a dataset from the build before it must be
+/// refused by name (#115).
 #[test]
 fn should_refuse_a_dataset_written_at_the_previous_schema() {
-    assert_eq!(SCHEMA_VERSION, 7, "the member party history is schema 7");
+    assert_eq!(SCHEMA_VERSION, 8, "readable container paths are schema 8");
 
-    let path = written_dataset("schema_six");
+    let path = written_dataset("schema_seven");
     let conn = Connection::open(&path).expect("the file should open directly");
-    conn.execute("UPDATE schema_version SET version = 6", [])
+    conn.execute("UPDATE schema_version SET version = 7", [])
         .expect("the version should update");
     drop(conn);
 
     match SqliteStorage::open(&path) {
         Err(DatasetError::SchemaVersionMismatch { found, expected }) => {
-            assert_eq!(found, 6);
-            assert_eq!(expected, 7);
+            assert_eq!(found, 7);
+            assert_eq!(expected, 8);
             let message = DatasetError::SchemaVersionMismatch { found, expected }.to_string();
             assert!(message.contains("regenerate"), "got: {message}");
         }
         Err(other) => panic!("the failure should name the schema, got {other}"),
-        Ok(_) => panic!("a dataset written before the party history must not open"),
+        Ok(_) => panic!("a dataset written with uuid paths must not open"),
     }
 }
 

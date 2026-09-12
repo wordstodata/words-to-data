@@ -44,6 +44,13 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
+/// 8 gives a container that carries no number a readable path segment, from the
+/// publisher's `identifier` or heading in place of an XML uuid, and holds the
+/// Federal Rules of Evidence, which `<article>` grouped under a name the parser
+/// did not know (#115, #122). No column changes. The number still goes up: a
+/// path is what `element_index` is keyed on and what `Target::Provision` names,
+/// so a dataset built with uuid paths, read by a build that generates readable
+/// ones, would find nothing and say nothing.
 /// 7 dates a member's party: the whole party history is kept, in place of the
 /// one undated field that reported a 2025 vote through a 2026 affiliation
 /// (#105).
@@ -61,7 +68,7 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 7;
+pub const SCHEMA_VERSION: i32 = 8;
 
 /// Reading the documents a dataset holds.
 ///

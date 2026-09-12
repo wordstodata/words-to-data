@@ -32,6 +32,52 @@ pub fn covers_path(prefix: &str, path: &str) -> bool {
     path == prefix || path.starts_with(&format!("{prefix}/"))
 }
 
+/// A path segment made from a container's heading.
+///
+/// Some containers carry no number and no `identifier`, and the only name the
+/// publisher gives them is their heading. The U.S. Code prints them that way
+/// too, so the heading is what a person would type (#115).
+///
+/// Keeps ASCII letters and digits, lowercases them, and writes every other run
+/// of characters as a single `-`, so that nothing outside `[a-z0-9-]` can reach
+/// a path. Returns `None` where the heading holds no letter or digit at all,
+/// because an empty segment would name the container's parent instead.
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::path::path_segment_from_heading;
+///
+/// assert_eq!(
+///     path_segment_from_heading("FEDERAL RULES OF BANKRUPTCY PROCEDURE").as_deref(),
+///     Some("federal-rules-of-bankruptcy-procedure")
+/// );
+///
+/// // Punctuation and repeated separators collapse to one dash.
+/// assert_eq!(
+///     path_segment_from_heading("Insolvency, Receivership, and Liquidation").as_deref(),
+///     Some("insolvency-receivership-and-liquidation")
+/// );
+///
+/// // A heading with nothing to name by.
+/// assert_eq!(path_segment_from_heading("  —  "), None);
+/// ```
+pub fn path_segment_from_heading(heading: &str) -> Option<String> {
+    let mut segment = String::new();
+    for character in heading.chars() {
+        if character.is_ascii_alphanumeric() {
+            segment.push(character.to_ascii_lowercase());
+        } else if !segment.ends_with('-') {
+            segment.push('-');
+        }
+    }
+    let segment = segment.trim_matches('-');
+    match segment.is_empty() {
+        true => None,
+        false => Some(segment.to_string()),
+    }
+}
+
 /// Determines if an element type should be included in the USLM path
 ///
 /// Returns true for elements that are part of the official USLM identifier scheme,
