@@ -1,10 +1,30 @@
 # Structural paths locate provisions; they do not identify them
 
-Status: accepted
+Status: accepted. **Partly implemented — see Implementation status.**
+
+## Implementation status
+
+The paragraph below says "we therefore give each provision a stable identity", in the settled tense. **We have not.** No provision identity is minted or carried anywhere in the code. `Target::Provision` names a provision by path, and `WorkId` holds a structural path for the same reason (`docs/adr/0003-storage-is-keyed-by-work.md` records that debt too).
+
+What is implemented is the second half: the path is treated as a locator, a path may name more than one provision, and the position is recorded explicitly rather than left implicit. The Consequences section below is accurate about that, and says so directly — "Position is what we have until then."
+
+So this ADR records an accepted decision and a partly-built one. #93 is the work, and it is queued for the release window after `SCHEMA_VERSION` 7. Until then, every statement here about identity should be read as intent, and every statement about position as fact.
+
+### A gap this ADR did not anticipate
+
+A derived path was meant to owe the source document nothing. It does, where an element carries a number. Where an element carries **no** number the path segment falls back to the element's XML id, so the address becomes unreadable:
+
+```
+uscode/appendix_28a/level_id2e47c0a6-b17c-11ef-b971-e82c9e4f66ce/title_I/level_1
+```
+
+This is common rather than marginal: **14,484** such paths in the regenerated dataset, of which 1,736 sit in nine ordinary titles, including 792 in title 29. It does not weaken the decision — an unreadable locator is still a locator — but it does mean a person cannot always name a provision to ask about it, which is a cost this ADR never counted. #115 holds the decision about what a numberless container should contribute to a path, and #122 will add more of them.
 
 Legal sources often supply no usable identifier, so we derive a structural path from the hierarchy the parser found, such as `uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_III/subpart_B/section_6041/subsection_d`. This works well against messy documents and we keep it. But a derived path is an address, and an address changes. `AmendingAction` already contains `Redesignate` and `Move` (`src/uslm/mod.rs`), which are exactly the operations that keep a provision alive and move it. A path also changes when our own parser improves.
 
 We therefore give each provision a stable identity that is carried across versions, and we treat the structural path as a locator at one point in time. Links point at the identity and record the locator beside it.
+
+> **Not built.** The identity in that paragraph does not exist in the code; a link points at a path. The second half — the path as a locator — is built. See Implementation status above, and #93.
 
 ## Consequences
 

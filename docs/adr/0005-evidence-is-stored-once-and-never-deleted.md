@@ -2,7 +2,7 @@
 
 Status: accepted
 
-`CONTEXT.md` defines provenance as the source, the method, the evidence, and the verification state of a statement. Three of those survived an LLM extraction. The reasoning did too — the model's own explanation is parsed out of its reply and kept — but the reply itself did not. `classify` and `extract_changes` both used the raw text inside an error message and then dropped it.
+`CONTEXT.md` defined provenance as the source, the method, the evidence, and the verification state of a statement. (It now also names the timestamp, the raw score and the corroboration; those are not what this decision is about.) Three of the four survived an LLM extraction. The reasoning did too — the model's own explanation is parsed out of its reply and kept — but the reply itself did not. `classify` and `extract_changes` both used the raw text inside an error message and then dropped it.
 
 That left a machine's claim uncheckable. A party receiving a W2D file could see that a statement was `MachineSuggested`, but not what the machine said, so "never lie" rested on a label rather than on anything they could inspect. It also meant no recorded reply existed to test the parser against, and a reply reconstructed from stored results is well-formed by construction, so it proves nothing about what models really send.
 
@@ -14,7 +14,7 @@ One reply produces many statements. The first recorded sweep wrote 1,237 replies
 
 So the reply is content-addressed and referenced, not copied. Putting the text on each statement would be wrong before it was wasteful: it would say each statement had its own reply, which is false. The same rule already names amendments and links, so the mechanism is not new, and it means a rebuild that restates a fact does not accumulate copies of the evidence behind it.
 
-The reference lives in `Provenance.evidence`, which becomes a type rather than a string: the maker's reasoning, the reply's id, the model, and a hash of the prompt. Evidence is one of the four parts of provenance and deserves a shape, rather than one string with three loose relatives. It also keeps the degraded case readable — a statement made before replies were recorded still carries its reasoning in the same field.
+The reference lives in `Provenance.evidence`, which becomes a type rather than a string: the maker's reasoning, the reply's id, the model, and a hash of the prompt. Evidence is one of the named parts of provenance and deserves a shape, rather than one string with three loose relatives. It also keeps the degraded case readable — a statement made before replies were recorded still carries its reasoning in the same field.
 
 ## The prompt is hashed, not stored
 
@@ -23,6 +23,8 @@ A verifier wants to see what the model was asked as well as what it answered, so
 The prompt is built from material the dataset already holds — the amending text, the candidate diffs — so keeping it duplicates the file's own contents. It is also the larger of the two by some margin: a user prompt carries an amendment plus every candidate, while a reply carries an answer.
 
 The hash still answers the question that decides whether a reply can be trusted: is the prompt behind it the one this build produces now? The case it does not cover is a build whose prompt construction changed. You then know the hash differs but cannot see the old text. We accept that; the alternative pays for every prompt to serve the rare audit.
+
+**The hash is recorded and nothing reads it yet.** Every link `match-amendments` writes carries one — 899 of 899 in the current dataset — and no command uses it to decide whether a reply can be reused. So `match-amendments` re-queries the model in full on every run, which costs money and makes the pipeline non-reproducible: the same commit over the same sources produced 899 links where it had produced 893. `extract-changes` keeps its own cache keyed on the same hash and is reproducible. The key this ADR specifies is therefore sufficient; the reader is what is missing. #123 is the work.
 
 ## Evidence is append-only
 
