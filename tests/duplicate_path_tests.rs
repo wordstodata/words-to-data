@@ -362,9 +362,11 @@ fn should_report_counts_but_no_provisions_when_no_expression_pair_is_given() {
 }
 
 /// Title 26 at one release point, held both ways.
-fn dataset_both_backends(
-    name: &str,
-) -> (
+///
+/// The caller must keep the returned directory in scope: dropping it removes the
+/// SQLite database.
+fn dataset_both_backends() -> (
+    tempfile::TempDir,
     words_to_data::dataset::Dataset<words_to_data::storage::InMemoryStorage>,
     words_to_data::dataset::Dataset<words_to_data::storage::SqliteStorage>,
 ) {
@@ -383,19 +385,17 @@ fn dataset_both_backends(
         .add_uslm_xml(USC26_30, "2025-07-30", None)
         .expect("the fixture should parse");
 
-    let dir = std::path::Path::new("target/duplicate_path_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let file = dir.join(format!("{name}.sqlite"));
-    std::fs::remove_file(&file).ok();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("dataset.sqlite");
     memory.save_to_sqlite(&file).expect("save to sqlite");
     let sqlite = Dataset::open_sqlite(&file).expect("open sqlite");
 
-    (memory, sqlite)
+    (dir, memory, sqlite)
 }
 
 #[test]
 fn should_hold_every_provision_sharing_a_path_on_both_backends() {
-    let (memory, sqlite) = dataset_both_backends("find_element");
+    let (_dir, memory, sqlite) = dataset_both_backends();
 
     let from_memory = memory.find_element(DUPLICATED).expect("find in memory");
     let from_sqlite = sqlite.find_element(DUPLICATED).expect("find in sqlite");
@@ -433,7 +433,7 @@ const ABSENT: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/
 fn should_say_whether_a_path_exists_on_both_backends() {
     use words_to_data::storage::DocumentReader;
 
-    let (memory, sqlite) = dataset_both_backends("has_element");
+    let (_dir, memory, sqlite) = dataset_both_backends();
 
     assert!(
         memory.has_element(DUPLICATED).expect("ask memory"),
@@ -458,7 +458,7 @@ fn should_say_whether_a_path_exists_on_both_backends() {
 fn should_say_a_path_exists_when_it_names_more_than_one_provision() {
     use words_to_data::storage::DocumentReader;
 
-    let (memory, sqlite) = dataset_both_backends("has_element_duplicate");
+    let (_dir, memory, sqlite) = dataset_both_backends();
 
     // The question is whether at least one provision sits at the path. Two
     // paragraphs (4) sit at this one, and a check which expects a path to name

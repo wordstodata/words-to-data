@@ -5,6 +5,7 @@
 //! one real fixture from committed USC XML + a real public-law bill, then asserts
 //! against both backends.
 
+use tempfile::TempDir;
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
@@ -174,16 +175,16 @@ fn matched_statements_fixture() -> Dataset<InMemoryStorage> {
 
 /// Round-trip the fixture through SQLite so tests can exercise that backend too.
 ///
-/// `name` must be unique per test: tests run in parallel and each needs its own
-/// database file (SQLite also needs a writable directory for its journal, so we
-/// use `target/`, which is always writable).
-fn to_sqlite(fixture: &Dataset<InMemoryStorage>, name: &str) -> Dataset<SqliteStorage> {
-    let dir = std::path::Path::new("target/inspect_test_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let path = dir.join(format!("{name}.sqlite"));
-    std::fs::remove_file(&path).ok();
+/// The database goes in a directory this call owns, so tests running in parallel
+/// cannot reach each other's file (SQLite also needs a writable directory for
+/// its journal). The caller must keep the returned directory in scope: dropping
+/// it removes the database.
+fn to_sqlite(fixture: &Dataset<InMemoryStorage>) -> (TempDir, Dataset<SqliteStorage>) {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("dataset.sqlite");
     fixture.save_to_sqlite(&path).expect("save to sqlite");
-    Dataset::open_sqlite(&path).expect("open sqlite")
+    let sqlite = Dataset::open_sqlite(&path).expect("open sqlite");
+    (dir, sqlite)
 }
 
 #[test]
@@ -267,7 +268,7 @@ fn should_report_identical_counts_for_both_backends() {
     let fixture = make_full_fixture();
     let expected = inspect::info(&fixture).expect("info mem");
 
-    let sqlite = to_sqlite(&fixture, "counts");
+    let (_dir, sqlite) = to_sqlite(&fixture);
     let actual = inspect::info(&sqlite).expect("info sqlite");
 
     assert_eq!(actual.link_count, expected.link_count);
@@ -317,7 +318,7 @@ fn should_list_identical_expressions_for_sqlite_backend() {
     let fixture = make_fixture();
     let expected = inspect::expressions(&fixture, None).expect("expressions mem");
 
-    let sqlite = to_sqlite(&fixture, "expressions");
+    let (_dir, sqlite) = to_sqlite(&fixture);
     let actual = inspect::expressions(&sqlite, None).expect("expressions sqlite");
 
     assert_eq!(actual.len(), expected.len());
@@ -361,7 +362,7 @@ fn should_summarize_identical_bill_for_sqlite_backend() {
         .expect("mem")
         .expect("bill");
 
-    let sqlite = to_sqlite(&fixture, "show_bill");
+    let (_dir, sqlite) = to_sqlite(&fixture);
     let actual = inspect::show_bill(&sqlite, "119-hr-1")
         .expect("sqlite")
         .expect("bill");
@@ -388,7 +389,7 @@ fn should_find_matching_text_in_headings() {
 #[test]
 fn should_find_heading_matches_on_sqlite_backend() {
     let fixture = make_fixture();
-    let sqlite = to_sqlite(&fixture, "search");
+    let (_dir, sqlite) = to_sqlite(&fixture);
 
     // SQLite indexes headings + content, so a heading term must still be found.
     let hits = inspect::search(&sqlite, "arbitration").expect("search sqlite");
@@ -435,7 +436,7 @@ fn should_produce_identical_diff_summary_for_sqlite_backend() {
     let (from, to) = pair();
     let expected = inspect::diff(&fixture, &from, &to).expect("mem");
 
-    let sqlite = to_sqlite(&fixture, "diff");
+    let (_dir, sqlite) = to_sqlite(&fixture);
     let actual = inspect::diff(&sqlite, &from, &to).expect("sqlite");
 
     assert_eq!(actual.changed_paths, expected.changed_paths);
@@ -586,7 +587,7 @@ fn should_not_report_a_longer_section_number_when_the_path_is_a_string_prefix() 
 #[test]
 fn should_list_identical_annotations_for_sqlite_backend() {
     let fixture = make_fixture();
-    let sqlite = to_sqlite(&fixture, "annotations");
+    let (_dir, sqlite) = to_sqlite(&fixture);
 
     let anns = inspect::annotations(&sqlite, AnnotationQuery::Bill("119-hr-1")).expect("sqlite");
     assert_eq!(anns.len(), 1);
@@ -765,7 +766,7 @@ fn should_report_one_provision_in_both_when_an_ordinary_path_is_unchanged() {
 #[test]
 fn should_report_the_same_provisions_on_both_backends() {
     let fixture = make_fixture();
-    let sqlite = to_sqlite(&fixture, "path_provisions");
+    let (_dir, sqlite) = to_sqlite(&fixture);
     let (from, to) = pair();
 
     let from_memory = inspect::path_report(
@@ -803,7 +804,7 @@ fn should_report_the_same_provisions_on_both_backends() {
 #[test]
 fn should_report_path_annotations_on_sqlite_backend() {
     let fixture = make_fixture();
-    let sqlite = to_sqlite(&fixture, "path_report");
+    let (_dir, sqlite) = to_sqlite(&fixture);
 
     let report = inspect::path_report(&sqlite, ANNOTATED_PATH, None, PathMatch::Subtree)
         .expect("path_report sqlite");
@@ -920,7 +921,7 @@ fn should_report_identical_info_for_sqlite_backend() {
     let fixture = make_fixture();
     let expected = inspect::info(&fixture).expect("info mem");
 
-    let sqlite = to_sqlite(&fixture, "info");
+    let (_dir, sqlite) = to_sqlite(&fixture);
     let actual = inspect::info(&sqlite).expect("info sqlite");
 
     assert_eq!(actual.name, expected.name);
@@ -977,7 +978,7 @@ fn should_name_the_absent_path_when_an_annotation_points_nowhere_on_sqlite() {
         &from,
         &to,
     );
-    let sqlite = to_sqlite(&fixture, "validate_absent_path");
+    let (_dir, sqlite) = to_sqlite(&fixture);
 
     let report = inspect::validate(&sqlite).expect("validate");
 

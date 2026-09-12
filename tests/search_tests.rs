@@ -4,6 +4,7 @@
 //! "no" because it never indexed the field the text sits in is worse than one
 //! that errors: the reader is told the law is absent (#82).
 
+use tempfile::TempDir;
 use words_to_data::dataset::{Dataset, DatasetMetadata, SearchResult};
 use words_to_data::inspect;
 use words_to_data::storage::{InMemoryStorage, SqliteStorage};
@@ -49,13 +50,14 @@ fn title_26() -> Dataset<InMemoryStorage> {
     dataset
 }
 
-fn to_sqlite(fixture: &Dataset<InMemoryStorage>, name: &str) -> Dataset<SqliteStorage> {
-    let dir = std::path::Path::new("target/search_test_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let path = dir.join(format!("{name}.sqlite"));
-    std::fs::remove_file(&path).ok();
+/// Round-trip the fixture through SQLite. The caller must keep the returned
+/// directory in scope: dropping it removes the database.
+fn to_sqlite(fixture: &Dataset<InMemoryStorage>) -> (TempDir, Dataset<SqliteStorage>) {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("dataset.sqlite");
     fixture.save_to_sqlite(&path).expect("save to sqlite");
-    Dataset::open_sqlite(&path).expect("open sqlite")
+    let sqlite = Dataset::open_sqlite(&path).expect("open sqlite");
+    (dir, sqlite)
 }
 
 /// The comparable shape of a hit: which field of which path matched.
@@ -69,7 +71,7 @@ fn hits(results: &[SearchResult]) -> Vec<(String, String, String)> {
 #[test]
 fn should_find_chapeau_text_on_both_backends_when_searching() {
     let memory = title_9();
-    let sqlite = to_sqlite(&memory, "chapeau");
+    let (_dir, sqlite) = to_sqlite(&memory);
 
     let from_memory = inspect::search(&memory, CHAPEAU_TEXT).expect("search memory");
     let from_sqlite = inspect::search(&sqlite, CHAPEAU_TEXT).expect("search sqlite");
@@ -89,7 +91,7 @@ fn should_find_chapeau_text_on_both_backends_when_searching() {
 #[test]
 fn should_find_proviso_and_continuation_text_on_both_backends_when_searching() {
     let memory = title_26();
-    let sqlite = to_sqlite(&memory, "proviso_continuation");
+    let (_dir, sqlite) = to_sqlite(&memory);
 
     // Real text from title 26. The proviso is the only one in the title.
     for (field, query) in [
@@ -121,7 +123,7 @@ fn should_find_proviso_and_continuation_text_on_both_backends_when_searching() {
 #[test]
 fn should_return_results_in_the_same_order_on_both_backends_when_a_query_matches_widely() {
     let memory = title_9();
-    let sqlite = to_sqlite(&memory, "ordering");
+    let (_dir, sqlite) = to_sqlite(&memory);
 
     // Title 9 is the Federal Arbitration Act, so this matches throughout it.
     let from_memory = inspect::search(&memory, "arbitration").expect("search memory");
@@ -142,7 +144,7 @@ fn should_return_results_in_the_same_order_on_both_backends_when_a_query_matches
 #[test]
 fn should_return_the_same_results_when_the_same_query_runs_twice() {
     let memory = title_9();
-    let sqlite = to_sqlite(&memory, "repeatable");
+    let (_dir, sqlite) = to_sqlite(&memory);
 
     for (label, first, second) in [
         (
@@ -167,11 +169,12 @@ fn should_return_the_same_results_when_the_same_query_runs_twice() {
 /// Forge the element index an older build wrote: heading and content only, and
 /// no document position. The public API cannot produce one, because this build
 /// always writes the full shape.
-fn stale_index_dataset(name: &str) -> std::path::PathBuf {
-    let dir = std::path::Path::new("target/search_test_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let path = dir.join(format!("{name}.sqlite"));
-    std::fs::remove_file(&path).ok();
+///
+/// The caller must keep the returned directory in scope: dropping it removes the
+/// database.
+fn stale_index_dataset() -> (TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("stale.sqlite");
 
     let conn = rusqlite::Connection::open(&path).expect("open forged db");
     // The schema version must be current, or the version guard answers first
@@ -188,12 +191,12 @@ fn stale_index_dataset(name: &str) -> std::path::PathBuf {
     ))
     .expect("forge the older index");
     drop(conn);
-    path
+    (dir, path)
 }
 
 #[test]
 fn should_refuse_a_dataset_whose_search_index_predates_this_build() {
-    let path = stale_index_dataset("stale");
+    let (_dir, path) = stale_index_dataset();
 
     let opened = Dataset::open_sqlite(&path);
 

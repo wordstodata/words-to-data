@@ -62,7 +62,9 @@ fn should_serialize_roundtrip_json() {
     }
 
     // Save and load via Compact format (JSON with tuple keys requires file-based roundtrip)
-    let path = "/tmp/dataset_test_roundtrip.json";
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("roundtrip.json");
+    let path = path.to_str().expect("a utf-8 path");
     dataset.save(path, Format::Compact).unwrap();
     let roundtripped = Dataset::load(path, Format::Compact).unwrap();
 
@@ -106,8 +108,6 @@ fn should_serialize_roundtrip_json() {
             .unwrap()
             .is_none()
     );
-
-    std::fs::remove_file(path).ok();
 }
 
 fn make_test_dataset() -> Dataset<InMemoryStorage> {
@@ -259,7 +259,9 @@ fn should_save_and_load_file() {
         .add_expression(make_expression("2024-01-01", Some("First")))
         .unwrap();
 
-    let path = "/tmp/dataset_test_save_load.json";
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("save_load.json");
+    let path = path.to_str().expect("a utf-8 path");
 
     // Save
     dataset
@@ -274,9 +276,6 @@ fn should_save_and_load_file() {
     let expressions = loaded.expressions(&title_7()).unwrap();
     assert_eq!(expressions.len(), 1);
     assert_eq!(expressions[0].id, at("2024-01-01"));
-
-    // Cleanup
-    std::fs::remove_file(path).ok();
 }
 
 #[test]

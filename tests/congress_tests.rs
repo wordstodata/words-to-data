@@ -5,8 +5,8 @@ const TEST_CONGRESS_CACHE_DIR: &str = "tests/test_data/congress_client_cache";
 #[test]
 #[ignore] // Requires live API key - run with: cargo test -- --ignored
 fn should_download_bill_data_live() {
-    let cache_dir = std::env::temp_dir().join("congress_download_test");
-    let _ = std::fs::remove_dir_all(&cache_dir);
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let cache_dir = dir.path().join("cache");
 
     let api_key =
         std::env::var("CONGRESS_API_KEY").expect("Set CONGRESS_API_KEY env var to run this test");
@@ -19,8 +19,6 @@ fn should_download_bill_data_live() {
     assert!(!download.bill_xml.is_empty());
     assert!(!download.bill_metadata_json.is_empty());
     assert!(!download.member_jsons.is_empty());
-
-    let _ = std::fs::remove_dir_all(&cache_dir);
 }
 
 #[test]
