@@ -679,9 +679,24 @@ pub struct DiffSummary {
     pub added_paths: Vec<String>,
     /// Paths of elements removed from the older version.
     pub removed_paths: Vec<String>,
+    /// Elements a bill renumbered: where each was, and where it went.
+    ///
+    /// Empty unless the dataset holds redesignation links for the pair. Reported
+    /// beside the other three rather than folded into them, because a move is
+    /// none of them: reading it as a removal plus an addition is the false
+    /// statement the links exist to remove (#93).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved_paths: Vec<MovedPath>,
 }
 
-/// Recursively collect changed/added/removed paths from a diff tree.
+/// One element that changed its number, for a report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MovedPath {
+    pub from: String,
+    pub to: String,
+}
+
+/// Recursively collect changed/added/removed/moved paths from a diff tree.
 fn collect_diff_paths(diff: &TreeDiff, summary: &mut DiffSummary) {
     if !diff.changes.is_empty() {
         summary.changed_paths.push(diff.root_path.clone());
@@ -692,6 +707,12 @@ fn collect_diff_paths(diff: &TreeDiff, summary: &mut DiffSummary) {
     summary
         .removed_paths
         .extend(diff.removed.iter().map(|e| e.path.to_string()));
+    summary
+        .moved_paths
+        .extend(diff.moved.iter().map(|m| MovedPath {
+            from: m.from.path.to_string(),
+            to: m.to.path.to_string(),
+        }));
     for child in &diff.child_diffs {
         collect_diff_paths(child, summary);
     }
@@ -713,6 +734,7 @@ pub fn diff<S: Storage>(
         changed_paths: Vec::new(),
         added_paths: Vec::new(),
         removed_paths: Vec::new(),
+        moved_paths: Vec::new(),
     };
     collect_diff_paths(&tree, &mut summary);
     Ok(summary)

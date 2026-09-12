@@ -234,6 +234,25 @@ pub trait LinkReader {
     fn annotation_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError> {
         self.link_pairs()
     }
+
+    /// The renumberings one provision ran through, oldest first.
+    ///
+    /// This is how "is this the same provision as last year" is answered: by
+    /// walking the `legislature.redesignated_as` links, forwards and backwards.
+    /// No identity is minted and nothing is stored, so a bill added later adds an
+    /// edge instead of rewriting an identity
+    /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`,
+    /// #93).
+    ///
+    /// Answered from `links_by_kind`, which the backends index. A dataset holds
+    /// tens of redesignations rather than millions, so the walk happens in
+    /// memory; the backward direction would otherwise need an index on the
+    /// object's path, and adding a column for a query this cheap would change the
+    /// stored shape for nothing.
+    fn provision_history(&self, path: &str) -> Result<crate::link::ProvisionHistory, DatasetError> {
+        let links = self.links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
+        Ok(crate::link::history_from_links(path, &links))
+    }
 }
 
 /// Reading the legislature facts a dataset holds.

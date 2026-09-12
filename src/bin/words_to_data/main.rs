@@ -16,6 +16,7 @@ mod info;
 mod load;
 mod match_amendments;
 mod path;
+mod redesignations;
 mod report;
 mod score_amendments;
 mod search;
@@ -44,6 +45,8 @@ enum Command {
     ScoreAmendments(score_amendments::Args),
     /// Match bill amendments to US Code changes via an LLM and annotate the dataset
     MatchAmendments(match_amendments::Args),
+    /// Record the provisions a bill renumbered, as links (deterministic, no LLM)
+    Redesignations(redesignations::Args),
 
     // --- Inspection (read-only) ---
     /// Show a dataset's metadata and headline counts
@@ -78,6 +81,7 @@ fn main() {
         Command::ExtractChanges(args) => extract_changes::run(args),
         Command::ScoreAmendments(args) => score_amendments::run(args),
         Command::MatchAmendments(args) => match_amendments::run(args),
+        Command::Redesignations(args) => redesignations::run(args),
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),
         Command::Bills(args) => bills::run(args),
