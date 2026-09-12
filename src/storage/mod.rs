@@ -42,6 +42,9 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
+/// 7 dates a member's party: the whole party history is kept, in place of the
+/// one undated field that reported a 2025 vote through a 2026 affiliation
+/// (#105).
 /// 6 keeps the verbatim model reply as evidence, stored once under the hash of
 /// its own text and referenced from a statement's provenance (#58).
 /// 5 stores links directly: one table for every kind, including kinds this
@@ -56,7 +59,7 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 6;
+pub const SCHEMA_VERSION: i32 = 7;
 
 /// Reading the documents a dataset holds.
 ///

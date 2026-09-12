@@ -1,16 +1,32 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt;
 use std::str::FromStr;
+use time::Date;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use super::CongressError;
+use crate::date::date_str_to_date;
 
 /// How a member voted on a roll call
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum VotePosition {
     Yea,
     Nay,
     NotVoting,
     Present,
+}
+
+impl fmt::Display for VotePosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VotePosition::Yea => write!(f, "Yea"),
+            VotePosition::Nay => write!(f, "Nay"),
+            VotePosition::NotVoting => write!(f, "Not Voting"),
+            VotePosition::Present => write!(f, "Present"),
+        }
+    }
 }
 
 impl FromStr for VotePosition {
@@ -51,6 +67,23 @@ pub struct HouseRollCall {
 }
 
 impl HouseRollCall {
+    /// The day this roll call was held.
+    ///
+    /// This is what joins a vote to the party the member held, so it is read
+    /// from the roll call rather than worked out by each caller. The API gives
+    /// an offset date-time, such as `2025-07-03T14:31:00-04:00`, and the day is
+    /// taken in the offset it supplied: a vote held late in the evening belongs
+    /// to the day the chamber sat.
+    ///
+    /// `None` means the date is not one this build can read. A caller must
+    /// answer that it does not know, not pick a day.
+    pub fn day(&self) -> Option<Date> {
+        if let Ok(moment) = OffsetDateTime::parse(&self.date, &Rfc3339) {
+            return Some(moment.date());
+        }
+        date_str_to_date(self.date.get(..10)?).ok()
+    }
+
     /// Parse from Congress API house-vote response JSON
     ///
     /// Expects the response from `/house-vote/{congress}/{session}/{voteNumber}`
