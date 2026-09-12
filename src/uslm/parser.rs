@@ -89,6 +89,60 @@ pub enum ParseError {
     QuotedContent,
 }
 
+/// An element the parser dropped although it held law.
+///
+/// The parser skips an element whose name it does not know. For a leaf that is
+/// right: a table of contents or a note is not law. For a container it is data
+/// loss, because a container's children are law. Four US Code appendices held
+/// two to four elements each for this reason, and nothing said so (#110).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DroppedContainer {
+    /// The XML tag name the parser does not know, such as `article`.
+    pub element_name: String,
+    /// The structural path of the element that held it.
+    pub parent_path: String,
+    /// How many structural children went with it.
+    pub structural_children: usize,
+}
+
+impl std::fmt::Display for DroppedContainer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "warning: unknown USLM element <{}> in {} was dropped with {} structural children below it",
+            self.element_name, self.parent_path, self.structural_children
+        )
+    }
+}
+
+/// What one parse dropped that a reader needs to know about.
+///
+/// A count alone would not help: the report names each container and where it
+/// sat, so the reader can see which body of law is absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParseReport {
+    /// Every unknown element that held law, in the order the parser met them.
+    pub dropped_containers: Vec<DroppedContainer>,
+}
+
+impl ParseReport {
+    /// True when the parse dropped nothing a reader needs to know about.
+    pub fn is_empty(&self) -> bool {
+        self.dropped_containers.is_empty()
+    }
+
+    /// Write the report to stderr, so it reaches the person who ran the command.
+    ///
+    /// The crate carries no logger, and the CLI writes its own warnings with
+    /// `eprintln!`, so the parser does the same. Every entry point that hides
+    /// the report calls this, which keeps one place to change.
+    pub fn print_to_stderr(&self) {
+        for dropped in &self.dropped_containers {
+            eprintln!("{dropped}");
+        }
+    }
+}
+
 struct TextContents {
     pub heading: Option<String>,
     pub chapeau: Option<String>,
@@ -153,6 +207,33 @@ fn check_attr(node: &roxmltree::Node, attr: &str, val: &str) -> bool {
 /// - The document type is not recognized
 /// - Required elements are missing from the XML structure
 pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
+    let (element, report) = parse_from_str_with_report(xml_str, date)?;
+    report.print_to_stderr();
+    Ok(element)
+}
+
+/// Parse a USLM XML string, and keep the report of what the parse dropped
+///
+/// Same parse as [`parse_from_str`], except that the caller receives the
+/// [`ParseReport`] instead of having it printed to stderr. Use this when the
+/// caller decides how a dropped container is shown.
+///
+/// # Examples
+///
+/// ```no_run
+/// use words_to_data::uslm::parser::parse_from_str_with_report;
+///
+/// let xml = std::fs::read_to_string("usc28a.xml").unwrap();
+/// let (element, report) = parse_from_str_with_report(&xml, "2025-07-18").unwrap();
+/// assert!(report.is_empty() || !report.dropped_containers.is_empty());
+/// ```
+pub fn parse_from_str_with_report(xml_str: &str, date: &str) -> Result<(USLMElement, ParseReport)> {
+    let mut report = ParseReport::default();
+    let element = parse_document(xml_str, date, &mut report)?;
+    Ok((element, report))
+}
+
+fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result<USLMElement> {
     let doc = roxmltree::Document::parse(xml_str)?;
 
     let top_level_node = doc
@@ -254,6 +335,7 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
                     Some("uscode"),
                     None,
                     1,
+                    report,
                 );
                 match child_element {
                     Ok(e) => children.push(e),
@@ -272,7 +354,16 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
         }
         // For other document types (bills), use the original logic
         _ => {
-            let element = parse_element(top_level_node, &document_type, date, None, None, None, 0)?;
+            let element = parse_element(
+                top_level_node,
+                &document_type,
+                date,
+                None,
+                None,
+                None,
+                0,
+                report,
+            )?;
             Ok(element)
         }
     }
@@ -329,6 +420,27 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
 pub fn parse(path: &str, date: &str) -> Result<USLMElement> {
     let xml_str = load_xml_file(path)?;
     parse_from_str(&xml_str, date)
+}
+
+/// Parse a USLM XML file, and keep the report of what the parse dropped
+///
+/// Same parse as [`parse`], except that the caller receives the [`ParseReport`]
+/// instead of having it printed to stderr.
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::parser::parse_with_report;
+///
+/// let (element, report) =
+///     parse_with_report("tests/test_data/usc/2025-07-18/usc09.xml", "2025-07-18").unwrap();
+/// assert!(!element.children.is_empty());
+/// // Title 9 holds no container the parser cannot name.
+/// assert!(report.is_empty());
+/// ```
+pub fn parse_with_report(path: &str, date: &str) -> Result<(USLMElement, ParseReport)> {
+    let xml_str = load_xml_file(path)?;
+    parse_from_str_with_report(&xml_str, date)
 }
 
 fn rewrap_str(s: Option<&str>) -> Option<Arc<str>> {
@@ -417,6 +529,52 @@ fn is_quoted_number(display: &str) -> bool {
     )
 }
 
+/// How many children of this node are law the parser knows how to model.
+///
+/// A child counts only when the parser knows its name and it comes from the
+/// same vocabulary as the node that holds it. `<meta>` holds a Dublin Core
+/// `<dc:title>`, which shares a tag name with a US Code title but is metadata,
+/// not law.
+fn structural_child_count(node: &roxmltree::Node) -> usize {
+    node.children()
+        .filter(|child| {
+            child.is_element()
+                && child.tag_name().namespace() == node.tag_name().namespace()
+                && matches!(
+                    ElementType::from_str(child.tag_name().name()),
+                    Ok(element_type) if element_type != ElementType::Unknown
+                )
+        })
+        .count()
+}
+
+/// Record an unknown element that takes law with it when the parser drops it.
+///
+/// An unknown leaf is not recorded. Dropping a table of contents or a note is
+/// what the parser is supposed to do, so a report of it would be noise that
+/// hides the entries that matter.
+fn record_if_container(
+    node: &roxmltree::Node,
+    parent_structural_path: Option<&str>,
+    report: &mut ParseReport,
+) {
+    if !node.is_element() {
+        return;
+    }
+    let structural_children = structural_child_count(node);
+    if structural_children == 0 {
+        return;
+    }
+    report.dropped_containers.push(DroppedContainer {
+        element_name: node.tag_name().name().to_string(),
+        parent_path: parent_structural_path.unwrap_or("").to_string(),
+        structural_children,
+    });
+}
+
+// The parent context this function needs is already long, and the report makes
+// one argument more. Grouping them is a change worth making on its own.
+#[allow(clippy::too_many_arguments)]
 fn parse_element(
     node: roxmltree::Node,
     document_type: &DocumentType,
@@ -425,6 +583,7 @@ fn parse_element(
     parent_structural_path: Option<&str>,
     parent_uslm_path: Option<&str>,
     _depth: usize,
+    report: &mut ParseReport,
 ) -> Result<USLMElement> {
     if check_attr(&node, "status", "repealed") {
         return Err(ParseError::RepealedElement);
@@ -432,9 +591,16 @@ fn parse_element(
     if check_attr(&node, "status", "reserved") {
         return Err(ParseError::ReservedElement);
     }
+    // The parser does not descend into quoted text: see `ParseError::QuotedContent`.
+    // Naming the wrapper here keeps it out of the report, because dropping it is
+    // a decision rather than a gap in what the parser knows.
+    if node.has_tag_name("quotedContent") {
+        return Err(ParseError::QuotedContent);
+    }
     let element_type = ElementType::from_str(node.tag_name().name())
         .expect("When this expect was written, all match cases were Ok()");
     if matches!(element_type, ElementType::Unknown) {
+        record_if_container(&node, parent_structural_path, report);
         return Err(ParseError::UnknownElement);
     }
     let xml_identifier = node.attribute("identifier");
@@ -470,12 +636,14 @@ fn parse_element(
                 ElementType::Appendix => {
                     Some(Arc::from(format!("/us/usc/t{}", number.value).as_str()))
                 }
-                _ => {
-                    return Err(ParseError::UnableToParseElement(format!(
-                        "XML identifier missing for element type {:?}",
-                        element_type
-                    )));
-                }
+                // The publisher supplies no identifier for a section it has
+                // omitted or transferred, because the section is no longer law
+                // in force and has no citation. A USLM ID belongs to the
+                // publisher, and many documents supply none, so the element
+                // keeps its structural path and carries no USLM ID. Until #110
+                // this stopped the whole parse, which is how the compiled acts
+                // in the title 5 appendix first came to light.
+                _ => None,
             },
         }
     } else {
@@ -550,6 +718,7 @@ fn parse_element(
             Some(structural_path.as_str()),
             child_parent_uslm_path.as_deref(),
             _depth + 1,
+            report,
         );
         match child_element {
             Ok(e) => {

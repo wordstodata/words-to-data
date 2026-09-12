@@ -193,7 +193,9 @@ pub enum ElementType {
     Clause,
     /// A Subclause (subdivision of a clause)
     Subclause,
-    /// A Level element (generic structural container when hierarchy is non-standard)
+    /// A Level element (generic structural container when hierarchy is
+    /// non-standard). An appendix also uses one to group a body of law, such as
+    /// the Federal Rules, that carries no number of its own.
     Level,
     /// An Item in an enumerated list
     Item,
@@ -237,6 +239,17 @@ impl std::str::FromStr for ElementType {
             "subsubitem" => Ok(Self::Subsubitem),
             "division" => Ok(Self::Division),
             "subdivision" => Ok(Self::Subdivision),
+            // The appendices group a whole body of law in a container that
+            // carries no number of its own, so each one reads as a level: the
+            // Federal Rules sit in `courtRules`, one rule in `courtRule`, an act
+            // reprinted in an appendix in `compiledAct`, and the reorganization
+            // plans in `reorganizationPlans` and `reorganizationPlan`. They group
+            // law; they are not a new unit of law (#110).
+            "courtrules"
+            | "courtrule"
+            | "compiledact"
+            | "reorganizationplans"
+            | "reorganizationplan" => Ok(Self::Level),
             "publiclaw" | "public_law" | "plaw" => Ok(Self::PublicLawDocument),
             "uscode" | "us_code" | "uscdoc" => Ok(Self::USCodeDocument),
             "appendix" => Ok(Self::Appendix),
