@@ -12,8 +12,11 @@
 //!   only in datasets that hold legislative material. A dataset of court
 //!   opinions has none of them, and must not have to pretend otherwise.
 //!
-//! `Storage` is the full set that both first-party backends implement today. A
-//! backend that holds only documents implements [`DocumentReader`] alone.
+//! [`Storage`] is the core set, and it requires no extension: a backend that
+//! holds only documents and links implements it in full without naming a bill
+//! (#127). Both first-party backends add the legislature on top of it, and code
+//! that needs legislature facts asks for `S: Storage + LegislatureReader`. A
+//! backend that only reads documents implements [`DocumentReader`] alone.
 //!
 //! The unit a backend stores is an **expression**: one work as it read on one
 //! date, with its own tree. There is no table of release dates above it, so
@@ -350,20 +353,26 @@ pub trait LegislatureWriter {
     fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError>;
 }
 
-/// The full set of capabilities, which both first-party backends provide.
+/// Everything a backend must answer, whatever document class it holds.
 ///
-/// Code that needs everything binds to this. Code that needs only documents
-/// should bind to [`DocumentReader`] instead, so it keeps working against a
-/// dataset that carries no legislative material.
+/// The core only: documents, links, and evidence, read and written. No
+/// extension is required here. A backend of court opinions implements this and
+/// writes nothing about bills, which is what `CONTEXT.md` and
+/// `docs/adr/0002-links-live-in-the-core.md` already claim of the data model
+/// (#127).
+///
+/// Code that needs legislature facts asks for them, and lets the compiler hold
+/// it: `S: Storage + LegislatureReader`. That bound is deliberately not given a
+/// cheaper form. Default method bodies returning empty were rejected, because
+/// then "this dataset holds no bills" and "bills are not a concept here" arrive
+/// as the same answer, and [`Scope`], [`Coverage::Gap`] and [`Exclusion`] exist
+/// to keep those apart.
+///
+/// [`Scope`]: crate::dataset::Scope
+/// [`Coverage::Gap`]: crate::dataset::Coverage::Gap
+/// [`Exclusion`]: crate::dataset::Exclusion
 pub trait Storage:
-    DocumentReader
-    + LinkReader
-    + EvidenceReader
-    + LegislatureReader
-    + DocumentWriter
-    + LinkWriter
-    + EvidenceWriter
-    + LegislatureWriter
+    DocumentReader + LinkReader + EvidenceReader + DocumentWriter + LinkWriter + EvidenceWriter
 {
     /// The legislature extension, when this dataset actually carries one.
     ///

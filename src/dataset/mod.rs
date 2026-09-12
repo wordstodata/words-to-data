@@ -175,40 +175,12 @@ impl<S: Storage> Dataset<S> {
 
     // --- Delegate reader methods ---
 
-    pub fn get_bill(&self, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
-        self.storage.get_bill(bill_id)
-    }
-
-    /// List the IDs of every bill in the dataset.
-    ///
-    /// Pair with [`Dataset::get_bill`] to iterate over all bills:
-    /// ```ignore
-    /// for id in dataset.list_bill_ids()? {
-    ///     let bill = dataset.get_bill(&id)?.unwrap();
-    /// }
-    /// ```
-    pub fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
-        self.storage.list_bill_ids()
-    }
-
     pub fn get_annotations(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
     ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
         self.storage.get_annotations(from, to)
-    }
-
-    pub fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
-        self.storage.get_member(bioguide_id)
-    }
-
-    pub fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
-        self.storage.get_sponsor_info(bill_id)
-    }
-
-    pub fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
-        self.storage.get_bill_votes(bill_id)
     }
 
     pub fn compute_diff(
@@ -245,13 +217,6 @@ impl<S: Storage> Dataset<S> {
         self.storage.find_element(path)
     }
 
-    pub fn votes_by_member(
-        &self,
-        bioguide_id: &str,
-    ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
-        self.storage.votes_by_member(bioguide_id)
-    }
-
     // --- Delegate DatasetWriter methods ---
 
     pub fn metadata(&self) -> &DatasetMetadata {
@@ -264,10 +229,6 @@ impl<S: Storage> Dataset<S> {
 
     pub fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
         self.storage.add_expression(expression)
-    }
-
-    pub fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
-        self.storage.add_bill(bill)
     }
 
     /// Record a verbatim model reply and return its id.
@@ -288,18 +249,6 @@ impl<S: Storage> Dataset<S> {
     /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
     pub fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
         self.storage.add_link(link)
-    }
-
-    pub fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
-        self.storage.add_member(member)
-    }
-
-    pub fn add_sponsor_info(&mut self, info: SponsorInfo) -> Result<(), DatasetError> {
-        self.storage.add_sponsor_info(info)
-    }
-
-    pub fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
-        self.storage.add_bill_votes(votes)
     }
 
     /// Get paths that have annotations for an expression pair
@@ -344,6 +293,74 @@ impl<S: Storage> Dataset<S> {
         for child in &diff.child_diffs {
             Self::collect_paths_with_changes(child, paths);
         }
+    }
+}
+
+// --- Legislature extension ---
+//
+// One impl block per extension trait rather than a `where` clause on each of
+// the ten methods. The requirement is then stated once, in the place a reader
+// looks for it, and the block itself says which methods exist only because the
+// backend speaks the extension. Ten repetitions of the same clause says the
+// same thing to the compiler and less to a person (#127).
+//
+// The bound is not on the struct: a dataset of court opinions is a dataset, and
+// it keeps every core method above.
+
+/// Reading the legislature, for a dataset whose backend holds one.
+impl<S: Storage + LegislatureReader> Dataset<S> {
+    pub fn get_bill(&self, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
+        self.storage.get_bill(bill_id)
+    }
+
+    /// List the IDs of every bill in the dataset.
+    ///
+    /// Pair with [`Dataset::get_bill`] to iterate over all bills:
+    /// ```ignore
+    /// for id in dataset.list_bill_ids()? {
+    ///     let bill = dataset.get_bill(&id)?.unwrap();
+    /// }
+    /// ```
+    pub fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        self.storage.list_bill_ids()
+    }
+
+    pub fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
+        self.storage.get_member(bioguide_id)
+    }
+
+    pub fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
+        self.storage.get_sponsor_info(bill_id)
+    }
+
+    pub fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
+        self.storage.get_bill_votes(bill_id)
+    }
+
+    pub fn votes_by_member(
+        &self,
+        bioguide_id: &str,
+    ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
+        self.storage.votes_by_member(bioguide_id)
+    }
+}
+
+/// Writing the legislature, for a dataset whose backend holds one.
+impl<S: Storage + LegislatureWriter> Dataset<S> {
+    pub fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
+        self.storage.add_bill(bill)
+    }
+
+    pub fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
+        self.storage.add_member(member)
+    }
+
+    pub fn add_sponsor_info(&mut self, info: SponsorInfo) -> Result<(), DatasetError> {
+        self.storage.add_sponsor_info(info)
+    }
+
+    pub fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
+        self.storage.add_bill_votes(votes)
     }
 }
 
@@ -688,7 +705,7 @@ impl<S: Storage> EvidenceWriter for Dataset<S> {
     }
 }
 
-impl<S: Storage> LegislatureReader for Dataset<S> {
+impl<S: Storage + LegislatureReader> LegislatureReader for Dataset<S> {
     fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
         self.storage.get_bill(id)
     }
@@ -737,7 +754,7 @@ impl<S: Storage> LinkWriter for Dataset<S> {
     }
 }
 
-impl<S: Storage> LegislatureWriter for Dataset<S> {
+impl<S: Storage + LegislatureWriter> LegislatureWriter for Dataset<S> {
     fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
         self.storage.add_bill(bill)
     }
