@@ -26,6 +26,8 @@
 //! would date every opinion to the day a third party scraped it, and it is the
 //! field that looks right.
 
+pub mod reliance;
+
 use serde::{Deserialize, Serialize};
 
 use crate::document::{ClassPayload, NodeData, NodeType};
@@ -54,9 +56,27 @@ pub struct OpinionFacts {
     /// The judge the publisher names as its author, when it names one.
     ///
     /// `None` covers a per curiam opinion and a record where nobody is named,
-    /// which are different things; see `per_curiam` in the source.
+    /// which are different things. [`OpinionFacts::per_curiam`] is what tells
+    /// them apart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+
+    /// Whether the publisher says the court issued this per curiam — in the name
+    /// of the court, with no judge named as its author.
+    ///
+    /// Kept beside `author` because without it an unattributed opinion and an
+    /// opinion nobody recorded an author for arrive as the same `None`, and only
+    /// one of those is a fact about the court.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_curiam: Option<bool>,
+
+    /// The judges who sat, in the publisher's own words and punctuation.
+    ///
+    /// One string rather than a list, because the source gives one string and
+    /// splitting it would invent a boundary. `Kennedy` is a bench of one;
+    /// `Higginbotham, Owen and Haynes` is a bench of three.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<String>,
 
     /// Whether the opinion is precedent: `Published`, `Unpublished`, and the
     /// other values the publisher uses.
@@ -84,6 +104,32 @@ pub struct OpinionFacts {
     /// How many pages the printed opinion runs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_count: Option<u32>,
+
+    /// The case record this writing belongs to: the publisher's cluster id.
+    ///
+    /// One case can hold a lead opinion, a concurrence and a dissent, each its
+    /// own node under its own work. This is the only thing that says they are
+    /// the same case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster_id: Option<u64>,
+
+    /// The docket the case sat on, which is the next step towards the court.
+    ///
+    /// The court's own name is one request further along and is not held here:
+    /// a budget of 125 requests a day was spent on opinions and cases instead
+    /// (#53).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docket_id: Option<u64>,
+
+    /// Where the publisher says it got the document, such as a court's own PDF.
+    ///
+    /// This is what makes "the text came from a court PDF" something a reader can
+    /// check rather than take on trust. It is not needed in order to *report* the
+    /// node — the node's [`Provenance`] already says the text came from a text
+    /// layer — so it belongs here rather than in the core
+    /// (`docs/adr/0006-a-document-node-is-class-neutral.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
 }
 
 impl OpinionFacts {

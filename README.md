@@ -17,6 +17,8 @@ Written in Rust.
 - **Bill amendment extraction** - Identify USC references and amending actions from bills
 - **Hierarchical diffing** - Compute word-level differences between two expressions of one work
 - **Congress data integration** - Fetch bill metadata and text from Congress.gov API
+- **Court opinions** - Store an opinion from CourtListener beside the statutes it construes, as one node, with the field its text came from recorded
+- **U.S. Code citations as links** - Read the citations out of an opinion's text and record each as a `judicial.cites` link, with the matched text as evidence
 
 ## Installation
 
@@ -166,6 +168,46 @@ The library uses two types of paths:
 2. **USLM ID**: Official USLM identifier (excludes structural-only elements), in
    the `uscode` payload rather than in a core field
    Example: `/us/usc/t26/s174/a/1`
+
+### Court opinions, and the question they answer
+
+A court opinion goes into the same dataset as the statutes it construes. It is one
+work with one expression, dated the day the court filed it, holding one node. Two
+commands do the work:
+
+```bash
+# Fetch opinions from CourtListener and record their U.S. Code citations as links.
+# Needs COURTLISTENER_API_KEY; --offline reads only what is already cached.
+words_to_data add-opinions dataset.sqlite --opinions 109019,122262,406879
+
+# Which cases cite a provision, and has it moved under them since?
+words_to_data cases-citing dataset.sqlite --cites "26 U.S.C. § 174" --chain
+```
+
+The second is statutory research run backwards: not "what controls this point" but
+"Congress amended this provision — which cases construing the old text can no
+longer be relied on?" It reports the verification state of each citation link, the
+printings it can compare, and — the part that makes it honest — the period between
+the opinion and the earliest printing held, which it says nothing about:
+
+```
+Snow v. Commissioner (judicial/opinion_109019@1974-05-13)
+  opinion text: courtlistener:opinion/109019:html_lawbox / markup / Asserted
+  cites …/section_174 — link is MachineSuggested, matched "26 U. S. C. § 174"
+    2025-07-18 → 2025-07-30: CHANGED, at 4 path(s): …
+    1974-05-13 → 2025-07-18: OUT OF SCOPE. This dataset holds no printing of the
+    cited work in that period, so it cannot say whether the provision changed in
+    it. It is not a statement that nothing changed.
+```
+
+With `--chain` it carries on through `legislature.amended_by` to the amendment,
+the bill, its sponsor and the roll call. See
+`docs/research/a-court-opinion-in-the-core.md` and
+`docs/adr/0008-an-opinions-text-is-one-named-field-chosen-for-fidelity.md`.
+
+The opinion records come from [CourtListener](https://www.courtlistener.com/),
+by Free Law Project, read through its API under its terms. The analysis above is
+ours; Free Law Project has not produced, endorsed or verified it.
 
 ### Text Content Fields
 

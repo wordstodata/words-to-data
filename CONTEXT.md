@@ -97,6 +97,14 @@ _Avoid_: ID, identifier, reference
 The set of differences between two Expressions of one Work, in the shape of the document hierarchy. A child is reported as changed, added, removed, or **moved**. Moved is what a Redesignation buys: where one is known the diff pairs across the renumbering, and where none is known it pairs by position, which is all two documents say on their own.
 _Avoid_: Delta, comparison, change set
 
+**Uncovered period**:
+A stretch of time in which a Dataset holds no Expression of a Work, so it can say nothing about what changed in it. It is the Scope in time rather than in space: "out of scope" for a period instead of for a Structural path.
+
+It is the answer a question spanning dates needs. A dataset holding title 26 at two release points a fortnight apart can prove what section 174 did in that fortnight and nothing else, and a case construing the section in 1974 sits fifty-one uncovered years before the earlier of them. Reporting only the change that is visible would be true and misleading.
+
+**The Scope cannot express this yet.** A Coverage is asked about a path, and answers `InScope` for a work it holds at any date at all, which is right and useless here. So the caller that needed the answer carries its own (`judicial::reliance`, #53), which means a second caller will word it differently. `docs/research/a-court-opinion-in-the-core.md` records why this is the more dangerous half of the mistake the Scope exists to prevent: nobody misreads "we do not hold title 42", and everybody misreads "this provision changed once".
+_Avoid_: Missing dates, blind spot, unknown
+
 ## Bills
 
 **Bill**:
@@ -186,6 +194,16 @@ _Avoid_: Extra, metadata, blob
 **Change annotation**:
 The Link of kind `legislature.amended_by`. It connects one change in a Diff to the Amendment that caused it.
 _Avoid_: Match, mapping, label
+
+**Citation**:
+The Link of kind `judicial.cites`. It says a court opinion cited a Provision: the subject is the opinion, the object is the Structural path the citation resolves to, and the text the rule matched travels with it as Evidence. It is always machine suggested — a pattern matched some words and no person has looked at it.
+
+It is the statement this project exists to make and nobody publishes. CourtListener finds a U.S. Code citation with eyecite, fails to resolve it, and throws it away; what survives is display markup with no identifier. So the extractor is ours (#52).
+
+The object stops at the section even where the opinion named a subsection, because a citation cannot be trusted at that depth — the published example `981(a)(l)(C)` has a lower-case L where the provision has a paragraph (1) — so the subsection is recorded as written rather than resolved.
+
+Where the Dataset holds the citing opinion, the subject names the node, so a reader can follow the link to the words that made the citation. Where it does not, the subject says plainly that the citing document is outside the file and cannot be checked against it.
+_Avoid_: Reference, cite, mention
 
 **Redesignation**:
 The Link of kind `legislature.redesignated_as`. It says a Provision was renumbered: the subject is the provision as it was, the object is the provision as it became, and each end names the change — a Work, a Structural path, and the two dates — so the edge says *when* the renumbering happened. A path is reused, so an edge with no dates would claim a renumbering held for all time.

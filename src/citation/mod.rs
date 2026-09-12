@@ -30,16 +30,32 @@ pub mod usc;
 
 use serde_json::json;
 
+use crate::dataset::WorkId;
 use crate::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
 use resolve::{CitedSection, Resolution};
 use usc::UscCitation;
 
 /// The opinion a citation was read out of.
 ///
-/// An opinion is not a work in the core model yet, so it is named as something
-/// outside the core, in the namespace of the link that mentions it. That is the
-/// same shape `link::amendment_reference` uses for an amendment, which is also
-/// not core.
+/// It is named one of two ways, and which one is a statement about the dataset
+/// rather than a style choice.
+///
+/// [`Opinion::held`] is for an opinion this dataset carries, since #53 put court
+/// opinions in datasets. Then the subject is a [`Target::Provision`] naming the
+/// node, so a reader can follow the link to the text that made the citation, a
+/// backend can index it, and `LinkReader::links_for_path` answers "what does this
+/// case cite".
+///
+/// [`Opinion::new`] is for an opinion the dataset does **not** carry — a citation
+/// read out of a text held somewhere else. Then the subject is
+/// [`Target::External`], on the same shape `link::amendment_reference` uses for an
+/// amendment, and a reader is told plainly that the citing document is not in the
+/// file and the link's subject cannot be checked against it.
+///
+/// `Target::Provision` is the strain in this. Its name says provision, and an
+/// opinion is not one; it is the core's word for "a node in this dataset, by
+/// path", and the core has no other. See
+/// `docs/research/a-court-opinion-in-the-core.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opinion {
     /// How this opinion is identified where it came from, such as a
@@ -47,25 +63,44 @@ pub struct Opinion {
     pub id: String,
     /// What to call it on a page: `Obergefell v. Hodges, 576 U.S. 644 (2015)`.
     pub display: String,
+    /// The work this dataset holds the opinion as, when it holds it.
+    held_as: Option<WorkId>,
 }
 
 impl Opinion {
+    /// An opinion this dataset does not hold.
     pub fn new(id: impl Into<String>, display: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             display: display.into(),
+            held_as: None,
         }
     }
 
-    /// How an opinion is named as a link target: `judicial.opinion:11103682`.
+    /// An opinion this dataset holds, as the work at `held_as`.
+    ///
+    /// Use `courtlistener::work_id` to name it, so the link and the stored node
+    /// cannot disagree about where the opinion is.
+    pub fn held(held_as: WorkId, id: impl Into<String>, display: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            display: display.into(),
+            held_as: Some(held_as),
+        }
+    }
+
+    /// How an opinion outside the dataset is named: `judicial.opinion:11103682`.
     pub fn reference(&self) -> String {
         format!("judicial.opinion:{}", self.id)
     }
 
     fn target(&self) -> Target {
-        Target::External {
-            reference: self.reference(),
-            display: self.display.clone(),
+        match &self.held_as {
+            Some(work) => Target::Provision(work.to_string()),
+            None => Target::External {
+                reference: self.reference(),
+                display: self.display.clone(),
+            },
         }
     }
 }
