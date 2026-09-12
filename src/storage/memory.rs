@@ -10,13 +10,13 @@ use crate::dataset::{
     SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
+use crate::document::DocumentNode;
 use crate::intern::StringInterner;
 use crate::link::{Link, Target};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, LegislatureCounts,
     LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, Storage,
 };
-use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
 /// Every expression a dataset holds, by work and then by date.
@@ -67,7 +67,7 @@ impl InMemoryStorage {
 
     pub fn intern_strings(&mut self) {
         for expression in self.expressions.values_mut().flat_map(BTreeMap::values_mut) {
-            expression.element.intern_strings(&mut self.interner);
+            expression.root.intern_strings(&mut self.interner);
         }
     }
 
@@ -119,7 +119,7 @@ impl InMemoryStorage {
     }
 
     fn search_element(
-        element: &USLMElement,
+        element: &DocumentNode,
         id: &ExpressionId,
         query: &str,
         results: &mut Vec<SearchResult>,
@@ -193,7 +193,7 @@ impl DocumentReader for InMemoryStorage {
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError> {
         let (from_e, to_e) = require_same_work(self, from, to)?;
-        Ok(TreeDiff::from_elements(&from_e.element, &to_e.element))
+        Ok(TreeDiff::from_nodes(&from_e.root, &to_e.root))
     }
 
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
@@ -201,24 +201,19 @@ impl DocumentReader for InMemoryStorage {
         let mut results = Vec::new();
 
         for expression in self.all_expressions() {
-            Self::search_element(
-                &expression.element,
-                &expression.id,
-                &query_lower,
-                &mut results,
-            );
+            Self::search_element(&expression.root, &expression.id, &query_lower, &mut results);
         }
 
         Ok(results)
     }
 
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
         // A path can name more than one provision, so an expression can answer
         // with several. Taking the first would drop law that is really there.
         Ok(self
             .all_expressions()
             .flat_map(|e| {
-                e.element
+                e.root
                     .find_all(path)
                     .into_iter()
                     .map(|found| (e.id.clone(), found.clone()))
@@ -227,17 +222,17 @@ impl DocumentReader for InMemoryStorage {
             .collect())
     }
 
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
         // One provision is enough to answer, so the walk stops at the first.
         Ok(self
             .all_expressions()
-            .any(|e| !e.element.find_all(path).is_empty()))
+            .any(|e| !e.root.find_all(path).is_empty()))
     }
 }
 
 /// Fetch both expressions of a diff, refusing a pair that names two works.
 ///
-/// The check lives here rather than in `TreeDiff::from_elements`, which asserts
+/// The check lives here rather than in `TreeDiff::from_nodes`, which asserts
 /// on it and so would abort the process. Two works is a caller's mistake, not a
 /// broken invariant, and a mistake deserves a message.
 pub(crate) fn require_same_work<R: DocumentReader + ?Sized>(

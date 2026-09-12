@@ -143,24 +143,33 @@ The `Dataset` is the primary abstraction for working with versioned legal docume
 
 Use `Dataset` to load documents, compute diffs, and track which amendment caused each change. Ask `works()` what documents it holds and `expressions(&work)` when each was published; `scope()` reports both together, so an empty result can be answered with "out of scope" rather than "not found".
 
-### USLM Elements
+### Document nodes
 
-Documents are represented as trees of `USLMElement` structures. Each element contains:
+Documents are represented as trees of `DocumentNode` structures. Each node contains:
 
-- **ElementData**: Metadata, text content, and identification
-- **Children**: Nested child elements forming the document hierarchy
+- **NodeData**: Its path, its type, its date, its text, and where the text came from
+- **Children**: Nested child nodes forming the document hierarchy
+
+A node says nothing about which class of document it belongs to beyond its type,
+which is an open namespaced string — `uscode.section`, `judicial.opinion`. The
+facts only one class understands travel beside it in a payload the core stores and
+never reads: `words_to_data::uslm::UslmFacts` reads the US Code's,
+`words_to_data::judicial::OpinionFacts` reads a court opinion's. A whole document
+is one node where nothing has taken it apart, which is how a court opinion is
+stored. See `docs/adr/0006-a-document-node-is-class-neutral.md`.
 
 The library uses two types of paths:
 
-1. **Structural Path**: Full hierarchy including all elements
+1. **Structural Path**: Full hierarchy including all nodes
    Example: `uscode/title_26/subtitle_A/chapter_1/section_174`
 
-2. **USLM ID**: Official USLM identifier (excludes structural-only elements)
+2. **USLM ID**: Official USLM identifier (excludes structural-only elements), in
+   the `uscode` payload rather than in a core field
    Example: `/us/usc/t26/s174/a/1`
 
 ### Text Content Fields
 
-Each element can contain up to five distinct text fields:
+Each node can contain up to five distinct text fields:
 
 - **Heading**: Section or subsection title
 - **Chapeau**: Opening text before enumerated items
@@ -170,12 +179,12 @@ Each element can contain up to five distinct text fields:
 
 ### Diffs
 
-The `TreeDiff` structure mirrors the element hierarchy and tracks:
+The `TreeDiff` structure mirrors the node hierarchy and tracks:
 
 - **Field changes**: Word-level differences in text content fields
-- **Added elements**: New child elements in the newer version
-- **Removed elements**: Elements that existed in the older version
-- **Child diffs**: Recursive diffs for matching child elements
+- **Added nodes**: New child nodes in the newer version
+- **Removed nodes**: Nodes that existed in the older version
+- **Child diffs**: Recursive diffs for matching child nodes
 
 Diffs are computed using word-level granularity via the `similar` crate.
 

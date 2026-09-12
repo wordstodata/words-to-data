@@ -17,8 +17,8 @@
 
 use rstest::rstest;
 use words_to_data::dataset::{Dataset, DatasetMetadata};
+use words_to_data::document::DocumentNode;
 use words_to_data::inspect;
-use words_to_data::uslm::USLMElement;
 use words_to_data::uslm::parser::{parse, parse_with_report};
 
 const RELEASE: &str = "2025-07-18";
@@ -36,11 +36,11 @@ const RULE_1_TEXT: &str =
 /// `<article>` was a name the parser did not know (#122).
 const RULE_401_TEXT: &str = "Evidence is relevant if";
 
-fn element_count(element: &USLMElement) -> usize {
+fn element_count(element: &DocumentNode) -> usize {
     1 + element.children.iter().map(element_count).sum::<usize>()
 }
 
-fn collect_paths(element: &USLMElement, into: &mut Vec<String>) {
+fn collect_paths(element: &DocumentNode, into: &mut Vec<String>) {
     into.push(element.data.path.to_string());
     for child in &element.children {
         collect_paths(child, into);

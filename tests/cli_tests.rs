@@ -458,7 +458,7 @@ fn path_count(summary: &serde_json::Value, key: &str) -> usize {
 }
 
 /// Title 51 gained 26 KB of text and 63 elements between the two release points.
-/// Those are pure insertions, which `from_elements` used to discard (#54).
+/// Those are pure insertions, which `from_nodes` used to discard (#54).
 #[test]
 fn should_list_the_paths_that_changed_between_two_expressions_when_diff_runs() {
     let summary = diff_summary(amended_fixture(), AMENDED_WORK);

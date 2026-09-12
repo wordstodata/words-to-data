@@ -43,7 +43,7 @@ fn make_expression(date: &str, label: Option<&str>) -> Expression {
     Expression {
         id: at(date),
         label: label.map(|s| s.to_string()),
-        element: root,
+        root,
     }
 }
 
@@ -90,7 +90,7 @@ fn should_save_and_load_sqlite_format() {
 
     // Verify element data preserved, rooted at the work
     let expression = loaded.get_expression(&at("2024-01-01")).unwrap().unwrap();
-    assert_eq!(expression.element.data.path.as_ref(), TITLE_7);
+    assert_eq!(expression.root.data.path.as_ref(), TITLE_7);
 }
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
@@ -244,8 +244,8 @@ fn should_query_via_trait_interface() {
             .unwrap();
         assert_eq!(diff.root_path, TITLE_7);
 
-        // find_element, in the same order from either backend
-        let found = reader.find_element(TITLE_7).unwrap();
+        // find_nodes, in the same order from either backend
+        let found = reader.find_nodes(TITLE_7).unwrap();
         assert_eq!(
             found.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
             vec![at("2025-07-18"), at("2025-07-30")]

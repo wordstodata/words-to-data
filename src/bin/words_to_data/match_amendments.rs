@@ -17,12 +17,12 @@ use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
 use words_to_data::dataset::{Dataset, Format};
+use words_to_data::document::TextContentField;
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::{Evidence, Link};
 use words_to_data::matching::{
     AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches,
 };
-use words_to_data::uslm::TextContentField;
 
 use crate::span::Span;
 use words_to_data::llm::{ChatOptions, LlmAnnotation, LlmClient};
@@ -424,7 +424,7 @@ fn format_candidate(index: usize, candidate: &Candidate) -> String {
 fn push_elements(
     lines: &mut Vec<String>,
     title: &str,
-    elements: &[words_to_data::uslm::ElementData],
+    elements: &[words_to_data::document::NodeData],
 ) {
     if elements.is_empty() {
         return;

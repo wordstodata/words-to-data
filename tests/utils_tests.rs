@@ -1,7 +1,4 @@
-use words_to_data::{
-    uslm::ElementType,
-    utils::{date_str_to_date, load_uslm_folder},
-};
+use words_to_data::utils::{date_str_to_date, load_uslm_folder};
 
 #[test]
 fn test_valid_date_parsing() {
@@ -131,12 +128,13 @@ fn test_zero_padded_values() {
 fn test_load_uslm_folder() {
     let result = load_uslm_folder("tests/test_data/usc/2025-07-18/", "2025-07-18")
         .expect("Should have loaded something");
-    assert_eq!(result.data.element_type, ElementType::USCodeDocument);
+    assert_eq!(result.data.node_type.as_str(), "uscode.document");
     assert_eq!(result.children.len(), 57);
     for child in result.children.iter() {
+        let node_type = child.data.node_type.as_str();
         assert!(
-            child.data.element_type == ElementType::Title
-                || child.data.element_type == ElementType::Appendix
+            node_type == "uscode.title" || node_type == "uscode.appendix",
+            "a work of a release point is a title or an appendix, got {node_type}"
         );
     }
 }

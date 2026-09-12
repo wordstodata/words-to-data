@@ -23,9 +23,20 @@
 use std::collections::BTreeMap;
 
 use crate::dataset::{Coverage, Scope};
-use crate::uslm::{ElementType, USLMElement};
+use crate::document::{DocumentNode, NodeType};
+use crate::uslm::{ElementType, UslmFacts};
 
 use super::usc::UscCitation;
+
+/// Whether a node is a section of the US Code, and not of a public law.
+///
+/// A citation to `26 U.S.C. § 174` names the Code. The node type answers both
+/// halves: its namespace says which class of document, and its local name says
+/// which kind of element.
+fn is_usc_section(node_type: &NodeType) -> bool {
+    node_type.namespace() == NodeType::USCODE
+        && node_type.local() == ElementType::Section.type_name()
+}
 
 /// Where the sections of a dataset are, by USLM identifier.
 ///
@@ -46,12 +57,12 @@ impl SectionPaths {
     ///
     /// Call it once per work held. Indexing the same work twice would report its
     /// sections twice.
-    pub fn add_work(&mut self, work: &USLMElement) {
-        if work.data.element_type == ElementType::Section
-            && let Some(uslm_id) = &work.data.uslm_id
+    pub fn add_work(&mut self, work: &DocumentNode) {
+        if is_usc_section(&work.data.node_type)
+            && let Some(uslm_id) = UslmFacts::of(&work.data).and_then(|facts| facts.uslm_id)
         {
             self.paths
-                .entry(uslm_id.to_string())
+                .entry(uslm_id)
                 .or_default()
                 .push(work.data.path.to_string());
         }
@@ -64,7 +75,7 @@ impl SectionPaths {
     ///
     /// More than one is possible: the law sometimes numbers two provisions
     /// alike, and the document records both, so reporting only the first would
-    /// be a silent loss (`USLMElement::find_all`).
+    /// be a silent loss (`DocumentNode::find_all`).
     pub fn paths_of(&self, uslm_id: &str) -> &[String] {
         self.paths.get(uslm_id).map_or(&[], Vec::as_slice)
     }

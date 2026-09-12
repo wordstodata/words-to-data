@@ -3,10 +3,11 @@ use std::{str::FromStr, sync::Arc};
 use thiserror::Error;
 
 use crate::{
+    document::{DocumentNode, NodeData},
     io::load_xml_file,
     uslm::{
-        self, BillType, DocumentType, ElementData, ElementType, RefPair, SourceCredit, USCType,
-        USLMElement, USLMError,
+        self, BillType, DocumentType, ElementType, RefPair, SourceCredit, USCType, USLMError,
+        UslmFacts,
         path::{path_segment_from_heading, should_include_in_uslm_path},
     },
 };
@@ -166,7 +167,7 @@ fn check_attr(node: &roxmltree::Node, attr: &str, val: &str) -> bool {
     }
 }
 
-/// Parse a USLM XML string into a USLMElement tree
+/// Parse a USLM XML string into a DocumentNode tree
 ///
 /// This function parses XML content directly from a string, enabling unit testing
 /// without filesystem access and in-memory parsing workflows.
@@ -184,7 +185,7 @@ fn check_attr(node: &roxmltree::Node, attr: &str, val: &str) -> bool {
 ///
 /// # Returns
 ///
-/// A `USLMElement` tree representing the entire document hierarchy, or a
+/// A `DocumentNode` tree representing the entire document hierarchy, or a
 /// `ParseError` if parsing fails.
 ///
 /// # Supported Document Types
@@ -207,7 +208,7 @@ fn check_attr(node: &roxmltree::Node, attr: &str, val: &str) -> bool {
 /// - The XML is malformed
 /// - The document type is not recognized
 /// - Required elements are missing from the XML structure
-pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
+pub fn parse_from_str(xml_str: &str, date: &str) -> Result<DocumentNode> {
     let (element, report) = parse_from_str_with_report(xml_str, date)?;
     report.print_to_stderr();
     Ok(element)
@@ -228,13 +229,16 @@ pub fn parse_from_str(xml_str: &str, date: &str) -> Result<USLMElement> {
 /// let (element, report) = parse_from_str_with_report(&xml, "2025-07-18").unwrap();
 /// assert!(report.is_empty() || !report.dropped_containers.is_empty());
 /// ```
-pub fn parse_from_str_with_report(xml_str: &str, date: &str) -> Result<(USLMElement, ParseReport)> {
+pub fn parse_from_str_with_report(
+    xml_str: &str,
+    date: &str,
+) -> Result<(DocumentNode, ParseReport)> {
     let mut report = ParseReport::default();
     let element = parse_document(xml_str, date, &mut report)?;
     Ok((element, report))
 }
 
-fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result<USLMElement> {
+fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result<DocumentNode> {
     let doc = roxmltree::Document::parse(xml_str)?;
 
     let top_level_node = doc
@@ -302,23 +306,21 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
             };
 
             // Create the uscode container element
-            let container_data = ElementData {
-                path: "uscode".into(),
-                element_type: ElementType::USCodeDocument,
-                document_type: container_doc_type.clone(),
-                date: d,
-                number_value: "".into(),
-                number_display: "".into(),
-                verbose_name: "US Code".into(),
-                heading: None,
-                chapeau: None,
-                proviso: None,
-                content: None,
-                continuation: None,
+            let container_facts = UslmFacts {
+                number_value: String::new(),
+                number_display: String::new(),
+                verbose_name: "US Code".to_string(),
                 uslm_id: None,
                 uslm_uuid: None,
+                document_type: container_doc_type.clone(),
                 source_credits: vec![],
             };
+            let container_data = NodeData::new(
+                "uscode",
+                ElementType::USCodeDocument.node_type(&container_doc_type),
+                d,
+            )
+            .with_payload(container_facts.to_payload()?);
 
             // Find <main> and parse its children as direct children of the container
             let main_node = top_level_node
@@ -326,7 +328,7 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
                 .find(|n| n.has_tag_name("main"))
                 .unwrap_or(top_level_node);
 
-            let mut children: Vec<USLMElement> = Vec::new();
+            let mut children: Vec<DocumentNode> = Vec::new();
             for child in main_node.children() {
                 let child_element = parse_element(
                     child,
@@ -348,7 +350,7 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
                 }
             }
 
-            Ok(USLMElement {
+            Ok(DocumentNode {
                 data: container_data,
                 children,
             })
@@ -370,7 +372,7 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
     }
 }
 
-/// Parse a USLM XML document into a USLMElement tree
+/// Parse a USLM XML document into a DocumentNode tree
 ///
 /// This is the main entry point for parsing USLM documents from files. It handles both
 /// US Code titles and Public Laws (bills), automatically detecting the document
@@ -391,7 +393,7 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
 ///
 /// # Returns
 ///
-/// A `USLMElement` tree representing the entire document hierarchy, or a
+/// A `DocumentNode` tree representing the entire document hierarchy, or a
 /// `ParseError` if parsing fails.
 ///
 /// # Supported Document Types
@@ -418,7 +420,7 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
 /// - The XML is malformed
 /// - The document type is not recognized
 /// - Required elements are missing from the XML structure
-pub fn parse(path: &str, date: &str) -> Result<USLMElement> {
+pub fn parse(path: &str, date: &str) -> Result<DocumentNode> {
     let xml_str = load_xml_file(path)?;
     parse_from_str(&xml_str, date)
 }
@@ -439,7 +441,7 @@ pub fn parse(path: &str, date: &str) -> Result<USLMElement> {
 /// // Title 9 holds no container the parser cannot name.
 /// assert!(report.is_empty());
 /// ```
-pub fn parse_with_report(path: &str, date: &str) -> Result<(USLMElement, ParseReport)> {
+pub fn parse_with_report(path: &str, date: &str) -> Result<(DocumentNode, ParseReport)> {
     let xml_str = load_xml_file(path)?;
     parse_from_str_with_report(&xml_str, date)
 }
@@ -585,7 +587,7 @@ fn parse_element(
     parent_uslm_path: Option<&str>,
     _depth: usize,
     report: &mut ParseReport,
-) -> Result<USLMElement> {
+) -> Result<DocumentNode> {
     if check_attr(&node, "status", "repealed") {
         return Err(ParseError::RepealedElement);
     }
@@ -657,22 +659,35 @@ fn parse_element(
     // Extract source credits from the node
     let source_credits = extract_source_credits(&node);
 
-    let element_data = ElementData {
-        path: structural_path.clone().into(),
-        uslm_id: uslm_id.clone(),
-        uslm_uuid,
+    // The publisher's own naming of this element is a USLM fact, so it travels
+    // in the payload rather than in a core field. The core keeps the path, the
+    // type, the date and the text (#129).
+    let facts = UslmFacts {
+        number_value: number.value.clone(),
+        number_display: number.display.clone(),
+        verbose_name: verbose_name.clone(),
+        uslm_id: uslm_id.as_deref().map(str::to_string),
+        uslm_uuid: uslm_uuid.as_deref().map(str::to_string),
         document_type: document_type.clone(),
-        element_type,
+        source_credits,
+    };
+
+    let element_data = NodeData {
+        path: structural_path.clone().into(),
+        node_type: element_type.node_type(document_type),
         date: d,
-        number_value: number.value.clone().into(),
-        number_display: number.display.clone().into(),
-        verbose_name: verbose_name.clone().into(),
         heading: rewrap_string(text_contents.heading),
         chapeau: rewrap_string(text_contents.chapeau),
         proviso: rewrap_string(text_contents.proviso),
         content: rewrap_string(text_contents.content),
         continuation: rewrap_string(text_contents.continuation),
-        source_credits,
+        // No per-node provenance. Every node of a release point came from the
+        // same publisher by the same method, so recording it on each would state
+        // one fact a million times over and cost a heap allocation each. A node
+        // carries its own provenance where it *differs* from its neighbours' —
+        // an opinion whose text was read by OCR is the case that needs it (#53).
+        provenance: None,
+        payload: Some(facts.to_payload()?),
     };
 
     let cont_node = match matches!(element_type, uslm::ElementType::USCodeDocument) {
@@ -705,7 +720,7 @@ fn parse_element(
     //     verbose_name
     // );
 
-    let mut children: Vec<USLMElement> = Vec::new();
+    let mut children: Vec<DocumentNode> = Vec::new();
     for child in cont_node.children() {
         // For USLM path, pass the generated USLM ID if this element has one,
         // otherwise pass through the parent's USLM path
@@ -739,7 +754,7 @@ fn parse_element(
             },
         }
     }
-    let element = USLMElement {
+    let element = DocumentNode {
         data: element_data,
         children,
     };
@@ -953,7 +968,7 @@ mod tests {
         );
     }
 
-    fn collect_text(elem: &crate::uslm::USLMElement) -> String {
+    fn collect_text(elem: &crate::document::DocumentNode) -> String {
         let mut buf = String::new();
         for s in [
             &elem.data.heading,

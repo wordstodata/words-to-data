@@ -1,5 +1,15 @@
 use rstest::rstest;
+use words_to_data::document::DocumentNode;
+use words_to_data::uslm::UslmFacts;
 use words_to_data::uslm::parser::{parse, parse_from_str};
+
+/// The USLM facts of a node, out of its class payload.
+///
+/// A USLM identifier and a number belong to the publisher's schema, not to the
+/// core, so they are read through the payload the parser wrote (#129).
+fn facts(node: &DocumentNode) -> UslmFacts {
+    UslmFacts::of(&node.data).expect("a parsed USLM node carries USLM facts")
+}
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 
@@ -16,7 +26,7 @@ fn test_parse_usc_title_7() {
     // Root is now uscode container
     assert_eq!(root.data.path.as_ref(), "uscode");
     assert!(
-        root.data.uslm_id.is_none(),
+        facts(&root).uslm_id.is_none(),
         "USCode container has no uslm_id"
     );
 
@@ -25,7 +35,7 @@ fn test_parse_usc_title_7() {
     assert!(!root.children.is_empty());
     let title = &root.children[0];
     assert_eq!(
-        title.data.uslm_id.as_deref().unwrap(),
+        facts(title).uslm_id.as_deref().unwrap(),
         "/us/usc/t7",
         "First child (Title) should have uslm_id /us/usc/t7"
     );
@@ -44,12 +54,15 @@ fn test_parse_public_law() {
     let root = result.unwrap();
     // Check that the root path is in USLM format
     // Note: XML uses "119-21" format (with hyphen)
-    let uslm_id = root.data.uslm_id.as_ref().unwrap();
-    assert_eq!(uslm_id.as_ref(), "/us/pl/119-21");
+    assert_eq!(facts(&root).uslm_id.as_deref(), Some("/us/pl/119-21"));
+
+    // Nothing here says the public law is part of the US Code: the node type
+    // namespaces it on its own (#129).
+    assert_eq!(root.data.node_type.as_str(), "bill.public_law");
 
     // Check that children have structural format paths
     for child in &root.children {
-        if let Some(uslm_id) = &child.data.uslm_id {
+        if let Some(uslm_id) = facts(child).uslm_id {
             assert!(uslm_id.starts_with("/us/pl/119-21/"));
         }
     }
@@ -70,12 +83,13 @@ fn test_cross_title_serialization(#[case] title: &str) {
     let json = serde_json::to_string(&root).expect("Failed to serialize to JSON");
 
     // Deserialize back
-    let deserialized: words_to_data::uslm::USLMElement =
+    let deserialized: DocumentNode =
         serde_json::from_str(&json).expect("Failed to deserialize from JSON");
 
     // Verify paths match
     assert_eq!(root.data.path, deserialized.data.path);
-    assert_eq!(root.data.uslm_id, deserialized.data.uslm_id);
+    assert_eq!(root.data.node_type, deserialized.data.node_type);
+    assert_eq!(facts(&root).uslm_id, facts(&deserialized).uslm_id);
 }
 
 // Compare appendix vs regular titles
@@ -99,11 +113,11 @@ fn test_appendix_vs_regular_titles(#[case] regular: &str, #[case] appendix: &str
 
     // Both should be USC documents
     assert!(matches!(
-        regular_root.data.document_type,
+        facts(&regular_root).document_type,
         DocumentType::USCode { .. }
     ));
     assert!(matches!(
-        appendix_root.data.document_type,
+        facts(&appendix_root).document_type,
         DocumentType::USCode { .. }
     ));
 
@@ -135,7 +149,7 @@ fn test_parse_from_str_should_produce_same_result_as_parse() {
     let from_str = from_str_result.unwrap();
     let from_file = from_file_result.unwrap();
 
-    assert_eq!(from_str.data.uslm_id, from_file.data.uslm_id);
+    assert_eq!(facts(&from_str).uslm_id, facts(&from_file).uslm_id);
     assert_eq!(from_str.data.path, from_file.data.path);
     assert_eq!(from_str.children.len(), from_file.children.len());
 }
@@ -152,10 +166,7 @@ fn test_parse_text_fields() {
 }
 
 /// Every element in the tree, depth first.
-fn walk<'a>(
-    element: &'a words_to_data::uslm::USLMElement,
-    out: &mut Vec<&'a words_to_data::uslm::USLMElement>,
-) {
+fn walk<'a>(element: &'a DocumentNode, out: &mut Vec<&'a DocumentNode>) {
     out.push(element);
     for child in &element.children {
         walk(child, out);
@@ -177,10 +188,11 @@ fn should_exclude_quoted_amendment_text_when_it_carries_no_quoted_content_wrappe
     let quoted: Vec<String> = all
         .iter()
         .filter(|e| {
-            let n = e.data.number_display.trim_start();
+            let display = facts(e).number_display;
+            let n = display.trim_start();
             n.starts_with('\u{201C}') || n.starts_with('"')
         })
-        .map(|e| format!("{} num={}", e.data.path, e.data.number_display))
+        .map(|e| format!("{} num={}", e.data.path, facts(e).number_display))
         .collect();
 
     assert!(
@@ -203,8 +215,7 @@ fn should_keep_the_real_provision_when_quoted_text_shares_its_number() {
     // "Operating rules". The quoted "Brother-sister controlled group" beside it
     // is amendment text and must not survive, but the real one must.
     const F2: &str = "uscode/title_26/subtitle_A/chapter_6/subchapter_B/part_II/section_1563/subsection_f/paragraph_2";
-    let paragraphs: Vec<&&words_to_data::uslm::USLMElement> =
-        all.iter().filter(|e| &*e.data.path == F2).collect();
+    let paragraphs: Vec<&&DocumentNode> = all.iter().filter(|e| &*e.data.path == F2).collect();
 
     assert_eq!(
         paragraphs.len(),

@@ -132,7 +132,7 @@ fn make_expression(date: &str, label: Option<&str>) -> Expression {
     Expression {
         id: at(date),
         label: label.map(|s| s.to_string()),
-        element: root,
+        root,
     }
 }
 
@@ -402,7 +402,7 @@ fn should_find_element_across_expressions() {
         )
         .unwrap();
 
-    let results = dataset.find_element(TITLE_7).unwrap();
+    let results = dataset.find_nodes(TITLE_7).unwrap();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].0, at("2025-07-18"));
