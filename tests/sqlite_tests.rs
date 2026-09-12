@@ -67,13 +67,14 @@ fn should_save_and_load_sqlite_format() {
         .add_expression(make_expression("2024-06-01", None))
         .unwrap();
 
-    let path = "/tmp/test_dataset.db";
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("dataset.db");
 
     // Save as SQLite
-    dataset.save_to_sqlite(path).expect("save should succeed");
+    dataset.save_to_sqlite(&path).expect("save should succeed");
 
     // Load from SQLite
-    let loaded = Dataset::open_sqlite(path)
+    let loaded = Dataset::open_sqlite(&path)
         .expect("open should succeed")
         .to_memory()
         .expect("to_memory should succeed");
@@ -90,9 +91,6 @@ fn should_save_and_load_sqlite_format() {
     // Verify element data preserved, rooted at the work
     let expression = loaded.get_expression(&at("2024-01-01")).unwrap().unwrap();
     assert_eq!(expression.element.data.path.as_ref(), TITLE_7);
-
-    // Cleanup
-    std::fs::remove_file(path).ok();
 }
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
@@ -127,10 +125,11 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
         );
     }
 
-    let path = "/tmp/test_dataset_full.db";
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("dataset_full.db");
 
-    dataset.save_to_sqlite(path).unwrap();
-    let loaded = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
+    dataset.save_to_sqlite(&path).unwrap();
+    let loaded = Dataset::open_sqlite(&path).unwrap().to_memory().unwrap();
 
     // Verify bill
     assert_eq!(loaded.storage().bills.len(), 1);
@@ -147,13 +146,12 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
     assert_eq!(anns.len(), 317);
     let paths: usize = anns.iter().map(|a| a.paths.len()).sum();
     assert_eq!(paths, 718, "every statement must survive the round trip");
-
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
 fn should_support_incremental_save_sqlite() {
-    let path = "/tmp/test_incremental.db";
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("incremental.db");
 
     // First save with one expression
     {
@@ -161,22 +159,22 @@ fn should_support_incremental_save_sqlite() {
         dataset
             .add_expression(make_expression("2024-01-01", Some("V1")))
             .unwrap();
-        dataset.save_to_sqlite(path).unwrap();
+        dataset.save_to_sqlite(&path).unwrap();
     }
 
     // Load, add another expression, save again
     {
-        let mut dataset = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
+        let mut dataset = Dataset::open_sqlite(&path).unwrap().to_memory().unwrap();
         assert_eq!(listed(&dataset).len(), 1);
 
         dataset
             .add_expression(make_expression("2024-06-01", Some("V2")))
             .unwrap();
-        dataset.save_to_sqlite(path).unwrap();
+        dataset.save_to_sqlite(&path).unwrap();
     }
 
     // Verify both expressions present
-    let loaded = Dataset::open_sqlite(path).unwrap().to_memory().unwrap();
+    let loaded = Dataset::open_sqlite(&path).unwrap().to_memory().unwrap();
     assert_eq!(
         listed(&loaded),
         vec![
@@ -184,8 +182,6 @@ fn should_support_incremental_save_sqlite() {
             (at("2024-06-01"), Some("V2".to_string())),
         ]
     );
-
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
@@ -211,8 +207,9 @@ fn should_query_via_trait_interface() {
         );
     }
 
-    let path = "/tmp/test_trait_query.db";
-    dataset.save_to_sqlite(path).unwrap();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("trait_query.db");
+    dataset.save_to_sqlite(&path).unwrap();
 
     // Query via trait - works for both Dataset and SqliteStorage
     fn check_reader(reader: &(impl DocumentReader + LinkReader + LegislatureReader)) {
@@ -259,10 +256,8 @@ fn should_query_via_trait_interface() {
     check_reader(&dataset);
 
     // Test with SqliteStorage
-    let storage = SqliteStorage::open(path).unwrap();
+    let storage = SqliteStorage::open(&path).unwrap();
     check_reader(&storage);
-
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
@@ -294,11 +289,12 @@ fn should_load_window_with_two_expressions() {
         );
     }
 
-    let path = "/tmp/test_load_window.db";
-    dataset.save_to_sqlite(path).unwrap();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("load_window.db");
+    dataset.save_to_sqlite(&path).unwrap();
 
     // Load window with just 2 expressions (returns InMemoryStorage)
-    let storage = SqliteStorage::open(path).unwrap();
+    let storage = SqliteStorage::open(&path).unwrap();
     let windowed = storage
         .load_window(&at("2024-01-01"), &at("2024-06-01"))
         .unwrap();
@@ -329,8 +325,6 @@ fn should_load_window_with_two_expressions() {
 
     // Bills/members/sponsors should be empty (query from storage when needed)
     assert!(windowed.bills.is_empty());
-
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
@@ -352,8 +346,9 @@ fn should_query_annotations_for_path_via_trait() {
         );
     }
 
-    let path = "/tmp/test_ann_path.db";
-    dataset.save_to_sqlite(path).unwrap();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("ann_path.db");
+    dataset.save_to_sqlite(&path).unwrap();
 
     // Test via trait - should work for both
     fn check_annotations_for_path(reader: &impl LinkReader) {
@@ -367,10 +362,8 @@ fn should_query_annotations_for_path_via_trait() {
 
     check_annotations_for_path(&dataset);
 
-    let storage = SqliteStorage::open(path).unwrap();
+    let storage = SqliteStorage::open(&path).unwrap();
     check_annotations_for_path(&storage);
-
-    std::fs::remove_file(path).ok();
 }
 
 /// Store an annotation the way the pipeline does: one link per path it names.

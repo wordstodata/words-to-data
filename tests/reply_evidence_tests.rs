@@ -183,10 +183,8 @@ fn should_carry_replies_and_evidence_through_sqlite() {
         })))
         .expect("link stored");
 
-    let dir = std::path::Path::new("target/reply_evidence_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let file = dir.join("evidence.sqlite");
-    std::fs::remove_file(&file).ok();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("evidence.sqlite");
     memory.save_to_sqlite(&file).expect("save to sqlite");
     let sqlite = Dataset::open_sqlite(&file).expect("open sqlite");
 
@@ -261,10 +259,8 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
         },
     );
 
-    let dir = std::path::Path::new("target/reply_evidence_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let file = dir.join("amendment_provenance.sqlite");
-    std::fs::remove_file(&file).ok();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("amendment_provenance.sqlite");
     dataset.save_to_sqlite(&file).expect("save to sqlite");
     let sqlite = Dataset::open_sqlite(&file).expect("open sqlite");
 
