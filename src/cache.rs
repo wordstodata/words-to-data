@@ -1,9 +1,24 @@
+//! A cache of responses from an outside publisher, on disk.
+//!
+//! One directory, one file per response, keyed by a path the caller chooses. It
+//! belongs to no one publisher: `congress` keys on an API endpoint and
+//! `courtlistener` keys on a record id, and both write under the same shared
+//! directory.
+//!
+//! Two rules matter more than they look.
+//!
+//! **A read never deletes.** An entry past its time to live is reported as a
+//! miss and is left on disk, because the committed test fixtures live in this
+//! cache and a test that read one must not destroy it.
+//!
+//! **A cached response is the record.** Every API this crate reads is rate
+//! limited — CourtListener allows 125 requests a day — so a second run must
+//! answer from the cache rather than spend the quota again.
+
 use std::fs;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-
-use super::CongressError;
 
 pub struct ResponseCache {
     cache_dir: PathBuf,
@@ -19,9 +34,13 @@ impl ResponseCache {
         Self { cache_dir, ttl }
     }
 
+    /// The directory this cache reads and writes, so a caller can say where it
+    /// looked.
+    pub fn directory(&self) -> &Path {
+        &self.cache_dir
+    }
+
     fn key_to_path(&self, key: &str) -> PathBuf {
-        // Sanitize key for filesystem
-        //let safe_key = key.replace(['/', '\\'], "_");
         self.cache_dir.join(key)
     }
 
@@ -51,7 +70,9 @@ impl ResponseCache {
         Some(contents)
     }
 
-    pub fn set(&self, key: &str, data: &str) -> Result<(), CongressError> {
+    /// Write a response under `key`. The error is `std::io::Error` rather than
+    /// one publisher's error type, because the cache serves several.
+    pub fn set(&self, key: &str, data: &str) -> std::io::Result<()> {
         let path = self.key_to_path(key);
         // Unwrap shouldn't be an issue here, since we're always given a reasonable key
         fs::create_dir_all(path.parent().expect("A valid path should have been provided to the cache, there should _always_ be a directory and filename"))?;
@@ -62,7 +83,7 @@ impl ResponseCache {
         Ok(())
     }
 
-    pub fn clear(&self) -> Result<(), CongressError> {
+    pub fn clear(&self) -> std::io::Result<()> {
         if self.cache_dir.exists() {
             fs::remove_dir_all(&self.cache_dir)?;
         }

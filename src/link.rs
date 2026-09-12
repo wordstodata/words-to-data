@@ -304,6 +304,32 @@ pub fn amendment_reference(bill_id: &str, amendment_id: &str) -> String {
     format!("legislature.amendment:{bill_id}:{amendment_id}")
 }
 
+/// The bill and the amendment a reference names, read back out of it.
+///
+/// The inverse of [`amendment_reference`], and here beside it so the one format is
+/// written down once. A reader walking from a changed provision to the bill that
+/// changed it needs this; without it the format is spelled out again at every call
+/// site, and after an edit one of them will be wrong.
+///
+/// `None` for anything that is not an amendment reference — a link object in some
+/// other namespace, or one this build has never seen.
+///
+/// ```
+/// use words_to_data::link::{amendment_reference, amendment_reference_parts};
+///
+/// let reference = amendment_reference("119-hr-1", "a92dddd3");
+/// assert_eq!(
+///     amendment_reference_parts(&reference),
+///     Some(("119-hr-1", "a92dddd3")),
+/// );
+/// assert_eq!(amendment_reference_parts("judicial.opinion:2812209"), None);
+/// ```
+pub fn amendment_reference_parts(reference: &str) -> Option<(&str, &str)> {
+    reference
+        .strip_prefix("legislature.amendment:")?
+        .split_once(':')
+}
+
 impl Link {
     /// What this link says, hashed: its subject, its kind, and its object.
     ///

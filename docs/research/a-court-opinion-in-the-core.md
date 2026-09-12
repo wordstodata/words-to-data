@@ -1,0 +1,297 @@
+# A court opinion in the core: what held, and what bent
+
+What happened when ten real court opinions went into a dataset beside the US
+Code, and one query was made to answer a real research question across both
+(#53).
+
+The question, and the pass condition:
+
+> Which of the ten opinions cite 26 USC 174, and did that provision change after
+> the opinion was published?
+>
+> The answer must report the verification state of each link, and must report
+> "out of scope" where the dataset does not cover the question, rather than
+> "not found".
+
+## The answer
+
+Nine of the ten cite 26 U.S.C. § 174. *Obergefell v. Hodges* does not, and it is
+in the set so that "which of them" has a negative in it.
+
+Section 174 changed between the two release points the dataset holds. H.R. 1
+(Pub. L. 119-21) rewrote subsection (a) from "a taxpayer's **specified** research
+or experimental expenditures" to "a taxpayer's **foreign** research or
+experimental expenditures", and struck the five-year amortisation, leaving
+fifteen years. Four paths under `section_174` differ between the printings:
+`subsection_a`, `subsection_a/paragraph_2/subparagraph_B`, `subsection_b` and
+`subsection_d`.
+
+So for all nine, the answer to the second half is **yes, in the one window this
+dataset covers**. Every citation link is `MachineSuggested`, and each carries the
+text the rule matched as evidence.
+
+And the part that makes the answer honest rather than merely correct. Every one
+of the nine was filed years before the earliest printing held — *Snow v.
+Commissioner* in 1974, fifty-one years before — and the dataset holds nothing in
+between. So each row also reports:
+
+> 1974-05-13 → 2025-07-18: OUT OF SCOPE. This dataset holds no printing of the
+> cited work in that period, so it cannot say whether the provision changed in
+> it. It is not a statement that nothing changed.
+
+That matters more than the yes. Section 174 was rewritten by the Tax Cuts and
+Jobs Act in 2017, which is why *Snow* and *Encyclopaedia Britannica* construe
+text that no longer exists. A tool holding two printings a fortnight apart that
+reported "changed once" would be telling the truth and misleading the reader.
+
+### The chain, end to end
+
+The full chain runs. `cases-citing --chain` walks it in one command:
+
+```
+opinion → judicial.cites → 26 U.S.C. § 174 → the four paths that differ
+        → legislature.amended_by → 119-hr-1 → sponsor → roll call
+```
+
+Against the maintainer's dataset (schema 9, 58 works at two release points, 889
+`legislature.amended_by` links, 435 members, 1,297 member votes), plus the ten
+opinions:
+
+```
+119-hr-1 amended the provision. Reading its record:
+  sponsor: Jodey C. Arrington (A000375), 0 cosponsor(s)
+  roll call 190 on 2025-07-03T14:31:00-04:00: On Motion to Concur in the
+  Senate Amendment — Passed (218 yea, 214 nay, 432 member position(s) held)
+```
+
+Two and a half seconds, on a two-gigabyte SQLite dataset. Nothing in the chain
+needed a new core concept: each hop is a link the core already carries or a
+record the legislature extension already holds.
+
+**The chain is not covered by a test, and that is a gap.** The
+`legislature.amended_by` links are the output of an LLM sweep
+(`match-amendments`), which is not reproducible in CI, so the walk above is
+evidence from a recorded run rather than an assertion. The parts that are
+deterministic — the citation links, the change window, reading a bill reference
+back out of a link object — are tested.
+
+## The ten, and why these ten
+
+Mixed provenance is the point: it forces the verification state to differ between
+records instead of being uniform by construction. Chosen for that, then checked.
+
+| Opinion | Case | Filed | Text from | Method | Trust |
+|---|---|---|---|---|---|
+| 2812209 | Obergefell v. Hodges | 2015-06-26 | `plain_text` | text layer | Asserted |
+| 2651100 | Shami v. Commissioner | 2014-01-23 | `plain_text` | text layer | Asserted |
+| 6248 | Harris v. Commissioner | 1994-03-10 | `plain_text` | text layer | Asserted |
+| 109019 | Snow v. Commissioner | 1974-05-13 | `html_lawbox` | markup | Asserted |
+| 122262 | Boeing Co. v. United States | 2003-03-04 | `html_lawbox` | markup | Asserted |
+| 1527901 | United Stationers v. United States | 1997-10-16 | `html_lawbox` | markup | Asserted |
+| 406879 | Encyclopaedia Britannica v. Commissioner | 1982-08-09 | `html` | markup | Asserted |
+| 9434365 | Boeing — Thomas, J., dissenting | 2003-03-04 | `xml_harvard` | OCR | MachineSuggested |
+| 6931314 | Hildebrand v. Commissioner | 1994-06-22 | `xml_harvard` | OCR | MachineSuggested |
+| 8991218 | Agro Science Co. v. Commissioner | 1991-03-25 | `xml_harvard` | OCR | MachineSuggested |
+
+Four fields, from four donors — a court's own PDF, the Lawbox donation,
+Resource.org, and Harvard's Caselaw Access Project — three methods and two
+verification states. The three Harvard records are `MachineSuggested` because CAP
+says so of its own data: "Case text and general head matter has been generated by
+machine OCR and has not received human review." The three `plain_text` records
+all carry a `download_url` to a court's PDF, so "derived from a court document"
+is something a reader can check rather than a claim.
+
+*Boeing* contributes two of the ten: the combined opinion and Justice Thomas's
+dissent are two writings in one case. They are two works with two nodes and one
+filing date, joined by the cluster id in the payload. Separate opinions needed no
+new document class and no new anything.
+
+## What held
+
+**The class-neutral node (ADR 0006) held completely.** `judicial.opinion` needed
+no core change. The diff, the search index and both on-disk forms carried the type
+and the payload without knowing what a court is. This is the thing the `vibes`
+refactor was for, and it worked.
+
+**The class payload held.** Twelve `OpinionFacts` fields went in and came back,
+including five added here, and no schema version moved: the payload is opaque JSON
+text, so a class adding a fact is not a format change.
+
+**Storage keyed by work and expression (ADR 0003) held, and it is the
+load-bearing one.** Ten opinions filed between 1974 and 2015 sit in one dataset
+beside two July 2025 printings of the whole US Code, and no table above them
+claims a shared release cycle. A work with exactly one expression is ordinary.
+Under the old date-keyed storage there is no honest place to put a 1974 opinion at
+all.
+
+**Open-kinded links (ADR 0002, 0004) held.** `judicial.cites` needed no core
+change: 37 links stored, indexed and read back. Link identity by content collapsed
+71 citation statements into 37 links without being asked — a case citing one
+section five times states the link five times and the dataset holds it once.
+
+**`Scope` and `Coverage` held on the axis they were built for.** A dataset holding
+title 1 alone answers `OutOfScope` for a citation to title 26, and writes no link
+into material it does not hold. Tested.
+
+**Node provenance with `text_method` (ADR 0006) earned its place.** The ADR argued
+that `extracted_by_ocr` belongs in core provenance rather than in the judicial
+payload, so a reader judging a passage does not have to open an extension payload
+to learn a machine read it. That argument is now measured rather than asserted:
+three methods and two verification states across ten records, every one read off
+the record.
+
+**The run-time legislature door (#127) held.** `cases-citing --chain` asks
+`Storage::legislature()` and reports "this dataset holds no legislative material"
+as a different answer from "no bill amended it".
+
+## What bent
+
+### 1. `Scope` cannot describe a hole in time, and that is the honest answer's shape
+
+This is the finding worth acting on.
+
+`Coverage` answers a question about a **path**: `InScope`, `OutOfScope`, `Gap`.
+The pass condition's honest answer is a question about a **period**: between
+1974-05-13 and 2025-07-18 this dataset holds no printing of title 26, so it can
+say nothing about what § 174 did in those fifty-one years.
+
+`Coverage` cannot express that. Asked about `uscode/title_26` it answers
+`InScope`, which is true and useless here. `Declaration.dates` exists and is
+documented as "reported rather than checked", so it does not help either.
+
+So `judicial::reliance` grew its own `UncoveredPeriod`, outside `Scope`, to carry
+the answer. That is a second mechanism for the one job `Scope` exists to do —
+stop absence being read as "no such authority" — and the temporal version of that
+mistake is the more dangerous one in legal research. Nobody misreads "we do not
+hold title 42". Everybody misreads "this provision changed once".
+
+`Scope` should be able to say "this work is held at these dates and nowhere
+between or before them", and `Coverage` should have an answer for a question asked
+about a period. Until it does, every caller answering a time-spanning question
+has to invent its own `UncoveredPeriod`, and the second one to do so will word it
+differently.
+
+### 2. Nothing records whether one expression means "published once" or "that is all we fetched"
+
+The same gap from the other side. `ExpressionId` says of an opinion "there will
+only ever be one", and nothing enforces or records it. A reader holding a work
+with one expression cannot tell a document that was published once and never
+amended from a statute we happened to fetch one printing of. Those are exactly
+the two cases `Scope` exists to keep apart, one level down.
+
+### 3. `Target::Provision` is the core's word for "a node in this dataset", and it says "provision"
+
+A `judicial.cites` link's subject is now
+`Target::Provision("judicial/opinion_109019")`. An opinion is not a provision.
+
+The shape is right and there is no better one. The alternative,
+`Target::External`, says the citing document is outside the file, and it is not:
+the dataset holds the opinion, the link is checkable against its text, and
+`LinkReader::links_for_path` can answer "what does this case cite" only because
+the subject is a path the backend indexes. `citation::Opinion` therefore has two
+constructors, and which one is used is a statement about the dataset rather than a
+style choice: `Opinion::held` for an opinion in the file, `Opinion::new` for one
+that is not.
+
+The name is a lie in miniature, and it is the kind these ADRs exist to prevent.
+It wants to be `Target::Node`. Renaming it changes the serialized variant tag in
+every W2D file, so it belongs with the next schema break rather than in this
+change.
+
+### 4. A dataset cannot declare which document classes it carries
+
+`Declaration.namespaces` declares **link** namespaces. There is no equivalent for
+document classes, so a dataset holding court opinions cannot say so, and a reader
+has to infer the class from the first segment of every work path.
+
+`cases-citing` does exactly that, to list the opinions that do *not* cite the
+provision — which is half the answer to "which of the ten". It is the one place in
+this work that reads a structural path as structured data, and ADR 0001 warns
+against that for good reason. The alternative is loading every expression in the
+dataset to read its root node's type, and a title of the US Code is tens of
+thousands of nodes.
+
+### 5. `OpinionFacts` grew five fields in an afternoon, and nothing stopped it
+
+`per_curiam`, `panel`, `cluster_id`, `docket_id` and `download_url` all arrived
+here. Each is defensible: `per_curiam` separates "the court named no author" from
+"nobody recorded one", which the old `author: None` conflated; `cluster_id` is the
+only thing that says a dissent and a lead opinion are one case; `download_url` is
+what makes "this text came from a court PDF" checkable.
+
+But the class payload is precisely the dumping ground ADR 0006 warned about, and
+the only thing holding the line is two rules written in prose. Nothing in the code
+or the tests checks that a payload field is not something a reader needs in order
+to report the node. The rule is good and it is unenforced.
+
+### 6. The shared response cache lived in `congress` and is not congress's
+
+Moved to `crate::cache`, re-exported from `congress` so nothing broke. Small, but
+without it a CourtListener client would have had to write
+`use crate::congress::ResponseCache`, and a reader would have had to be told why.
+
+### 7. Text extraction had nowhere to live, and that is where the near-miss was
+
+Not a fault in the model, and the sharpest lesson of the exercise.
+
+An opinion arrives in one of up to eight fields, and six of them are markup. A
+single-node tree holds one blob of text, so the markup has to come off.
+`courtlistener::markup` does that: tags become whitespace, character references
+become characters.
+
+Getting the second half wrong loses a citation **silently**. CourtListener's
+`html` for *Encyclopaedia Britannica* writes every section sign as the character
+reference `&#167;`, and the literal character appears nowhere in the field. The
+U.S.C. extractor refuses to read a section number with no marker before it, on
+purpose and rightly. So a tag-strip that ignores entities produces a text with no
+citation in it, and the query answers **"Encyclopaedia Britannica does not cite
+26 U.S.C. § 174"** — confidently, about a leading § 174 case, with nothing
+anywhere reporting a problem.
+
+*Snow*, in the same set of ten, writes the character itself in the field its text
+comes from. Two donors, two conventions, no warning, and the first pass I wrote
+had this bug. Three of the nine citations would have vanished.
+
+So `text_of_markup` reports every named reference it could not decode, with a
+count, on the same contract `usc::find_with_report` has. The decode table is
+short on purpose — HTML names over two thousand entities and a court opinion uses
+a dozen — and anything outside it is named rather than guessed at.
+
+The related decision is recorded as
+`docs/adr/0008-an-opinions-text-is-one-named-field-chosen-for-fidelity.md`: the
+preference order over the eight fields, and why it is the inverse of the one in
+`docs/research/courtlistener-formats.md`.
+
+## What was not done
+
+- **No docket or court record.** The chain opinion → cluster → docket → court
+  stops at `docket_id`. The court's own name is a third request per case, and the
+  budget went on the ten opinions and their nine cases instead.
+- **`xml_harvard` structure is not parsed.** It carries `<opinion type="majority">`
+  and `<author>`, and #53 says not to, and that is right: the node gains children
+  later and its type does not change.
+- **No test covers the chain out to the roll call**, for the reason given above.
+- **No bulk import.** 54 GB of non-seekable bzip2 belongs to production ingest.
+
+## Cost
+
+Nineteen CourtListener API requests, against a rolling budget of 125 a day:
+
+| | |
+|---|---|
+| 1 | search for `"26 U.S.C. § 174"`, which gave 31 candidates with their provenance letters, filing dates and opinion ids in one response |
+| 1 | an attempt at `opinions/?id__in=…`, which answers HTTP 400. The v4 API has no batch-by-id filter, so ten records are ten requests |
+| 9 | the nine opinions not already cached |
+| 8 | the eight clusters not already cached (*Boeing*'s two writings share one) |
+
+Every response is committed under `tests/test_data/courtlistener` — nineteen
+files, 1.8 MB — so the answer above is reproducible from the repository with no
+token and no further request. `add-opinions --offline` reads them and refuses to
+reach the network.
+
+## Attribution
+
+The opinion records are Free Law Project's CourtListener data, read through the
+API under its terms. The analysis in this document, the citation extraction, the
+provenance judgements and the change windows are ours. Free Law Project has not
+produced, endorsed or verified any of it.

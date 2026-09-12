@@ -91,11 +91,16 @@ fn obergefell() -> Expression {
             .as_str()
             .filter(|author| !author.is_empty())
             .map(str::to_string),
+        per_curiam: opinion["per_curiam"].as_bool(),
+        panel: cluster["judges"].as_str().map(str::to_string),
         precedential_status: cluster["precedential_status"].as_str().map(str::to_string),
         citations: parallel_citations(&cluster),
         source: cluster["source"].as_str().map(str::to_string),
         sha1: opinion["sha1"].as_str().map(str::to_string),
         page_count: opinion["page_count"].as_u64().map(|pages| pages as u32),
+        cluster_id: opinion["cluster_id"].as_u64(),
+        docket_id: cluster["docket_id"].as_u64(),
+        download_url: opinion["download_url"].as_str().map(str::to_string),
     };
 
     // How the text was obtained is core provenance, not a judicial fact: a reader
