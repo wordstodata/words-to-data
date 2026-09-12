@@ -1,10 +1,22 @@
-use std::sync::Arc;
+//! USLM: one publisher's schema for US legislative material.
+//!
+//! Everything in this module belongs to that class of document. The core's tree
+//! lives in [`crate::document`] and knows none of it. What the parser learns here
+//! that only a USLM reader understands — an element's number, its USLM
+//! identifier, its source credits — travels beside the node in a
+//! [`ClassPayload`], as [`UslmFacts`]
+//! (`docs/adr/0006-a-document-node-is-class-neutral.md`).
+//!
+//! [`ElementType`] stays a closed enum on purpose. It is the parser's own
+//! vocabulary, not a stored one: it is the list of XML tag names this parser
+//! knows, and a tag it does not know is dropped rather than stored. What is
+//! stored is a [`NodeType`], an open namespaced string, so a document class this
+//! build has never heard of still round-trips.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use time::Date;
 
-use crate::intern::StringInterner;
+use crate::document::{ClassPayload, NodeData, NodeType};
 
 pub mod bill_parser;
 pub mod parser;
@@ -117,6 +129,19 @@ impl DocumentType {
             _ => Err(USLMError::UnknownDocumentType(s.to_string())),
         }
     }
+
+    /// The node-type namespace for documents of this type.
+    ///
+    /// This is what replaced the old `document_type` field on a node. A class
+    /// declaration
+    /// belongs in one place, and the node type already carries one
+    /// (`docs/adr/0006-a-document-node-is-class-neutral.md`).
+    pub fn namespace(&self) -> &'static str {
+        match self {
+            Self::USCode { .. } => NodeType::USCODE,
+            Self::Bill { .. } => NodeType::PUBLIC_LAW,
+        }
+    }
 }
 
 /// The type of bill document
@@ -211,6 +236,75 @@ pub enum ElementType {
     Unknown,
 }
 
+impl ElementType {
+    /// The publisher's name for this kind of element, lowercased.
+    ///
+    /// One list, used for two things, so that a path and a node type can never
+    /// disagree about what an element is called:
+    ///
+    /// - the segment [`path::generate_structural_path`] writes, as in
+    ///   `section_174`;
+    /// - the local half of the stored [`NodeType`], as in `uscode.section`.
+    ///
+    /// These spellings are published: they are in every path and every node type
+    /// in every dataset, so changing one renames provisions. They are spelt out
+    /// here rather than derived from `Debug` for exactly that reason — a stored
+    /// vocabulary must not move when a variant is renamed in Rust.
+    pub fn local_name(self) -> &'static str {
+        match self {
+            Self::USCodeDocument => "uscodedocument",
+            Self::PublicLawDocument => "publiclawdocument",
+            Self::Title => "title",
+            Self::Appendix => "appendix",
+            Self::Subtitle => "subtitle",
+            Self::Chapter => "chapter",
+            Self::Subchapter => "subchapter",
+            Self::Part => "part",
+            Self::Subpart => "subpart",
+            Self::Section => "section",
+            Self::Subsection => "subsection",
+            Self::Paragraph => "paragraph",
+            Self::Subparagraph => "subparagraph",
+            Self::Clause => "clause",
+            Self::Subclause => "subclause",
+            Self::Level => "level",
+            Self::Item => "item",
+            Self::Subitem => "subitem",
+            Self::Subsubitem => "subsubitem",
+            Self::Division => "division",
+            Self::Subdivision => "subdivision",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// The stored node type for this element, in the class's namespace.
+    ///
+    /// The namespace says which class of document the element came from, which
+    /// is what `DocumentType` used to say in a field of its own. A section of the
+    /// US Code is `uscode.section`; a section of a public law is
+    /// `public_law.section`. The same USLM word, and nothing stored says a public
+    /// law is part of the US Code.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use words_to_data::uslm::{DocumentType, ElementType, USCType};
+    ///
+    /// let usc = DocumentType::USCode { usc_type: USCType::Title };
+    /// assert_eq!(
+    ///     ElementType::Section.node_type(&usc).as_str(),
+    ///     "uscode.section"
+    /// );
+    /// ```
+    pub fn node_type(self, document_type: &DocumentType) -> NodeType {
+        NodeType::new(format!(
+            "{}.{}",
+            document_type.namespace(),
+            self.local_name()
+        ))
+    }
+}
+
 impl std::str::FromStr for ElementType {
     type Err = USLMError;
 
@@ -261,35 +355,6 @@ impl std::str::FromStr for ElementType {
     }
 }
 
-/// The different text content fields that can be present in a legislative element
-///
-/// Legislative elements can have up to five distinct text fields, each serving
-/// a specific purpose in the document structure. These fields are tracked
-/// separately to enable precise change detection when comparing document versions.
-/// One of five text fields that can appear in an element:
-///
-/// - Heading: Opening text that appears before enumerated sub-elements
-/// - Chapeau: A conditional or qualifying clause (often starting with "Provided that")
-/// - Proviso: The main text content of the element
-/// - Content: Text that appears after all child elements
-/// - Continuation: Text that appears after all child elements
-///
-/// **IMPORTANT**: Becuase continuations appear _after_ child elements, the full text of some elements require child elements to be present. This makes sense, to load a full section, you need the subsections, which need paragraphs which may need clauses, etc.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TextContentField {
-    /// The heading or title of the element (e.g., "Agricultural Programs")
-    Heading,
-    /// Opening text that appears before enumerated sub-elements
-    Chapeau,
-    /// A conditional or qualifying clause (often starting with "Provided that")
-    Proviso,
-    /// The main text content of the element
-    Content,
-    /// Text that appears after all child elements
-    Continuation,
-}
-
 /// Source Credit Attribution
 ///
 /// The Source credit can contain multiple `<ref>` elements, and they are separated logically
@@ -321,263 +386,83 @@ pub struct RefPair {
     pub description: String,
 }
 
-/// Metadata and content for a single element in a USLM document
+/// What a USLM reader knows about a node that the core does not.
 ///
-/// This struct contains all the information about a legislative element,
-/// including its position in the document hierarchy, identification paths,
-/// display information, and text content.
+/// These are the facts that used to sit in core fields, where a court opinion had
+/// to supply them or claim a `number_value` and a `document_type` it does not
+/// have (#129). They now travel beside the node in a [`ClassPayload`], which the
+/// core stores, hands back unchanged, and never reads.
 ///
-/// # Path Systems
+/// Nothing here is needed in order to *report* a node. A reader that cannot open
+/// this payload still has the node's path, its type, its date, its text and its
+/// provenance, which is everything it takes to search, diff and quote a
+/// provision. What it loses is the publisher's own naming of it.
 ///
-/// Each element has two types of paths:
+/// # Examples
 ///
-/// 1. **Structural Path** (`path`): Includes all hierarchy elements, even
-///    non-USLM ones like `Level`. Example:
-///    `uscode/title_26/subtitle_k/chapter_100/section_9834/level_1`
+/// ```
+/// use words_to_data::uslm::{UslmFacts, parser::parse};
 ///
-/// 2. **USLM ID** (`uslm_id`): Official USLM identifier following standard format.
-///    Only present for elements in the USLM scheme. Example: `/us/usc/t26/s9834/a/1`
+/// let title = parse("tests/test_data/usc/2025-07-18/usc09.xml", "2025-07-18").unwrap();
+/// let section = title.find("uscode/title_9/chapter_1/section_2").unwrap();
 ///
-/// Combining the structural path with the date provides a unique identifier for
-/// any element across all versions of the document.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct ElementData {
-    /// The full structural path in the document for the element
-    ///
-    /// This includes all structural elements like Level that may not be part of the USLM identifier.
-    /// Note that combining this with the date field gives a unique identifier for the document
-    /// For example:
-    ///
-    /// uscode/title_26/subtitle_k/chapter_100/subchapter_c/section_9834/level_1
-    ///
-    pub path: Arc<str>,
-
-    /// The type of this element in the legislative hierarchy
-    pub element_type: ElementType,
-
-    /// The type of document this element belongs to
-    pub document_type: DocumentType,
-
-    /// The date this version of the document was published
-    pub date: Date,
-
-    // Display
+/// let facts = UslmFacts::of(&section.data).expect("a parsed USC section carries USLM facts");
+/// assert_eq!(facts.number_value, "2");
+/// assert_eq!(facts.uslm_id.as_deref(), Some("/us/usc/t9/s2"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UslmFacts {
     /// The raw number or identifier value (e.g., "174", "a", "1")
-    pub number_value: Arc<str>,
+    pub number_value: String,
 
     /// The formatted display version of the number (may include prefixes/suffixes)
-    pub number_display: Arc<str>,
+    pub number_display: String,
 
     /// A human-readable name for this element (e.g., "Section 174")
-    pub verbose_name: Arc<str>,
+    pub verbose_name: String,
 
-    // Content Fields
-    // These are the fields that we need to diff upon
-    /// The heading or title text of the element
-    pub heading: Option<Arc<str>>,
-
-    /// The words at the start of the element that appear before any enumerated items
-    pub chapeau: Option<Arc<str>>,
-
-    /// A clause imposing a qualification, condition, or restriction
-    pub proviso: Option<Arc<str>>,
-
-    /// The main text content of the element
-    pub content: Option<Arc<str>>,
-
-    /// Text content that appears after all child elements
-    pub continuation: Option<Arc<str>>,
-
-    // Metadata
     /// The USLM-standard identifier path for this element
     ///
-    /// This follows the official USLM path format and excludes structural-only elements.
-    /// For example: `/us/usc/t26/s1/a/1` or `/us/pl/119-21/s1/a`
+    /// This follows the official USLM path format and excludes structural-only
+    /// elements. For example: `/us/usc/t26/s1/a/1` or `/us/pl/119-21/s1/a`
     ///
-    /// This is computed according to USLM standards for elements that are part of the
-    /// USLM identifier scheme. If the XML provides an `identifier` attribute, it is
-    /// validated to match this generated path.
-    ///
-    /// Structural-only elements like Level will have None here, as they are not part
+    /// Structural-only elements like `Level` carry `None`, as they are not part
     /// of the USLM identifier scheme.
-    pub uslm_id: Option<Arc<str>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uslm_id: Option<String>,
 
     /// The USLM `id` attribute for an element
     ///
     /// Takes the form of a UUID, not guaranteed to exist
-    pub uslm_uuid: Option<Arc<str>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uslm_uuid: Option<String>,
+
+    /// Which kind of USLM document this element came from
+    ///
+    /// The node type's namespace already says US Code or public law. This keeps
+    /// the rest: which USC type, and which bill.
+    pub document_type: DocumentType,
 
     /// Source credits and references for this element
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_credits: Vec<SourceCredit>,
-    //pub page_data: Option<PageData>, // TODO implement
 }
 
-impl ElementData {
-    /// Retrieve the text content for a specific field
-    ///
-    /// # Arguments
-    ///
-    /// * `field` - The text content field to retrieve
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some(String)` if the field has content, or `None` if the field
-    /// is empty for this element.
-    pub fn get_text_content(&self, field: TextContentField) -> Option<Arc<str>> {
-        match field {
-            TextContentField::Heading => self.heading.clone(),
-            TextContentField::Chapeau => self.chapeau.clone(),
-            TextContentField::Proviso => self.proviso.clone(),
-            TextContentField::Content => self.content.clone(),
-            TextContentField::Continuation => self.continuation.clone(),
-        }
+impl UslmFacts {
+    /// Write these facts into a payload, in the namespace of their document type.
+    pub fn to_payload(&self) -> Result<ClassPayload, serde_json::Error> {
+        ClassPayload::of(self.document_type.namespace(), self)
     }
 
-    pub fn intern_strings(&mut self, interner: &mut StringInterner) {
-        // Required fields
-        self.path = interner.intern(&self.path);
-        self.number_value = interner.intern(&self.number_value);
-        self.number_display = interner.intern(&self.number_display);
-        self.verbose_name = interner.intern(&self.verbose_name);
-
-        // Optional text content fields
-        self.heading = interner.intern_option(&self.heading);
-        self.chapeau = interner.intern_option(&self.chapeau);
-        self.proviso = interner.intern_option(&self.proviso);
-        self.content = interner.intern_option(&self.content);
-        self.continuation = interner.intern_option(&self.continuation);
-
-        // Optional metadata fields
-        self.uslm_id = interner.intern_option(&self.uslm_id);
-        self.uslm_uuid = interner.intern_option(&self.uslm_uuid);
-    }
-}
-
-/// A hierarchical element in a USLM document tree
-///
-/// This struct represents a single element in a legislative document along with
-/// all of its child elements, forming a tree structure that mirrors the document's
-/// hierarchical organization.
-///
-/// # Structure
-///
-/// - `data`: Contains all metadata and text content for this element
-/// - `children`: All direct child elements in document order
-///
-/// # Examples
-///
-/// A typical USC section might have a structure like:
-///
-/// ```text
-/// Section 174 (USLMElement)
-///   ├─ data: ElementData { element_type: Section, heading: "Research expenditures", ... }
-///   └─ children:
-///       ├─ Subsection (a) (USLMElement)
-///       │   └─ children: [Paragraph (1), Paragraph (2), ...]
-///       └─ Subsection (b) (USLMElement)
-///           └─ children: [...]
-/// ```
-///
-/// # Tree Navigation
-///
-/// Use the `find()` method to locate specific elements within the tree by their
-/// structural path.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct USLMElement {
-    /// The metadata and content for this element
-    pub data: ElementData,
-
-    /// Child elements in document order
-    pub children: Vec<USLMElement>,
-}
-
-impl USLMElement {
-    /// Search for an element by its structural path
+    /// Read the USLM facts of a node, or `None` if it is not a USLM node.
     ///
-    /// Recursively searches this element and all descendants for an element
-    /// with the specified path. The path must be a fully qualified structural
-    /// path (e.g., "uscode/title_7/chapter_1/section_1").
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The full structural path of the element to find
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some(&USLMElement)` if an element with the matching path is found,
-    /// or `None` if no such element exists in this tree.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use words_to_data::uslm::parser::parse;
-    /// # let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-    /// // Find a specific section
-    /// let section = element.find("uscode/title_7/chapter_1/section_2");
-    /// assert!(section.is_some());
-    ///
-    /// // Non-existent path returns None
-    /// let missing = element.find("uscode/title_99");
-    /// assert!(missing.is_none());
-    /// ```
-    pub fn find(&self, path: &str) -> Option<&USLMElement> {
-        self.find_all(path).into_iter().next()
-    }
-
-    /// Every element at this structural path, in document order
-    ///
-    /// A path can name more than one provision: the law sometimes numbers two
-    /// provisions alike, and the document records both. `26 U.S.C. § 45X(d)(4)`
-    /// is two paragraphs (4), and the U.S. Code renders both. Prefer this over
-    /// [`USLMElement::find`] wherever discarding the others would be a silent
-    /// loss rather than a convenience.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use words_to_data::uslm::parser::parse;
-    /// # let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
-    /// let found = element.find_all("uscode/title_7/chapter_1/section_2");
-    /// assert_eq!(found.len(), 1);
-    /// ```
-    pub fn find_all(&self, path: &str) -> Vec<&USLMElement> {
-        if *path == *self.data.path {
-            return vec![self];
-        }
-        // A near miss is a question with an answer. Requiring the separator
-        // keeps `uscode/title_26x` from reading as a descendant of
-        // `uscode/title_26`, and leaves nothing to assert about.
-        let Some(remaining) = path
-            .strip_prefix(self.data.path.as_ref())
-            .and_then(|rest| rest.strip_prefix('/'))
-        else {
-            return Vec::new();
-        };
-
-        let segment = remaining.split('/').next().unwrap_or(remaining);
-        let child_path = format!("{}/{segment}", self.data.path);
-
-        self.children
-            .iter()
-            // Compare the whole path, not a suffix of it: `ends_with` asks
-            // whether a child's address happens to end this way, which is a
-            // different question from whether it is the child named here.
-            .filter(|child| *child.data.path == *child_path)
-            .flat_map(|child| child.find_all(path))
-            .collect()
-    }
-
-    /// Merge the children of one node into another
-    pub fn merge_children_mut(&mut self, other: &mut USLMElement) {
-        self.children.append(&mut other.children);
-    }
-
-    pub fn intern_strings(&mut self, interner: &mut StringInterner) {
-        self.data.intern_strings(interner);
-        for child in self.children.iter_mut() {
-            child.intern_strings(interner);
-        }
+    /// `None` for a node of another class, and for a USLM node whose payload will
+    /// not parse. Both are the same answer to the caller: this reader cannot
+    /// speak for this node.
+    pub fn of(data: &NodeData) -> Option<Self> {
+        let payload = data
+            .payload_in(NodeType::USCODE)
+            .or_else(|| data.payload_in(NodeType::PUBLIC_LAW))?;
+        payload.read().ok()
     }
 }

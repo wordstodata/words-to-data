@@ -103,7 +103,7 @@ fn should_read_the_text_of_one_expression() {
         .expect("the expression should be there");
 
     assert_eq!(expression.id, id);
-    assert_eq!(expression.element.data.path.to_string(), "uscode/title_51");
+    assert_eq!(expression.root.data.path.to_string(), "uscode/title_51");
 }
 
 #[test]

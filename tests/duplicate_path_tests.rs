@@ -5,8 +5,9 @@
 //! site renders both. Code that assumes a path is unique within an expression
 //! does not fail loudly — it picks one and discards the other.
 
+use words_to_data::document::DocumentNode;
 use words_to_data::inspect::PathMatch;
-use words_to_data::uslm::{USLMElement, parser::parse};
+use words_to_data::uslm::parser::parse;
 
 const USC26_18: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
 const USC26_30: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
@@ -14,7 +15,7 @@ const USC26_30: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
 /// Both paragraphs (4) of § 45X(d), which the U.S. Code renders in full.
 const DUPLICATED: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_d/paragraph_4";
 
-fn title_26() -> USLMElement {
+fn title_26() -> DocumentNode {
     parse(USC26_30, "2025-07-30").expect("Error running parser")
 }
 
@@ -125,7 +126,7 @@ fn should_report_a_new_provision_that_shares_a_path_with_an_existing_one() {
         "the later expression should hold two"
     );
 
-    let diff = TreeDiff::from_elements(&before, &after);
+    let diff = TreeDiff::from_nodes(&before, &after);
     let mut added = Vec::new();
     added_paths(&diff, &mut added);
 
@@ -397,8 +398,8 @@ fn dataset_both_backends() -> (
 fn should_hold_every_provision_sharing_a_path_on_both_backends() {
     let (_dir, memory, sqlite) = dataset_both_backends();
 
-    let from_memory = memory.find_element(DUPLICATED).expect("find in memory");
-    let from_sqlite = sqlite.find_element(DUPLICATED).expect("find in sqlite");
+    let from_memory = memory.find_nodes(DUPLICATED).expect("find in memory");
+    let from_sqlite = sqlite.find_nodes(DUPLICATED).expect("find in sqlite");
 
     // Both paragraphs (4) are law and both must be reachable. Keying storage by
     // path alone dropped one of them, silently.
@@ -413,7 +414,7 @@ fn should_hold_every_provision_sharing_a_path_on_both_backends() {
         "the SQLite backend should hold both provisions"
     );
 
-    let headings = |found: &[(words_to_data::dataset::ExpressionId, USLMElement)]| -> Vec<String> {
+    let headings = |found: &[(words_to_data::dataset::ExpressionId, DocumentNode)]| -> Vec<String> {
         found
             .iter()
             .map(|(_, e)| e.data.heading.as_deref().unwrap_or("<none>").to_string())
@@ -436,20 +437,20 @@ fn should_say_whether_a_path_exists_on_both_backends() {
     let (_dir, memory, sqlite) = dataset_both_backends();
 
     assert!(
-        memory.has_element(DUPLICATED).expect("ask memory"),
+        memory.has_node(DUPLICATED).expect("ask memory"),
         "the in-memory backend holds this path"
     );
     assert!(
-        sqlite.has_element(DUPLICATED).expect("ask sqlite"),
+        sqlite.has_node(DUPLICATED).expect("ask sqlite"),
         "the SQLite backend holds this path"
     );
 
     assert!(
-        !memory.has_element(ABSENT).expect("ask memory"),
+        !memory.has_node(ABSENT).expect("ask memory"),
         "the in-memory backend does not hold this path"
     );
     assert!(
-        !sqlite.has_element(ABSENT).expect("ask sqlite"),
+        !sqlite.has_node(ABSENT).expect("ask sqlite"),
         "the SQLite backend does not hold this path"
     );
 }
@@ -464,20 +465,17 @@ fn should_say_a_path_exists_when_it_names_more_than_one_provision() {
     // paragraphs (4) sit at this one, and a check which expects a path to name
     // exactly one provision cannot answer for it (ADR 0001, #77, #85).
     assert_eq!(
-        memory
-            .find_element(DUPLICATED)
-            .expect("find in memory")
-            .len(),
+        memory.find_nodes(DUPLICATED).expect("find in memory").len(),
         2,
         "the fixture must really hold two provisions here"
     );
 
     assert!(
-        memory.has_element(DUPLICATED).expect("ask memory"),
+        memory.has_node(DUPLICATED).expect("ask memory"),
         "two provisions at a path still means the path exists"
     );
     assert!(
-        sqlite.has_element(DUPLICATED).expect("ask sqlite"),
+        sqlite.has_node(DUPLICATED).expect("ask sqlite"),
         "two provisions at a path still means the path exists"
     );
 }

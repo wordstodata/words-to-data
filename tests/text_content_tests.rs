@@ -1,4 +1,5 @@
-use words_to_data::uslm::{TextContentField, parser::parse};
+use words_to_data::document::TextContentField;
+use words_to_data::uslm::{UslmFacts, parser::parse};
 
 // Parse heading field from real USC title
 #[test]
@@ -190,9 +191,12 @@ fn test_parse_special_characters_in_text() {
         .find("uscode/title_1/chapter_1/section_1")
         .expect("Failed to find section element");
 
-    // The number_display field should contain the § symbol
+    // The number_display field should contain the § symbol. It is the
+    // publisher's rendering of the number, so it reads out of the node's USLM
+    // payload rather than out of a core field (#129).
+    let facts = UslmFacts::of(&section.data).expect("a USC section carries USLM facts");
     assert!(
-        section.data.number_display.contains("§"),
+        facts.number_display.contains("§"),
         "Number display should contain § symbol"
     );
 }

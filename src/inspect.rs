@@ -17,8 +17,8 @@ use crate::annotation::ChangeAnnotation;
 use crate::congress::{Party, PartyOnDate, VotePosition};
 use crate::dataset::{DatasetError, ExpressionId, Scope, SearchResult, WorkId};
 use crate::diff::TreeDiff;
+use crate::document::DocumentNode;
 use crate::storage::{LegislatureReader, Storage};
-use crate::uslm::USLMElement;
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
 #[derive(Debug, Clone, Serialize)]
@@ -144,7 +144,7 @@ pub fn bills<S: Storage + LegislatureReader>(
 }
 
 /// Count every element in a tree, including the root.
-fn count_elements(element: &USLMElement) -> usize {
+fn count_elements(element: &DocumentNode) -> usize {
     1 + element.children.iter().map(count_elements).sum::<usize>()
 }
 
@@ -165,7 +165,7 @@ pub fn expressions<S: Storage>(
         for info in dataset.expressions(&work)? {
             let element_count = dataset
                 .get_expression(&info.id)?
-                .map(|e| count_elements(&e.element))
+                .map(|e| count_elements(&e.root))
                 .unwrap_or(0);
             summaries.push(ExpressionSummary {
                 id: info.id.to_string(),
@@ -255,7 +255,7 @@ pub struct PathReport {
 }
 
 /// Serde string form of a text content field (e.g. `"heading"`).
-fn field_str(field: &crate::uslm::TextContentField) -> String {
+fn field_str(field: &crate::document::TextContentField) -> String {
     serde_json::to_value(field)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
@@ -279,7 +279,7 @@ pub fn path_report<S: Storage>(
     let provisions = match pair {
         Some((from, to)) => {
             match (dataset.get_expression(from)?, dataset.get_expression(to)?) {
-                (Some(from), Some(to)) => pair_provisions(&from.element, &to.element, path),
+                (Some(from), Some(to)) => pair_provisions(&from.root, &to.root, path),
                 // An expression the dataset does not hold is not an error here:
                 // `present_in` still answers where the path lives.
                 _ => Vec::new(),
@@ -301,7 +301,7 @@ pub fn path_report<S: Storage>(
 /// Which expressions hold the path, each named once with a provision count.
 fn presence_counts<S: Storage>(dataset: &S, path: &str) -> Result<Vec<PathPresence>, DatasetError> {
     let mut ids: Vec<String> = dataset
-        .find_element(path)?
+        .find_nodes(path)?
         .into_iter()
         .map(|(id, _)| id.to_string())
         .collect();
@@ -321,7 +321,7 @@ fn presence_counts<S: Storage>(dataset: &S, path: &str) -> Result<Vec<PathPresen
 }
 
 /// The children of `parent` that sit at `path`, in document order.
-fn kin_at<'a>(parent: &'a USLMElement, path: &str) -> Vec<&'a USLMElement> {
+fn kin_at<'a>(parent: &'a DocumentNode, path: &str) -> Vec<&'a DocumentNode> {
     parent
         .children
         .iter()
@@ -330,8 +330,8 @@ fn kin_at<'a>(parent: &'a USLMElement, path: &str) -> Vec<&'a USLMElement> {
 }
 
 /// The field-level changes between two provisions that share a path.
-fn field_changes(from: &USLMElement, to: &USLMElement) -> Vec<PathFieldChange> {
-    TreeDiff::from_elements(from, to)
+fn field_changes(from: &DocumentNode, to: &DocumentNode) -> Vec<PathFieldChange> {
+    TreeDiff::from_nodes(from, to)
         .changes
         .iter()
         .map(|c| PathFieldChange {
@@ -349,8 +349,8 @@ fn field_changes(from: &USLMElement, to: &USLMElement) -> Vec<PathFieldChange> {
 /// tree instead cannot answer this: it keeps only the children that record
 /// something, so an unchanged provision leaves no node at all.
 fn pair_provisions(
-    from_root: &USLMElement,
-    to_root: &USLMElement,
+    from_root: &DocumentNode,
+    to_root: &DocumentNode,
     path: &str,
 ) -> Vec<ProvisionAtPath> {
     let Some((parent_path, _)) = path.rsplit_once('/') else {
@@ -424,8 +424,8 @@ fn pair_provisions(
 /// The expression root as a single provision. Nothing inside the tree can add
 /// or remove it, so it is in both expressions, in one, or in neither.
 fn root_provision(
-    from_root: &USLMElement,
-    to_root: &USLMElement,
+    from_root: &DocumentNode,
+    to_root: &DocumentNode,
     path: &str,
 ) -> Vec<ProvisionAtPath> {
     match (*from_root.data.path == *path, *to_root.data.path == *path) {
@@ -520,7 +520,7 @@ pub fn validate<S: Storage + LegislatureReader>(
             for path in &ann.paths {
                 // Only whether the path is there, not what sits at it: asking
                 // for the element loads the whole document, once per path.
-                if !dataset.has_element(path)? {
+                if !dataset.has_node(path)? {
                     issues.push(format!(
                         "annotation ({from} -> {to}) references path not found in any expression: {path}"
                     ));

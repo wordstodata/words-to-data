@@ -639,7 +639,7 @@ fn should_pass_validation_for_a_consistent_dataset() {
         .get_expression(&from)
         .unwrap()
         .unwrap()
-        .element
+        .root
         .data
         .path
         .to_string();
@@ -704,7 +704,7 @@ fn should_report_presence_and_field_changes_for_a_real_path() {
         .get_expression(&from)
         .unwrap()
         .unwrap()
-        .element
+        .root
         .data
         .path
         .to_string();

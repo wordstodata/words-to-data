@@ -1,4 +1,18 @@
-use words_to_data::uslm::{ElementType, parser::parse};
+//! Finding a node in a parsed tree by its structural path.
+//!
+//! The type assertions name the stored node type in full — `uscode.section` —
+//! rather than a Rust enum variant. That string is the published vocabulary: it
+//! goes into every dataset, and a third party reads it without our code, so a
+//! test that would still pass if it changed is not testing the interface (#129).
+
+use words_to_data::uslm::{UslmFacts, parser::parse};
+
+/// The publisher's number for a node, out of the node's USLM payload.
+fn number_value(node: &words_to_data::document::DocumentNode) -> String {
+    UslmFacts::of(&node.data)
+        .expect("a parsed USC node carries USLM facts")
+        .number_value
+}
 
 // Find root element in real USC document
 #[test]
@@ -11,7 +25,7 @@ fn test_find_root_in_real_document() {
 
     let found = result.unwrap();
     assert_eq!(found.data.path.as_ref(), "uscode");
-    assert_eq!(found.data.element_type, ElementType::USCodeDocument);
+    assert_eq!(found.data.node_type.as_str(), "uscode.uscodedocument");
 }
 
 // Find title element
@@ -25,7 +39,7 @@ fn test_find_title_element() {
 
     let found = result.unwrap();
     assert_eq!(found.data.path.as_ref(), "uscode/title_9");
-    assert_eq!(found.data.element_type, ElementType::Title);
+    assert_eq!(found.data.node_type.as_str(), "uscode.title");
 }
 
 // Find chapter element
@@ -38,8 +52,8 @@ fn test_find_chapter_element() {
     assert!(result.is_some(), "Should find chapter");
 
     let found = result.unwrap();
-    assert_eq!(found.data.element_type, ElementType::Chapter);
-    assert_eq!(found.data.number_value.as_ref(), "1");
+    assert_eq!(found.data.node_type.as_str(), "uscode.chapter");
+    assert_eq!(number_value(found), "1");
 }
 
 // Find section element
@@ -52,7 +66,7 @@ fn test_find_section_element() {
     assert!(result.is_some(), "Should find section");
 
     let found = result.unwrap();
-    assert_eq!(found.data.element_type, ElementType::Section);
+    assert_eq!(found.data.node_type.as_str(), "uscode.section");
 }
 
 // Find subsection element (deep navigation)
@@ -65,8 +79,8 @@ fn test_find_subsection_element() {
     assert!(result.is_some(), "Should find subsection");
 
     let found = result.unwrap();
-    assert_eq!(found.data.element_type, ElementType::Subsection);
-    assert_eq!(found.data.number_value.as_ref(), "a");
+    assert_eq!(found.data.node_type.as_str(), "uscode.subsection");
+    assert_eq!(number_value(found), "a");
 }
 
 // Find paragraph element (very deep navigation)
@@ -79,7 +93,7 @@ fn test_find_paragraph_element() {
     assert!(result.is_some(), "Should find paragraph");
 
     let found = result.unwrap();
-    assert_eq!(found.data.element_type, ElementType::Paragraph);
+    assert_eq!(found.data.node_type.as_str(), "uscode.paragraph");
 }
 
 // Find nonexistent path returns None
@@ -127,7 +141,10 @@ fn test_find_preserves_children() {
         !found.children.is_empty(),
         "Subsection should have children"
     );
-    assert_eq!(found.children[0].data.element_type, ElementType::Paragraph);
+    assert_eq!(
+        found.children[0].data.node_type.as_str(),
+        "uscode.paragraph"
+    );
 }
 
 // Empty path returns None
@@ -151,12 +168,12 @@ fn test_find_appendix_element() {
     assert!(result.is_some(), "Should find uscode root");
 
     let found = result.unwrap();
-    assert_eq!(found.data.element_type, ElementType::USCodeDocument);
+    assert_eq!(found.data.node_type.as_str(), "uscode.uscodedocument");
 
     // Try to find title element within appendix
     let title_result = root.find("uscode/title_5a");
     if let Some(result) = title_result {
-        assert_eq!(result.data.element_type, ElementType::Title);
+        assert_eq!(result.data.node_type.as_str(), "uscode.title");
     }
 }
 
@@ -171,8 +188,8 @@ fn test_find_deeply_nested_structure() {
         root.find("uscode/title_9/chapter_1/section_16/subsection_a/paragraph_1/subparagraph_A");
 
     if let Some(found) = result {
-        assert_eq!(found.data.element_type, ElementType::Subparagraph);
-        assert_eq!(found.data.number_value.as_ref(), "A");
+        assert_eq!(found.data.node_type.as_str(), "uscode.subparagraph");
+        assert_eq!(number_value(found), "A");
     }
     // If this specific path doesn't exist, that's OK - we're testing the navigation works
 }

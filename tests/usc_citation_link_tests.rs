@@ -39,7 +39,7 @@ fn dataset_holding(titles: &[(&str, &str)]) -> (Dataset<InMemoryStorage>, Sectio
             .get_expression(&id)
             .expect("storage should answer")
             .unwrap_or_else(|| panic!("{work} should be held"));
-        paths.add_work(&expression.element);
+        paths.add_work(&expression.root);
     }
 
     (dataset, paths)

@@ -16,7 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::uslm::USLMElement;
+use crate::document::DocumentNode;
 
 /// A legal document as a concept, with no date attached.
 ///
@@ -116,8 +116,12 @@ pub struct Expression {
     /// `Pre-Tax Cuts Act`. Names one expression, not a moment across the
     /// dataset, so two works may carry the same label.
     pub label: Option<String>,
-    /// The element tree as it read on that date.
-    pub element: USLMElement,
+    /// The root of the document tree as it read on that date.
+    ///
+    /// Named `root` rather than `element`: this is the top of a tree of
+    /// [`DocumentNode`]s, and "element" is USLM's word for a node, which the
+    /// core no longer speaks (#129).
+    pub root: DocumentNode,
 }
 
 /// One expression's headline facts, without its tree.
@@ -183,7 +187,7 @@ pub fn works_between<R: crate::storage::DocumentReader + ?Sized>(
 ///
 /// The container is where a release cycle used to live. Dropping it is what
 /// lets a document that belongs to no release cycle enter a dataset at all.
-pub fn work_roots(root: USLMElement) -> Vec<USLMElement> {
+pub fn work_roots(root: DocumentNode) -> Vec<DocumentNode> {
     if root.data.path.contains('/') {
         return vec![root];
     }

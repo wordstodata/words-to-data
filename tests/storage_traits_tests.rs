@@ -23,12 +23,12 @@ use words_to_data::dataset::{
     ExpressionPair, SearchResult, WorkId,
 };
 use words_to_data::diff::TreeDiff;
+use words_to_data::document::DocumentNode;
 use words_to_data::link::{Link, LinkKind, Provenance, Target, VerificationState};
 use words_to_data::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
     LegislatureReader, LinkReader, LinkWriter, Storage,
 };
-use words_to_data::uslm::USLMElement;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
 
@@ -78,12 +78,12 @@ impl DocumentReader for DocumentsOnly {
         self.0.search_text(query)
     }
 
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
-        self.0.find_element(path)
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
+        self.0.find_nodes(path)
     }
 
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
-        self.0.has_element(path)
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
+        self.0.has_node(path)
     }
 }
 
@@ -102,7 +102,7 @@ fn title_9_expression(label: Option<String>) -> Expression {
     Expression {
         id: ExpressionId::new(WorkId::new(root.data.path.to_string()), EARLY),
         label,
-        element: root,
+        root,
     }
 }
 
@@ -271,12 +271,12 @@ impl DocumentReader for DocumentsAndLinks {
         self.0.search_text(query)
     }
 
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
-        self.0.find_element(path)
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
+        self.0.find_nodes(path)
     }
 
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
-        self.0.has_element(path)
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
+        self.0.has_node(path)
     }
 }
 

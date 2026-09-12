@@ -1,5 +1,6 @@
+use crate::document::DocumentNode;
 use crate::uslm::parser::ParseError;
-use crate::uslm::{USLMElement, parser::parse};
+use crate::uslm::parser::parse;
 use rayon::prelude::*;
 use std::fs::{self, read_dir};
 use std::path::{Path, PathBuf};
@@ -26,7 +27,7 @@ type Result<T> = std::result::Result<T, ParseError>;
 ///
 /// # Returns
 ///
-/// `Some(USLMElement)` containing the merged tree if successful, or `None` if:
+/// `Some(DocumentNode)` containing the merged tree if successful, or `None` if:
 /// - The folder cannot be read
 /// - The folder contains no XML files
 /// - Parsing fails for any file
@@ -41,7 +42,7 @@ type Result<T> = std::result::Result<T, ParseError>;
 ///     println!("Loaded {} children", root.children.len());
 /// }
 /// ```
-pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<USLMElement> {
+pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<DocumentNode> {
     let paths = read_dir(folder_path);
     if paths.is_err() {
         return None;
@@ -58,7 +59,7 @@ pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<USLMElement> {
     if files.is_empty() {
         return None;
     }
-    let mut parsed_files: Vec<USLMElement> = files
+    let mut parsed_files: Vec<DocumentNode> = files
         .par_iter()
         .map(|file| {
             let pwd = file.to_str().unwrap();
@@ -76,7 +77,7 @@ pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<USLMElement> {
     Some(first_elem)
 }
 
-/// Parse a USLM XML file into a USLMElement tree
+/// Parse a USLM XML file into a DocumentNode tree
 ///
 /// # Arguments
 ///
@@ -85,7 +86,7 @@ pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<USLMElement> {
 ///
 /// # Returns
 ///
-/// The parsed document as a `USLMElement` tree, or a `ParseError` if parsing fails.
+/// The parsed document as a `DocumentNode` tree, or a `ParseError` if parsing fails.
 ///
 /// # Examples
 ///
@@ -94,7 +95,7 @@ pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<USLMElement> {
 ///
 /// let element = parse_uslm_xml("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
 /// ```
-pub fn parse_uslm_xml(xml_path: &str, date: &str) -> Result<USLMElement> {
+pub fn parse_uslm_xml(xml_path: &str, date: &str) -> Result<DocumentNode> {
     parse(xml_path, date)
 }
 
@@ -142,7 +143,7 @@ pub fn parse_uslm_to_json(xml_path: &str, date: &str, json_path: &str) -> Result
 ///
 /// # Returns
 ///
-/// A vector of successfully parsed `USLMElement` trees, or a `ParseError` if
+/// A vector of successfully parsed `DocumentNode` trees, or a `ParseError` if
 /// any files fail to parse.
 ///
 /// # Examples
@@ -153,7 +154,7 @@ pub fn parse_uslm_to_json(xml_path: &str, date: &str, json_path: &str) -> Result
 /// let elements = parse_uslm_directory("usc_data/2025-07-18", "2025-07-18").unwrap();
 /// println!("Parsed {} documents", elements.len());
 /// ```
-pub fn parse_uslm_directory(input_dir: &str, date: &str) -> Result<Vec<USLMElement>> {
+pub fn parse_uslm_directory(input_dir: &str, date: &str) -> Result<Vec<DocumentNode>> {
     let dir_path = Path::new(input_dir);
 
     // Collect all XML file paths
@@ -171,7 +172,7 @@ pub fn parse_uslm_directory(input_dir: &str, date: &str) -> Result<Vec<USLMEleme
         .collect();
 
     // Parse files in parallel
-    let results: Vec<Result<USLMElement>> = xml_files
+    let results: Vec<Result<DocumentNode>> = xml_files
         .par_iter()
         .map(|path| {
             let path_str = path.to_str().ok_or_else(|| {

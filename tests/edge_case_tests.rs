@@ -1,4 +1,12 @@
-use words_to_data::uslm::{ElementType, parser::parse};
+use words_to_data::document::DocumentNode;
+use words_to_data::uslm::{UslmFacts, parser::parse};
+
+/// The USLM identifier a node carries, out of its class payload (#129).
+fn uslm_id(node: &DocumentNode) -> Option<String> {
+    UslmFacts::of(&node.data)
+        .expect("a parsed USC node carries USLM facts")
+        .uslm_id
+}
 
 // ========== Error Handling Tests ==========
 
@@ -58,7 +66,7 @@ fn test_parse_smallest_file() {
     // Root is now uscode container, first child is the title
     assert_eq!(root.data.path.as_ref(), "uscode");
     let title = &root.children[0];
-    assert_eq!(title.data.uslm_id.as_deref().unwrap(), "/us/usc/t9");
+    assert_eq!(uslm_id(title).as_deref(), Some("/us/usc/t9"));
 
     // Should have at least some content
     assert!(
@@ -77,10 +85,10 @@ fn test_parse_large_file() {
     // Root is now uscode container, first child is the title
     assert_eq!(root.data.path.as_ref(), "uscode");
     let title = &root.children[0];
-    assert_eq!(title.data.uslm_id.as_deref().unwrap(), "/us/usc/t7");
+    assert_eq!(uslm_id(title).as_deref(), Some("/us/usc/t7"));
 
     // Count elements to verify complete parsing
-    fn count_elements(elem: &words_to_data::uslm::USLMElement) -> usize {
+    fn count_elements(elem: &DocumentNode) -> usize {
         1 + elem.children.iter().map(count_elements).sum::<usize>()
     }
 
@@ -103,7 +111,7 @@ fn test_empty_element_no_children() {
         .find("uscode/title_9/chapter_1/section_10/subsection_a/paragraph_1")
         .expect("Failed to find paragraph");
 
-    assert_eq!(paragraph.data.element_type, ElementType::Paragraph);
+    assert_eq!(paragraph.data.node_type.as_str(), "uscode.paragraph");
     assert!(paragraph.children.is_empty());
 }
 
@@ -115,7 +123,7 @@ fn test_element_with_no_text_fields() {
 
     // Some elements might have no text content fields
     // At minimum, verify root document can be parsed even if it has no direct text
-    assert_eq!(root.data.element_type, ElementType::USCodeDocument);
+    assert_eq!(root.data.node_type.as_str(), "uscode.uscodedocument");
     assert!(
         root.data.heading.is_none()
             && root.data.chapeau.is_none()
@@ -146,8 +154,8 @@ fn test_parse_appendix_title() {
     let root_5a = result_5a.unwrap();
     let root_11a = result_11a.unwrap();
 
-    assert_eq!(root_5a.data.element_type, ElementType::USCodeDocument);
-    assert_eq!(root_11a.data.element_type, ElementType::USCodeDocument);
+    assert_eq!(root_5a.data.node_type.as_str(), "uscode.uscodedocument");
+    assert_eq!(root_11a.data.node_type.as_str(), "uscode.uscodedocument");
 }
 
 // Navigate deeply nested structure (6+ levels)
@@ -163,7 +171,7 @@ fn test_deeply_nested_structure() {
     assert!(deep_elem.is_some(), "Should find deeply nested paragraph");
 
     let found = deep_elem.unwrap();
-    assert_eq!(found.data.element_type, ElementType::Paragraph);
+    assert_eq!(found.data.node_type.as_str(), "uscode.paragraph");
 
     // Verify the path contains 6 segments
     let segments: Vec<&str> = found.data.path.split('/').collect();

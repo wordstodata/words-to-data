@@ -37,8 +37,8 @@ use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
+use crate::document::DocumentNode;
 use crate::link::Link;
-use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
 /// The dataset shape this build reads and writes.
@@ -47,6 +47,12 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
+/// 9 makes a stored node class-neutral. Its type is an open namespaced string —
+/// `uscode.section`, `judicial.opinion` — in place of a closed USLM enum and a
+/// closed `DocumentType`, and the facts only one document class understands move
+/// into a payload the core stores and never reads
+/// (`docs/adr/0006-a-document-node-is-class-neutral.md`, #129). Every field of
+/// every node changes shape, in both forms, so a file at 8 cannot be read.
 /// 8 gives a container that carries no number a readable path segment, from the
 /// publisher's `identifier` or heading in place of an XML uuid, and holds the
 /// Federal Rules of Evidence, which `<article>` grouped under a name the parser
@@ -71,7 +77,7 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 /// Reading the documents a dataset holds.
 ///
@@ -127,18 +133,18 @@ pub trait DocumentReader {
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError>;
 
     /// Find an element by path, in every expression that holds it.
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError>;
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError>;
 
     /// Whether any expression holds at least one provision at `path`.
     ///
     /// A path locates provisions, it does not identify one
     /// (`docs/adr/0001-structural-paths-locate-not-identify.md`), so the
     /// question is "at least one", never "exactly one". Ask this rather than
-    /// [`find_element`] wherever the element itself is not wanted: a backend
+    /// [`find_nodes`] wherever the element itself is not wanted: a backend
     /// can answer it from an index, without reading a document.
     ///
-    /// [`find_element`]: DocumentReader::find_element
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError>;
+    /// [`find_nodes`]: DocumentReader::find_nodes
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError>;
 }
 
 /// Reading the links a dataset holds.

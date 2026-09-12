@@ -24,6 +24,7 @@ use crate::congress::{
     BillDownload, BillVotes, CosponsorRecord, HouseRollCall, Member, SponsorInfo, VotePosition,
 };
 use crate::diff::TreeDiff;
+use crate::document::DocumentNode;
 use crate::legislature::BillDiff;
 use crate::link::Link;
 use crate::storage::{
@@ -31,7 +32,6 @@ use crate::storage::{
     LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage,
     Storage,
 };
-use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
 use crate::utils::{load_uslm_folder, parse_uslm_xml};
@@ -210,11 +210,11 @@ impl<S: Storage> Dataset<S> {
         self.storage.annotation_pairs()
     }
 
-    pub fn find_element(
+    pub fn find_nodes(
         &self,
         path: &str,
-    ) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
-        self.storage.find_element(path)
+    ) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
+        self.storage.find_nodes(path)
     }
 
     // --- Delegate DatasetWriter methods ---
@@ -440,15 +440,15 @@ impl Dataset<InMemoryStorage> {
     /// Split a parsed tree into works and add one expression for each.
     fn add_works_of(
         &mut self,
-        element: USLMElement,
+        parsed: DocumentNode,
         date: &str,
         label: Option<String>,
     ) -> Result<(), DatasetError> {
-        for root in work_roots(element) {
+        for root in work_roots(parsed) {
             self.add_expression(Expression {
                 id: ExpressionId::new(WorkId::new(root.data.path.to_string()), date),
                 label: label.clone(),
-                element: root,
+                root,
             })?;
         }
         Ok(())
@@ -642,12 +642,12 @@ impl<S: Storage> DocumentReader for Dataset<S> {
         self.storage.search_text(query)
     }
 
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
-        self.storage.find_element(path)
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
+        self.storage.find_nodes(path)
     }
 
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
-        self.storage.has_element(path)
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
+        self.storage.has_node(path)
     }
 }
 

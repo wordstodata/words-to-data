@@ -1,4 +1,15 @@
-use words_to_data::uslm::parser::parse;
+//! Source credits are a USLM fact, so they read out of a node's class
+//! payload rather than out of a core field (#129).
+
+use words_to_data::document::DocumentNode;
+use words_to_data::uslm::{SourceCredit, UslmFacts, parser::parse};
+
+/// The source credits of a node, out of its USLM payload.
+fn source_credits(node: &DocumentNode) -> Vec<SourceCredit> {
+    UslmFacts::of(&node.data)
+        .expect("a parsed USC node carries USLM facts")
+        .source_credits
+}
 
 #[test]
 fn should_parse_single_source_credit_with_one_ref() {
@@ -12,12 +23,13 @@ fn should_parse_single_source_credit_with_one_ref() {
 
     // Section 1 should have at least one source credit
     assert!(
-        !section_1.data.source_credits.is_empty(),
+        !source_credits(section_1).is_empty(),
         "Section 1 should have source credits"
     );
 
     // First source credit should have at least one ref pair
-    let first_credit = &section_1.data.source_credits[0];
+    let credits = source_credits(section_1);
+    let first_credit = &credits[0];
     assert!(
         !first_credit.ref_pairs.is_empty(),
         "First source credit should have ref pairs"
@@ -43,16 +55,13 @@ fn should_parse_multiple_refs_without_semicolons() {
         .expect("Section 1b not found");
 
     assert!(
-        !section_1b.data.source_credits.is_empty(),
+        !source_credits(section_1b).is_empty(),
         "Section 1b should have source credits"
     );
 
     // This section should have at least one source credit with multiple refs
-    let credit_with_multiple_refs = section_1b
-        .data
-        .source_credits
-        .iter()
-        .find(|sc| sc.ref_pairs.len() > 1);
+    let credits = source_credits(section_1b);
+    let credit_with_multiple_refs = credits.iter().find(|sc| sc.ref_pairs.len() > 1);
 
     assert!(
         credit_with_multiple_refs.is_some(),
@@ -72,12 +81,12 @@ fn should_split_source_credits_by_semicolons() {
 
     // Section 1a should have multiple source credits due to semicolon splitting
     assert!(
-        section_1a.data.source_credits.len() > 1,
+        source_credits(section_1a).len() > 1,
         "Section 1a should have multiple source credits from semicolon splitting"
     );
 
     // Each source credit should have at least one ref_pair
-    for (idx, credit) in section_1a.data.source_credits.iter().enumerate() {
+    for (idx, credit) in source_credits(section_1a).iter().enumerate() {
         assert!(
             !credit.ref_pairs.is_empty(),
             "Source credit {} should have at least one ref_pair",
@@ -93,7 +102,7 @@ fn should_handle_element_with_no_source_credits() {
 
     // The root element should not have source credits
     assert!(
-        element.data.source_credits.is_empty(),
+        source_credits(&element).is_empty(),
         "Root element should not have source credits"
     );
 }
@@ -107,9 +116,10 @@ fn should_extract_href_as_ref_id() {
         .find("uscode/title_7/chapter_1/section_1")
         .expect("Section 1 not found");
 
-    assert!(!section_1.data.source_credits.is_empty());
+    let credits = source_credits(section_1);
+    assert!(!credits.is_empty());
 
-    let first_credit = &section_1.data.source_credits[0];
+    let first_credit = &credits[0];
     assert!(!first_credit.ref_pairs.is_empty());
 
     // The ref_id should start with /us/ (USLM path format)

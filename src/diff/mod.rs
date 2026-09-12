@@ -8,8 +8,9 @@ use similar::{ChangeTag, TextDiff};
 use time::Date;
 
 use crate::constants::STOP_WORDS;
+use crate::document::{DocumentNode, NodeData, TextContentField};
 use crate::legislature::BillAmendment;
-use crate::uslm::{ElementData, TextContentField, USLMElement, bill_parser::Bill};
+use crate::uslm::bill_parser::Bill;
 
 /// A change detected in a single text content field between two document versions
 ///
@@ -75,10 +76,10 @@ pub enum TextChangeType {
     Equal,
 }
 
-/// A hierarchical diff between two versions of a USLM document tree
+/// A hierarchical diff between two versions of a document tree
 ///
 /// This struct captures all changes between two versions of the same legislative
-/// element and its children. It mirrors the tree structure of `USLMElement`,
+/// element and its children. It mirrors the tree structure of `DocumentNode`,
 /// with diffs computed recursively for all matching children.
 ///
 /// # Structure
@@ -99,14 +100,16 @@ pub enum TextChangeType {
 /// let new_doc = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
 ///
 /// // Compute the diff
-/// let diff = TreeDiff::from_elements(&old_doc, &new_doc);
+/// let diff = TreeDiff::from_nodes(&old_doc, &new_doc);
 ///
 /// // Examine changes
 /// println!("Field changes: {}", diff.changes.len());
 /// println!("Elements added: {}", diff.added.len());
 /// println!("Elements removed: {}", diff.removed.len());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// No `Eq` or `Hash`: a `NodeData` can carry a `Provenance`, which holds an `f32`.
+// Nothing hashes a diff, so neither is missed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TreeDiff {
     /// The structural path of the element being compared
@@ -116,16 +119,16 @@ pub struct TreeDiff {
     pub changes: Vec<FieldChangeEvent>,
 
     /// Metadata from the original version of this element
-    pub from_element: ElementData,
+    pub from_element: NodeData,
 
     /// Metadata from the new version of this element
-    pub to_element: ElementData,
+    pub to_element: NodeData,
 
     /// Child elements that were added in the new version
-    pub added: Vec<ElementData>,
+    pub added: Vec<NodeData>,
 
     /// Child elements that were removed from the old version
-    pub removed: Vec<ElementData>,
+    pub removed: Vec<NodeData>,
 
     /// Recursive diffs for child elements present in both versions
     pub child_diffs: Vec<TreeDiff>,
@@ -225,7 +228,7 @@ impl TreeDiff {
     //     regs
     // }
 
-    /// Compute the diff between two USLM element trees
+    /// Compute the diff between two document trees
     ///
     /// Compares two versions of the same legislative element and computes all
     /// changes at both the current level and recursively through all children.
@@ -251,7 +254,7 @@ impl TreeDiff {
     /// let old = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
     /// let new = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
     ///
-    /// let diff = TreeDiff::from_elements(&old, &new);
+    /// let diff = TreeDiff::from_nodes(&old, &new);
     /// ```
     /// True when this diff records nothing at all: no field changes, no added or
     /// removed children, and no changed descendant.
@@ -266,19 +269,19 @@ impl TreeDiff {
     ///
     /// A path can name more than one child, so the value is every child that
     /// carries it rather than one of them.
-    fn children_by_path(element: &USLMElement) -> HashMap<&str, Vec<&USLMElement>> {
-        let mut by_path: HashMap<&str, Vec<&USLMElement>> = HashMap::new();
+    fn children_by_path(element: &DocumentNode) -> HashMap<&str, Vec<&DocumentNode>> {
+        let mut by_path: HashMap<&str, Vec<&DocumentNode>> = HashMap::new();
         for child in &element.children {
             by_path.entry(&child.data.path).or_default().push(child);
         }
         by_path
     }
 
-    pub fn from_elements(from_element: &USLMElement, to_element: &USLMElement) -> TreeDiff {
+    pub fn from_nodes(from_element: &DocumentNode, to_element: &DocumentNode) -> TreeDiff {
         assert!(from_element.data.path == to_element.data.path);
         let root_path = from_element.data.path.clone();
         // 1. Diff the root element's fields
-        let changes = diff_elements(from_element, to_element);
+        let changes = diff_nodes(from_element, to_element);
 
         // 2. Build HashMaps of children by path
         // A path can name more than one child: the law sometimes numbers two
@@ -315,7 +318,7 @@ impl TreeDiff {
                     // `changes` and `child_diffs` here dropped a child whose
                     // sole content was an added or removed element, which lost
                     // every pure insertion in the tree (#54).
-                    let child_diff = TreeDiff::from_elements(child_a, child_b);
+                    let child_diff = TreeDiff::from_nodes(child_a, child_b);
                     if !child_diff.is_empty() {
                         child_diffs.push(child_diff);
                     }
@@ -724,9 +727,12 @@ fn is_stop_word(word: &str) -> bool {
 /// # Panics
 ///
 /// Panics if the elements have different paths or types.
-pub fn diff_elements(element_a: &USLMElement, element_b: &USLMElement) -> Vec<FieldChangeEvent> {
+pub fn diff_nodes(element_a: &DocumentNode, element_b: &DocumentNode) -> Vec<FieldChangeEvent> {
     assert!(element_a.data.path == element_b.data.path);
-    assert!(element_a.data.element_type == element_b.data.element_type);
+    // Two nodes at one path must be the same kind of thing to be one provision
+    // across two dates. The type is an open string, so this compares what the
+    // producer wrote rather than a vocabulary the core owns (#129).
+    assert!(element_a.data.node_type == element_b.data.node_type);
     let mut changes: Vec<FieldChangeEvent> = Vec::new();
     for field_name in [
         TextContentField::Heading,
@@ -757,8 +763,8 @@ fn rewrap_usize(s: Option<usize>) -> Option<i32> {
 }
 
 fn diff_field(
-    element_a: &USLMElement,
-    element_b: &USLMElement,
+    element_a: &DocumentNode,
+    element_b: &DocumentNode,
     field_name: TextContentField,
 ) -> FieldChangeEvent {
     let a = element_a

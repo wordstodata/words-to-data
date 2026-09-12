@@ -142,7 +142,9 @@ pub fn generate_structural_path(
     number_value: &str,
     parent_structural_path: Option<&str>,
 ) -> String {
-    let element_name = format!("{:?}", element_type).to_lowercase();
+    // The same name the stored node type uses, so a path and a type can never
+    // disagree about what an element is called (`ElementType::local_name`).
+    let element_name = element_type.local_name();
     match parent_structural_path {
         Some(parent) => format!("{}/{}_{}", parent, element_name, number_value),
         None => format!("{}_{}", element_name, number_value),
