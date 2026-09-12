@@ -195,6 +195,39 @@ fn should_say_out_of_scope_when_the_dataset_does_not_carry_the_title() {
 }
 
 #[test]
+fn should_link_the_opinion_to_the_provision_when_the_section_number_ends_in_a_letter() {
+    let (dataset, paths) = dataset_holding(&[(TITLE_26, "uscode/title_26")]);
+    let scope = dataset.scope().expect("scope should derive");
+
+    // `26 U.S.C. § 45X`, the advanced manufacturing production credit. Until the
+    // section number was allowed a letter this citation read as nothing, so a
+    // third of the Code could not be linked to at all (#135). It is the section
+    // `docs/adr/0001-structural-paths-locate-not-identify.md` uses for its
+    // duplicate-path example, and H.R. 1 amended it.
+    let found = usc::find("the credit under 26 U.S.C. \u{a7} 45X(b)(1)(A)");
+    let citation = found.first().expect("one citation");
+    let cited = resolve(citation, &scope, &paths);
+
+    // The subsection travels as written, and the path stops at the section,
+    // because the citation cannot be trusted at that depth.
+    assert_eq!(cited[0].section, "45X(b)(1)(A)");
+    assert_eq!(cited[0].uslm_id, "/us/usc/t26/s45X");
+    assert_eq!(
+        cited[0].resolution,
+        Resolution::Provision {
+            paths: vec![
+                "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X"
+                    .to_string()
+            ]
+        },
+        "the release publishes section 45X"
+    );
+
+    let links = cites_links(&obergefell(), citation, &cited);
+    assert_eq!(links.len(), 1, "one link, got {links:?}");
+}
+
+#[test]
 fn should_say_absent_when_the_dataset_holds_the_title_and_it_has_no_such_section() {
     let (dataset, paths) = dataset_holding(&[(TITLE_1, "uscode/title_1")]);
     let scope = dataset.scope().expect("scope should derive");
