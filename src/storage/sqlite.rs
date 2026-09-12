@@ -1091,6 +1091,16 @@ impl DocumentReader for SqliteStorage {
 
         Ok(results)
     }
+
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+        // `idx_elem_path` answers this on its own, so no `element_json` is read.
+        // The index holds a row per provision, and one row is enough: the
+        // question is whether any provision sits at the path.
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM element_index WHERE path = ?1")?;
+        Ok(stmt.exists(params![path])?)
+    }
 }
 
 /// Rebuild a link from one row of `links`.

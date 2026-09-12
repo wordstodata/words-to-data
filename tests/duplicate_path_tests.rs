@@ -417,3 +417,59 @@ fn should_hold_every_provision_sharing_a_path_on_both_backends() {
         "both backends should answer alike, in document order"
     );
 }
+
+/// A path the fixture does not hold: § 45X(d) has no paragraph (99).
+const ABSENT: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_d/paragraph_99";
+
+#[test]
+fn should_say_whether_a_path_exists_on_both_backends() {
+    use words_to_data::storage::DocumentReader;
+
+    let (memory, sqlite) = dataset_both_backends("has_element");
+
+    assert!(
+        memory.has_element(DUPLICATED).expect("ask memory"),
+        "the in-memory backend holds this path"
+    );
+    assert!(
+        sqlite.has_element(DUPLICATED).expect("ask sqlite"),
+        "the SQLite backend holds this path"
+    );
+
+    assert!(
+        !memory.has_element(ABSENT).expect("ask memory"),
+        "the in-memory backend does not hold this path"
+    );
+    assert!(
+        !sqlite.has_element(ABSENT).expect("ask sqlite"),
+        "the SQLite backend does not hold this path"
+    );
+}
+
+#[test]
+fn should_say_a_path_exists_when_it_names_more_than_one_provision() {
+    use words_to_data::storage::DocumentReader;
+
+    let (memory, sqlite) = dataset_both_backends("has_element_duplicate");
+
+    // The question is whether at least one provision sits at the path. Two
+    // paragraphs (4) sit at this one, and a check which expects a path to name
+    // exactly one provision cannot answer for it (ADR 0001, #77, #85).
+    assert_eq!(
+        memory
+            .find_element(DUPLICATED)
+            .expect("find in memory")
+            .len(),
+        2,
+        "the fixture must really hold two provisions here"
+    );
+
+    assert!(
+        memory.has_element(DUPLICATED).expect("ask memory"),
+        "two provisions at a path still means the path exists"
+    );
+    assert!(
+        sqlite.has_element(DUPLICATED).expect("ask sqlite"),
+        "two provisions at a path still means the path exists"
+    );
+}

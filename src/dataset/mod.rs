@@ -628,6 +628,10 @@ impl<S: Storage> DocumentReader for Dataset<S> {
     fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         self.storage.find_element(path)
     }
+
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+        self.storage.has_element(path)
+    }
 }
 
 impl<S: Storage> LinkReader for Dataset<S> {

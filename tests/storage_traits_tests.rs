@@ -69,6 +69,10 @@ impl DocumentReader for DocumentsOnly {
     fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         self.0.find_element(path)
     }
+
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+        self.0.has_element(path)
+    }
 }
 
 /// Accepts anything that can read documents, and asks for nothing else.

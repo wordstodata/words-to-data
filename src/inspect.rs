@@ -509,7 +509,9 @@ pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetErro
                 ));
             }
             for path in &ann.paths {
-                if dataset.find_element(path)?.is_empty() {
+                // Only whether the path is there, not what sits at it: asking
+                // for the element loads the whole document, once per path.
+                if !dataset.has_element(path)? {
                     issues.push(format!(
                         "annotation ({from} -> {to}) references path not found in any expression: {path}"
                     ));
