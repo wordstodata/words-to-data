@@ -6,7 +6,8 @@ use crate::{
     io::load_xml_file,
     uslm::{
         self, BillType, DocumentType, ElementData, ElementType, RefPair, SourceCredit, USCType,
-        USLMElement, USLMError, path::should_include_in_uslm_path,
+        USLMElement, USLMError,
+        path::{path_segment_from_heading, should_include_in_uslm_path},
     },
 };
 
@@ -745,6 +746,67 @@ fn parse_element(
     Ok(element)
 }
 
+/// True when an element inside a heading annotates the name, rather than being
+/// part of it.
+///
+/// A heading can carry a footnote: the raised number that points at it, and the
+/// footnote text itself. Both sit inside `<heading>`, so text collected from the
+/// whole element reads as part of the container's name when it is not. One
+/// heading in the title 28 appendix runs to 313 characters this way.
+fn is_footnote(node: &roxmltree::Node) -> bool {
+    node.has_tag_name("note") || check_attr(node, "class", "footnoteRef")
+}
+
+/// The text of a node's `<heading>`, with any footnote left out.
+fn heading_text_without_footnotes(node: &roxmltree::Node) -> Option<String> {
+    fn collect(node: &roxmltree::Node, into: &mut String) {
+        for child in node.children() {
+            if child.is_text() {
+                into.push_str(child.text().unwrap_or_default());
+            } else if child.is_element() && !is_footnote(&child) {
+                collect(&child, into);
+            }
+        }
+    }
+
+    let heading = node.children().find(|n| n.has_tag_name("heading"))?;
+    let mut text = String::new();
+    collect(&heading, &mut text);
+    Some(text)
+}
+
+/// The number value for a container that carries no `<num>`.
+///
+/// A container that groups a body of law often has no number of its own: the
+/// Federal Rules sit in `courtRules`, and an unnumbered `level` gathers sections
+/// under a heading. Three sources are tried, best first (#115):
+///
+/// 1. The publisher's `identifier`, reduced to its last segment, so
+///    `/us/usc/t28a/courtRules/Civil` gives `Civil`.
+/// 2. The publisher's `<heading>`, reduced to a path segment, so `FEDERAL RULES
+///    OF BANKRUPTCY PROCEDURE` gives `federal-rules-of-bankruptcy-procedure`.
+/// 3. The XML `id`, which is a uuid no person can read or type. No container in
+///    the committed release points reaches this.
+///
+/// Numbering by position was rejected. It reads like a number the publisher
+/// gave, and every path below the container moves when the publisher inserts a
+/// sibling above it.
+fn numberless_container_value(node: &roxmltree::Node) -> Option<String> {
+    let from_identifier = node
+        .attribute("identifier")
+        .and_then(|identifier| identifier.rsplit('/').next())
+        .filter(|segment| !segment.is_empty())
+        .map(String::from);
+
+    from_identifier
+        .or_else(|| {
+            heading_text_without_footnotes(node)
+                .as_deref()
+                .and_then(path_segment_from_heading)
+        })
+        .or_else(|| node.attribute("id").map(String::from))
+}
+
 pub fn extract_number(element_type: ElementType, node: &roxmltree::Node) -> Result<Number> {
     // Extract <number> tag data
     match node.children().find(|n| n.has_tag_name("num")) {
@@ -790,13 +852,13 @@ pub fn extract_number(element_type: ElementType, node: &roxmltree::Node) -> Resu
                         display: String::new(),
                     })
                 }
-                ElementType::Level => match node.attribute("id") {
+                ElementType::Level => match numberless_container_value(node) {
                     None => Err(ParseError::UnableToParseElement(
-                        "<Level> element has neither a <num> or <id> field".to_string(),
+                        "<Level> element has no <num>, identifier, heading or id".to_string(),
                     )),
-                    Some(n) => Ok(Number {
-                        value: String::from(n),
-                        display: format!("Level {}", n),
+                    Some(value) => Ok(Number {
+                        display: format!("Level {}", value),
+                        value,
                     }),
                 },
                 _ => Err(ParseError::UnableToParseElement(format!(

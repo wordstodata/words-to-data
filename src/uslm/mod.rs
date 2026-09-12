@@ -243,13 +243,16 @@ impl std::str::FromStr for ElementType {
             // carries no number of its own, so each one reads as a level: the
             // Federal Rules sit in `courtRules`, one rule in `courtRule`, an act
             // reprinted in an appendix in `compiledAct`, and the reorganization
-            // plans in `reorganizationPlans` and `reorganizationPlan`. They group
-            // law; they are not a new unit of law (#110).
+            // plans in `reorganizationPlans` and `reorganizationPlan`. An
+            // `article` groups the rules of the Federal Rules of Evidence, which
+            // were absent from every dataset while the name was unknown (#122).
+            // They group law; they are not a new unit of law (#110).
             "courtrules"
             | "courtrule"
             | "compiledact"
             | "reorganizationplans"
-            | "reorganizationplan" => Ok(Self::Level),
+            | "reorganizationplan"
+            | "article" => Ok(Self::Level),
             "publiclaw" | "public_law" | "plaw" => Ok(Self::PublicLawDocument),
             "uscode" | "us_code" | "uscdoc" => Ok(Self::USCodeDocument),
             "appendix" => Ok(Self::Appendix),

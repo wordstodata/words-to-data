@@ -53,13 +53,14 @@ _Avoid_: Section, node, element
 **Structural path**:
 The address of an element, derived from the hierarchy that the parser found. It locates a Provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both. A path and a position together locate one provision within one Expression. They still do not identify it.
 
-Independence from the source document holds only where an element carries a number. Where it carries none, the segment falls back to the one identifier the source does supply — the element's XML id — and the path becomes something no person can read or type:
+Independence from the source document holds only where an element carries a number. A container that groups a body of law usually carries none: the Federal Rules sit in a `courtRules` element with no number of its own. Such a container takes its segment from the publisher instead — first from the `identifier` attribute, reduced to its last segment, and where there is no identifier, from the heading, which is the only name the publisher gives it:
 
 ```
-uscode/appendix_28a/level_id2e47c0a6-b17c-11ef-b971-e82c9e4f66ce/title_I/level_1
+uscode/appendix_28a/level_Civil/title_I/level_1
+uscode/appendix_11a/level_federal-rules-of-bankruptcy-procedure
 ```
 
-**The exception is common, not marginal.** The regenerated dataset holds **14,484** such paths: 12,748 in the four US Code appendices, and **1,736 across nine ordinary titles**, including 792 in title 29 and 286 in title 38. So a reader naming a provision in labour or veterans' law may have to quote a uuid to do it. #115 is the work, and #122 will add more of them.
+**This is common, not marginal.** 118 containers per release point carry no identifier and take their segment from a heading, and a dataset built from the two committed release points holds **6,962** paths at or below one, across thirteen works. Per release point: 2,363 in the title 11 appendix, 240 in the title 28 appendix, 396 in title 29, 143 in title 38, 132 in title 25, 99 in title 19 and 77 in title 12. Those segments are readable, but they are only as stable as the publisher's wording. Where the publisher rewords a heading, every path below it moves.
 _Avoid_: Path, breadcrumb
 
 **USLM ID**:

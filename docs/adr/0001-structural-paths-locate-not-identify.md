@@ -12,13 +12,15 @@ So this ADR records an accepted decision and a partly-built one. #93 is the work
 
 ### A gap this ADR did not anticipate
 
-A derived path was meant to owe the source document nothing. It does, where an element carries a number. Where an element carries **no** number the path segment falls back to the element's XML id, so the address becomes unreadable:
+A derived path was meant to owe the source document nothing. It does, where an element carries a number. Where an element carries **no** number — which is the usual case for a container that groups a body of law — the segment has to come from the source. It used to fall back to the element's XML id, and **14,484** paths in the dataset read like this, of which 1,736 sat in nine ordinary titles:
 
 ```
 uscode/appendix_28a/level_id2e47c0a6-b17c-11ef-b971-e82c9e4f66ce/title_I/level_1
 ```
 
-This is common rather than marginal: **14,484** such paths in the regenerated dataset, of which 1,736 sit in nine ordinary titles, including 792 in title 29. It does not weaken the decision — an unreadable locator is still a locator — but it does mean a person cannot always name a provision to ask about it, which is a cost this ADR never counted. #115 holds the decision about what a numberless container should contribute to a path, and #122 will add more of them.
+#115 replaced that with the publisher's own name for the container: the `identifier` attribute reduced to its last segment, and where there is none, the heading. No uuid segment remains in a dataset built from the committed release points, and Rule 1 of the Federal Rules of Civil Procedure is now at `uscode/appendix_28a/level_Civil/title_I/level_1`.
+
+The dependence is smaller but it did not go away, and where the segment comes from a heading it took a new shape. **6,962** paths across the two committed release points sit at or below a container named by its heading, in thirteen works, the largest groups being the title 11 appendix, title 29, the title 28 appendix and title 38. A heading is stable against a sibling being inserted above the container, which is why it was preferred to numbering by position, but it is not stable against the publisher rewording it. That is the same class of movement this ADR already describes for `Redesignate` and `Move`, and the same answer applies: a locator moves, and only a minted identity does not.
 
 Legal sources often supply no usable identifier, so we derive a structural path from the hierarchy the parser found, such as `uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_III/subpart_B/section_6041/subsection_d`. This works well against messy documents and we keep it. But a derived path is an address, and an address changes. `AmendingAction` already contains `Redesignate` and `Move` (`src/uslm/mod.rs`), which are exactly the operations that keep a provision alive and move it. A path also changes when our own parser improves.
 
