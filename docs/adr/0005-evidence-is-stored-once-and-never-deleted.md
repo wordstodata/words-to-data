@@ -2,7 +2,7 @@
 
 Status: accepted
 
-`CONTEXT.md` defines provenance as the source, the method, the evidence, and the verification state of a statement. Three of those survived an LLM extraction. The reasoning did too — the model's own explanation is parsed out of its reply and kept — but the reply itself did not. `classify` and `extract_changes` both used the raw text inside an error message and then dropped it.
+`CONTEXT.md` defined provenance as the source, the method, the evidence, and the verification state of a statement. (It now also names the timestamp, the raw score and the corroboration; those are not what this decision is about.) Three of the four survived an LLM extraction. The reasoning did too — the model's own explanation is parsed out of its reply and kept — but the reply itself did not. `classify` and `extract_changes` both used the raw text inside an error message and then dropped it.
 
 That left a machine's claim uncheckable. A party receiving a W2D file could see that a statement was `MachineSuggested`, but not what the machine said, so "never lie" rested on a label rather than on anything they could inspect. It also meant no recorded reply existed to test the parser against, and a reply reconstructed from stored results is well-formed by construction, so it proves nothing about what models really send.
 
@@ -14,7 +14,7 @@ One reply produces many statements. The first recorded sweep wrote 1,237 replies
 
 So the reply is content-addressed and referenced, not copied. Putting the text on each statement would be wrong before it was wasteful: it would say each statement had its own reply, which is false. The same rule already names amendments and links, so the mechanism is not new, and it means a rebuild that restates a fact does not accumulate copies of the evidence behind it.
 
-The reference lives in `Provenance.evidence`, which becomes a type rather than a string: the maker's reasoning, the reply's id, the model, and a hash of the prompt. Evidence is one of the four parts of provenance and deserves a shape, rather than one string with three loose relatives. It also keeps the degraded case readable — a statement made before replies were recorded still carries its reasoning in the same field.
+The reference lives in `Provenance.evidence`, which becomes a type rather than a string: the maker's reasoning, the reply's id, the model, and a hash of the prompt. Evidence is one of the named parts of provenance and deserves a shape, rather than one string with three loose relatives. It also keeps the degraded case readable — a statement made before replies were recorded still carries its reasoning in the same field.
 
 ## The prompt is hashed, not stored
 
