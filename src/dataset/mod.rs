@@ -23,10 +23,11 @@ use crate::annotation::ChangeAnnotation;
 use crate::congress::{
     BillDownload, BillVotes, CosponsorRecord, HouseRollCall, Member, SponsorInfo, VotePosition,
 };
-use crate::diff::TreeDiff;
+use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::legislature::BillDiff;
-use crate::link::Link;
+use crate::legislature::redesignation::{self, RedesignationReport};
+use crate::link::{Link, ProvisionHistory};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
     LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage,
@@ -183,12 +184,86 @@ impl<S: Storage> Dataset<S> {
         self.storage.get_annotations(from, to)
     }
 
+    /// The differences between two expressions of one work.
+    ///
+    /// Where a redesignation link says a provision was renumbered between these
+    /// two dates, the provision is paired with what it became, so the provision
+    /// it displaced reads as removed rather than as rewritten. Where none is
+    /// known, pairing is by position, exactly as before (#93).
+    ///
+    /// [`DocumentReader::compute_diff`] on a bare backend cannot do this, because
+    /// a document reader holds no links. A dataset holds both.
     pub fn compute_diff(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError> {
-        self.storage.compute_diff(from, to)
+        self.diff_over_links(from, to)
+    }
+
+    /// The diff, with a renumbered provision paired to what it became.
+    ///
+    /// Delegates to the backend when this dataset holds no redesignation for the
+    /// pair, which is every dataset until `record_redesignations` has run. That
+    /// keeps the ordinary path exactly as fast as it was, and keeps a backend
+    /// free to answer a diff its own way.
+    fn diff_over_links(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError> {
+        let known = Redesignations::from_links(&self.storage.links_for_pair(from, to)?);
+        if known.is_empty() {
+            return self.storage.compute_diff(from, to);
+        }
+        let (from_expression, to_expression) =
+            crate::storage::memory::require_same_work(&self.storage, from, to)?;
+        Ok(TreeDiff::from_nodes_with(
+            &from_expression.root,
+            &to_expression.root,
+            &known,
+        ))
+    }
+
+    /// Read the redesignations a bill states and record each one as a link.
+    ///
+    /// `from` must be the earlier expression: a redesignation moves a provision
+    /// *away* from a path, and that path only exists before the move, so the
+    /// earlier document is what a statement can be checked against.
+    ///
+    /// Takes statements the caller has already read, rather than the bill this
+    /// dataset stores. Which provision a clause is about comes from where the
+    /// words sat in the bill's markup — a clause inside "in subsection (a)--"
+    /// means something different from the same clause outside it — and a stored
+    /// amendment keeps only the flattened text. Read them with
+    /// [`crate::uslm::bill_redesignation::redesignations_stated`].
+    ///
+    /// Returns the report, including every statement it could not place. A
+    /// caller that drops the report turns this build's silence into the corpus's
+    /// silence.
+    pub fn record_redesignations(
+        &mut self,
+        bill_id: &str,
+        stated: &[redesignation::StatedRedesignation],
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<RedesignationReport, DatasetError> {
+        let (from_expression, _) =
+            crate::storage::memory::require_same_work(&self.storage, from, to)?;
+        let report = redesignation::resolve(stated, &from_expression.root);
+        for resolved in &report.resolved {
+            self.storage
+                .add_link(resolved.link(&from.work, &from.at, &to.at, bill_id))?;
+        }
+        Ok(report)
+    }
+
+    /// The renumberings one provision ran through, oldest first.
+    ///
+    /// A projection over the redesignation links, walked on demand. See
+    /// [`LinkReader::provision_history`].
+    pub fn provision_history(&self, path: &str) -> Result<ProvisionHistory, DatasetError> {
+        self.storage.provision_history(path)
     }
 
     pub fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
@@ -630,12 +705,17 @@ impl<S: Storage> DocumentReader for Dataset<S> {
         self.storage.prev_expression(id)
     }
 
+    /// The differences between two expressions, over the links as well as the
+    /// documents.
+    ///
+    /// A dataset holds both, so it answers the better question. See
+    /// [`Dataset::compute_diff`].
     fn compute_diff(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError> {
-        self.storage.compute_diff(from, to)
+        self.diff_over_links(from, to)
     }
 
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {

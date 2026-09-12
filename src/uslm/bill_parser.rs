@@ -128,7 +128,7 @@ pub fn parse_bill_amendments(bill_id: &str, path: &str) -> Result<Bill> {
 /// The ID is a SHA256 hash of "{bill_id}:{amending_text}", providing a stable,
 /// deterministic identifier that works regardless of the source format (USLM XML,
 /// plaintext, etc.).
-fn compute_amendment_id(bill_id: &str, amending_text: &str) -> String {
+pub(crate) fn compute_amendment_id(bill_id: &str, amending_text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}:{}", bill_id, amending_text));
     let result = hasher.finalize();
@@ -201,7 +201,7 @@ fn get_amendment_data(node: &Node, bill_id: &str) -> BillAmendment {
     }
 }
 
-fn node_text(node: &Node) -> String {
+pub(crate) fn node_text(node: &Node) -> String {
     let raw: String = node
         .descendants()
         .filter(|n| n.is_text())

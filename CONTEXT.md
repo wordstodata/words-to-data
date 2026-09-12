@@ -65,7 +65,11 @@ _Avoid_: Metadata, extra, blob
 **Provision**:
 A unit of law that stays the same thing across versions, even when its text changes or it moves to a new address. Its identity does not depend on its location. A Document node is how one is stored; a Provision is what one is.
 
-**The identity this definition needs does not exist yet.** Nothing in the code mints or carries one. A provision is reached by a Structural path plus a position within one Expression, which locates it and does not identify it, so "is this the same provision as last year" — the question a researcher actually asks — has no answer today. `docs/adr/0001-structural-paths-locate-not-identify.md` records the decision to mint an identity, and #93 is the work. Read this entry as what a Provision is meant to be, and Structural path as what the code has.
+**A provision has no identity of its own, and will not be given one.** Nothing in the code mints or carries one. A provision is reached by a Structural path plus a position within one Expression, which locates it and does not identify it.
+
+"Is this the same provision as last year" is answered another way: by walking Redesignations. A provision has nothing stable to hash — its text changes, which is the point of tracking it, and its location changes, which is why identity was wanted — so #93 recorded the movement as an edge instead of minting an id. `docs/adr/0001-structural-paths-locate-not-identify.md` records the identity it recommended and the note that replaced it.
+
+Read this entry as what a Provision is; read Structural path for how one is located, and Redesignation, under Statements about the law, for how two locations are known to be one provision.
 _Avoid_: Section, node, element
 
 **Structural path**:
@@ -90,7 +94,7 @@ The official identifier of a Document node, as published in the source document.
 _Avoid_: ID, identifier, reference
 
 **Diff**:
-The set of differences between two Expressions of one Work, in the shape of the document hierarchy.
+The set of differences between two Expressions of one Work, in the shape of the document hierarchy. A child is reported as changed, added, removed, or **moved**. Moved is what a Redesignation buys: where one is known the diff pairs across the renumbering, and where none is known it pairs by position, which is all two documents say on their own.
 _Avoid_: Delta, comparison, change set
 
 ## Bills
@@ -182,6 +186,18 @@ _Avoid_: Extra, metadata, blob
 **Change annotation**:
 The Link of kind `legislature.amended_by`. It connects one change in a Diff to the Amendment that caused it.
 _Avoid_: Match, mapping, label
+
+**Redesignation**:
+The Link of kind `legislature.redesignated_as`. It says a Provision was renumbered: the subject is the provision as it was, the object is the provision as it became, and each end names the change — a Work, a Structural path, and the two dates — so the edge says *when* the renumbering happened. A path is reused, so an edge with no dates would claim a renumbering held for all time.
+
+A Bill states it in words: "redesignating paragraph (3) as paragraph (2)". Nothing in the US Code records it, which is why a Diff that pairs by position alone reads a renumbering as a rewrite of whichever provision now holds the number, plus the disappearance of the one that moved.
+
+A redesignation a Bill states and the parser cannot resolve to two paths is **reported**, never dropped. The tool's silence must not read as the corpus's silence.
+_Avoid_: Rename, alias, move
+
+**Provision history**:
+The Redesignations one Provision ran through, walked out of the links, oldest first. A projection: nothing stores it, so a Bill added later adds an edge rather than rewriting an identity, and nothing that already points somewhere breaks (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`). An empty history is an answer — the provision has always been where it is — and not a failure.
+_Avoid_: Chain, lineage, ancestry
 
 **Extension**:
 A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (case name, opinion type). The core data model carries no extension concept, and no document class either. A Link's kind is an open namespaced string, a Document node's type is an open namespaced string, and in both cases the facts only one namespace understands sit in a payload the core stores and never reads (Kind payload, Class payload).

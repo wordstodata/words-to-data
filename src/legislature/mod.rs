@@ -10,6 +10,8 @@
 //! needs these types and has no USLM to speak of, and a court opinion needs
 //! none of them at all.
 
+pub mod redesignation;
+
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
