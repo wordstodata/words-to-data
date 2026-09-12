@@ -24,6 +24,8 @@ The prompt is built from material the dataset already holds — the amending tex
 
 The hash still answers the question that decides whether a reply can be trusted: is the prompt behind it the one this build produces now? The case it does not cover is a build whose prompt construction changed. You then know the hash differs but cannot see the old text. We accept that; the alternative pays for every prompt to serve the rare audit.
 
+**The hash is recorded and nothing reads it yet.** Every link `match-amendments` writes carries one — 899 of 899 in the current dataset — and no command uses it to decide whether a reply can be reused. So `match-amendments` re-queries the model in full on every run, which costs money and makes the pipeline non-reproducible: the same commit over the same sources produced 899 links where it had produced 893. `extract-changes` keeps its own cache keyed on the same hash and is reproducible. The key this ADR specifies is therefore sufficient; the reader is what is missing. #123 is the work.
+
 ## Evidence is append-only
 
 A statement can be superseded. A link is identified by what it says, so restating a fact replaces the link and can leave its old reply referenced by nothing.

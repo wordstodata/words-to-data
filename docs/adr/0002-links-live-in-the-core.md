@@ -1,6 +1,12 @@
 # Links live in the core, with namespaced kinds
 
-Status: accepted
+Status: accepted. Implemented, with one term below that describes intent rather than code.
+
+## A note on "a provision identity"
+
+The shape section says the object of a link may be "a provision identity". There is no provision identity in the code. `Target::Provision` carries a **path**, which `docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md` states plainly — "a provision holds a path" — and which `docs/adr/0001-structural-paths-locate-not-identify.md` now flags as unbuilt. Read "provision identity" in this document as the thing a link is meant to point at; read ADR 0004 for what it points at today. #93 closes the difference.
+
+Everything else in this ADR is built: one `Link` type in the core with a namespaced kind, `legislature.amended_by` as the first kind, the open kind string, and a `Declaration` that lists the namespaces a reader should expect (`Scope::declares_namespace`).
 
 The core data model is document-class-neutral: identity, hierarchy, text, dates, and provenance. Bills, sponsors, members, and votes move to a legislature extension, and courts and opinion types will form a judicial extension. A reader might expect `ChangeAnnotation`, which connects a change to the amendment that caused it, to move into the legislature extension with everything else about amendments. It does not.
 

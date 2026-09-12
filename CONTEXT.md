@@ -36,6 +36,27 @@ _Avoid_: Legislator, representative
 The party a Member held, with the years the source gives for it. A Member carries a history of these and never one undated party, because the affiliation is dated in the same way that an Expression is one Work on one date: the person is the Work, the affiliation on a day is the Expression. A vote carries a date, so the party reported beside a vote is the party held on that day. The source gives years and not days, and the year of a change belongs to two affiliations, so a date in that year is answered as unresolved. An unresolved affiliation is a different answer from a known one, and every reader can tell them apart.
 _Avoid_: Current party, the member's party
 
+**Chamber**:
+One house of a legislature: Senate or House. A Member carries the Chamber they sat in. A Roll call is a House fact today, for the reason the Roll call entry gives.
+_Avoid_: Body, house, branch
+
+**Roll call**:
+A recorded vote of a Chamber on one question, holding each Member's Vote position, the question as the Chamber put it, the result, and the date.
+**Only House roll calls can be held.** The source publishes a House vote resource and no Senate equivalent, so a Senate vote is not merely absent from a Dataset — it cannot be represented by the types at all. An answer about how a bill was voted on therefore covers one Chamber, and must say so rather than offer one Chamber as the whole story. A bill that passed both Chambers will show its House concurrence and nothing of the Senate. #112 explores whether a Senate source exists.
+_Avoid_: Vote, division, tally
+
+**Vote position**:
+How one Member answered one Roll call. The party reported beside a Vote position is the Party affiliation the Member held on the Roll call's date, never the one they hold now.
+_Avoid_: Ballot, choice, stance
+
+**Sponsor**:
+The Member who introduced a bill. Held as a bioguide id, so a Sponsor resolves to a Member and to their Party affiliation on any date. The field that carries it is named `sponsor` and reads like a person's name; it is not one (#104).
+_Avoid_: Author, introducer, proposer
+
+**Cosponsor**:
+A Member who added their name to a bill after its Sponsor, with the date they did it and whether they later withdrew. A withdrawal is recorded rather than removed: that support was given and then taken back is itself a fact about the bill, and deleting the record would state that the support never existed.
+_Avoid_: Co-author, supporter, backer
+
 **Link**:
 A statement that connects one provision to something else. It carries a subject, a namespaced kind, an object, and its provenance. Every reader can read a link, even a reader that does not know the kind. Its identity comes from its subject, its kind, and its object, so restating the same fact updates one link rather than making a second one.
 _Avoid_: Relation, edge, reference
@@ -49,12 +70,23 @@ The link of kind `legislature.amended_by`. It connects one change in a diff to t
 _Avoid_: Match, mapping, label
 
 **Extension**:
-A named set of facts that only some datasets carry, such as the legislature facts (bill, sponsor, vote) or the judicial facts (court, opinion type). The core carries no extension concept.
+A named set of facts that only some datasets carry, such as the legislature facts (bill, sponsor, vote) or the judicial facts (court, opinion type). The core data model carries no extension concept: a Link's kind is an open namespaced string, and the facts only one kind understands sit in a Kind payload the core stores and never reads.
+
+**The storage layer does not yet hold that line.** The core `Storage` trait requires `LegislatureReader`, whose methods have no default bodies, so every backend must implement bills, sponsors, members and votes — including one that will only ever hold court opinions. The separation is real in the data model and incomplete in the traits beneath it. #127 is the work, and #53 will meet it first.
 _Avoid_: Plugin, module, add-on
 
 **Provenance**:
-The record of where one statement came from: its source, the method that produced it, when it was made, its evidence, and its verification state.
+The record of where one statement came from: its source, the method that produced it, when it was made, its evidence, its verification state, and the two numbers below. Every part is core, so a reader that cannot open a Kind payload can still say what a link is, who said it, and how far it can be trusted.
 _Avoid_: Lineage, history, audit
+
+**Raw score**:
+A number a model reported about its own work. It is kept as diagnostic data and nothing more. It is not a probability, it must never be presented as one, and nobody can check it: the model asserted it about itself, and running the model again may give a different number.
+_Avoid_: Confidence, probability, certainty
+
+**Corroboration**:
+A deterministic measurement that supports a statement, carrying the method used, the figure, and the parts the figure was built from. A party receiving the Dataset can recompute it from the same texts and get the same answer, which is what makes it evidence rather than a claim, and the one number in a Provenance a reader may reasonably rely on.
+It does not raise the Verification state. A machine's proposal that scores well is still a machine's proposal; corroboration says where a human reviewer should look first, and nothing more.
+_Avoid_: Score, confidence, match strength
 
 **Evidence**:
 What a statement was based on: the maker's reasoning in their own words, and the verbatim reply that produced it. A machine's claim is only checkable if the party receiving the Dataset can see what the machine actually said, so evidence is what stops a verification state being a label with nothing behind it.
@@ -66,10 +98,20 @@ _Avoid_: Response, output, completion
 
 **Provision**:
 A unit of law that stays the same thing across versions, even when its text changes or it moves to a new address. Its identity does not depend on its location.
+
+**The identity this definition needs does not exist yet.** Nothing in the code mints or carries one. A provision is reached by a Structural path plus a position within one Expression, which locates it and does not identify it, so "is this the same provision as last year" — the question a legal researcher actually asks — has no answer today. `docs/adr/0001-structural-paths-locate-not-identify.md` records the decision to mint an identity, and #93 is the work. Read this entry as what a Provision is meant to be, and Structural path as what the code has.
 _Avoid_: Section, node, element
 
 **Structural path**:
-The address of an element, derived from the hierarchy that the parser found. It does not depend on the source document to supply an identifier. It locates a provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both. A path and a position together locate one provision within one expression. They still do not identify it.
+The address of an element, derived from the hierarchy that the parser found. It locates a provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both. A path and a position together locate one provision within one expression. They still do not identify it.
+
+Independence from the source document holds only where an element carries a number. Where it carries none, the segment falls back to the one identifier the source does supply — the element's XML id — and the path becomes something no person can read or type:
+
+```
+uscode/appendix_28a/level_id2e47c0a6-b17c-11ef-b971-e82c9e4f66ce/title_I/level_1
+```
+
+**The exception is common, not marginal.** The regenerated dataset holds **14,484** such paths: 12,748 in the four US Code appendices, and **1,736 across nine ordinary titles**, including 792 in title 29 and 286 in title 38. So a reader naming a provision in labour or veterans' law may have to quote a uuid to do it. #115 is the work, and #122 will add more of them.
 _Avoid_: Path, breadcrumb
 
 **USLM ID**:
