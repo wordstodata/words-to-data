@@ -161,5 +161,5 @@ _Avoid_: Match, mapping, label
 **Extension**:
 A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (court, opinion type). The core data model carries no extension concept: a Link's kind is an open namespaced string, and the facts only one kind understands sit in a Kind payload the core stores and never reads.
 
-**The storage layer does not yet hold that line.** The core `Storage` trait requires `LegislatureReader`, whose methods have no default bodies, so every backend must implement bills, sponsors, members and votes — including one that will only ever hold court opinions. The separation is real in the data model and incomplete in the traits beneath it. #127 is the work, and #53 will meet it first.
+The storage traits hold the same line. The core `Storage` trait requires documents, links and evidence, and no extension, so a backend that will only ever hold court opinions implements it without writing a word about bills. Code that needs legislature facts asks for them — `S: Storage + LegislatureReader` — and a dataset arriving from another party is asked at run time, through `Storage::legislature`, which answers `None` for "not a concept here" rather than an empty list (#127).
 _Avoid_: Plugin, module, add-on

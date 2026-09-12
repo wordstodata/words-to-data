@@ -17,7 +17,7 @@ use crate::annotation::ChangeAnnotation;
 use crate::congress::{Party, PartyOnDate, VotePosition};
 use crate::dataset::{DatasetError, ExpressionId, Scope, SearchResult, WorkId};
 use crate::diff::TreeDiff;
-use crate::storage::Storage;
+use crate::storage::{LegislatureReader, Storage};
 use crate::uslm::USLMElement;
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
@@ -119,7 +119,9 @@ pub struct BillListing {
 /// Without this a bill id could only be learned from outside the tool:
 /// `show-bill` demands one, `info` reports a count, and annotations carry ids
 /// but a dataset has none until `match-amendments` has run (#83).
-pub fn bills<S: Storage>(dataset: &S) -> Result<Vec<BillListing>, DatasetError> {
+pub fn bills<S: Storage + LegislatureReader>(
+    dataset: &S,
+) -> Result<Vec<BillListing>, DatasetError> {
     let mut ids = dataset.list_bill_ids()?;
     ids.sort();
 
@@ -467,7 +469,9 @@ pub struct ValidationReport {
 /// - every annotation's expression pair actually exists,
 /// - every annotation's `amendment_id` resolves to a real bill amendment,
 /// - every annotation path names an element present in some expression.
-pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetError> {
+pub fn validate<S: Storage + LegislatureReader>(
+    dataset: &S,
+) -> Result<ValidationReport, DatasetError> {
     let mut issues = Vec::new();
 
     // 1. Dates strictly ascending and unique *within each work*. Across works
@@ -829,7 +833,7 @@ fn action_str(action: &crate::legislature::AmendingAction) -> String {
 }
 
 /// Summarize a single bill's amendments, or `None` if the bill isn't present.
-pub fn show_bill<S: Storage>(
+pub fn show_bill<S: Storage + LegislatureReader>(
     dataset: &S,
     bill_id: &str,
 ) -> Result<Option<BillSummary>, DatasetError> {
@@ -897,7 +901,7 @@ pub struct RollCallTally {
 }
 
 /// Tally every roll call on one bill, or `None` if the bill has no votes here.
-pub fn votes<S: Storage>(
+pub fn votes<S: Storage + LegislatureReader>(
     dataset: &S,
     bill_id: &str,
 ) -> Result<Option<Vec<RollCallTally>>, DatasetError> {
@@ -958,7 +962,12 @@ pub fn votes<S: Storage>(
 }
 
 /// Summarize a dataset's metadata and contents.
-pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
+///
+/// [`LegislatureReader`] is required because [`DatasetInfo`] reports the bill,
+/// member, sponsor and vote counts as plain numbers, and a plain number cannot
+/// say "not a concept here". Reporting a documents-only dataset needs those
+/// fields to carry the difference, which is a wider change than #127 made.
+pub fn info<S: Storage + LegislatureReader>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
     let meta = dataset.metadata();
     let scope = Scope::derive(dataset)?;
     // Counted, never loaded: a count query costs the same on a 2 GB dataset as
