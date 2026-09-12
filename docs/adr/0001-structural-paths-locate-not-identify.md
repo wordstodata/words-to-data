@@ -24,6 +24,8 @@ Legal sources often supply no usable identifier, so we derive a structural path 
 
 We therefore give each provision a stable identity that is carried across versions, and we treat the structural path as a locator at one point in time. Links point at the identity and record the locator beside it.
 
+> **Not built.** The identity in that paragraph does not exist in the code; a link points at a path. The second half — the path as a locator — is built. See Implementation status above, and #93.
+
 ## Consequences
 
 Without this, three things break quietly. A `Move` reads as a delete plus an add, so the diff reports a change to law that did not change. Human-confirmed annotations, which point at path strings today (`ChangeAnnotation.paths`), silently attach to different text after a parser change, and the party who receives the file cannot detect it. And "is this the same provision as last year", which is the question a legal researcher actually asks, has no answer.
