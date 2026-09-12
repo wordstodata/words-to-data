@@ -1,0 +1,88 @@
+[
+  {
+    "subject": {
+      "change": {
+        "work": "uscode/title_26",
+        "path": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_8/subparagraph_A/clause_v",
+        "from_date": "2025-07-18",
+        "to_date": "2025-07-30"
+      }
+    },
+    "kind": "westlaw.headnote",
+    "object": {
+      "external": {
+        "reference": "westlaw.headnote:4200",
+        "display": "Headnote 4200"
+      }
+    },
+    "provenance": {
+      "source": "westlaw:import",
+      "method": "third-party enrichment",
+      "verification": "asserted",
+      "evidence": null,
+      "raw_score": null,
+      "timestamp": [
+        1970,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "corroboration": null
+    },
+    "payload": {
+      "namespace": "westlaw",
+      "value": {
+        "key_number": 220,
+        "topic": "Taxation"
+      }
+    }
+  },
+  {
+    "subject": {
+      "change": {
+        "work": "uscode/title_26",
+        "path": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_E/section_48/subsection_a/paragraph_2",
+        "from_date": "2025-07-18",
+        "to_date": "2025-07-30"
+      }
+    },
+    "kind": "westlaw.headnote",
+    "object": {
+      "external": {
+        "reference": "westlaw.headnote:4201",
+        "display": "Headnote 4201"
+      }
+    },
+    "provenance": {
+      "source": "westlaw:import",
+      "method": "third-party enrichment",
+      "verification": "asserted",
+      "evidence": null,
+      "raw_score": null,
+      "timestamp": [
+        1970,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "corroboration": null
+    },
+    "payload": {
+      "namespace": "westlaw",
+      "value": {
+        "key_number": 220,
+        "topic": "Taxation"
+      }
+    }
+  }
+]

@@ -42,6 +42,32 @@ pub fn run(args: Args) {
     println!("Expressions: {}", info.expression_count);
     println!("Bills:       {}", info.bill_count);
 
+    // Links are what this project produces; the document text is the input. The
+    // breakdown names each kind in full, namespace included, because a reader
+    // that does not know a namespace can still report it, and a total hides it
+    // (`docs/adr/0002-links-live-in-the-core.md`).
+    if info.link_count > 0 {
+        println!("Links:       {}", info.link_count);
+        for (kind, count) in &info.link_counts_by_kind {
+            println!("  {kind}  {count}");
+        }
+    }
+
+    // Printed only where there is something to report. A dataset with no
+    // legislature extension holds none of these, and a wall of zeroes reads as
+    // a tool that measured nothing rather than a dataset that holds nothing.
+    for (label, count) in [
+        ("Replies:", info.reply_count),
+        ("Members:", info.member_count),
+        ("Sponsors:", info.sponsor_count),
+        ("Roll calls:", info.roll_call_count),
+        ("Votes:", info.member_vote_count),
+    ] {
+        if count > 0 {
+            println!("{label:<13}{count}");
+        }
+    }
+
     // Scope is the answer to "why did my query find nothing". Print it, so a
     // reader of this dataset knows what it does not hold. Each work carries its
     // own dates, because a dataset need not hold every work on every date.
@@ -61,5 +87,33 @@ pub fn run(args: Args) {
                 println!("  {}  {}", held.work, held.dates.join(", "));
             }
         }
+    }
+
+    // A dataset that declared nothing prints exactly what it always printed.
+    let Some(declared) = &info.scope.declared else {
+        return;
+    };
+
+    if !declared.intends.is_empty() {
+        println!("Declared:    {}", declared.intends.join(", "));
+    }
+    if let Some(dates) = &declared.dates {
+        println!("Dates:       {} to {}", dates.from, dates.to);
+    }
+    if !declared.namespaces.is_empty() {
+        println!("Namespaces:  {}", declared.namespaces.join(", "));
+    }
+
+    // A stated hole is not a fault, but a reader seeing "title 26" has to know
+    // section 174 is deliberately absent, and why.
+    for hole in &declared.excludes {
+        println!("Excluded:    {} — {}", hole.path, hole.reason);
+    }
+
+    // Only printed when there is one. A gap means the build did not do what it
+    // said it would, which is the one thing here a reader must not miss.
+    let gaps = info.scope.gaps();
+    if !gaps.is_empty() {
+        println!("INCOMPLETE:  declared but not held: {}", gaps.join(", "));
     }
 }

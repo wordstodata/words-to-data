@@ -7,11 +7,27 @@
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
-use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
+use words_to_data::annotation::{
+    AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
+};
+use words_to_data::congress::CongressClient;
+use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
+use words_to_data::legislature::AmendingAction;
+use words_to_data::link::Link;
 
 /// The two US Code release points held in `tests/test_data`.
 const EARLY: &str = "2025-07-18";
 const LATE: &str = "2025-07-30";
+
+/// Every statement a real matching run of H.R. 1 recorded.
+const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+
+/// Section 163 of title 26, the section H.R. 1 changed more than any other.
+/// Every statement recorded there sits beneath the section, because an
+/// amendment acts on a subsection, paragraph, subparagraph or clause.
+const SECTION_163: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163";
+/// No such section, and a raw string prefix of [`SECTION_163`].
+const SECTION_16: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_16";
 
 /// Title 9 (Arbitration) did not change between the two release points. Its two
 /// files differ by ten bytes of release stamp, which the parser ignores.
@@ -41,6 +57,7 @@ fn build_fixture(title: &str) -> String {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     });
 
     for (date, label) in [(EARLY, "Before"), (LATE, "After")] {
@@ -86,6 +103,7 @@ fn two_works_fixture() -> &'static str {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
 
         for (title, date) in [(UNCHANGED_TITLE, EARLY), (AMENDED_TITLE, LATE)] {
@@ -119,6 +137,7 @@ fn both_works_json_fixture() -> &'static str {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
 
         for title in [UNCHANGED_TITLE, AMENDED_TITLE] {
@@ -150,6 +169,7 @@ fn two_works_json_fixture() -> &'static str {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
 
         for (title, date) in [(UNCHANGED_TITLE, EARLY), (AMENDED_TITLE, LATE)] {
@@ -161,6 +181,145 @@ fn two_works_json_fixture() -> &'static str {
 
         dataset
             .save(&path, Format::Compact)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+/// A dataset carrying what this project produces as well as its input: one link
+/// over a real provision, the bill behind it, and that bill's legislature facts
+/// — its sponsor, the members of the House, and the roll call they voted in.
+///
+/// `info` on a dataset like this is how a person tells an annotated dataset from
+/// a bare corpus.
+fn annotated_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/cli_annotated.sqlite", env!("CARGO_TARGET_TMPDIR"));
+        let _ = std::fs::remove_file(&path);
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Annotated Fixture".to_string(),
+            description: "One title, one public law, one link".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+            ..Default::default()
+        });
+        for date in [EARLY, LATE] {
+            let xml = format!("tests/test_data/usc/{date}/{UNCHANGED_TITLE}.xml");
+            dataset
+                .add_uslm_xml(&xml, date, None)
+                .expect("the corpus should parse and load");
+        }
+
+        // The committed download of one real bill. No API key and no expiry:
+        // the fixtures must be read without the network and never deleted for
+        // being old.
+        let client = CongressClient::with_ttl(
+            String::new(),
+            Some("tests/test_data/congress_client_cache".to_string()),
+            None,
+        );
+        let download = client
+            .download_bill("119-hr-1")
+            .expect("the cached bill should read");
+        dataset
+            .load_bill_download(&download)
+            .expect("the download should load");
+
+        let amendment_id = dataset
+            .get_bill("119-hr-1")
+            .expect("the bill should read")
+            .expect("the download holds it")
+            .amendments
+            .keys()
+            .next()
+            .expect("a real public law carries amendments")
+            .clone();
+        let annotation = ChangeAnnotation {
+            operation: AmendingAction::Strike,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id,
+                causative_text: "by striking 'foo'".to_string(),
+            },
+            paths: vec![format!("{UNCHANGED_WORK}/chapter_1/section_1")],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Pending,
+                confidence: Some(0.9),
+                annotator: "model:test".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        };
+        let from = ExpressionId::new(WorkId::new(UNCHANGED_WORK), EARLY);
+        let to = ExpressionId::new(WorkId::new(UNCHANGED_WORK), LATE);
+        for link in Link::from_annotation(&annotation, &from, &to) {
+            dataset.add_link(link).expect("the link should be added");
+        }
+
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+/// A dataset carrying every statement a real matching run of H.R. 1 recorded.
+///
+/// Separate from [`annotated_fixture`], which holds one link on purpose so that
+/// `info` can count each kind of fact exactly. This one holds 753 statements
+/// over hundreds of paths, because a path filter is only tested by a real spread
+/// of paths.
+///
+/// The documents are title 9 while the statements name title 26. A path filter
+/// compares paths and never reads a document, so holding the amended title
+/// itself would add a minute of parsing and prove nothing more; `inspect_tests`
+/// says the same of the same fixture file.
+fn matched_statements_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!(
+            "{}/cli_matched_statements.sqlite",
+            env!("CARGO_TARGET_TMPDIR")
+        );
+        let _ = std::fs::remove_file(&path);
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Matched Statements".to_string(),
+            description: "One title, plus the statements a real run recorded".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+            ..Default::default()
+        });
+
+        for date in [EARLY, LATE] {
+            let xml = format!("tests/test_data/usc/{date}/{UNCHANGED_TITLE}.xml");
+            dataset
+                .add_uslm_xml(&xml, date, None)
+                .expect("the corpus should parse and load");
+        }
+
+        let file = std::fs::File::open(REAL_ANNOTATIONS).expect("open the recorded annotations");
+        let annotations: Vec<ChangeAnnotation> =
+            serde_json::from_reader(std::io::BufReader::new(file)).expect("read the annotations");
+
+        let work = WorkId::new(UNCHANGED_WORK);
+        let from = ExpressionId::new(work.clone(), EARLY);
+        let to = ExpressionId::new(work, LATE);
+        for annotation in &annotations {
+            for link in Link::from_annotation(annotation, &from, &to) {
+                dataset.add_link(link).expect("the link should be added");
+            }
+        }
+
+        dataset
+            .save_to_sqlite(&path)
             .expect("the fixture should save");
         path
     })
@@ -199,6 +358,77 @@ fn should_report_metadata_and_counts_when_info_runs_on_a_dataset() {
     assert_eq!(info["scope"]["held"][0]["work"], AMENDED_WORK);
     assert_eq!(info["scope"]["held"][0]["dates"][0], EARLY);
     assert_eq!(info["scope"]["held"][0]["dates"][1], LATE);
+}
+
+#[test]
+fn should_name_the_link_kind_when_info_reports_links() {
+    let output = run(&["info", annotated_fixture()]);
+
+    assert!(
+        output.status.success(),
+        "info should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    // The kind is named in full, namespace included. A reader who meets a
+    // namespace it does not know must see it named rather than folded into a
+    // total (`docs/adr/0002-links-live-in-the-core.md`).
+    assert!(
+        text.contains("legislature.amended_by  1"),
+        "the link breakdown should name the kind and its count, got:\n{text}"
+    );
+    assert!(text.contains("Links:       1"), "got:\n{text}");
+    assert!(text.contains("Members:     432"), "got:\n{text}");
+    assert!(text.contains("Votes:       432"), "got:\n{text}");
+    assert!(text.contains("Roll calls:  1"), "got:\n{text}");
+    assert!(text.contains("Sponsors:    1"), "got:\n{text}");
+    // This dataset holds no evidence, so it says nothing about evidence.
+    assert!(!text.contains("Replies:"), "got:\n{text}");
+}
+
+#[test]
+fn should_carry_the_link_and_legislature_counts_when_info_emits_json() {
+    let output = run(&["info", annotated_fixture(), "--json"]);
+    let info: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("info --json should emit json");
+
+    // `--json` is what an agent reads, so it carries the same counts.
+    assert_eq!(info["link_count"], 1);
+    assert_eq!(info["link_counts_by_kind"]["legislature.amended_by"], 1);
+    assert_eq!(info["member_count"], 432);
+    assert_eq!(info["member_vote_count"], 432);
+    assert_eq!(info["roll_call_count"], 1);
+    assert_eq!(info["sponsor_count"], 1);
+    assert_eq!(info["bill_count"], 1);
+    assert!(
+        info.get("reply_count").is_none(),
+        "a count of zero is left out"
+    );
+}
+
+#[test]
+fn should_omit_a_count_of_zero_when_info_runs_on_a_dataset_without_legislature() {
+    let output = run(&["info", amended_fixture()]);
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    // A dataset with no legislature extension must not grow a wall of zeroes.
+    for label in [
+        "Links:",
+        "Replies:",
+        "Members:",
+        "Sponsors:",
+        "Roll calls:",
+        "Votes:",
+    ] {
+        assert!(
+            !text.contains(label),
+            "{label} is zero here and must not be printed, got:\n{text}"
+        );
+    }
+    // The counts reported before this rule are still reported.
+    assert!(text.contains("Works:       1"), "got:\n{text}");
+    assert!(text.contains("Bills:       0"), "got:\n{text}");
 }
 
 /// Run `diff` over a fixture and return its parsed JSON summary.
@@ -394,6 +624,132 @@ fn should_return_no_annotations_when_the_dataset_has_none() {
         serde_json::from_slice(&output.stdout).expect("annotations --json should emit json");
 
     assert_eq!(annotations.as_array().expect("an array").len(), 0);
+}
+
+/// The annotation list of a `path` or `annotations` run, as JSON.
+fn annotation_list(args: &[&str]) -> Vec<serde_json::Value> {
+    let output = run(args);
+    assert!(
+        output.status.success(),
+        "{args:?} should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("--json should emit json");
+    // `path` wraps its annotations in a report; `annotations` emits the list.
+    let list = match json.get("annotations") {
+        Some(annotations) => annotations,
+        None => &json,
+    };
+    list.as_array().expect("an array").clone()
+}
+
+#[test]
+fn should_report_the_annotations_beneath_a_section_when_path_names_a_section() {
+    let dataset = matched_statements_fixture();
+
+    let by_default = annotation_list(&["path", dataset, SECTION_163, "--json"]);
+    let exactly_there = annotation_list(&["path", dataset, SECTION_163, "--exact", "--json"]);
+
+    assert_eq!(
+        by_default.len(),
+        9,
+        "naming a section must report the records held beneath it"
+    );
+    assert!(
+        exactly_there.is_empty(),
+        "--exact keeps the answer this section used to give"
+    );
+}
+
+#[test]
+fn should_report_the_annotations_beneath_a_section_when_annotations_is_given_one() {
+    let dataset = matched_statements_fixture();
+
+    let by_default = annotation_list(&["annotations", dataset, "--path", SECTION_163, "--json"]);
+    let exactly_there = annotation_list(&[
+        "annotations",
+        dataset,
+        "--path",
+        SECTION_163,
+        "--exact",
+        "--json",
+    ]);
+
+    assert_eq!(
+        by_default.len(),
+        9,
+        "both commands must answer a section the same way"
+    );
+    assert!(exactly_there.is_empty(), "--exact means exactly");
+}
+
+#[test]
+fn should_not_report_a_longer_section_number_when_the_path_is_a_string_prefix() {
+    let dataset = matched_statements_fixture();
+
+    let shorter_number = annotation_list(&["annotations", dataset, "--path", SECTION_16, "--json"]);
+
+    assert!(
+        shorter_number.is_empty(),
+        "§16 is not §163: a path matches whole segments, not characters"
+    );
+}
+
+/// The subtree changes which annotations are listed, and nothing else. An agent
+/// reading `--json` must not have to change how it reads the answer.
+#[test]
+fn should_keep_the_annotation_fields_when_reporting_a_subtree() {
+    let dataset = matched_statements_fixture();
+
+    let reported = annotation_list(&["annotations", dataset, "--path", SECTION_163, "--json"]);
+
+    let first = reported.first().expect("a reported annotation");
+    for field in [
+        "work",
+        "from",
+        "to",
+        "from_date",
+        "to_date",
+        "operation",
+        "bill_id",
+        "amendment_id",
+        "causative_text",
+        "status",
+        "confidence",
+        "annotator",
+        "paths",
+    ] {
+        assert!(
+            first.get(field).is_some(),
+            "the annotation shape must not change, {field} is missing from {first}"
+        );
+    }
+}
+
+#[test]
+fn should_say_which_paths_the_filter_matches_when_either_command_is_asked_for_help() {
+    let annotations = String::from_utf8_lossy(&run(&["annotations", "--help"]).stdout).to_string();
+    let path = String::from_utf8_lossy(&run(&["path", "--help"]).stdout).to_string();
+
+    for help in [&annotations, &path] {
+        assert!(
+            help.contains("beneath"),
+            "the help must say the filter takes the subtree, got: {help}"
+        );
+        assert!(
+            help.contains("--exact"),
+            "the help must offer the exact rule, got: {help}"
+        );
+    }
+    assert!(
+        annotations.contains("path itself"),
+        "the exact rule must say what it matches, got: {annotations}"
+    );
+    assert!(
+        path.contains("this path itself"),
+        "the exact rule must say what it matches, got: {path}"
+    );
 }
 
 /// `annotations` needs one of three filters. Asking for everything is a usage
@@ -905,6 +1261,7 @@ fn bill_fixtures() -> &'static (String, String) {
             source_urls: vec![],
             license: "MIT".to_string(),
             version: "1.0.0".to_string(),
+            ..Default::default()
         });
         dataset
             .add_uslm_xml(

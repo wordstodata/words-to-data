@@ -15,7 +15,7 @@ use rusqlite::Connection;
 use words_to_data::dataset::{
     Dataset, DatasetError, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
 };
-use words_to_data::storage::{DocumentReader, DocumentWriter, SqliteStorage};
+use words_to_data::storage::{DocumentReader, DocumentWriter, SCHEMA_VERSION, SqliteStorage};
 use words_to_data::uslm::parser::parse;
 
 const TITLE_9: &str = "tests/test_data/usc/2025-07-18/usc09.xml";
@@ -29,6 +29,7 @@ fn metadata() -> DatasetMetadata {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     }
 }
 
@@ -84,6 +85,30 @@ fn should_refuse_a_dataset_written_by_a_different_schema() {
         }
         Err(other) => panic!("the failure should name the schema, got {other}"),
         Ok(_) => panic!("a dataset from another schema must not open"),
+    }
+}
+
+/// Dating a member's party changed a type written into every form of the file,
+/// so a dataset from the build before it must be refused by name (#105).
+#[test]
+fn should_refuse_a_dataset_written_at_the_previous_schema() {
+    assert_eq!(SCHEMA_VERSION, 7, "the member party history is schema 7");
+
+    let path = written_dataset("schema_six");
+    let conn = Connection::open(&path).expect("the file should open directly");
+    conn.execute("UPDATE schema_version SET version = 6", [])
+        .expect("the version should update");
+    drop(conn);
+
+    match SqliteStorage::open(&path) {
+        Err(DatasetError::SchemaVersionMismatch { found, expected }) => {
+            assert_eq!(found, 6);
+            assert_eq!(expected, 7);
+            let message = DatasetError::SchemaVersionMismatch { found, expected }.to_string();
+            assert!(message.contains("regenerate"), "got: {message}");
+        }
+        Err(other) => panic!("the failure should name the schema, got {other}"),
+        Ok(_) => panic!("a dataset written before the party history must not open"),
     }
 }
 

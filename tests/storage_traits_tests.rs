@@ -30,6 +30,10 @@ const BILL_ID: &str = "119-21";
 struct DocumentsOnly(InMemoryStorage);
 
 impl DocumentReader for DocumentsOnly {
+    fn metadata(&self) -> &DatasetMetadata {
+        self.0.metadata()
+    }
+
     fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
         self.0.works()
     }
@@ -65,6 +69,10 @@ impl DocumentReader for DocumentsOnly {
     fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         self.0.find_element(path)
     }
+
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+        self.0.has_element(path)
+    }
 }
 
 /// Accepts anything that can read documents, and asks for nothing else.
@@ -95,6 +103,7 @@ fn should_read_documents_from_a_backend_that_implements_no_legislature_methods()
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     });
     storage
         .add_expression(title_9_expression(Some("Only".to_string())))
@@ -127,6 +136,7 @@ fn dataset_holding(bill: bool) -> Dataset<InMemoryStorage> {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "1.0.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(TITLE_9, EARLY, None)

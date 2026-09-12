@@ -23,6 +23,7 @@ fn metadata() -> DatasetMetadata {
         source_urls: vec![],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        ..Default::default()
     }
 }
 
@@ -173,15 +174,18 @@ fn stale_index_dataset(name: &str) -> std::path::PathBuf {
     std::fs::remove_file(&path).ok();
 
     let conn = rusqlite::Connection::open(&path).expect("open forged db");
-    conn.execute_batch(
+    // The schema version must be current, or the version guard answers first
+    // and this test stops asking about the search index at all.
+    conn.execute_batch(&format!(
         "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
-         INSERT INTO schema_version (version) VALUES (3);
+         INSERT INTO schema_version (version) VALUES ({});
          CREATE TABLE element_index (
              work TEXT NOT NULL, date TEXT NOT NULL, path TEXT NOT NULL,
              element_type TEXT, heading TEXT, content TEXT,
              PRIMARY KEY (work, date, path)
          );",
-    )
+        words_to_data::storage::SCHEMA_VERSION
+    ))
     .expect("forge the older index");
     drop(conn);
     path

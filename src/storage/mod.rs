@@ -26,12 +26,15 @@ pub mod sqlite;
 pub use memory::InMemoryStorage;
 pub use sqlite::SqliteStorage;
 
+use std::collections::BTreeMap;
+
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
 use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
+use crate::link::Link;
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
@@ -41,8 +44,15 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
-/// 3 is the work-scoped schema: an expression is `(work, date)` with its own
-/// tree, and annotations are keyed by a pair of expressions
+/// 7 dates a member's party: the whole party history is kept, in place of the
+/// one undated field that reported a 2025 vote through a 2026 affiliation
+/// (#105).
+/// 6 keeps the verbatim model reply as evidence, stored once under the hash of
+/// its own text and referenced from a statement's provenance (#58).
+/// 5 stores links directly: one table for every kind, including kinds this
+/// build has never seen, with `ChangeAnnotation` projected out of them rather
+/// than stored (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+/// 4 added the declared scope; 3 was the work-scoped schema
 /// (`docs/adr/0003-storage-is-keyed-by-work.md`).
 ///
 /// One number covering both forms cannot describe a change to only one of
@@ -51,7 +61,7 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 7;
 
 /// Reading the documents a dataset holds.
 ///
@@ -62,6 +72,13 @@ pub const SCHEMA_VERSION: i32 = 3;
 /// name anything in a dataset whose documents share no release cycle, which is
 /// every dataset except a statutory one.
 pub trait DocumentReader {
+    /// What this dataset says about itself, including any declared scope.
+    ///
+    /// Reading metadata is a read. It sat on [`DocumentWriter`] until a scope
+    /// needed the declaration, which put a fact the reader depends on behind a
+    /// trait a reader has no reason to implement.
+    fn metadata(&self) -> &DatasetMetadata;
+
     /// Every work this dataset holds, in path order.
     fn works(&self) -> Result<Vec<WorkId>, DatasetError>;
 
@@ -101,6 +118,17 @@ pub trait DocumentReader {
 
     /// Find an element by path, in every expression that holds it.
     fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError>;
+
+    /// Whether any expression holds at least one provision at `path`.
+    ///
+    /// A path locates provisions, it does not identify one
+    /// (`docs/adr/0001-structural-paths-locate-not-identify.md`), so the
+    /// question is "at least one", never "exactly one". Ask this rather than
+    /// [`find_element`] wherever the element itself is not wanted: a backend
+    /// can answer it from an index, without reading a document.
+    ///
+    /// [`find_element`]: DocumentReader::find_element
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError>;
 }
 
 /// Reading the links a dataset holds.
@@ -114,21 +142,82 @@ pub trait DocumentReader {
 /// query by link object, and the bill id is an opaque string here: this trait
 /// does not need to know what a bill is.
 pub trait LinkReader {
-    /// Get annotations recorded for a pair of expressions of one work.
+    /// Every link whose subject names this structural path.
+    fn links_for_path(&self, path: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link about a change between two expressions of one work.
+    fn links_for_pair(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link of one kind, such as `legislature.amended_by`.
+    fn links_by_kind(&self, kind: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link in one namespace, understood or not.
+    ///
+    /// This is the query a reader uses to report links it cannot interpret,
+    /// which is the whole point of the kind being an open string
+    /// (`docs/adr/0002-links-live-in-the-core.md`).
+    fn links_by_namespace(&self, namespace: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every link whose object reference starts with this prefix.
+    ///
+    /// An amendment reference is `legislature.amendment:<bill>:<amendment>`, so
+    /// a bill's links are a prefix query.
+    fn links_for_object_prefix(&self, prefix: &str) -> Result<Vec<Link>, DatasetError>;
+
+    /// Every expression pair that carries links.
+    fn link_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError>;
+
+    /// How many links are held of each kind, keyed by the kind named in full.
+    ///
+    /// A count, not a load: a backend that can count answers without building
+    /// the links. Broken down by kind because a total folds a namespace this
+    /// build has never seen into a number that hides it, and naming an unknown
+    /// kind is exactly what a reader can still do with it
+    /// (`docs/adr/0002-links-live-in-the-core.md`).
+    fn count_links_by_kind(&self) -> Result<BTreeMap<String, usize>, DatasetError>;
+
+    // --- Projections ---
+    //
+    // `ChangeAnnotation` is a view of links, the reverse of how it once was.
+    // These are implemented once here rather than per backend: they are the
+    // same regrouping whatever holds the links.
+
+    /// Annotations recorded for a pair of expressions of one work.
     fn get_annotations(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError>;
+    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
+        let links = self.links_for_pair(from, to)?;
+        if links.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(crate::link::annotations_from_links(&links)))
+    }
 
-    /// Find all annotations that include the given path (across all pairs)
-    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError>;
+    /// Every annotation naming this path, across all pairs.
+    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        Ok(crate::link::annotations_from_links(
+            &self.links_for_path(path)?,
+        ))
+    }
 
-    /// Find all annotations from a specific bill (across all pairs)
-    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError>;
+    /// Every annotation from one bill, across all pairs.
+    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+        let prefix = format!("legislature.amendment:{bill_id}:");
+        Ok(crate::link::annotations_from_links(
+            &self.links_for_object_prefix(&prefix)?,
+        ))
+    }
 
-    /// List every expression pair that carries annotations
-    fn annotation_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError>;
+    /// Every expression pair that carries annotations.
+    fn annotation_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError> {
+        self.link_pairs()
+    }
 }
 
 /// Reading the legislature facts a dataset holds.
@@ -158,13 +247,66 @@ pub trait LegislatureReader {
         &self,
         bioguide_id: &str,
     ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError>;
+
+    /// How much legislative material is held, counted rather than loaded.
+    ///
+    /// One method for the five counts, because a caller asking what a dataset
+    /// holds wants all of them and a backend answers each with a count query.
+    fn legislature_counts(&self) -> Result<LegislatureCounts, DatasetError>;
+}
+
+/// How much legislative material a dataset holds.
+///
+/// Counts only. A reader deciding whether a file is worth opening needs the
+/// sizes, not the records, and the records are large.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LegislatureCounts {
+    pub bills: usize,
+    pub members: usize,
+    /// Sponsor records, which is one per bill, not one per person.
+    pub sponsors: usize,
+    pub roll_calls: usize,
+    /// One member's position in one roll call, summed over every roll call.
+    pub member_votes: usize,
+}
+
+/// Reading the evidence a dataset holds.
+///
+/// Core, not an extension. A reader that does not know the legislature must
+/// still be able to see what a machine's claim was based on, or the claim's
+/// verification state is a label rather than something checkable (#58).
+pub trait EvidenceReader {
+    /// One verbatim model reply, by its id, or `None` when unheld.
+    ///
+    /// `None` is an answer: a dataset that never recorded a reply is a
+    /// different thing from one whose reply was empty.
+    fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError>;
+
+    /// Every reply id this dataset holds, in id order.
+    fn replies(&self) -> Result<Vec<String>, DatasetError>;
+
+    /// How many replies this dataset holds.
+    ///
+    /// A count, not a load. Listing the ids to count them costs one string per
+    /// reply, and a real sweep holds thousands.
+    fn count_replies(&self) -> Result<usize, DatasetError>;
+}
+
+/// Writing evidence.
+pub trait EvidenceWriter {
+    /// Record a verbatim model reply and return its id.
+    ///
+    /// A reply is identified by the hash of its own text, so recording the same
+    /// reply twice leaves one record. Evidence is append-only: a reply whose
+    /// statement was later superseded is kept, because deleting it destroys the
+    /// trail it exists to create.
+    fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError>;
 }
 
 /// Writing documents and dataset metadata.
+///
+/// Reading metadata lives on [`DocumentReader`], not here.
 pub trait DocumentWriter {
-    /// Get metadata
-    fn metadata(&self) -> &DatasetMetadata;
-
     /// Set metadata
     fn set_metadata(&mut self, metadata: DatasetMetadata);
 
@@ -177,13 +319,20 @@ pub trait DocumentWriter {
 
 /// Writing links.
 pub trait LinkWriter {
-    /// Add an annotation for a pair of expressions of one work.
-    fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError>;
+    /// Record one link.
+    ///
+    /// A link is identified by what it says, so writing the same subject, kind,
+    /// and object twice leaves one link. When the stored link has been touched
+    /// by a human — `HumanConfirmed`, `Disputed`, or `Refuted` — its provenance
+    /// survives, and the incoming one is dropped. Otherwise the new provenance
+    /// replaces the old. Without that rule, re-running the pipeline destroys
+    /// human review quietly
+    /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    ///
+    /// There is deliberately no annotation-shaped convenience beside this. Two
+    /// ways to write one fact means the convenient one is used, and the
+    /// convenient one can only express the single kind we own.
+    fn add_link(&mut self, link: Link) -> Result<(), DatasetError>;
 }
 
 /// Writing legislature facts. An extension, like [`LegislatureReader`].
@@ -207,7 +356,14 @@ pub trait LegislatureWriter {
 /// should bind to [`DocumentReader`] instead, so it keeps working against a
 /// dataset that carries no legislative material.
 pub trait Storage:
-    DocumentReader + LinkReader + LegislatureReader + DocumentWriter + LinkWriter + LegislatureWriter
+    DocumentReader
+    + LinkReader
+    + EvidenceReader
+    + LegislatureReader
+    + DocumentWriter
+    + LinkWriter
+    + EvidenceWriter
+    + LegislatureWriter
 {
     /// The legislature extension, when this dataset actually carries one.
     ///
@@ -221,8 +377,11 @@ pub trait Storage:
     /// `impl DocumentReader + LegislatureReader` instead, and let the compiler
     /// enforce it.
     ///
-    /// Today the answer comes from the contents. Once a dataset declares its
-    /// scope, the declaration decides, and a mismatch between the two becomes
-    /// a reported gap.
+    /// A dataset that declares the `legislature` namespace holds a legislature,
+    /// whatever its contents. Deciding from contents alone reported that a
+    /// legislative dataset held no legislature until the first bill arrived,
+    /// which is absence mistaken for intent. A dataset that declares nothing
+    /// still answers from its contents, because that is every dataset written
+    /// before declarations existed.
     fn legislature(&self) -> Option<&dyn LegislatureReader>;
 }

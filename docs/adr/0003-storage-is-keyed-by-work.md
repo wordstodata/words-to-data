@@ -16,7 +16,9 @@ Three questions become answerable that were not. "What documents does this datas
 
 Two become properly refusable. A diff needs two expressions of one work; across two works it would compare unrelated documents and report the whole of each as changed, so it is an error rather than an answer. And an annotation is keyed by the pair of expressions it sits between, so a dataset holding two works can tell apart annotations that happen to share a date pair.
 
-The cost is a schema break, on both the SQLite and the JSON form. Datasets are rebuilt rather than migrated, so the break has to be loud: both formats carry a schema version and refuse a file that does not match (`docs/adr/0002-links-live-in-the-core.md` names the failure this avoids — an empty answer that actually means "wrong schema"). The JSON form had no such guard before this change and now does.
+The cost is a schema break, on both the SQLite and the JSON form. Datasets are rebuilt rather than migrated, so the break has to be loud: both formats carry a schema version and refuse a file that does not match. The failure this avoids is an empty answer that actually means "wrong schema" — a reader opening a dataset built by another version, getting nothing back, and taking that for a statement about the law rather than a mismatch. The JSON form had no such guard before this change and now does.
+
+`SCHEMA_VERSION` is 7 at the time of writing. It reached 6 with the stored links of `docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`, and 7 when a Member's party became dated.
 
 ## Considered and rejected
 

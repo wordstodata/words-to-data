@@ -2,9 +2,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
-use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
 use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, ExpressionPair,
@@ -12,38 +11,13 @@ use crate::dataset::{
 };
 use crate::diff::TreeDiff;
 use crate::intern::StringInterner;
+use crate::link::{Link, Target};
 use crate::storage::{
-    DocumentReader, DocumentWriter, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
-    Storage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, LegislatureCounts,
+    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
-
-/// Custom serializer for HashMap with tuple keys (JSON doesn't support non-string keys)
-mod tuple_key_map {
-    use super::*;
-
-    pub fn serialize<S>(
-        map: &HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let vec: Vec<_> = map.iter().collect();
-        vec.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<HashMap<ExpressionPair, Vec<ChangeAnnotation>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let vec: Vec<(ExpressionPair, Vec<ChangeAnnotation>)> = Vec::deserialize(deserializer)?;
-        Ok(vec.into_iter().collect())
-    }
-}
 
 /// Every expression a dataset holds, by work and then by date.
 ///
@@ -63,8 +37,12 @@ pub struct InMemoryStorage {
     pub metadata: DatasetMetadata,
     pub expressions: ExpressionsByWork,
     pub bills: HashMap<String, Bill>,
-    #[serde(with = "tuple_key_map")]
-    pub diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
+    /// Every link, by its content-hash id. Keying on the id is what makes
+    /// restating a fact update one link rather than grow the map.
+    pub links: BTreeMap<String, Link>,
+    /// Every verbatim model reply, by the hash of its own text.
+    #[serde(default)]
+    pub replies: BTreeMap<String, String>,
     pub members: HashMap<String, Member>,
     pub sponsors: HashMap<String, SponsorInfo>,
     pub bill_votes: HashMap<String, BillVotes>,
@@ -78,7 +56,8 @@ impl InMemoryStorage {
             metadata,
             expressions: BTreeMap::new(),
             bills: HashMap::new(),
-            diff_annotations: HashMap::new(),
+            links: BTreeMap::new(),
+            replies: BTreeMap::new(),
             members: HashMap::new(),
             sponsors: HashMap::new(),
             bill_votes: HashMap::new(),
@@ -103,7 +82,8 @@ impl InMemoryStorage {
         metadata: DatasetMetadata,
         expressions: ExpressionsByWork,
         bills: HashMap<String, Bill>,
-        diff_annotations: HashMap<ExpressionPair, Vec<ChangeAnnotation>>,
+        links: BTreeMap<String, Link>,
+        replies: BTreeMap<String, String>,
         members: HashMap<String, Member>,
         sponsors: HashMap<String, SponsorInfo>,
         bill_votes: HashMap<String, BillVotes>,
@@ -113,7 +93,8 @@ impl InMemoryStorage {
             metadata,
             expressions,
             bills,
-            diff_annotations,
+            links,
+            replies,
             members,
             sponsors,
             bill_votes,
@@ -171,6 +152,10 @@ impl InMemoryStorage {
 }
 
 impl DocumentReader for InMemoryStorage {
+    fn metadata(&self) -> &DatasetMetadata {
+        &self.metadata
+    }
+
     fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
         Ok(self.expressions.keys().cloned().collect())
     }
@@ -241,6 +226,13 @@ impl DocumentReader for InMemoryStorage {
             })
             .collect())
     }
+
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+        // One provision is enough to answer, so the walk stops at the first.
+        Ok(self
+            .all_expressions()
+            .any(|e| !e.element.find_all(path).is_empty()))
+    }
 }
 
 /// Fetch both expressions of a diff, refusing a pair that names two works.
@@ -269,39 +261,121 @@ pub(crate) fn require_same_work<R: DocumentReader + ?Sized>(
 }
 
 impl LinkReader for InMemoryStorage {
-    fn get_annotations(
+    fn links_for_path(&self, path: &str) -> Result<Vec<Link>, DatasetError> {
+        Ok(self
+            .links
+            .values()
+            .filter(|link| subject_path(link).is_some_and(|p| p == path))
+            .cloned()
+            .collect())
+    }
+
+    fn links_for_pair(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        let key = (from.clone(), to.clone());
-        Ok(self.diff_annotations.get(&key).cloned())
-    }
-
-    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+    ) -> Result<Vec<Link>, DatasetError> {
         Ok(self
-            .diff_annotations
+            .links
             .values()
-            .flatten()
-            .filter(|a| a.paths.iter().any(|p| p == path))
+            .filter(|link| about_pair(link, from, to))
             .cloned()
             .collect())
     }
 
-    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
+    fn links_by_kind(&self, kind: &str) -> Result<Vec<Link>, DatasetError> {
         Ok(self
-            .diff_annotations
+            .links
             .values()
-            .flatten()
-            .filter(|a| a.source_bill.bill_id == bill_id)
+            .filter(|link| link.kind.0 == kind)
             .cloned()
             .collect())
     }
 
-    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
-        let mut pairs: Vec<ExpressionPair> = self.diff_annotations.keys().cloned().collect();
+    fn links_by_namespace(&self, namespace: &str) -> Result<Vec<Link>, DatasetError> {
+        Ok(self
+            .links
+            .values()
+            .filter(|link| link.kind.namespace() == namespace)
+            .cloned()
+            .collect())
+    }
+
+    fn links_for_object_prefix(&self, prefix: &str) -> Result<Vec<Link>, DatasetError> {
+        Ok(self
+            .links
+            .values()
+            .filter(|link| match &link.object {
+                Target::External { reference, .. } => reference.starts_with(prefix),
+                _ => false,
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
+        let mut pairs: Vec<ExpressionPair> = self.links.values().filter_map(pair_of).collect();
         pairs.sort();
+        pairs.dedup();
         Ok(pairs)
+    }
+
+    fn count_links_by_kind(&self) -> Result<BTreeMap<String, usize>, DatasetError> {
+        let mut counts = BTreeMap::new();
+        for link in self.links.values() {
+            *counts.entry(link.kind.0.clone()).or_insert(0) += 1;
+        }
+        Ok(counts)
+    }
+}
+
+/// The structural path a link's subject names, when it names one.
+fn subject_path(link: &Link) -> Option<&str> {
+    match &link.subject {
+        Target::Change { path, .. } | Target::Provision(path) => Some(path),
+        _ => None,
+    }
+}
+
+/// The expression pair a link is about, when it is about a change.
+fn pair_of(link: &Link) -> Option<ExpressionPair> {
+    match &link.subject {
+        Target::Change {
+            work,
+            from_date,
+            to_date,
+            ..
+        } => Some((
+            ExpressionId::new(work.clone(), from_date),
+            ExpressionId::new(work.clone(), to_date),
+        )),
+        _ => None,
+    }
+}
+
+fn about_pair(link: &Link, from: &ExpressionId, to: &ExpressionId) -> bool {
+    pair_of(link).is_some_and(|(f, t)| &f == from && &t == to)
+}
+
+impl EvidenceReader for InMemoryStorage {
+    fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError> {
+        Ok(self.replies.get(id).cloned())
+    }
+
+    fn replies(&self) -> Result<Vec<String>, DatasetError> {
+        Ok(self.replies.keys().cloned().collect())
+    }
+
+    fn count_replies(&self) -> Result<usize, DatasetError> {
+        Ok(self.replies.len())
+    }
+}
+
+impl EvidenceWriter for InMemoryStorage {
+    fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError> {
+        let id = crate::link::reply_id(reply);
+        self.replies.insert(id.clone(), reply.to_string());
+        Ok(id)
     }
 }
 
@@ -342,13 +416,20 @@ impl LegislatureReader for InMemoryStorage {
         }
         Ok(results)
     }
+
+    fn legislature_counts(&self) -> Result<LegislatureCounts, DatasetError> {
+        let roll_calls = || self.bill_votes.values().flat_map(|v| v.roll_calls.iter());
+        Ok(LegislatureCounts {
+            bills: self.bills.len(),
+            members: self.members.len(),
+            sponsors: self.sponsors.len(),
+            roll_calls: roll_calls().count(),
+            member_votes: roll_calls().map(|rc| rc.member_votes.len()).sum(),
+        })
+    }
 }
 
 impl DocumentWriter for InMemoryStorage {
-    fn metadata(&self) -> &DatasetMetadata {
-        &self.metadata
-    }
-
     fn set_metadata(&mut self, metadata: DatasetMetadata) {
         self.metadata = metadata;
     }
@@ -363,16 +444,15 @@ impl DocumentWriter for InMemoryStorage {
 }
 
 impl LinkWriter for InMemoryStorage {
-    fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError> {
-        self.diff_annotations
-            .entry((from.clone(), to.clone()))
-            .or_default()
-            .push(annotation);
+    fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
+        let id = link.id();
+        // A human's verdict is not overwritten by a machine restating the fact.
+        if let Some(stored) = self.links.get(&id)
+            && stored.provenance.verification.is_human_touched()
+        {
+            return Ok(());
+        }
+        self.links.insert(id, link);
         Ok(())
     }
 }
@@ -401,10 +481,18 @@ impl LegislatureWriter for InMemoryStorage {
 
 impl Storage for InMemoryStorage {
     fn legislature(&self) -> Option<&dyn LegislatureReader> {
+        let declared = self
+            .metadata
+            .declaration
+            .as_ref()
+            .is_some_and(|d| d.declares_namespace(crate::link::LinkKind::LEGISLATURE));
         let holds_legislature = !self.bills.is_empty()
             || !self.members.is_empty()
             || !self.sponsors.is_empty()
             || !self.bill_votes.is_empty();
-        holds_legislature.then_some(self as &dyn LegislatureReader)
+        // Either answer is a yes. Declaring it covers a dataset that has not
+        // been given bills yet; holding it covers a producer who under-declared,
+        // and hiding material we demonstrably have would be the worse lie.
+        (declared || holds_legislature).then_some(self as &dyn LegislatureReader)
     }
 }

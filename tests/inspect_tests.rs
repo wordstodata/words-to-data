@@ -8,10 +8,12 @@
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
+use words_to_data::congress::CongressClient;
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
 use words_to_data::inspect;
-use words_to_data::inspect::AnnotationQuery;
+use words_to_data::inspect::{AnnotationQuery, PathMatch};
 use words_to_data::legislature::AmendingAction;
+use words_to_data::link::LinkKind;
 use words_to_data::storage::{InMemoryStorage, SqliteStorage};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
@@ -22,6 +24,25 @@ const TITLE_9: &str = "uscode/title_9";
 const USC09_18: &str = "tests/test_data/usc/2025-07-18/usc09.xml";
 const USC09_30: &str = "tests/test_data/usc/2025-07-30/usc09.xml";
 const PL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// The committed download of one real bill: its sponsor, its cosponsors, the
+/// members of the House, and the roll call they voted in.
+const CONGRESS_CACHE: &str = "tests/test_data/congress_client_cache";
+/// Replies a model really emitted, the evidence a sweep keeps (#58).
+const MODEL_REPLIES: &str = "tests/test_data/processed/model_replies.json";
+/// Every statement a real matching run of H.R. 1 recorded.
+const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+
+/// Section 163 of title 26 (interest deduction), the section H.R. 1 changed
+/// more than any other. Every statement recorded there sits *beneath* the
+/// section, because an amendment acts on a subsection, paragraph, subparagraph
+/// or clause.
+const SECTION_163: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163";
+/// Section 181 carries statements on the section itself as well as beneath it,
+/// so it says whether "at or beneath" really includes the path given.
+const SECTION_181: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_181";
+/// No such section. It is a raw string prefix of [`SECTION_163`], so a filter
+/// that compared strings rather than whole segments would answer §163 here.
+const SECTION_16: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_16";
 
 fn at(date: &str) -> ExpressionId {
     ExpressionId::new(WorkId::new(TITLE_9), date)
@@ -41,6 +62,7 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
         source_urls: vec!["https://uscode.house.gov".to_string()],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(USC09_18, "2025-07-18", Some("Before".to_string()))
@@ -70,9 +92,83 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
         },
     };
     let (from, to) = pair();
+    store_annotation(&mut dataset, annotation, &from, &to);
     dataset
-        .add_annotation(&from, &to, annotation)
-        .expect("add annotation");
+}
+
+/// The fixture plus everything else an annotated legislative dataset carries:
+/// the bill's sponsor, the members of the House, the roll call they voted in,
+/// and the model replies the links were read out of.
+///
+/// All of it is committed data, read through the same cache the pipeline reads.
+fn make_full_fixture() -> Dataset<InMemoryStorage> {
+    let mut dataset = make_fixture();
+
+    // No API key and no expiry: the fixtures are committed, and a read must
+    // never reach the network or delete them for being old.
+    let client = CongressClient::with_ttl(String::new(), Some(CONGRESS_CACHE.to_string()), None);
+    let download = client
+        .download_bill("119-hr-1")
+        .expect("the cached bill should read");
+    dataset
+        .load_bill_download(&download)
+        .expect("the download should load");
+
+    for reply in recorded_replies() {
+        dataset.add_reply(&reply).expect("the reply should store");
+    }
+    dataset
+}
+
+/// Every reply in the recorded fixture.
+fn recorded_replies() -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct RecordedReply {
+        reply: String,
+    }
+    let json = std::fs::read_to_string(MODEL_REPLIES).expect("the fixture should be readable");
+    let replies: Vec<RecordedReply> =
+        serde_json::from_str(&json).expect("the fixture should parse");
+    replies.into_iter().map(|r| r.reply).collect()
+}
+
+/// A dataset holding every statement a real matching run of H.R. 1 recorded.
+///
+/// Separate from [`make_full_fixture`], which holds one statement so that a
+/// count of each kind of fact can be checked exactly. A path filter instead
+/// needs a real spread of paths, and this fixture holds 753 statements.
+///
+/// The documents are title 9 while the statements name title 26. That is on
+/// purpose: a path filter compares paths and never reads a document, and
+/// loading the two 52 MB title 26 releases to show the same thing would cost a
+/// minute of test time. The statements are real —
+/// `tests/test_data/processed/annotations.json` is the output of a matching
+/// run, and `dataset_tests` reads the same file.
+fn matched_statements_fixture() -> Dataset<InMemoryStorage> {
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "Matched Statements".to_string(),
+        description: "Every statement one matching run of H.R. 1 recorded".to_string(),
+        author: "Tester".to_string(),
+        source_urls: vec![],
+        license: "Public Domain".to_string(),
+        version: "1.0".to_string(),
+        ..Default::default()
+    });
+    dataset
+        .add_uslm_xml(USC09_18, "2025-07-18", None)
+        .expect("add first version");
+    dataset
+        .add_uslm_xml(USC09_30, "2025-07-30", None)
+        .expect("add second version");
+
+    let file = std::fs::File::open(REAL_ANNOTATIONS).expect("open the recorded annotations");
+    let annotations: Vec<ChangeAnnotation> =
+        serde_json::from_reader(std::io::BufReader::new(file)).expect("read the annotations");
+
+    let (from, to) = pair();
+    for annotation in annotations {
+        store_annotation(&mut dataset, annotation, &from, &to);
+    }
     dataset
 }
 
@@ -102,6 +198,87 @@ fn should_report_metadata_and_counts_when_given_in_memory_dataset() {
     assert_eq!(info.work_count, 1, "two releases of one title are one work");
     assert_eq!(info.expression_count, 2);
     assert_eq!(info.bill_count, 1);
+}
+
+#[test]
+fn should_count_links_replies_members_sponsors_and_votes_when_the_dataset_holds_them() {
+    let dataset = make_full_fixture();
+
+    let info = inspect::info(&dataset).expect("info");
+
+    // Links are what this project produces; the US Code text is the input.
+    assert_eq!(
+        info.link_count, 1,
+        "the fixture's annotation names one path"
+    );
+    assert_eq!(
+        info.link_counts_by_kind.get(LinkKind::AMENDED_BY).copied(),
+        Some(1),
+        "the kind is named in full, namespace included"
+    );
+    assert_eq!(info.reply_count, 5, "the recorded fixture holds five");
+    assert_eq!(info.member_count, 432);
+    assert_eq!(info.sponsor_count, 1, "one bill, one sponsor record");
+    assert_eq!(info.roll_call_count, 1);
+    assert_eq!(info.member_vote_count, 432);
+}
+
+#[test]
+fn should_omit_a_zero_count_from_json_when_the_dataset_holds_none_of_it() {
+    // Two release points of one title and nothing else: no legislature
+    // extension, no links, no evidence.
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "Documents only".to_string(),
+        ..Default::default()
+    });
+    dataset
+        .add_uslm_xml(USC09_18, "2025-07-18", None)
+        .expect("add first version");
+
+    let info = inspect::info(&dataset).expect("info");
+    let json = serde_json::to_value(&info).expect("info should serialize");
+
+    // A wall of zeroes reads as "this tool measured nothing". Absence is the
+    // answer, and it is the same answer for every one of the new counts.
+    for key in [
+        "link_count",
+        "link_counts_by_kind",
+        "reply_count",
+        "member_count",
+        "sponsor_count",
+        "roll_call_count",
+        "member_vote_count",
+    ] {
+        assert!(
+            json.get(key).is_none(),
+            "{key} is zero here and must be left out"
+        );
+    }
+
+    // The counts that were reported before this rule are still reported, so an
+    // agent reading them keeps its fields.
+    assert_eq!(json["work_count"], 1);
+    assert_eq!(json["expression_count"], 1);
+    assert_eq!(json["bill_count"], 0);
+}
+
+#[test]
+fn should_report_identical_counts_for_both_backends() {
+    let fixture = make_full_fixture();
+    let expected = inspect::info(&fixture).expect("info mem");
+
+    let sqlite = to_sqlite(&fixture, "counts");
+    let actual = inspect::info(&sqlite).expect("info sqlite");
+
+    assert_eq!(actual.link_count, expected.link_count);
+    assert_eq!(actual.link_counts_by_kind, expected.link_counts_by_kind);
+    assert_eq!(actual.reply_count, expected.reply_count);
+    assert_eq!(actual.member_count, expected.member_count);
+    assert_eq!(actual.sponsor_count, expected.sponsor_count);
+    assert_eq!(actual.roll_call_count, expected.roll_call_count);
+    assert_eq!(actual.member_vote_count, expected.member_vote_count);
+    // Same numbers, and the numbers the dataset really holds.
+    assert_eq!(actual.member_vote_count, 432);
 }
 
 #[test]
@@ -302,14 +479,108 @@ fn should_list_annotations_filtered_by_bill_and_path() {
         inspect::annotations(&dataset, AnnotationQuery::Bill("119-hr-1")).expect("by bill");
     assert_eq!(by_bill.len(), 1);
 
-    let by_path =
-        inspect::annotations(&dataset, AnnotationQuery::Path(ANNOTATED_PATH)).expect("by path");
+    let by_path = inspect::annotations(
+        &dataset,
+        AnnotationQuery::Path {
+            path: ANNOTATED_PATH,
+            matching: PathMatch::Subtree,
+        },
+    )
+    .expect("by path");
     assert_eq!(by_path.len(), 1);
     assert_eq!(by_path[0].from_date, "2025-07-18");
     assert_eq!(by_path[0].to_date, "2025-07-30");
 
     let missing = inspect::annotations(&dataset, AnnotationQuery::Bill("000-none")).expect("none");
     assert!(missing.is_empty());
+}
+
+/// Every annotation the dataset reports for one path, under one matching rule.
+fn annotations_at(
+    dataset: &Dataset<InMemoryStorage>,
+    path: &str,
+    matching: PathMatch,
+) -> Vec<inspect::AnnotationSummary> {
+    inspect::annotations(dataset, AnnotationQuery::Path { path, matching }).expect("annotations")
+}
+
+#[test]
+fn should_report_the_annotations_beneath_a_section_when_given_that_section() {
+    let dataset = matched_statements_fixture();
+
+    let exactly_there = annotations_at(&dataset, SECTION_163, PathMatch::Exact);
+    let beneath = annotations_at(&dataset, SECTION_163, PathMatch::default());
+
+    assert!(
+        exactly_there.is_empty(),
+        "no statement of this run sits on the section itself"
+    );
+    // Nine records answer, not 44. A record groups every statement one
+    // amendment asserted, so the records are fewer than the statements the run
+    // recorded beneath the section.
+    assert_eq!(
+        beneath.len(),
+        9,
+        "naming a section must report what was recorded beneath it"
+    );
+}
+
+#[test]
+fn should_report_an_annotation_on_the_path_itself_when_matching_the_subtree() {
+    // The default is "at or beneath", not "beneath only". Section 181 carries
+    // statements on the section itself as well as under it.
+    let dataset = matched_statements_fixture();
+
+    let on_the_section = annotations_at(&dataset, SECTION_181, PathMatch::Exact);
+    let subtree = annotations_at(&dataset, SECTION_181, PathMatch::default());
+
+    assert_eq!(on_the_section.len(), 7, "the section itself is annotated");
+    assert_eq!(subtree.len(), 8, "and one more record sits beneath it");
+    for ann in &on_the_section {
+        assert!(
+            subtree
+                .iter()
+                .any(|reported| reported.amendment_id == ann.amendment_id),
+            "the subtree must keep every annotation an exact match finds"
+        );
+    }
+}
+
+#[test]
+fn should_carry_the_subtree_annotations_into_a_path_report_by_default() {
+    let dataset = matched_statements_fixture();
+
+    let by_default =
+        inspect::path_report(&dataset, SECTION_163, None, PathMatch::default()).expect("subtree");
+    let exactly_there =
+        inspect::path_report(&dataset, SECTION_163, None, PathMatch::Exact).expect("exact");
+
+    assert_eq!(
+        by_default.annotations.len(),
+        9,
+        "a path report answers with the subtree, as the annotation list does"
+    );
+    assert!(
+        exactly_there.annotations.is_empty(),
+        "the exact rule keeps the answer this section used to give"
+    );
+}
+
+#[test]
+fn should_not_report_a_longer_section_number_when_the_path_is_a_string_prefix() {
+    // There is no §16 here, but `section_16` is a string prefix of
+    // `section_163`. A filter that compared raw strings would hand §163's
+    // statements to a reader who asked about a different section.
+    let dataset = matched_statements_fixture();
+
+    assert!(
+        annotations_at(&dataset, SECTION_16, PathMatch::default()).is_empty(),
+        "a path must match whole segments, not characters"
+    );
+    assert!(
+        !annotations_at(&dataset, SECTION_163, PathMatch::default()).is_empty(),
+        "§163 does hold the statements a string prefix would have borrowed"
+    );
 }
 
 #[test]
@@ -348,6 +619,7 @@ fn should_pass_validation_for_a_consistent_dataset() {
         source_urls: vec![],
         license: String::new(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(USC09_18, "2025-07-18", None)
@@ -371,29 +643,28 @@ fn should_pass_validation_for_a_consistent_dataset() {
         .path
         .to_string();
 
-    dataset
-        .add_annotation(
-            &from,
-            &to,
-            ChangeAnnotation {
-                operation: AmendingAction::Amend,
-                source_bill: BillReference {
-                    bill_id: "119-hr-1".to_string(),
-                    amendment_id,
-                    causative_text: "real".to_string(),
-                },
-                paths: vec![real_path],
-                metadata: AnnotationMetadata {
-                    status: AnnotationStatus::Verified,
-                    confidence: None,
-                    annotator: "human:tester".to_string(),
-                    timestamp: time::OffsetDateTime::UNIX_EPOCH,
-                    notes: None,
-                    reasoning: None,
-                },
+    store_annotation(
+        &mut dataset,
+        ChangeAnnotation {
+            operation: AmendingAction::Amend,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id,
+                causative_text: "real".to_string(),
             },
-        )
-        .expect("add annotation");
+            paths: vec![real_path],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Verified,
+                confidence: None,
+                annotator: "human:tester".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        },
+        &from,
+        &to,
+    );
 
     let report = inspect::validate(&dataset).expect("validate");
     assert!(
@@ -409,8 +680,13 @@ fn should_report_annotations_for_a_path() {
     let dataset = make_fixture();
 
     let (from, to) = pair();
-    let report =
-        inspect::path_report(&dataset, ANNOTATED_PATH, Some((&from, &to))).expect("path_report");
+    let report = inspect::path_report(
+        &dataset,
+        ANNOTATED_PATH,
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("path_report");
 
     assert_eq!(report.path, ANNOTATED_PATH);
     assert_eq!(report.annotations.len(), 1);
@@ -436,15 +712,92 @@ fn should_report_presence_and_field_changes_for_a_real_path() {
     let tree = dataset.compute_diff(&from, &to).expect("diff");
     let expected_changes = tree.find(&real_path).map(|n| n.changes.len()).unwrap_or(0);
 
-    let report =
-        inspect::path_report(&dataset, &real_path, Some((&from, &to))).expect("path_report");
+    let report = inspect::path_report(&dataset, &real_path, Some((&from, &to)), PathMatch::Subtree)
+        .expect("path_report");
 
     assert!(
-        report.present_in.contains(&from.to_string()),
-        "root path should be present in the from-expression, got {:?}",
+        report
+            .present_in
+            .iter()
+            .any(|p| p.expression == from.to_string() && p.provisions == 1),
+        "root path should be present once in the from-expression, got {:?}",
         report.present_in
     );
-    assert_eq!(report.changes.len(), expected_changes);
+
+    // The root of an expression cannot be added or removed inside its own
+    // tree, so it is one provision present in both, carrying every change.
+    assert_eq!(report.provisions.len(), 1);
+    assert_eq!(report.provisions[0].presence, inspect::Presence::InBoth);
+    assert_eq!(report.provisions[0].from_position, Some(0));
+    assert_eq!(report.provisions[0].to_position, Some(0));
+    assert_eq!(report.provisions[0].changes.len(), expected_changes);
+}
+
+#[test]
+fn should_report_one_provision_in_both_when_an_ordinary_path_is_unchanged() {
+    let dataset = make_fixture();
+    let (from, to) = pair();
+
+    // Title 9 section 1 is in both expressions. Whatever it did or did not do
+    // to its own fields, it is one provision and it survived.
+    let report = inspect::path_report(
+        &dataset,
+        ANNOTATED_PATH,
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("path_report");
+
+    assert_eq!(
+        report.present_in.len(),
+        2,
+        "both expressions hold the path, each once: {:?}",
+        report.present_in
+    );
+    assert!(report.present_in.iter().all(|p| p.provisions == 1));
+
+    assert_eq!(report.provisions.len(), 1);
+    assert_eq!(report.provisions[0].presence, inspect::Presence::InBoth);
+    assert_eq!(report.provisions[0].from_position, Some(0));
+    assert_eq!(report.provisions[0].to_position, Some(0));
+}
+
+#[test]
+fn should_report_the_same_provisions_on_both_backends() {
+    let fixture = make_fixture();
+    let sqlite = to_sqlite(&fixture, "path_provisions");
+    let (from, to) = pair();
+
+    let from_memory = inspect::path_report(
+        &fixture,
+        ANNOTATED_PATH,
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("memory");
+    let from_sqlite = inspect::path_report(
+        &sqlite,
+        ANNOTATED_PATH,
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("sqlite");
+
+    // Storage must not change the answer. Both backends must agree on the
+    // counts, the verdicts, and the positions.
+    let shape = |r: &inspect::PathReport| {
+        (
+            r.present_in
+                .iter()
+                .map(|p| (p.expression.clone(), p.provisions))
+                .collect::<Vec<_>>(),
+            r.provisions
+                .iter()
+                .map(|p| (p.from_position, p.to_position, p.presence, p.changes.len()))
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(shape(&from_memory), shape(&from_sqlite));
 }
 
 #[test]
@@ -452,7 +805,8 @@ fn should_report_path_annotations_on_sqlite_backend() {
     let fixture = make_fixture();
     let sqlite = to_sqlite(&fixture, "path_report");
 
-    let report = inspect::path_report(&sqlite, ANNOTATED_PATH, None).expect("path_report sqlite");
+    let report = inspect::path_report(&sqlite, ANNOTATED_PATH, None, PathMatch::Subtree)
+        .expect("path_report sqlite");
     assert_eq!(report.annotations.len(), 1);
 }
 
@@ -478,6 +832,7 @@ fn should_account_coverage_against_the_real_diff() {
         source_urls: vec![],
         license: String::new(),
         version: "1.0".to_string(),
+        ..Default::default()
     });
     dataset
         .add_uslm_xml(
@@ -514,29 +869,28 @@ fn should_account_coverage_against_the_real_diff() {
     assert!(before.unannotated_paths.contains(&target));
 
     // Annotate one real changed path.
-    dataset
-        .add_annotation(
-            &from,
-            &to,
-            ChangeAnnotation {
-                operation: AmendingAction::Amend,
-                source_bill: BillReference {
-                    bill_id: "119-hr-1".to_string(),
-                    amendment_id: "amd".to_string(),
-                    causative_text: "x".to_string(),
-                },
-                paths: vec![target.clone()],
-                metadata: AnnotationMetadata {
-                    status: AnnotationStatus::Pending,
-                    confidence: None,
-                    annotator: "test".to_string(),
-                    timestamp: time::OffsetDateTime::UNIX_EPOCH,
-                    notes: None,
-                    reasoning: None,
-                },
+    store_annotation(
+        &mut dataset,
+        ChangeAnnotation {
+            operation: AmendingAction::Amend,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id: "amd".to_string(),
+                causative_text: "x".to_string(),
             },
-        )
-        .expect("annotate");
+            paths: vec![target.clone()],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Pending,
+                confidence: None,
+                annotator: "test".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        },
+        &from,
+        &to,
+    );
 
     // After: that path is covered and drops out of the work queue.
     let after = inspect::coverage(&dataset, &from, &to).expect("coverage");
@@ -576,4 +930,78 @@ fn should_report_identical_info_for_sqlite_backend() {
     // The scope pairs each work with its own dates, and both backends must
     // derive the same pairing.
     assert_eq!(actual.scope.held, expected.scope.held);
+}
+
+/// Store an annotation the way the pipeline does: one link per path it names.
+///
+/// There is deliberately no writer convenience for this in the library — two
+/// ways to write one fact means the convenient one is used, and it could only
+/// express the single kind we own (`docs/adr/0004`).
+fn store_annotation<S: words_to_data::storage::Storage>(
+    dataset: &mut Dataset<S>,
+    annotation: ChangeAnnotation,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) {
+    for link in words_to_data::link::Link::from_annotation(&annotation, from, to) {
+        dataset.add_link(link).expect("the link should be added");
+    }
+}
+
+/// A path no expression holds: title 9 has no § 999.
+const ABSENT_PATH: &str = "uscode/title_9/chapter_1/section_999";
+
+#[test]
+fn should_name_the_absent_path_when_an_annotation_points_nowhere_on_sqlite() {
+    let mut fixture = make_fixture();
+    let (from, to) = pair();
+    store_annotation(
+        &mut fixture,
+        ChangeAnnotation {
+            operation: AmendingAction::Strike,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id: "amendment-xyz".to_string(),
+                causative_text: "by striking 'bar'".to_string(),
+            },
+            paths: vec![ABSENT_PATH.to_string()],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Pending,
+                confidence: None,
+                annotator: "model:test".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        },
+        &from,
+        &to,
+    );
+    let sqlite = to_sqlite(&fixture, "validate_absent_path");
+
+    let report = inspect::validate(&sqlite).expect("validate");
+
+    assert!(!report.ok, "a path that points nowhere is a failure");
+    // Both links name one amendment, one pair and one annotator, so they are
+    // one annotation which names two paths.
+    assert_eq!(report.checked_annotations, 1);
+
+    // Exactly one of the two paths is absent. The other names a real
+    // provision, and reporting it would make the command useless as a gate.
+    let absent: Vec<&String> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.contains("path not found"))
+        .collect();
+    assert_eq!(
+        absent.len(),
+        1,
+        "one path is absent and one is real, got: {:?}",
+        report.issues
+    );
+    assert!(
+        absent[0].contains(ABSENT_PATH),
+        "the report should name the absent path, got: {}",
+        absent[0]
+    );
 }

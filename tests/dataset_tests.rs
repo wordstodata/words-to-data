@@ -31,6 +31,7 @@ fn should_serialize_roundtrip_json() {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "0.1.0".to_string(),
+        ..Default::default()
     };
 
     let mut dataset = Dataset::new(metadata);
@@ -52,9 +53,12 @@ fn should_serialize_roundtrip_json() {
 
     let annotations = make_annotations();
     for annotation in annotations.into_iter() {
-        dataset
-            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
-            .unwrap();
+        store_annotation(
+            &mut dataset,
+            annotation,
+            &at("2025-07-18"),
+            &at("2025-07-30"),
+        );
     }
 
     // Save and load via Compact format (JSON with tuple keys requires file-based roundtrip)
@@ -67,13 +71,34 @@ fn should_serialize_roundtrip_json() {
     assert_eq!(expressions.len(), 2);
     assert_eq!(expressions[0].id, at("2025-07-18"));
     assert_eq!(expressions[0].label, Some("test".to_string()));
+    // Links are what is stored now, and they regroup: one record carries every
+    // path one amendment touched, per asserter. So the record count is no
+    // longer the fixture's 753. What must survive is the *facts* — the distinct
+    // (amendment, path) statements. The fixture's 753 single-path records hold
+    // 718 of them; the other 35 restate one already there, and a link is
+    // identified by what it says, so a restatement updates rather than adds
+    // (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    let annotations = roundtripped
+        .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
+        .unwrap()
+        .unwrap();
+    let facts: std::collections::HashSet<(String, String)> = annotations
+        .iter()
+        .flat_map(|a| {
+            a.paths
+                .iter()
+                .map(|p| (a.source_bill.amendment_id.clone(), p.clone()))
+        })
+        .collect();
     assert_eq!(
-        roundtripped
-            .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
-            .unwrap()
-            .unwrap()
-            .len(),
-        753
+        facts.len(),
+        718,
+        "every distinct (amendment, path) statement must survive the round trip"
+    );
+    assert_eq!(
+        annotations.len(),
+        317,
+        "one record per amendment per asserter, not one per path"
     );
     assert!(
         roundtripped
@@ -93,6 +118,7 @@ fn make_test_dataset() -> Dataset<InMemoryStorage> {
         source_urls: vec![],
         license: "MIT".to_string(),
         version: "0.1.0".to_string(),
+        ..Default::default()
     };
     Dataset::new(metadata)
 }
@@ -326,9 +352,12 @@ fn should_query_annotations_by_path() {
     let mut dataset = make_test_dataset();
 
     for annotation in make_annotations().into_iter() {
-        dataset
-            .add_annotation(&at("2025-07-18"), &at("2025-07-30"), annotation)
-            .unwrap();
+        store_annotation(
+            &mut dataset,
+            annotation,
+            &at("2025-07-18"),
+            &at("2025-07-30"),
+        );
     }
 
     // Query by path
@@ -336,9 +365,17 @@ fn should_query_annotations_by_path() {
     assert_eq!(found.len(), 2);
     assert_eq!(found[0].source_bill.bill_id, "119-21");
 
-    // Query by bill
+    // Query by bill. Answered from the link's object reference, which now
+    // names the bill as well as the amendment, so the `bill_id` column that
+    // predates the core/extension split is gone.
     let found = dataset.annotations_for_bill("119-21").unwrap();
-    assert_eq!(found.len(), 753);
+    assert_eq!(
+        found.len(),
+        317,
+        "records regroup by amendment and asserter; the whole fixture is one bill"
+    );
+    let paths: usize = found.iter().map(|a| a.paths.len()).sum();
+    assert_eq!(paths, 718, "every distinct statement is still reachable");
 
     // No matches
     let found = dataset
@@ -393,4 +430,20 @@ fn should_search_text_across_expressions() {
     // A hit names the expression it was found in, not a bare date: the date
     // alone cannot say which document the text belongs to.
     assert_eq!(results[0].expression, at("2025-07-18"));
+}
+
+/// Store an annotation the way the pipeline does: one link per path it names.
+///
+/// There is deliberately no writer convenience for this in the library — two
+/// ways to write one fact means the convenient one is used, and it could only
+/// express the single kind we own (`docs/adr/0004`).
+fn store_annotation<S: words_to_data::storage::Storage>(
+    dataset: &mut Dataset<S>,
+    annotation: ChangeAnnotation,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) {
+    for link in words_to_data::link::Link::from_annotation(&annotation, from, to) {
+        dataset.add_link(link).expect("the link should be added");
+    }
 }

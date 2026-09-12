@@ -13,15 +13,16 @@ mod expressions;
 mod extract_changes;
 mod fail;
 mod info;
-mod llm;
 mod load;
 mod match_amendments;
 mod path;
+mod report;
 mod score_amendments;
 mod search;
 mod show_bill;
 mod span;
 mod validate;
+mod votes;
 
 /// Words to Data — legal document tooling
 #[derive(Parser)]
@@ -54,6 +55,8 @@ enum Command {
 
     /// Show a bill's amendments
     ShowBill(show_bill::Args),
+    /// Show how the House voted on a bill, by the party held on the vote's date
+    Votes(votes::Args),
     /// Full-text search across every expression
     Search(search::Args),
     /// List the paths that changed between two expressions of one work
@@ -79,6 +82,7 @@ fn main() {
         Command::Expressions(args) => expressions::run(args),
         Command::Bills(args) => bills::run(args),
         Command::ShowBill(args) => show_bill::run(args),
+        Command::Votes(args) => votes::run(args),
         Command::Search(args) => search::run(args),
         Command::Diff(args) => diff::run(args),
         Command::Coverage(args) => coverage::run(args),

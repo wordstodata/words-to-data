@@ -8,13 +8,14 @@ mod scope;
 mod work;
 
 pub use error::DatasetError;
-pub use scope::{Coverage, Scope, WorkCoverage};
+pub use scope::{Coverage, DateRange, Declaration, Exclusion, Scope, WorkCoverage};
 pub use work::{
     Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
     work_roots, works_between,
 };
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -24,9 +25,11 @@ use crate::congress::{
 };
 use crate::diff::TreeDiff;
 use crate::legislature::BillDiff;
+use crate::link::Link;
 use crate::storage::{
-    DocumentReader, DocumentWriter, InMemoryStorage, LegislatureReader, LegislatureWriter,
-    LinkReader, LinkWriter, SqliteStorage, Storage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
+    LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage,
+    Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -56,6 +59,12 @@ pub struct DatasetMetadata {
     pub source_urls: Vec<String>,
     pub license: String,
     pub version: String,
+    /// What this dataset was meant to carry, when the producer said.
+    ///
+    /// `None` means nothing was declared, and every scope question is answered
+    /// from the contents alone.
+    #[serde(default)]
+    pub declaration: Option<Declaration>,
 }
 
 /// A search result from text search
@@ -261,13 +270,24 @@ impl<S: Storage> Dataset<S> {
         self.storage.add_bill(bill)
     }
 
-    pub fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError> {
-        self.storage.add_annotation(from, to, annotation)
+    /// Record a verbatim model reply and return its id.
+    pub fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError> {
+        self.storage.add_reply(reply)
+    }
+
+    /// One verbatim model reply, by its id.
+    pub fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError> {
+        self.storage.get_reply(id)
+    }
+
+    /// Record one link.
+    ///
+    /// There is no annotation-shaped convenience beside this: two ways to write
+    /// one fact means the convenient one is used, and the convenient one can
+    /// only ever express the single kind we own
+    /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    pub fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
+        self.storage.add_link(link)
     }
 
     pub fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
@@ -348,6 +368,24 @@ impl Dataset<InMemoryStorage> {
         for bill in self.storage.bills.values_mut() {
             if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
                 amendment.changes.push(bill_diff.clone());
+                return;
+            }
+        }
+    }
+
+    /// Record where an amendment's word-level changes came from.
+    ///
+    /// The amending text is parsed from the bill and is a fact from a source.
+    /// The changes are a model's reading of it, and until this existed nothing
+    /// said so (#58).
+    pub fn set_amendment_provenance(
+        &mut self,
+        amendment_id: &str,
+        provenance: crate::link::Provenance,
+    ) {
+        for bill in self.storage.bills.values_mut() {
+            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
+                amendment.provenance = Some(provenance);
                 return;
             }
         }
@@ -551,6 +589,10 @@ impl Dataset<SqliteStorage> {
 // --- Implement traits for Dataset<S> ---
 
 impl<S: Storage> DocumentReader for Dataset<S> {
+    fn metadata(&self) -> &DatasetMetadata {
+        self.storage.metadata()
+    }
+
     fn works(&self) -> Result<Vec<WorkId>, DatasetError> {
         self.storage.works()
     }
@@ -586,27 +628,63 @@ impl<S: Storage> DocumentReader for Dataset<S> {
     fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
         self.storage.find_element(path)
     }
+
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+        self.storage.has_element(path)
+    }
 }
 
 impl<S: Storage> LinkReader for Dataset<S> {
-    fn get_annotations(
+    fn links_for_path(&self, path: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_for_path(path)
+    }
+
+    fn links_for_pair(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
-    ) -> Result<Option<Vec<ChangeAnnotation>>, DatasetError> {
-        self.storage.get_annotations(from, to)
+    ) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_for_pair(from, to)
     }
 
-    fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
-        self.storage.annotations_for_path(path)
+    fn links_by_kind(&self, kind: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_by_kind(kind)
     }
 
-    fn annotations_for_bill(&self, bill_id: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
-        self.storage.annotations_for_bill(bill_id)
+    fn links_by_namespace(&self, namespace: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_by_namespace(namespace)
     }
 
-    fn annotation_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
-        self.storage.annotation_pairs()
+    fn links_for_object_prefix(&self, prefix: &str) -> Result<Vec<Link>, DatasetError> {
+        self.storage.links_for_object_prefix(prefix)
+    }
+
+    fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
+        self.storage.link_pairs()
+    }
+
+    fn count_links_by_kind(&self) -> Result<BTreeMap<String, usize>, DatasetError> {
+        self.storage.count_links_by_kind()
+    }
+}
+
+impl<S: Storage> EvidenceReader for Dataset<S> {
+    fn get_reply(&self, id: &str) -> Result<Option<String>, DatasetError> {
+        self.storage.get_reply(id)
+    }
+
+    fn replies(&self) -> Result<Vec<String>, DatasetError> {
+        self.storage.replies()
+    }
+
+    fn count_replies(&self) -> Result<usize, DatasetError> {
+        self.storage.count_replies()
+    }
+}
+
+impl<S: Storage> EvidenceWriter for Dataset<S> {
+    fn add_reply(&mut self, reply: &str) -> Result<String, DatasetError> {
+        self.storage.add_reply(reply)
     }
 }
 
@@ -637,13 +715,13 @@ impl<S: Storage> LegislatureReader for Dataset<S> {
     ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
         self.storage.votes_by_member(bioguide_id)
     }
+
+    fn legislature_counts(&self) -> Result<LegislatureCounts, DatasetError> {
+        self.storage.legislature_counts()
+    }
 }
 
 impl<S: Storage> DocumentWriter for Dataset<S> {
-    fn metadata(&self) -> &DatasetMetadata {
-        self.storage.metadata()
-    }
-
     fn set_metadata(&mut self, metadata: DatasetMetadata) {
         self.storage.set_metadata(metadata)
     }
@@ -654,13 +732,8 @@ impl<S: Storage> DocumentWriter for Dataset<S> {
 }
 
 impl<S: Storage> LinkWriter for Dataset<S> {
-    fn add_annotation(
-        &mut self,
-        from: &ExpressionId,
-        to: &ExpressionId,
-        annotation: ChangeAnnotation,
-    ) -> Result<(), DatasetError> {
-        self.storage.add_annotation(from, to, annotation)
+    fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
+        self.storage.add_link(link)
     }
 }
 
