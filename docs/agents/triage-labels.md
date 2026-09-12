@@ -31,3 +31,19 @@ Apply `breaking-changes` when the work does any of these:
 Adding a new type, or a new link kind, is not a breaking change.
 
 The label groups work that should share one release window. Three breaking issues merged separately give a user three breaks; merged together they give one.
+
+### Forcing a rebuild is not the same as breaking the format
+
+`breaking-changes` means **an existing reader cannot read the file**. Some work forces every user to rebuild without breaking anything, and the label does not describe it. `docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md` separates the three cases:
+
+| What changed | Example | Old reader | Label |
+| --- | --- | --- | --- |
+| the **format** | `#129`, the node type | cannot parse the file | `breaking-changes` |
+| an **index** — a stored derivation | `#115`, readable container paths | parses fine, holds stale paths | **not** a breaking change |
+| a **record** — the facts themselves | `#113`, the appendix parser | parses fine, holds different facts | **not** a breaking change |
+
+All three need a rebuild. Only the first one makes a reader obsolete.
+
+So when triaging, say which of the three it is, and whether a rebuild is needed — those are two questions, not one. An issue that forces a rebuild without breaking the format still has to say so in its body, because a user who does not rebuild will silently hold stale data. That is worse than a refusal, not better.
+
+The rebuild cost is not fixed. `#123` records that `match-amendments` has no cache, so a rebuild re-buys its model calls; until that is fixed, grouping work into fewer rebuilds is worth more than the label alone suggests.
