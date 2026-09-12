@@ -74,6 +74,70 @@ fn should_cover_every_published_example_when_the_examples_come_from_laws_json() 
     );
 }
 
+/// Section numbers that end in a letter, with the title and the sections each
+/// citation names.
+///
+/// Every one of these is a real section of the Code held in
+/// `tests/test_data/usc`. A third of the Code is numbered this way — 10,085 of
+/// 29,592 section numbers in the 2025-07-30 release end in a letter — so a
+/// pattern that cannot name them cannot name a third of the law (#135).
+const LETTERED_SECTIONS: [(&str, &str, &[&str]); 6] = [
+    ("26 U.S.C. § 45X", "26", &["45X"]),
+    ("21 U.S.C. § 355a", "21", &["355a"]),
+    ("15 U.S.C. § 78aaa", "15", &["78aaa"]),
+    // Four letters is the longest run the Code uses: 15 U.S.C. § 77bbbb.
+    ("15 U.S.C. § 77bbbb", "15", &["77bbbb"]),
+    // A letter run in the middle, with a numbered part after it.
+    ("42 U.S.C. § 300gg-11", "42", &["300gg-11"]),
+    // A letter run on both parts: 42 U.S.C. § 1395w-4a.
+    ("42 U.S.C. § 1395w-4a", "42", &["1395w-4a"]),
+];
+
+#[test]
+fn should_read_the_whole_number_when_a_section_number_ends_in_a_letter() {
+    let mut missed = Vec::new();
+
+    for (citation, title, sections) in LETTERED_SECTIONS {
+        let found = usc::find(citation);
+        let matched = found.first().map(|read| {
+            (
+                read.title.as_str(),
+                read.sections.iter().map(String::as_str).collect(),
+                read.text.as_str(),
+            )
+        });
+        if matched != Some((title, sections.to_vec(), citation)) {
+            missed.push(format!("{citation:?} -> {found:?}"));
+        }
+    }
+
+    assert!(
+        missed.is_empty(),
+        "a lettered section number must be read whole:\n{}",
+        missed.join("\n")
+    );
+}
+
+#[test]
+fn should_keep_the_subsection_when_a_lettered_section_also_names_one() {
+    // `26 U.S.C. § 45X(b)(1)` is the shape a bill amends. Losing the letter would
+    // name section 45, and losing the brackets would lose what was cited.
+    let found = usc::find("credit under 26 U.S.C. § 45X(b)(1)(A)");
+
+    assert_eq!(found.len(), 1, "one citation, got {found:?}");
+    assert_eq!(found[0].sections, ["45X(b)(1)(A)"]);
+    assert_eq!(found[0].uslm_id("45X(b)(1)(A)"), "/us/usc/t26/s45X");
+}
+
+#[test]
+fn should_read_both_sections_when_a_list_mixes_a_lettered_number_with_a_plain_one() {
+    // A letter suffix must not break the list continuation logic.
+    let found = usc::find("see 21 U.S.C. §§ 355a, 360 and 355b");
+
+    assert_eq!(found.len(), 1, "one citation, got {found:?}");
+    assert_eq!(found[0].sections, ["355a", "360", "355b"]);
+}
+
 #[test]
 fn should_read_both_sections_when_a_citation_names_a_list_of_them() {
     // eyecite reads this as one citation to section 1983 and loses 1988
@@ -124,7 +188,7 @@ fn should_read_both_sections_when_real_prose_joins_them_with_and() {
 }
 
 #[test]
-fn should_find_every_citation_in_real_prose_except_a_section_ending_in_a_letter() {
+fn should_find_every_citation_in_real_prose_when_each_one_carries_a_section_marker() {
     // Real prose rather than a hand-written string: the notes of the Federal
     // Rules of Bankruptcy Procedure cite the U.S. Code throughout.
     let rules = std::fs::read_to_string("tests/test_data/usc/2025-07-30/usc11a.xml")
@@ -147,29 +211,33 @@ fn should_find_every_citation_in_real_prose_except_a_section_ending_in_a_letter(
         "`28 U.S.C. § 1334` is in the notes to Rule 9001"
     );
 
-    // Every mention in the document must be accounted for. The one kind that is
-    // allowed to be missed is a section number ending in a letter, such as
-    // `15 U.S.C. § 78aaa`: the published `law.section` pattern has no room for
-    // it, and naming section 78 instead would name a different provision.
-    let mention =
-        regex::Regex::new(r"\d+ U\.S\.C\. §\s*(?P<section>[0-9A-Za-z\-.:]+)").expect("a pattern");
+    // Every mention in the document must be read. Before the section number was
+    // allowed a letter, one of the 199 was missed: `15 U.S.C. § 78aaa`, in the
+    // notes to Rule 1002 (#135).
+    let mention = regex::Regex::new(r"\d+\s+U\.S\.C\.\s*§+\s*(?P<section>[0-9A-Za-z\-.:]+)")
+        .expect("a pattern");
     let mut mentions = 0;
+    let mut missed = Vec::new();
     for hit in mention.captures_iter(&rules) {
         mentions += 1;
         let at = hit.get(0).expect("a whole match").start();
-        if found
+        if !found
             .iter()
             .any(|citation| citation.start <= at && citation.end() > at)
         {
-            continue;
+            missed.push(format!(
+                "{:?} at {at}",
+                hit.get(0).expect("a whole").as_str()
+            ));
         }
-        let section = hit.name("section").expect("a section").as_str();
-        assert!(
-            section.ends_with(|last: char| last.is_ascii_alphabetic()),
-            "citation at {at} was missed and its section {section:?} does not end in a letter"
-        );
     }
-    assert!(mentions > 190, "the document should be full of mentions");
+    assert_eq!(mentions, 199, "the document holds 199 marked mentions");
+    assert!(
+        missed.is_empty(),
+        "every marked mention must be read, {} were not:\n{}",
+        missed.len(),
+        missed.join("\n")
+    );
 
     // Every citation must name a title and at least one section, or it is not a
     // citation and must not have been reported as one.
@@ -199,4 +267,47 @@ fn should_name_the_section_and_drop_the_subsection_when_asked_for_an_identifier(
 #[test]
 fn should_find_nothing_when_the_text_has_no_citation() {
     assert!(usc::find("The Fourteenth Amendment requires no such thing.").is_empty());
+}
+
+#[test]
+fn should_name_no_provision_the_opinion_did_not_cite_when_a_whole_opinion_is_read() {
+    // The false-positive gate (#135). *Obergefell v. Hodges*, CourtListener
+    // opinion 2812209, as the API returned it: 209,682 bytes of real judicial
+    // prose holding 27 section marks, most of them state statutes and none of
+    // them a U.S. Code citation. Widening the section number must not turn any of
+    // those 27 into a citation, because a wrong citation is worse than a missed
+    // one.
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string("tests/test_data/courtlistener/opinion_2812209.json")
+            .expect("the cached opinion should read"),
+    )
+    .expect("the cached opinion should be JSON");
+    let opinion = record["results"][0]["plain_text"]
+        .as_str()
+        .expect("the opinion should carry plain text");
+
+    assert_eq!(opinion.len(), 209_682, "the cached opinion, unchanged");
+    assert_eq!(opinion.matches('\u{a7}').count(), 27, "27 section marks");
+
+    let (found, report) = usc::find_with_report(opinion);
+
+    // Exactly two, and both are in the opinion. The first is the section of the
+    // Defense of Marriage Act the case is about. The second reads only because a
+    // section number may now end in a letter: before that, `§2000bb` was silently
+    // nothing.
+    let read: Vec<_> = found
+        .iter()
+        .map(|citation| (citation.title.as_str(), citation.sections.clone()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("1", vec!["7".to_string()]),
+            ("42", vec!["2000bb".to_string()])
+        ],
+        "no provision the opinion did not cite, got {found:?}"
+    );
+    // Nothing citation-shaped is left over either, so the count above is the
+    // whole answer for this opinion.
+    assert!(report.is_empty(), "nothing was declined, got {report:?}");
 }
