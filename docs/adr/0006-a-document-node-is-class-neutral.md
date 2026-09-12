@@ -34,13 +34,28 @@ It goes in `Provenance` instead, as a `method` — `ocr` or `text_layer`. It doe
 
 This is the decision inside the decision. `element_type` could not simply move into the payload, because the core reads it: the diff refuses to pair two nodes of different types, and a reader reports what a node is.
 
-So it becomes a `NodeType`, a namespaced open string, exactly as a `LinkKind` already is: `uscode.section`, `public_law.section`, `judicial.opinion`. The core reads the string and owns none of the vocabulary, which is the property ADR 0002 exists to protect — a third party adds a document class without our permission, and a type this build has never seen is stored and read back unchanged rather than dropped.
+So it becomes a `NodeType`, a namespaced open string, exactly as a `LinkKind` already is: `uscode.section`, `bill.section`, `judicial.opinion`. The core reads the string and owns none of the vocabulary, which is the property ADR 0002 exists to protect — a third party adds a document class without our permission, and a type this build has never seen is stored and read back unchanged rather than dropped.
 
-**The namespace replaced `DocumentType` rather than joining it.** Adding a `CourtOpinion` variant would have repeated the fault one size larger. Making the document type a second open string would have put a class declaration in two places, which can disagree; after an edit one of them will. The namespace *is* the class declaration. What remained of `DocumentType` — which USC type, which bill — is a USLM fact and went into the `uscode` payload with the rest.
+**The namespace replaced `DocumentType` rather than joining it.** Adding a `CourtOpinion` variant would have repeated the fault one size larger. Making the document type a second open string would have put a class declaration in two places, which can disagree; after an edit one of them will. The namespace *is* the class declaration. What remained of `DocumentType` — which USC type, which bill — is a USLM fact and went into the class payload with the rest.
 
-A public law is `public_law.*`, not `uscode.*`, although both come out of the same USLM parser with the same words below the root. A public law is not part of the US Code, and nothing stored may say that it is.
+**The three namespaces are `uscode`, `bill` and `judicial`.** The US Code and a bill come out of the same USLM parser with the same words below the root, and they are still two classes: a bill is not part of the US Code, and nothing stored may say that it is.
 
-**The local half is the publisher's element name, and it is also the path segment.** `uscode.section` and `section_174` take their word from one list, `ElementType::local_name`, so a path and a type can never disagree about what an element is called. That list is spelled out rather than derived from Rust's `Debug`, because it is published: it is in every path and every node type in every dataset, and renaming a Rust variant must not rename a provision. The cost is two warts that will now live forever — `uscode.uscodedocument` and `public_law.publiclawdocument` — and one list is worth more than two pretty names.
+The class is the **bill**, not the public law. `CONTEXT.md` defines a Bill as the instrument that changes existing law, "once enacted… published as a public law", so being law is a state a bill reaches rather than a different kind of document. `BillType` already says only public laws are supported *yet*, so a `public_law` namespace could never hold a bill that is not law.
+
+### The two document roots are named for a reader, and not alike
+
+- `uscode.document` is the root of a US Code file. `uscode.title` was considered and is wrong twice over: `ElementType::Title` already holds that word, and this node is not a title — it is the file's root, with a title *or* an appendix beneath it.
+- `bill.public_law` is the root of a bill that has been enacted.
+
+They are deliberately not symmetric. For the US Code, title-versus-appendix is already visible in the path (`title_26` against `appendix_28a`) and in the child node's own type (`uscode.title` against `uscode.appendix`), so the root has nothing left to say and the namespace has already said `uscode`. For a bill there is no equivalent child, and whether a document is enacted law or a draft is plainly needed in order to *report* it — so by ADR 0004's rule it belongs in the node type rather than in `BillType` inside a payload.
+
+### A node type and a path segment are two lists, and that is deliberate
+
+Almost every node type takes its local half from `ElementType::path_segment_name`, the same word `section_174` is built from, so a path and a type cannot disagree about what an element is called. `ElementType::type_name` is that list plus the two roots above, named in full.
+
+They were one list at first, and one list cannot hold both names. **A path segment is frozen and a type is read.** The word in a path is in every path in every dataset, and moving it renames a provision and everything beneath it; the word in a type is an interface a person and another party's reader look at. Those are different obligations, and a US Code root shows only the second, because its path is the constant `uscode`.
+
+A bill's root path is the one place the two collide: it is *generated*, so `publiclawdocument_119-21` would have become `public_law_119-21`, and a root path is a `WorkId` that links point at. The path segment therefore keeps the ugly word and the type does not. Both lists are spelled out rather than derived from Rust's `Debug`, so renaming a variant cannot rename a provision, and three tests hold the pair still: the path segments against the expression the old generator used, the type names against the segments except for the two roots, and the whole published vocabulary written out.
 
 **`ElementType` stays a closed enum**, inside the USLM module. It is not a stored vocabulary: it is the list of XML tag names this parser knows, and a tag it does not know is dropped rather than stored. What is stored is the open string it maps to.
 
@@ -67,3 +82,9 @@ The corpus is measurably unchanged. A dataset built from the two committed relea
 **Put the node type in the payload too, and pair the diff on the path alone.** Then two different things at one path across two dates would be diffed as one provision changing. The type is the only thing that says they are the same kind of thing.
 
 **Record USLM provenance on every node.** Honest and uniform, and it costs a heap allocation and a copy of one sentence per node across a million and a half nodes to say what one line in the dataset's metadata says once.
+
+**One list for both the path segment and the node type.** This is what was built first, and it forced the stored vocabulary to carry `uscode.uscodedocument` and `public_law.publiclawdocument` because a path segment cannot be renamed. Two lists cost a drift risk confined to two named lines and three tests that watch them; one list cost every reader of every W2D file a name nobody would choose.
+
+**`public_law` as the namespace, with `public_law.section` beneath it.** It reads correctly for the only bill we hold and wrongly for the first bill that is not yet law. A namespace names the class, and the class is what a document *is*, not the state it has reached.
+
+**`bill.bill` or `bill.document` for a bill's root.** Symmetric with `uscode.document`, and it hides the one fact a reader most needs about a bill, which would then have to be recovered from `BillType` inside a payload. ADR 0004 forbids that: nothing needed to report a thing may live where the core cannot read it.

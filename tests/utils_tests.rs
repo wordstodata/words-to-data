@@ -128,7 +128,7 @@ fn test_zero_padded_values() {
 fn test_load_uslm_folder() {
     let result = load_uslm_folder("tests/test_data/usc/2025-07-18/", "2025-07-18")
         .expect("Should have loaded something");
-    assert_eq!(result.data.node_type.as_str(), "uscode.uscodedocument");
+    assert_eq!(result.data.node_type.as_str(), "uscode.document");
     assert_eq!(result.children.len(), 57);
     for child in result.children.iter() {
         let node_type = child.data.node_type.as_str();

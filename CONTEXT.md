@@ -51,7 +51,11 @@ A whole document is one node when nothing has taken it apart, which is ordinary 
 _Avoid_: Element, USLM element
 
 **Node type**:
-What kind of thing a Document node is, as an open namespaced string: `uscode.section`, `public_law.section`, `judicial.opinion`. The namespace names the document class and the local half names the kind. It is open, so another party adds a document class without our permission, and a type this build has never seen is carried rather than dropped. The core reads the type — two nodes of different types are not one provision across two dates — and owns none of the vocabulary. A public law is `public_law.*` and not `uscode.*`, because a public law is not part of the US Code.
+What kind of thing a Document node is, as an open namespaced string: `uscode.section`, `bill.section`, `judicial.opinion`. The namespace names the document class and the local half names the kind. It is open, so another party adds a document class without our permission, and a type this build has never seen is carried rather than dropped. The core reads the type — two nodes of different types are not one provision across two dates — and owns none of the vocabulary.
+
+Three namespaces exist: `uscode`, `bill` and `judicial`. A Bill is `bill.*` and never `uscode.*`, because a bill is not part of the US Code. The root node of each class says what the whole document is: `uscode.document` for a US Code file, `bill.public_law` for a Bill that has been enacted, `judicial.opinion` for a court opinion. The two are not named alike on purpose — for the US Code, title-versus-appendix is already in the path and in the child's own type, while for a Bill nothing else says whether it is enacted, and a reader needs that in order to report it.
+
+A segment of a Structural path uses almost always the same word, and the two document roots are the exception: a path segment is frozen, because moving one renames a Provision, while a type is an interface a person reads.
 _Avoid_: Element type, document type, tag
 
 **Class payload**:
@@ -67,7 +71,9 @@ _Avoid_: Section, node, element
 **Structural path**:
 The address of a Document node, derived from the hierarchy that the parser found. It locates a Provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both. A path and a position together locate one provision within one Expression. They still do not identify it.
 
-A segment is `<kind>_<number>`, and the kind is the local half of the node's Node type, taken from the same list. So `uscode.section` and `section_174` cannot disagree about what an element is called. The first segment names the document class: `uscode/title_26`, `judicial/opinion_2812209`.
+A segment is `<kind>_<number>`, and the kind is almost always the local half of the node's Node type, so `uscode.section` and `section_174` cannot disagree about what an element is called. The first segment names the document class: `uscode/title_26`, `judicial/opinion_2812209`.
+
+**A path segment never changes, even where the Node type beside it does.** A Bill's root sits at `publiclawdocument_119-21` while its type reads `bill.public_law`: the type was renamed for a reader, and the path was not, because a root path is a Work id that a Link can point at.
 
 Independence from the source document holds only where an element carries a number. A container that groups a body of law usually carries none: the Federal Rules sit in a `courtRules` element with no number of its own. Such a container takes its segment from the publisher instead — first from the `identifier` attribute, reduced to its last segment, and where there is no identifier, from the heading, which is the only name the publisher gives it:
 

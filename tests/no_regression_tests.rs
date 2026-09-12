@@ -16,6 +16,7 @@ use rstest::rstest;
 use words_to_data::diff::TreeDiff;
 use words_to_data::document::DocumentNode;
 use words_to_data::uslm::parser::parse;
+use words_to_data::uslm::{BillType, DocumentType, ElementType, USCType};
 
 const EARLY: &str = "2025-07-18";
 const LATER: &str = "2025-07-30";
@@ -123,20 +124,10 @@ fn should_generate_the_same_paths_as_before_nodes_became_class_neutral(
     );
 }
 
-/// The one place a path segment and a node type are spelled, checked against the
-/// expression the parser used before #129.
-///
-/// `generate_structural_path` used to write `format!("{:?}", element_type)`
-/// lowercased. It now writes [`ElementType::local_name`], which is also the local
-/// half of the stored node type. Those two must agree for every variant, or a path
-/// moves — which renames every provision beneath it. The digests above say the
-/// paths did not move; this says *why*, and it fails the moment a variant is
-/// renamed in Rust without the stored name being held still.
-#[test]
-fn should_name_an_element_exactly_as_the_path_generator_used_to() {
-    use words_to_data::uslm::ElementType::*;
-
-    for element_type in [
+/// Every element type this parser knows, so the two lists below cover all of them.
+fn every_element_type() -> Vec<ElementType> {
+    use ElementType::*;
+    vec![
         USCodeDocument,
         PublicLawDocument,
         Title,
@@ -159,14 +150,190 @@ fn should_name_an_element_exactly_as_the_path_generator_used_to() {
         Division,
         Subdivision,
         Unknown,
-    ] {
+    ]
+}
+
+/// The word a path segment is made of, checked against the expression the parser
+/// used before #129.
+///
+/// `generate_structural_path` used to write `format!("{:?}", element_type)`
+/// lowercased. It now writes [`ElementType::path_segment_name`]. Those two must
+/// agree for every variant, or a path moves — which renames every provision
+/// beneath it. The digests above say the paths did not move; this says *why*, and
+/// it fails the moment a variant is renamed in Rust without the stored name being
+/// held still.
+#[test]
+fn should_name_a_path_segment_exactly_as_the_path_generator_used_to() {
+    for element_type in every_element_type() {
         assert_eq!(
-            element_type.local_name(),
+            element_type.path_segment_name(),
             format!("{element_type:?}").to_lowercase(),
-            "the stored name of {element_type:?} must match the segment the old \
+            "the path segment of {element_type:?} must match the word the old \
              path generator wrote"
         );
     }
+}
+
+/// A node type may differ from a path segment, and exactly twice it does.
+///
+/// The type is read by a person and by another party's reader, and the two
+/// document roots are the only elements a path never shows — the US Code's root is
+/// hardcoded as `uscode`, and a bill's root is the only node that could say
+/// whether the bill is enacted. So they are named for a reader:
+/// `uscode.document` and `bill.public_law`.
+///
+/// Everywhere else the two words must be the same, or a reader would meet
+/// `uscode.section` at a path segment called something else.
+#[test]
+fn should_name_a_node_type_as_its_path_segment_except_for_the_two_document_roots() {
+    let renamed = [ElementType::USCodeDocument, ElementType::PublicLawDocument];
+
+    for element_type in every_element_type() {
+        if renamed.contains(&element_type) {
+            assert_ne!(
+                element_type.type_name(),
+                element_type.path_segment_name(),
+                "{element_type:?} is a document root and is named for a reader"
+            );
+            continue;
+        }
+        assert_eq!(
+            element_type.type_name(),
+            element_type.path_segment_name(),
+            "{element_type:?} is not a document root, so its type and its path \
+             segment must be one word"
+        );
+    }
+
+    assert_eq!(ElementType::USCodeDocument.type_name(), "document");
+    assert_eq!(ElementType::PublicLawDocument.type_name(), "public_law");
+}
+
+/// No two element types may share a node type, or two different things would be
+/// stored as one and the diff would pair them.
+#[test]
+fn should_give_every_element_type_a_node_type_of_its_own() {
+    let mut seen = std::collections::BTreeSet::new();
+    for element_type in every_element_type() {
+        assert!(
+            seen.insert(element_type.type_name()),
+            "{element_type:?} shares the node type `{}` with another element",
+            element_type.type_name()
+        );
+    }
+}
+
+/// The published vocabulary, written out in full.
+///
+/// These strings go into every W2D file and are read by parties who do not have
+/// our code, so they are an interface. This is the list, in one place, and it
+/// fails on any change to it rather than leaving the change to be noticed in a
+/// dataset.
+///
+/// Two of the forty-four cannot occur, and are listed because the two namespaces
+/// share one vocabulary and this is the cross product of it: `uscode.public_law`
+/// (a US Code file has no public law root) and `bill.document` (a bill's root is
+/// its enacted state, never a bare document).
+#[test]
+fn should_store_the_node_types_this_vocabulary_publishes() {
+    let usc = DocumentType::USCode {
+        usc_type: USCType::Title,
+    };
+    let bill = DocumentType::Bill {
+        bill_type: BillType::PublicLaw,
+        bill_id: "119-21".to_string(),
+    };
+
+    let published: Vec<String> = every_element_type()
+        .into_iter()
+        .map(|element_type| element_type.node_type(&usc).as_str().to_string())
+        .chain(
+            every_element_type()
+                .into_iter()
+                .map(|element_type| element_type.node_type(&bill).as_str().to_string()),
+        )
+        .collect();
+
+    assert_eq!(
+        published,
+        vec![
+            "uscode.document",
+            "uscode.public_law",
+            "uscode.title",
+            "uscode.appendix",
+            "uscode.subtitle",
+            "uscode.chapter",
+            "uscode.subchapter",
+            "uscode.part",
+            "uscode.subpart",
+            "uscode.section",
+            "uscode.subsection",
+            "uscode.paragraph",
+            "uscode.subparagraph",
+            "uscode.clause",
+            "uscode.subclause",
+            "uscode.level",
+            "uscode.item",
+            "uscode.subitem",
+            "uscode.subsubitem",
+            "uscode.division",
+            "uscode.subdivision",
+            "uscode.unknown",
+            "bill.document",
+            "bill.public_law",
+            "bill.title",
+            "bill.appendix",
+            "bill.subtitle",
+            "bill.chapter",
+            "bill.subchapter",
+            "bill.part",
+            "bill.subpart",
+            "bill.section",
+            "bill.subsection",
+            "bill.paragraph",
+            "bill.subparagraph",
+            "bill.clause",
+            "bill.subclause",
+            "bill.level",
+            "bill.item",
+            "bill.subitem",
+            "bill.subsubitem",
+            "bill.division",
+            "bill.subdivision",
+            "bill.unknown",
+        ]
+    );
+}
+
+/// The one path a node-type rename could have moved.
+///
+/// A US Code file's root path is the constant `uscode`, so `uscode.document`
+/// renaming the root type costs nothing. A bill's root path is *generated*, from
+/// the same element type, so it is the one place where naming the type
+/// `bill.public_law` would have moved a stored path — and a root path is a
+/// `WorkId`, which links point at.
+///
+/// It did not move, because the type name and the path segment are two lists
+/// (`ElementType::type_name` and `ElementType::path_segment_name`). The path
+/// segment stayed frozen at the ugly word on purpose.
+#[test]
+fn should_leave_the_root_path_of_a_bill_where_it_was() {
+    let bill = parse(
+        "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml",
+        "2025-07-04",
+    )
+    .expect("the public law should parse");
+
+    assert_eq!(
+        bill.data.path.as_ref(),
+        "publiclawdocument_119-21",
+        "a bill's root path is its WorkId and must not move"
+    );
+    assert_eq!(
+        bill.data.node_type.as_str(),
+        "bill.public_law",
+        "its type is named for a reader, and does not follow the path"
+    );
 }
 
 /// The four appendices and the three ordinary titles that carry numberless

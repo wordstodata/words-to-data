@@ -123,7 +123,7 @@ fn test_element_with_no_text_fields() {
 
     // Some elements might have no text content fields
     // At minimum, verify root document can be parsed even if it has no direct text
-    assert_eq!(root.data.node_type.as_str(), "uscode.uscodedocument");
+    assert_eq!(root.data.node_type.as_str(), "uscode.document");
     assert!(
         root.data.heading.is_none()
             && root.data.chapeau.is_none()
@@ -154,8 +154,8 @@ fn test_parse_appendix_title() {
     let root_5a = result_5a.unwrap();
     let root_11a = result_11a.unwrap();
 
-    assert_eq!(root_5a.data.node_type.as_str(), "uscode.uscodedocument");
-    assert_eq!(root_11a.data.node_type.as_str(), "uscode.uscodedocument");
+    assert_eq!(root_5a.data.node_type.as_str(), "uscode.document");
+    assert_eq!(root_11a.data.node_type.as_str(), "uscode.document");
 }
 
 // Navigate deeply nested structure (6+ levels)

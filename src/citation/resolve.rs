@@ -35,7 +35,7 @@ use super::usc::UscCitation;
 /// which kind of element.
 fn is_usc_section(node_type: &NodeType) -> bool {
     node_type.namespace() == NodeType::USCODE
-        && node_type.local() == ElementType::Section.local_name()
+        && node_type.local() == ElementType::Section.type_name()
 }
 
 /// Where the sections of a dataset are, by USLM identifier.

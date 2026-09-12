@@ -58,7 +58,7 @@ fn test_parse_public_law() {
 
     // Nothing here says the public law is part of the US Code: the node type
     // namespaces it on its own (#129).
-    assert_eq!(root.data.node_type.as_str(), "public_law.publiclawdocument");
+    assert_eq!(root.data.node_type.as_str(), "bill.public_law");
 
     // Check that children have structural format paths
     for child in &root.children {

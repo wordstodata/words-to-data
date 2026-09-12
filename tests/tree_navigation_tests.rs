@@ -25,7 +25,7 @@ fn test_find_root_in_real_document() {
 
     let found = result.unwrap();
     assert_eq!(found.data.path.as_ref(), "uscode");
-    assert_eq!(found.data.node_type.as_str(), "uscode.uscodedocument");
+    assert_eq!(found.data.node_type.as_str(), "uscode.document");
 }
 
 // Find title element
@@ -168,7 +168,7 @@ fn test_find_appendix_element() {
     assert!(result.is_some(), "Should find uscode root");
 
     let found = result.unwrap();
-    assert_eq!(found.data.node_type.as_str(), "uscode.uscodedocument");
+    assert_eq!(found.data.node_type.as_str(), "uscode.document");
 
     // Try to find title element within appendix
     let title_result = root.find("uscode/title_5a");

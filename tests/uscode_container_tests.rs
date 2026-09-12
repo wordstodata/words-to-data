@@ -13,7 +13,7 @@ fn should_parse_title_with_uscode_root() {
         parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").expect("Failed to parse");
 
     // Root should be uscode container
-    assert_eq!(element.data.node_type.as_str(), "uscode.uscodedocument");
+    assert_eq!(element.data.node_type.as_str(), "uscode.document");
     assert_eq!(element.data.path.as_ref(), "uscode");
 
     // The container's own USLM facts say it is the whole Code, not one title

@@ -142,9 +142,9 @@ pub fn generate_structural_path(
     number_value: &str,
     parent_structural_path: Option<&str>,
 ) -> String {
-    // The same name the stored node type uses, so a path and a type can never
-    // disagree about what an element is called (`ElementType::local_name`).
-    let element_name = element_type.local_name();
+    // A frozen list: this word is in every path in every dataset, so changing one
+    // renames a provision (`ElementType::path_segment_name`).
+    let element_name = element_type.path_segment_name();
     match parent_structural_path {
         Some(parent) => format!("{}/{}_{}", parent, element_name, number_value),
         None => format!("{}_{}", element_name, number_value),

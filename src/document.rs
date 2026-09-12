@@ -40,10 +40,9 @@ use crate::link::Provenance;
 /// permission (`docs/adr/0002-links-live-in-the-core.md`).
 ///
 /// The namespace names the class: `uscode.section` is a section of the US Code,
-/// `public_law.section` is a section of a public law, and `judicial.opinion` is
-/// a court opinion. A type this build has never seen is carried unchanged rather
-/// than dropped, because silent loss is the one failure a portable format cannot
-/// have.
+/// `bill.section` is a section of a bill, and `judicial.opinion` is a court
+/// opinion. A type this build has never seen is carried unchanged rather than
+/// dropped, because silent loss is the one failure a portable format cannot have.
 ///
 /// [`LinkKind`]: crate::link::LinkKind
 ///
@@ -64,13 +63,18 @@ use crate::link::Provenance;
 pub struct NodeType(pub String);
 
 impl NodeType {
-    /// The US Code. `uscode.section`, `uscode.subsection`.
+    /// The US Code. `uscode.document`, `uscode.section`, `uscode.subsection`.
     pub const USCODE: &'static str = "uscode";
 
-    /// A public law. The same USLM vocabulary as the US Code below the root, in
-    /// its own namespace, because a public law is not part of the US Code and
-    /// nothing stored may say that it is.
-    pub const PUBLIC_LAW: &'static str = "public_law";
+    /// A bill: the instrument that changes existing law. The same USLM vocabulary
+    /// as the US Code below the root, in its own namespace, because a bill is not
+    /// part of the US Code and nothing stored may say that it is.
+    ///
+    /// The class is the bill, not the public law. A public law is the state a
+    /// bill reaches when it is enacted, which the root node's type records —
+    /// `bill.public_law` — so a namespace can still hold a bill that is not law
+    /// yet.
+    pub const BILL: &'static str = "bill";
 
     /// Court material. `judicial.opinion`.
     pub const JUDICIAL: &'static str = "judicial";
@@ -97,8 +101,10 @@ impl NodeType {
 
     /// The local half, `section` in `uscode.section`.
     ///
-    /// The class's own name for this kind of node, which for a USLM document is
-    /// the publisher's element name.
+    /// The class's own name for this kind of node. For most of a USLM document
+    /// that is the publisher's element name, and the same word its path segment
+    /// uses; a document's root node is named for a reader instead
+    /// (`crate::uslm::ElementType::type_name`).
     pub fn local(&self) -> &str {
         self.0.split_once('.').map_or(&self.0, |(_, after)| after)
     }

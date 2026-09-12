@@ -7,6 +7,10 @@
 //! [`ClassPayload`], as [`UslmFacts`]
 //! (`docs/adr/0006-a-document-node-is-class-neutral.md`).
 //!
+//! One parser, two document classes. The same XML vocabulary describes the US
+//! Code and a bill, so the words below the root are the same, and the namespace
+//! of a node's type says which class it came from: `uscode` or `bill`.
+//!
 //! [`ElementType`] stays a closed enum on purpose. It is the parser's own
 //! vocabulary, not a stored one: it is the list of XML tag names this parser
 //! knows, and a tag it does not know is dropped rather than stored. What is
@@ -139,7 +143,7 @@ impl DocumentType {
     pub fn namespace(&self) -> &'static str {
         match self {
             Self::USCode { .. } => NodeType::USCODE,
-            Self::Bill { .. } => NodeType::PUBLIC_LAW,
+            Self::Bill { .. } => NodeType::BILL,
         }
     }
 }
@@ -237,20 +241,18 @@ pub enum ElementType {
 }
 
 impl ElementType {
-    /// The publisher's name for this kind of element, lowercased.
+    /// The word this element writes into a structural path: `section` in
+    /// `section_174`.
     ///
-    /// One list, used for two things, so that a path and a node type can never
-    /// disagree about what an element is called:
+    /// **These spellings are frozen.** They are in every path in every dataset,
+    /// so changing one renames a provision and everything below it. They are
+    /// spelt out here rather than derived from `Debug` for that reason: a stored
+    /// name must not move when a Rust variant is renamed.
     ///
-    /// - the segment [`path::generate_structural_path`] writes, as in
-    ///   `section_174`;
-    /// - the local half of the stored [`NodeType`], as in `uscode.section`.
-    ///
-    /// These spellings are published: they are in every path and every node type
-    /// in every dataset, so changing one renames provisions. They are spelt out
-    /// here rather than derived from `Debug` for exactly that reason — a stored
-    /// vocabulary must not move when a variant is renamed in Rust.
-    pub fn local_name(self) -> &'static str {
+    /// This is also where [`ElementType::type_name`] gets almost every node type
+    /// from, so a path and a type agree about what an element is called wherever
+    /// there is no reason for them to differ.
+    pub fn path_segment_name(self) -> &'static str {
         match self {
             Self::USCodeDocument => "uscodedocument",
             Self::PublicLawDocument => "publiclawdocument",
@@ -277,30 +279,84 @@ impl ElementType {
         }
     }
 
+    /// The local half of this element's stored node type: `section` in
+    /// `uscode.section`.
+    ///
+    /// Almost always the same word as [`ElementType::path_segment_name`], and
+    /// taken from it, because a path and a type disagreeing about what an element
+    /// is called would be a trap.
+    ///
+    /// **The two document roots are the exception, and are named here in full.**
+    /// A path segment is frozen; a type is read by a person and by another
+    /// party's reader, and these two are the only ones a path never shows:
+    ///
+    /// - `uscode.document` is the root of a US Code file. `uscode.title` was
+    ///   considered and is wrong twice over — `ElementType::Title` already holds
+    ///   that word, and this node is not a title. It is the file's root, with a
+    ///   title *or* an appendix beneath it. The namespace already says `uscode`,
+    ///   so `document` is all that is left to say.
+    /// - `bill.public_law` is the root of a bill that has been enacted. The class
+    ///   is the bill; being law is the state it reached. Nothing else under a bill
+    ///   says whether it is enacted, and a reader plainly needs that in order to
+    ///   report the document, so it belongs in the type rather than in
+    ///   [`BillType`] inside the payload
+    ///   (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    ///
+    /// The two roots are therefore named unlike each other on purpose:
+    /// title-versus-appendix is already visible for the US Code, in the path and
+    /// in the child's own type, and enacted-versus-draft is visible nowhere else
+    /// for a bill.
+    pub fn type_name(self) -> &'static str {
+        match self {
+            Self::USCodeDocument => "document",
+            Self::PublicLawDocument => "public_law",
+            other => other.path_segment_name(),
+        }
+    }
+
     /// The stored node type for this element, in the class's namespace.
     ///
     /// The namespace says which class of document the element came from, which
     /// is what `DocumentType` used to say in a field of its own. A section of the
-    /// US Code is `uscode.section`; a section of a public law is
-    /// `public_law.section`. The same USLM word, and nothing stored says a public
-    /// law is part of the US Code.
+    /// US Code is `uscode.section`; a section of a bill is `bill.section`. The
+    /// same USLM word, and nothing stored says a bill is part of the US Code.
     ///
     /// # Examples
     ///
     /// ```
-    /// use words_to_data::uslm::{DocumentType, ElementType, USCType};
+    /// use words_to_data::uslm::{BillType, DocumentType, ElementType, USCType};
     ///
     /// let usc = DocumentType::USCode { usc_type: USCType::Title };
     /// assert_eq!(
     ///     ElementType::Section.node_type(&usc).as_str(),
     ///     "uscode.section"
     /// );
+    ///
+    /// // The same word, in the namespace of the class it came from.
+    /// let enacted = DocumentType::Bill {
+    ///     bill_type: BillType::PublicLaw,
+    ///     bill_id: "119-21".to_string(),
+    /// };
+    /// assert_eq!(
+    ///     ElementType::Section.node_type(&enacted).as_str(),
+    ///     "bill.section"
+    /// );
+    ///
+    /// // The two document roots are named for a reader, not for a path.
+    /// assert_eq!(
+    ///     ElementType::USCodeDocument.node_type(&usc).as_str(),
+    ///     "uscode.document"
+    /// );
+    /// assert_eq!(
+    ///     ElementType::PublicLawDocument.node_type(&enacted).as_str(),
+    ///     "bill.public_law"
+    /// );
     /// ```
     pub fn node_type(self, document_type: &DocumentType) -> NodeType {
         NodeType::new(format!(
             "{}.{}",
             document_type.namespace(),
-            self.local_name()
+            self.type_name()
         ))
     }
 }
@@ -462,7 +518,7 @@ impl UslmFacts {
     pub fn of(data: &NodeData) -> Option<Self> {
         let payload = data
             .payload_in(NodeType::USCODE)
-            .or_else(|| data.payload_in(NodeType::PUBLIC_LAW))?;
+            .or_else(|| data.payload_in(NodeType::BILL))?;
         payload.read().ok()
     }
 }
