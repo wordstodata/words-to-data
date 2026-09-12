@@ -26,6 +26,8 @@ pub mod sqlite;
 pub use memory::InMemoryStorage;
 pub use sqlite::SqliteStorage;
 
+use std::collections::BTreeMap;
+
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
 use crate::dataset::{
@@ -155,6 +157,15 @@ pub trait LinkReader {
     /// Every expression pair that carries links.
     fn link_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError>;
 
+    /// How many links are held of each kind, keyed by the kind named in full.
+    ///
+    /// A count, not a load: a backend that can count answers without building
+    /// the links. Broken down by kind because a total folds a namespace this
+    /// build has never seen into a number that hides it, and naming an unknown
+    /// kind is exactly what a reader can still do with it
+    /// (`docs/adr/0002-links-live-in-the-core.md`).
+    fn count_links_by_kind(&self) -> Result<BTreeMap<String, usize>, DatasetError>;
+
     // --- Projections ---
     //
     // `ChangeAnnotation` is a view of links, the reverse of how it once was.
@@ -222,6 +233,27 @@ pub trait LegislatureReader {
         &self,
         bioguide_id: &str,
     ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError>;
+
+    /// How much legislative material is held, counted rather than loaded.
+    ///
+    /// One method for the five counts, because a caller asking what a dataset
+    /// holds wants all of them and a backend answers each with a count query.
+    fn legislature_counts(&self) -> Result<LegislatureCounts, DatasetError>;
+}
+
+/// How much legislative material a dataset holds.
+///
+/// Counts only. A reader deciding whether a file is worth opening needs the
+/// sizes, not the records, and the records are large.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LegislatureCounts {
+    pub bills: usize,
+    pub members: usize,
+    /// Sponsor records, which is one per bill, not one per person.
+    pub sponsors: usize,
+    pub roll_calls: usize,
+    /// One member's position in one roll call, summed over every roll call.
+    pub member_votes: usize,
 }
 
 /// Reading the evidence a dataset holds.
@@ -238,6 +270,12 @@ pub trait EvidenceReader {
 
     /// Every reply id this dataset holds, in id order.
     fn replies(&self) -> Result<Vec<String>, DatasetError>;
+
+    /// How many replies this dataset holds.
+    ///
+    /// A count, not a load. Listing the ids to count them costs one string per
+    /// reply, and a real sweep holds thousands.
+    fn count_replies(&self) -> Result<usize, DatasetError>;
 }
 
 /// Writing evidence.

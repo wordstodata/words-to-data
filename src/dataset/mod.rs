@@ -15,6 +15,7 @@ pub use work::{
 };
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -27,7 +28,8 @@ use crate::legislature::BillDiff;
 use crate::link::Link;
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
-    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage, Storage,
+    LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage,
+    Storage,
 };
 use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
@@ -656,6 +658,10 @@ impl<S: Storage> LinkReader for Dataset<S> {
     fn link_pairs(&self) -> Result<Vec<ExpressionPair>, DatasetError> {
         self.storage.link_pairs()
     }
+
+    fn count_links_by_kind(&self) -> Result<BTreeMap<String, usize>, DatasetError> {
+        self.storage.count_links_by_kind()
+    }
 }
 
 impl<S: Storage> EvidenceReader for Dataset<S> {
@@ -665,6 +671,10 @@ impl<S: Storage> EvidenceReader for Dataset<S> {
 
     fn replies(&self) -> Result<Vec<String>, DatasetError> {
         self.storage.replies()
+    }
+
+    fn count_replies(&self) -> Result<usize, DatasetError> {
+        self.storage.count_replies()
     }
 }
 
@@ -700,6 +710,10 @@ impl<S: Storage> LegislatureReader for Dataset<S> {
         bioguide_id: &str,
     ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
         self.storage.votes_by_member(bioguide_id)
+    }
+
+    fn legislature_counts(&self) -> Result<LegislatureCounts, DatasetError> {
+        self.storage.legislature_counts()
     }
 }
 

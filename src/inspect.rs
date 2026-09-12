@@ -9,6 +9,8 @@
 //! Reports are plain serde structs: the CLI prints them (human-readable or as
 //! `--json`), and tests assert on the data rather than on formatting.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use crate::annotation::ChangeAnnotation;
@@ -32,9 +34,51 @@ pub struct DatasetInfo {
     pub expression_count: usize,
     /// Number of bills recorded in the dataset.
     pub bill_count: usize,
+    /// Number of links held, over every kind.
+    ///
+    /// Links are what this project produces; the document text is the input. A
+    /// report that counts only the input cannot tell an annotated dataset from
+    /// a bare corpus.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub link_count: usize,
+    /// Number of links held of each kind, keyed by the kind named in full,
+    /// namespace included.
+    ///
+    /// A reader that meets a kind it does not own, such as `westlaw.headnote`,
+    /// must see it named rather than folded into a total: naming an unknown kind
+    /// is what a reader can still do with it
+    /// (`docs/adr/0002-links-live-in-the-core.md`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub link_counts_by_kind: BTreeMap<String, usize>,
+    /// Number of verbatim model replies held as evidence (#58).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub reply_count: usize,
+    /// Number of legislature members held.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub member_count: usize,
+    /// Number of sponsor records held, which is one per bill.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub sponsor_count: usize,
+    /// Number of roll calls held.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub roll_call_count: usize,
+    /// Number of member votes held, summed over every roll call.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub member_vote_count: usize,
     /// What this dataset covers, so a caller can tell "absent from the law"
     /// from "absent from this dataset".
     pub scope: Scope,
+}
+
+/// Whether a count is zero, and so left out of the JSON.
+///
+/// A dataset with no legislature extension holds none of these things. Emitting
+/// a zero for each would grow a wall of them, and a wall of zeroes reads as
+/// "this tool measured nothing" rather than "this dataset holds nothing".
+/// `work_count`, `expression_count`, and `bill_count` are always emitted: they
+/// were there before this rule, and an agent already reads them.
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// One expression's headline facts (no element tree).
@@ -778,6 +822,10 @@ pub fn show_bill<S: Storage>(
 pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
     let meta = dataset.metadata();
     let scope = Scope::derive(dataset)?;
+    // Counted, never loaded: a count query costs the same on a 2 GB dataset as
+    // on a small one, and building the records to count them does not.
+    let links = dataset.count_links_by_kind()?;
+    let legislature = dataset.legislature_counts()?;
     Ok(DatasetInfo {
         name: meta.name.clone(),
         description: meta.description.clone(),
@@ -787,7 +835,14 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
         source_urls: meta.source_urls.clone(),
         work_count: scope.held.len(),
         expression_count: scope.held.iter().map(|held| held.dates.len()).sum(),
-        bill_count: dataset.list_bill_ids()?.len(),
+        bill_count: legislature.bills,
+        link_count: links.values().sum(),
+        link_counts_by_kind: links,
+        reply_count: dataset.count_replies()?,
+        member_count: legislature.members,
+        sponsor_count: legislature.sponsors,
+        roll_call_count: legislature.roll_calls,
+        member_vote_count: legislature.member_votes,
         scope,
     })
 }
