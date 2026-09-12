@@ -113,6 +113,17 @@ pub trait DocumentReader {
 
     /// Find an element by path, in every expression that holds it.
     fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError>;
+
+    /// Whether any expression holds at least one provision at `path`.
+    ///
+    /// A path locates provisions, it does not identify one
+    /// (`docs/adr/0001-structural-paths-locate-not-identify.md`), so the
+    /// question is "at least one", never "exactly one". Ask this rather than
+    /// [`find_element`] wherever the element itself is not wanted: a backend
+    /// can answer it from an index, without reading a document.
+    ///
+    /// [`find_element`]: DocumentReader::find_element
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError>;
 }
 
 /// Reading the links a dataset holds.

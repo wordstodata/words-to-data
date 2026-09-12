@@ -654,3 +654,61 @@ fn store_annotation<S: words_to_data::storage::Storage>(
         dataset.add_link(link).expect("the link should be added");
     }
 }
+
+/// A path no expression holds: title 9 has no § 999.
+const ABSENT_PATH: &str = "uscode/title_9/chapter_1/section_999";
+
+#[test]
+fn should_name_the_absent_path_when_an_annotation_points_nowhere_on_sqlite() {
+    let mut fixture = make_fixture();
+    let (from, to) = pair();
+    store_annotation(
+        &mut fixture,
+        ChangeAnnotation {
+            operation: AmendingAction::Strike,
+            source_bill: BillReference {
+                bill_id: "119-hr-1".to_string(),
+                amendment_id: "amendment-xyz".to_string(),
+                causative_text: "by striking 'bar'".to_string(),
+            },
+            paths: vec![ABSENT_PATH.to_string()],
+            metadata: AnnotationMetadata {
+                status: AnnotationStatus::Pending,
+                confidence: None,
+                annotator: "model:test".to_string(),
+                timestamp: time::OffsetDateTime::UNIX_EPOCH,
+                notes: None,
+                reasoning: None,
+            },
+        },
+        &from,
+        &to,
+    );
+    let sqlite = to_sqlite(&fixture, "validate_absent_path");
+
+    let report = inspect::validate(&sqlite).expect("validate");
+
+    assert!(!report.ok, "a path that points nowhere is a failure");
+    // Both links name one amendment, one pair and one annotator, so they are
+    // one annotation which names two paths.
+    assert_eq!(report.checked_annotations, 1);
+
+    // Exactly one of the two paths is absent. The other names a real
+    // provision, and reporting it would make the command useless as a gate.
+    let absent: Vec<&String> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.contains("path not found"))
+        .collect();
+    assert_eq!(
+        absent.len(),
+        1,
+        "one path is absent and one is real, got: {:?}",
+        report.issues
+    );
+    assert!(
+        absent[0].contains(ABSENT_PATH),
+        "the report should name the absent path, got: {}",
+        absent[0]
+    );
+}

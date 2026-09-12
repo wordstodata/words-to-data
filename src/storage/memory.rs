@@ -226,6 +226,13 @@ impl DocumentReader for InMemoryStorage {
             })
             .collect())
     }
+
+    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+        // One provision is enough to answer, so the walk stops at the first.
+        Ok(self
+            .all_expressions()
+            .any(|e| !e.element.find_all(path).is_empty()))
+    }
 }
 
 /// Fetch both expressions of a diff, refusing a pair that names two works.
