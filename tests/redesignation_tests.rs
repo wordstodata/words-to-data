@@ -11,7 +11,9 @@ use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
 };
 use words_to_data::diff::{Redesignations, TreeDiff};
-use words_to_data::legislature::redesignation::{RedesignationReport, Step, read_clause, resolve};
+use words_to_data::legislature::redesignation::{
+    Reason, RedesignationReport, Step, read_clause, resolve,
+};
 use words_to_data::link::{LinkKind, Target, VerificationState};
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in_file;
@@ -27,6 +29,13 @@ const TITLE_26_BEFORE: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
 const TITLE_26_AFTER: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
 const BEFORE: &str = "2025-07-18";
 const AFTER: &str = "2025-07-30";
+
+/// Title 7 before and after the same bill.
+///
+/// The title that holds a statement whose new path the law never took, which is
+/// what the check on the later document exists to catch.
+const TITLE_7_BEFORE: &str = "tests/test_data/usc/2025-07-18/usc07.xml";
+const TITLE_7_AFTER: &str = "tests/test_data/usc/2025-07-30/usc07.xml";
 
 /// § 898(c), the provision the diff reported wrongly before this existed.
 const SUBSECTION_898_C: &str =
@@ -63,8 +72,9 @@ fn should_name_the_section_under_amendment_when_the_bill_states_a_redesignation(
 fn should_resolve_the_paragraph_898_c_renumbered_when_title_26_is_in_hand() {
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
     let before = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
+    let after = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
 
-    let report = resolve(&stated, &before);
+    let report = resolve(&stated, &before, &after);
 
     let moved = report
         .resolved
@@ -72,6 +82,149 @@ fn should_resolve_the_paragraph_898_c_renumbered_when_title_26_is_in_hand() {
         .find(|r| r.from_path == format!("{SUBSECTION_898_C}/paragraph_3"))
         .expect("paragraph (3) of § 898(c) should resolve");
     assert_eq!(moved.to_path, format!("{SUBSECTION_898_C}/paragraph_2"));
+}
+
+#[test]
+fn should_report_a_redesignation_when_the_new_path_is_absent_after_the_bill() {
+    // 119-hr-1: "by redesignating paragraph (1) as subparagraph (A) and
+    // indenting appropriately", against title 7 § 9034(b). On 2025-07-30 that
+    // subsection still holds a paragraph (1) and a paragraph (2), and holds no
+    // subparagraph (A) at all, so the reading names a place the law does not
+    // have. Before this check the build recorded the link anyway, because it
+    // looked at the earlier document only.
+    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
+    let earlier = parse(TITLE_7_BEFORE, BEFORE).expect("title 7 should parse");
+    let later = parse(TITLE_7_AFTER, AFTER).expect("title 7 should parse");
+
+    let report = resolve(&stated, &earlier, &later);
+
+    let absent =
+        "uscode/title_7/chapter_115/subchapter_II/section_9034/subsection_b/subparagraph_A";
+    assert!(
+        report.resolved.iter().all(|r| r.to_path != absent),
+        "a path the later document does not hold is not linked"
+    );
+    let reported = report
+        .unresolved
+        .iter()
+        .find(|u| {
+            u.text
+                .contains("redesignating paragraph (1) as subparagraph (A)")
+        })
+        .expect("the statement is reported rather than dropped");
+    assert_eq!(
+        reported.reason,
+        Reason::RenumberedProvisionNotHeld(absent.to_string())
+    );
+    // The words a maintainer reads, which must say which end failed.
+    assert_eq!(
+        reported.reason.to_string(),
+        format!("no provision at {absent} after the bill")
+    );
+}
+
+/// Title 42 before and after the same bill.
+const TITLE_42_BEFORE: &str = "tests/test_data/usc/2025-07-18/usc42.xml";
+const TITLE_42_AFTER: &str = "tests/test_data/usc/2025-07-30/usc42.xml";
+
+/// § 1397gg(e)(1), where `119-hr-1` shifted a whole run of subparagraphs by one
+/// letter: "by redesignating subparagraphs (H) through (U) as subparagraphs (I)
+/// through (V), respectively".
+const PARAGRAPH_1397GG_E_1: &str =
+    "uscode/title_42/chapter_7/subchapter_XXI/section_1397gg/subsection_e/paragraph_1";
+
+/// The measure every redesignation link records, named so a receiving party can
+/// recompute the figure instead of trusting it.
+const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau, proviso, \
+                       content, continuation, joined by one space";
+
+/// The link one resolved redesignation of title 42 becomes.
+fn link_for(from_path: &str, report: &RedesignationReport) -> words_to_data::link::Link {
+    report
+        .resolved
+        .iter()
+        .find(|r| r.from_path == from_path)
+        .unwrap_or_else(|| panic!("{from_path} should resolve"))
+        .link(&WorkId::new("uscode/title_42"), BEFORE, AFTER, BILL_ID)
+}
+
+#[test]
+fn should_corroborate_a_link_with_the_words_at_its_two_ends() {
+    // The M to N step of the § 1397gg(e)(1) run. Both subparagraph (M) and
+    // subparagraph (N) are in the law on **both** dates, because the run shifted
+    // by one letter, so the two existence checks pass whatever letter a misread
+    // landed on. Old (M) and new (N) hold one sentence, character for character,
+    // and that identity is the evidence
+    // (`docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
+    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
+    let earlier = parse(TITLE_42_BEFORE, BEFORE).expect("title 42 should parse");
+    let later = parse(TITLE_42_AFTER, AFTER).expect("title 42 should parse");
+
+    let report = resolve(&stated, &earlier, &later);
+    let link = link_for(&format!("{PARAGRAPH_1397GG_E_1}/subparagraph_M"), &report);
+
+    let corroboration = link
+        .provenance
+        .corroboration
+        .as_ref()
+        .expect("a resolved redesignation carries a corroboration");
+    assert_eq!(corroboration.method, MEASURE);
+    assert_eq!(corroboration.score, 1.0);
+    assert_eq!(
+        corroboration.detail,
+        vec![("own_text".to_string(), 1.0), ("subtree".to_string(), 1.0)],
+        "both parts are named, so the headline figure can be checked"
+    );
+    // And the figure does not raise how far the link can be trusted. A machine's
+    // proposal that scores well is still a machine's proposal (`CONTEXT.md`).
+    assert_eq!(
+        link.provenance.verification,
+        VerificationState::MachineSuggested
+    );
+}
+
+#[test]
+fn should_still_record_the_link_when_the_bill_renumbered_and_rewrote_at_once() {
+    // The S to T step of the same § 1397gg(e)(1) run, and the same clause. Old
+    // (S) listed four subsections of § 1396u–2; new (T) is one sentence about
+    // § 1396r–1a. The bill renumbered and rewrote in one breath, which is
+    // ordinary, so the words at the two ends share almost nothing.
+    //
+    // The link is recorded all the same. Different words are no evidence against
+    // a renumbering, and refusing here would delete the record of what the bill
+    // said. `MachineSuggested` beside a low figure is the honest account: the
+    // bill said this, and the words do not back it up.
+    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
+    let earlier = parse(TITLE_42_BEFORE, BEFORE).expect("title 42 should parse");
+    let later = parse(TITLE_42_AFTER, AFTER).expect("title 42 should parse");
+
+    let report = resolve(&stated, &earlier, &later);
+    let link = link_for(&format!("{PARAGRAPH_1397GG_E_1}/subparagraph_S"), &report);
+
+    let corroboration = link
+        .provenance
+        .corroboration
+        .as_ref()
+        .expect("the link is recorded, and it carries the figure");
+    assert!(
+        (corroboration.score - 0.218_75).abs() < 1e-4,
+        "the figure is low and it is recorded: {}",
+        corroboration.score
+    );
+    assert_eq!(
+        link.object,
+        Target::Change {
+            work: WorkId::new("uscode/title_42"),
+            path: format!("{PARAGRAPH_1397GG_E_1}/subparagraph_T"),
+            from_date: BEFORE.to_string(),
+            to_date: AFTER.to_string(),
+        }
+    );
+    assert_eq!(
+        link.provenance.verification,
+        VerificationState::MachineSuggested,
+        "a low figure lowers nothing either"
+    );
 }
 
 /// The paths of the children one diff node reports as removed.
@@ -118,7 +271,7 @@ fn should_report_a_renumbered_paragraph_as_moved_when_the_bill_said_so() {
     let before = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
     let after = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
     let known = Redesignations::from_pairs(
-        resolve(&stated, &before)
+        resolve(&stated, &before, &after)
             .resolved
             .iter()
             .map(|r| (r.from_path.clone(), r.to_path.clone())),
@@ -166,7 +319,7 @@ fn should_pair_by_position_when_no_bill_redesignated_the_path() {
     let before = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
     let after = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
     let known = Redesignations::from_pairs(
-        resolve(&stated, &before)
+        resolve(&stated, &before, &after)
             .resolved
             .iter()
             .map(|r| (r.from_path.clone(), r.to_path.clone())),
@@ -416,6 +569,20 @@ const TITLES_NAMED: [&str; 7] = [
     "usc42.xml",
 ];
 
+/// One title at both release points, by its file name.
+fn release_pair(
+    file: &str,
+) -> (
+    words_to_data::document::DocumentNode,
+    words_to_data::document::DocumentNode,
+) {
+    let read = |date: &str| {
+        let path = format!("tests/test_data/usc/{date}/{file}");
+        parse(&path, date).unwrap_or_else(|e| panic!("{path} should parse: {e}"))
+    };
+    (read(BEFORE), read(AFTER))
+}
+
 /// The whole corpus's redesignations, resolved against every title they name.
 ///
 /// This is the number the issue asks for: how many of the statements in the
@@ -427,24 +594,43 @@ fn should_resolve_most_of_the_corpus_and_report_the_rest() {
     let per_work: Vec<RedesignationReport> = TITLES_NAMED
         .iter()
         .map(|file| {
-            let path = format!("tests/test_data/usc/{BEFORE}/{file}");
-            let root = parse(&path, BEFORE).unwrap_or_else(|e| panic!("{path} should parse: {e}"));
-            resolve(&stated, &root)
+            let (earlier, later) = release_pair(file);
+            resolve(&stated, &earlier, &later)
         })
         .collect();
     let report = RedesignationReport::across_works(per_work);
 
     // What the sweep found, printed so the numbers in the pull request can be
     // read straight off a run.
+    let with_figure = report
+        .resolved
+        .iter()
+        .filter(|r| r.corroboration.detail.len() == 2)
+        .count();
     println!(
-        "stated={} resolved={} unresolved={}",
+        "stated={} resolved={} unresolved={} with_figure={}",
         stated.len(),
         report.resolved.len(),
-        report.unresolved.len()
+        report.unresolved.len(),
+        with_figure
     );
     for unresolved in &report.unresolved {
         println!("  {}: {}", unresolved.reason, unresolved.text);
     }
+    for resolved in &report.resolved {
+        println!(
+            "  figure={:.4} {} -> {}",
+            resolved.corroboration.score, resolved.from_path, resolved.to_path
+        );
+    }
+
+    // Every link the corpus resolves carries a figure a receiving party can
+    // recompute. A link without one is a statement nobody can check.
+    assert_eq!(
+        with_figure,
+        report.resolved.len(),
+        "every resolved link carries a corroboration"
+    );
 
     // Every statement is accounted for: one that resolved nowhere carries a
     // reason. This is the assertion that keeps a silent parse from passing.
