@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::DocumentNode;
 use crate::link::{
-    Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
+    Corroboration, Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
     amendment_reference,
 };
 use crate::uslm::ElementType;
@@ -164,6 +164,14 @@ pub enum Reason {
     /// as it read before the bill. Usually an amendment that acts on an earlier
     /// amendment's result, a state no release point holds.
     ProvisionNotHeld(String),
+    /// The path the clause gives the provision holds nothing in the document as
+    /// it read after the bill. The bill said a provision would be there and the
+    /// Code shows none, so the reading names a place the law never took.
+    ///
+    /// Usually a clause that also re-levels — `redesignating paragraph (1) as
+    /// subparagraph (A) and indenting appropriately` — where the new level sits
+    /// under a container this build did not follow the bill into.
+    RenumberedProvisionNotHeld(String),
 }
 
 impl Reason {
@@ -200,6 +208,9 @@ impl fmt::Display for Reason {
             Self::ContainerNotHeld(path) => write!(f, "no provision at {path}"),
             Self::ContainerIsAmbiguous(path) => write!(f, "{path} names more than one provision"),
             Self::ProvisionNotHeld(path) => write!(f, "no provision at {path} before the bill"),
+            Self::RenumberedProvisionNotHeld(path) => {
+                write!(f, "no provision at {path} after the bill")
+            }
         }
     }
 }
@@ -258,7 +269,10 @@ impl Step {
 }
 
 /// A redesignation resolved to the two paths it moved a provision between.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// No `Eq`: the corroboration holds figures, and two figures are compared for
+/// nearness rather than for identity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Redesignation {
     /// Where the provision was before the bill.
     pub from_path: String,
@@ -268,6 +282,14 @@ pub struct Redesignation {
     pub amendment_id: String,
     /// The clause, as the bill wrote it.
     pub text: String,
+    /// How far the words at the two ends agree.
+    ///
+    /// A **record**, not an index: it is reproducible by a party holding the
+    /// same two release points, and it is stored so that party can dispute our
+    /// arithmetic instead of taking it on trust
+    /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`,
+    /// "a derivation stored so it can be disputed is a record").
+    pub corroboration: Corroboration,
 }
 
 /// A redesignation the text states and this build could not resolve.
@@ -294,7 +316,9 @@ impl fmt::Display for Unresolved {
 }
 
 /// What one sweep for redesignations found, and what it could not place.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// No `Eq`, because a [`Redesignation`] carries figures.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RedesignationReport {
     pub resolved: Vec<Redesignation>,
     pub unresolved: Vec<Unresolved>,
@@ -840,17 +864,25 @@ fn plain_dashes(text: &str) -> String {
     )
 }
 
-/// Turn stated redesignations into paths, against the document as it read
-/// before the bill.
+/// Turn stated redesignations into paths, against both of the documents the
+/// renumbering moved a provision between.
 ///
-/// `document` must be the earlier expression. A redesignation moves a provision
-/// *from* a path, and that path exists only before the move; checking it there
-/// is what keeps a misread clause from becoming a link that points at nothing.
-pub fn resolve(stated: &[StatedRedesignation], document: &DocumentNode) -> RedesignationReport {
-    let index = SectionIndex::of(document);
+/// `earlier` and `later` are the two expressions the bill sits between, in that
+/// order. A redesignation moves a provision *from* one path *to* another: the
+/// old path exists only in the earlier document and the new path only in the
+/// later one, so both are needed and neither alone can check a reading.
+///
+/// A statement whose paths this build cannot find in the documents is reported
+/// rather than linked (`docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
+pub fn resolve(
+    stated: &[StatedRedesignation],
+    earlier: &DocumentNode,
+    later: &DocumentNode,
+) -> RedesignationReport {
+    let index = SectionIndex::of(earlier);
     let mut report = RedesignationReport::default();
     for statement in stated {
-        resolve_one(statement, &index, &mut report);
+        resolve_one(statement, &index, later, &mut report);
     }
     report
 }
@@ -858,6 +890,7 @@ pub fn resolve(stated: &[StatedRedesignation], document: &DocumentNode) -> Redes
 fn resolve_one(
     statement: &StatedRedesignation,
     index: &SectionIndex,
+    later: &DocumentNode,
     report: &mut RedesignationReport,
 ) {
     let mut reject = |reason: Reason| {
@@ -902,22 +935,43 @@ fn resolve_one(
             container.data.path,
             renumbering.from.path_segment()
         );
-        // The provision must be where the bill says it was. A link built from a
-        // path no document holds cannot be checked by the party reading it.
-        let held = container
+        let to_path = format!("{}/{}", container.data.path, renumbering.to.path_segment());
+
+        // Both ends, and existence is only the floor.
+        //
+        // A path that no document holds cannot be checked by the party reading
+        // the link, so a missing path refuses the link. A path that *is* held
+        // proves very little on its own: `119-hr-1` shifts a whole run —
+        // "redesignating subparagraphs (H) through (U) as subparagraphs (I)
+        // through (V)" — so every path of the run is present on both dates and a
+        // reading one letter out passes both checks. What tells a correct
+        // reading from a misread is the words at the two ends, recorded below as
+        // `Corroboration` (`docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
+        let was = container
             .children
             .iter()
             .filter(|child| *child.data.path == *from_path)
-            .count();
-        match held {
-            0 => reject(Reason::ProvisionNotHeld(from_path)),
-            1 => report.resolved.push(Redesignation {
-                to_path: format!("{}/{}", container.data.path, renumbering.to.path_segment()),
+            .collect::<Vec<&DocumentNode>>();
+        let became = later.find_all(&to_path);
+        match (was.as_slice(), became.as_slice()) {
+            ([], _) => reject(Reason::ProvisionNotHeld(from_path)),
+            (_, []) => reject(Reason::RenumberedProvisionNotHeld(to_path)),
+            // One path naming two provisions cannot say which of them the
+            // clause renumbered, at either end
+            // (`docs/adr/0001-structural-paths-locate-not-identify.md`).
+            ([_, _, ..], _) => reject(Reason::ContainerIsAmbiguous(from_path)),
+            (_, [_, _, ..]) => reject(Reason::ContainerIsAmbiguous(to_path)),
+            // No arm on the figure. A bill often renumbers and rewrites at once,
+            // so words that differ are no evidence against a renumbering, and a
+            // gate here would delete the record of what the bill said. The figure
+            // is measured for a reviewer and never read as a refusal.
+            ([was], [became]) => report.resolved.push(Redesignation {
+                corroboration: corroborate(was, became),
                 from_path,
+                to_path,
                 amendment_id: statement.amendment_id.clone(),
                 text: statement.text.clone(),
             }),
-            _ => reject(Reason::ContainerIsAmbiguous(from_path)),
         }
     }
 }
@@ -970,6 +1024,86 @@ fn step_names(step: &Step, path: &str) -> bool {
     }
 }
 
+// --- The words at the two ends ---
+
+/// What [`corroborate`] computes, spelled out so a receiving party can get the
+/// same number from the same two release points.
+///
+/// `similar::TextDiff::ratio` is `2 * matching / total` over a word-level diff,
+/// which is Python's `difflib.SequenceMatcher.ratio`, so a party without this
+/// crate can still reproduce the figure. The crate is already a dependency of
+/// this repo and the whole diff is built on it, so no new arithmetic arrives
+/// with this measure.
+const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau, proviso, \
+                       content, continuation, joined by one space";
+
+/// How far the words at a redesignation's two ends agree.
+///
+/// `was` is the provision at the old path in the earlier expression and `became`
+/// the provision at the new path in the later one. That is the pair a correct
+/// reading makes match, so it is the pair measured.
+///
+/// Two figures, because either alone misleads. A provision whose own sentence is
+/// untouched can have had its whole subtree replaced, and a provision rewritten
+/// in the same breath as it was renumbered can still carry its children word for
+/// word. The subtree figure is the headline, because the subtree is the whole of
+/// what moved; `own_text` is beside it in `detail` so the headline can be
+/// checked rather than trusted.
+///
+/// A low figure is **not** a refusal. A bill often renumbers and rewrites at
+/// once, so different words are no evidence against a renumbering: the honest
+/// record is `MachineSuggested` plus a low figure, which says the bill said this
+/// and the words do not back it up
+/// (`docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
+fn corroborate(was: &DocumentNode, became: &DocumentNode) -> Corroboration {
+    let own = word_ratio(&own_words(was), &own_words(became));
+    let subtree = word_ratio(&subtree_words(was), &subtree_words(became));
+    Corroboration {
+        method: MEASURE.to_string(),
+        score: subtree,
+        detail: vec![
+            ("own_text".to_string(), own),
+            ("subtree".to_string(), subtree),
+        ],
+    }
+}
+
+/// The fraction of words two passages share, from 0 to 1.
+fn word_ratio(before: &str, after: &str) -> f32 {
+    similar::TextDiff::from_words(before, after).ratio()
+}
+
+/// One node's own five text fields, in the order [`MEASURE`] names.
+fn own_words(node: &DocumentNode) -> String {
+    [
+        node.data.heading.as_deref(),
+        node.data.chapeau.as_deref(),
+        node.data.proviso.as_deref(),
+        node.data.content.as_deref(),
+        node.data.continuation.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<&str>>()
+    .join(" ")
+}
+
+/// One node's own words and every descendant's, in document order.
+fn subtree_words(node: &DocumentNode) -> String {
+    let mut words = own_words(node);
+    for child in &node.children {
+        let below = subtree_words(child);
+        if below.is_empty() {
+            continue;
+        }
+        if !words.is_empty() {
+            words.push(' ');
+        }
+        words.push_str(&below);
+    }
+    words
+}
+
 // --- The link a redesignation becomes ---
 
 impl Redesignation {
@@ -986,6 +1120,11 @@ impl Redesignation {
     /// sit in different works is permitted by the model, because a section can
     /// be transferred between titles, and the corpus has none; nothing is built
     /// for it here.
+    ///
+    /// The provenance carries the [`Corroboration`] the resolver measured at the
+    /// two ends. It is evidence for a reviewer and it leaves the verification
+    /// state where it was: every redesignation link is `MachineSuggested`,
+    /// whatever the figure says.
     pub fn link(
         &self,
         work: &crate::dataset::WorkId,
@@ -994,7 +1133,7 @@ impl Redesignation {
         bill_id: &str,
     ) -> Link {
         let kind = LinkKind::new(LinkKind::REDESIGNATED_AS);
-        Link {
+        let link = Link {
             subject: Target::Change {
                 work: work.clone(),
                 path: self.from_path.clone(),
@@ -1035,6 +1174,10 @@ impl Redesignation {
                 }),
             }),
             kind,
-        }
+        };
+        // Attached through [`Link::with_corroboration`], which is deliberately
+        // unable to move the verification state. A well-scoring reading is still
+        // a reading.
+        link.with_corroboration(self.corroboration.clone())
     }
 }

@@ -240,9 +240,10 @@ impl<S: Storage> Dataset<S> {
 
     /// Read the redesignations a bill states and record each one as a link.
     ///
-    /// `from` must be the earlier expression: a redesignation moves a provision
-    /// *away* from a path, and that path only exists before the move, so the
-    /// earlier document is what a statement can be checked against.
+    /// `from` must be the earlier expression and `to` the later one: a
+    /// redesignation moves a provision *away* from one path and *to* another, and
+    /// each path exists on one side of the move only, so a statement is checked
+    /// against both documents.
     ///
     /// Takes statements the caller has already read, rather than the bill this
     /// dataset stores. Which provision a clause is about comes from where the
@@ -261,9 +262,9 @@ impl<S: Storage> Dataset<S> {
         from: &ExpressionId,
         to: &ExpressionId,
     ) -> Result<RedesignationReport, DatasetError> {
-        let (from_expression, _) =
+        let (from_expression, to_expression) =
             crate::storage::memory::require_same_work(&self.storage, from, to)?;
-        let report = redesignation::resolve(stated, &from_expression.root);
+        let report = redesignation::resolve(stated, &from_expression.root, &to_expression.root);
         for resolved in &report.resolved {
             self.storage
                 .add_link(resolved.link(&from.work, &from.at, &to.at, bill_id))?;
