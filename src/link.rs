@@ -478,8 +478,13 @@ pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
         grouped
             .entry(key)
             .or_insert_with(|| ChangeAnnotation {
+                // A legislature payload's operation came from a model, which
+                // answers in the drafter's words, so it is read with `from_prose`.
+                // A link stored before #156 holds `strike` or `strike_and_insert`,
+                // and that reads as the schema's word for the same act rather than
+                // falling back to `Amend`, which would change the fact.
                 operation: field("operation")
-                    .and_then(|op| op.parse().ok())
+                    .and_then(|op| crate::legislature::AmendingAction::from_prose(&op).ok())
                     .unwrap_or(crate::legislature::AmendingAction::Amend),
                 source_bill: BillReference {
                     bill_id: field("bill_id").unwrap_or_default(),

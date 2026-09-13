@@ -239,7 +239,7 @@ fn annotated_fixture() -> &'static str {
             .expect("a real public law carries amendments")
             .clone();
         let annotation = ChangeAnnotation {
-            operation: AmendingAction::Strike,
+            operation: AmendingAction::Delete,
             source_bill: BillReference {
                 bill_id: "119-hr-1".to_string(),
                 amendment_id,

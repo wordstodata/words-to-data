@@ -77,6 +77,18 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
+///
+/// #156 replaced the amending action vocabulary with the publisher's own and
+/// stayed at 9. No column changes, and no stored value changes: every action a
+/// bill parse ever wrote keeps the name it was written under, and the two names
+/// this build no longer writes — `strike` and `strike_and_insert` — are read as
+/// the publisher's word for the same act, so a dataset built before the change
+/// reads and means what it meant. A version that went up would refuse a file
+/// this build can read perfectly, which
+/// `docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md` names
+/// as overstating the problem. The issue still carries `breaking-changes`,
+/// because a serialized type changed shape and the JSON `words_to_data inspect`
+/// gives an agent now says `delete` where it said `strike`.
 pub const SCHEMA_VERSION: i32 = 9;
 
 /// Reading the documents a dataset holds.
