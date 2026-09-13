@@ -6,6 +6,7 @@
 
 use std::process::Command;
 
+use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
 };
@@ -17,6 +18,7 @@ use words_to_data::uslm::bill_redesignation::redesignations_stated_in_file;
 use words_to_data::uslm::parser::parse;
 
 /// The committed public law, which holds every redesignation in the corpus.
+const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
 const BILL: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 const BILL_ID: &str = "119-hr-1";
 
@@ -199,12 +201,10 @@ fn find_section(diff: &TreeDiff, segment: &str) -> String {
 
 /// Title 26 at both release points, in a dataset, with `119-hr-1`'s
 /// redesignations recorded as links.
-fn dataset_with_redesignations() -> (
-    Dataset<InMemoryStorage>,
-    ExpressionId,
-    ExpressionId,
-    RedesignationReport,
-) {
+/// Title 26 at both release points, and the pair of expressions they name.
+///
+/// The law as it read before and after `119-hr-1`, with no links recorded yet.
+fn dataset_holding_title_26() -> (Dataset<InMemoryStorage>, ExpressionId, ExpressionId) {
     let work = WorkId::new("uscode/title_26");
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (path, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
@@ -220,6 +220,36 @@ fn dataset_with_redesignations() -> (
     }
     let from = ExpressionId::new(work.clone(), BEFORE);
     let to = ExpressionId::new(work, AFTER);
+    (dataset, from, to)
+}
+
+/// The bill as the Congress client would hand it over, read from the committed
+/// cache.
+///
+/// The same four files a download leaves behind, so a test exercises the path a
+/// build really takes rather than a shape invented for the test.
+fn committed_bill_download() -> BillDownload {
+    let read = |name: &str| {
+        std::fs::read_to_string(format!("{BILL_DIR}/{name}"))
+            .unwrap_or_else(|e| panic!("{name} should be committed: {e}"))
+    };
+    BillDownload {
+        bill_id: BILL_ID.to_string(),
+        bill_xml: read("public_law.xml"),
+        bill_metadata_json: read("metadata.json"),
+        cosponsors_json: read("cosponsors.json"),
+        votes_json: None,
+        member_jsons: std::collections::HashMap::new(),
+    }
+}
+
+fn dataset_with_redesignations() -> (
+    Dataset<InMemoryStorage>,
+    ExpressionId,
+    ExpressionId,
+    RedesignationReport,
+) {
+    let (mut dataset, from, to) = dataset_holding_title_26();
 
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
     let report = dataset
@@ -459,5 +489,36 @@ fn should_report_every_redesignation_the_corpus_states() {
             .iter()
             .all(|s| s.unreadable.is_some() || !s.renumberings.is_empty()),
         "a statement says what it found or why it found nothing"
+    );
+}
+
+#[test]
+fn should_record_the_redesignations_a_bill_states_when_the_bill_is_loaded() {
+    // #150. Loading the bill is what records them, so no caller can build a
+    // dataset that silently holds none. The maintainer rebuilt the corpus after
+    // #93 merged and got 889 `legislature.amended_by` links and zero
+    // redesignations, because the only sign of the gap was an absence.
+    let (mut dataset, _, _) = dataset_holding_title_26();
+
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the bill should load");
+
+    let links = dataset
+        .links_for_path(&format!("{SUBSECTION_898_C}/paragraph_3"))
+        .expect("links should read");
+    let redesignation = links
+        .iter()
+        .find(|link| link.kind.0 == LinkKind::REDESIGNATED_AS)
+        .expect("loading the bill records that § 898(c)(3) became (2)");
+
+    assert_eq!(
+        redesignation.object,
+        Target::Change {
+            work: WorkId::new("uscode/title_26"),
+            path: format!("{SUBSECTION_898_C}/paragraph_2"),
+            from_date: BEFORE.to_string(),
+            to_date: AFTER.to_string(),
+        }
     );
 }
