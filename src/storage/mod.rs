@@ -12,8 +12,11 @@
 //!   only in datasets that hold legislative material. A dataset of court
 //!   opinions has none of them, and must not have to pretend otherwise.
 //!
-//! `Storage` is the full set that both first-party backends implement today. A
-//! backend that holds only documents implements [`DocumentReader`] alone.
+//! [`Storage`] is the core set, and it requires no extension: a backend that
+//! holds only documents and links implements it in full without naming a bill
+//! (#127). Both first-party backends add the legislature on top of it, and code
+//! that needs legislature facts asks for `S: Storage + LegislatureReader`. A
+//! backend that only reads documents implements [`DocumentReader`] alone.
 //!
 //! The unit a backend stores is an **expression**: one work as it read on one
 //! date, with its own tree. There is no table of release dates above it, so
@@ -34,8 +37,8 @@ use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
+use crate::document::DocumentNode;
 use crate::link::Link;
-use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
 /// The dataset shape this build reads and writes.
@@ -44,6 +47,19 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
+/// 9 makes a stored node class-neutral. Its type is an open namespaced string —
+/// `uscode.section`, `judicial.opinion` — in place of a closed USLM enum and a
+/// closed `DocumentType`, and the facts only one document class understands move
+/// into a payload the core stores and never reads
+/// (`docs/adr/0006-a-document-node-is-class-neutral.md`, #129). Every field of
+/// every node changes shape, in both forms, so a file at 8 cannot be read.
+/// 8 gives a container that carries no number a readable path segment, from the
+/// publisher's `identifier` or heading in place of an XML uuid, and holds the
+/// Federal Rules of Evidence, which `<article>` grouped under a name the parser
+/// did not know (#115, #122). No column changes. The number still goes up: a
+/// path is what `element_index` is keyed on and what `Target::Provision` names,
+/// so a dataset built with uuid paths, read by a build that generates readable
+/// ones, would find nothing and say nothing.
 /// 7 dates a member's party: the whole party history is kept, in place of the
 /// one undated field that reported a 2025 vote through a 2026 affiliation
 /// (#105).
@@ -61,7 +77,19 @@ use crate::uslm::bill_parser::Bill;
 /// bumping this would have rejected valid JSON datasets to fix a SQLite table.
 /// That case is caught where it happens, when the database is opened, rather
 /// than here. A change that alters both forms still belongs to this number.
-pub const SCHEMA_VERSION: i32 = 7;
+///
+/// #156 replaced the amending action vocabulary with the publisher's own and
+/// stayed at 9. No column changes, and no stored value changes: every action a
+/// bill parse ever wrote keeps the name it was written under, and the two names
+/// this build no longer writes — `strike` and `strike_and_insert` — are read as
+/// the publisher's word for the same act, so a dataset built before the change
+/// reads and means what it meant. A version that went up would refuse a file
+/// this build can read perfectly, which
+/// `docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md` names
+/// as overstating the problem. The issue still carries `breaking-changes`,
+/// because a serialized type changed shape and the JSON `words_to_data inspect`
+/// gives an agent now says `delete` where it said `strike`.
+pub const SCHEMA_VERSION: i32 = 9;
 
 /// Reading the documents a dataset holds.
 ///
@@ -117,18 +145,18 @@ pub trait DocumentReader {
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError>;
 
     /// Find an element by path, in every expression that holds it.
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError>;
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError>;
 
     /// Whether any expression holds at least one provision at `path`.
     ///
     /// A path locates provisions, it does not identify one
     /// (`docs/adr/0001-structural-paths-locate-not-identify.md`), so the
     /// question is "at least one", never "exactly one". Ask this rather than
-    /// [`find_element`] wherever the element itself is not wanted: a backend
+    /// [`find_nodes`] wherever the element itself is not wanted: a backend
     /// can answer it from an index, without reading a document.
     ///
-    /// [`find_element`]: DocumentReader::find_element
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError>;
+    /// [`find_nodes`]: DocumentReader::find_nodes
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError>;
 }
 
 /// Reading the links a dataset holds.
@@ -217,6 +245,25 @@ pub trait LinkReader {
     /// Every expression pair that carries annotations.
     fn annotation_pairs(&self) -> Result<Vec<crate::dataset::ExpressionPair>, DatasetError> {
         self.link_pairs()
+    }
+
+    /// The renumberings one provision ran through, oldest first.
+    ///
+    /// This is how "is this the same provision as last year" is answered: by
+    /// walking the `legislature.redesignated_as` links, forwards and backwards.
+    /// No identity is minted and nothing is stored, so a bill added later adds an
+    /// edge instead of rewriting an identity
+    /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`,
+    /// #93).
+    ///
+    /// Answered from `links_by_kind`, which the backends index. A dataset holds
+    /// tens of redesignations rather than millions, so the walk happens in
+    /// memory; the backward direction would otherwise need an index on the
+    /// object's path, and adding a column for a query this cheap would change the
+    /// stored shape for nothing.
+    fn provision_history(&self, path: &str) -> Result<crate::link::ProvisionHistory, DatasetError> {
+        let links = self.links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
+        Ok(crate::link::history_from_links(path, &links))
     }
 }
 
@@ -350,20 +397,26 @@ pub trait LegislatureWriter {
     fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError>;
 }
 
-/// The full set of capabilities, which both first-party backends provide.
+/// Everything a backend must answer, whatever document class it holds.
 ///
-/// Code that needs everything binds to this. Code that needs only documents
-/// should bind to [`DocumentReader`] instead, so it keeps working against a
-/// dataset that carries no legislative material.
+/// The core only: documents, links, and evidence, read and written. No
+/// extension is required here. A backend of court opinions implements this and
+/// writes nothing about bills, which is what `CONTEXT.md` and
+/// `docs/adr/0002-links-live-in-the-core.md` already claim of the data model
+/// (#127).
+///
+/// Code that needs legislature facts asks for them, and lets the compiler hold
+/// it: `S: Storage + LegislatureReader`. That bound is deliberately not given a
+/// cheaper form. Default method bodies returning empty were rejected, because
+/// then "this dataset holds no bills" and "bills are not a concept here" arrive
+/// as the same answer, and [`Scope`], [`Coverage::Gap`] and [`Exclusion`] exist
+/// to keep those apart.
+///
+/// [`Scope`]: crate::dataset::Scope
+/// [`Coverage::Gap`]: crate::dataset::Coverage::Gap
+/// [`Exclusion`]: crate::dataset::Exclusion
 pub trait Storage:
-    DocumentReader
-    + LinkReader
-    + EvidenceReader
-    + LegislatureReader
-    + DocumentWriter
-    + LinkWriter
-    + EvidenceWriter
-    + LegislatureWriter
+    DocumentReader + LinkReader + EvidenceReader + DocumentWriter + LinkWriter + EvidenceWriter
 {
     /// The legislature extension, when this dataset actually carries one.
     ///

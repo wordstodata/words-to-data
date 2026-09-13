@@ -1,15 +1,20 @@
 // Library exports for testing and external use
 
 pub mod annotation;
+pub mod cache;
+pub mod citation;
 pub mod compact;
 pub mod congress;
 pub mod constants;
+pub mod courtlistener;
 pub mod dataset;
 pub mod date;
 pub mod diff;
+pub mod document;
 pub mod inspect;
 pub mod intern;
 pub mod io;
+pub mod judicial;
 pub mod legislature;
 pub mod link;
 pub mod llm;

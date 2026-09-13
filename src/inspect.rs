@@ -17,8 +17,8 @@ use crate::annotation::ChangeAnnotation;
 use crate::congress::{Party, PartyOnDate, VotePosition};
 use crate::dataset::{DatasetError, ExpressionId, Scope, SearchResult, WorkId};
 use crate::diff::TreeDiff;
-use crate::storage::Storage;
-use crate::uslm::USLMElement;
+use crate::document::DocumentNode;
+use crate::storage::{LegislatureReader, Storage};
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
 #[derive(Debug, Clone, Serialize)]
@@ -119,7 +119,9 @@ pub struct BillListing {
 /// Without this a bill id could only be learned from outside the tool:
 /// `show-bill` demands one, `info` reports a count, and annotations carry ids
 /// but a dataset has none until `match-amendments` has run (#83).
-pub fn bills<S: Storage>(dataset: &S) -> Result<Vec<BillListing>, DatasetError> {
+pub fn bills<S: Storage + LegislatureReader>(
+    dataset: &S,
+) -> Result<Vec<BillListing>, DatasetError> {
     let mut ids = dataset.list_bill_ids()?;
     ids.sort();
 
@@ -142,7 +144,7 @@ pub fn bills<S: Storage>(dataset: &S) -> Result<Vec<BillListing>, DatasetError> 
 }
 
 /// Count every element in a tree, including the root.
-fn count_elements(element: &USLMElement) -> usize {
+fn count_elements(element: &DocumentNode) -> usize {
     1 + element.children.iter().map(count_elements).sum::<usize>()
 }
 
@@ -163,7 +165,7 @@ pub fn expressions<S: Storage>(
         for info in dataset.expressions(&work)? {
             let element_count = dataset
                 .get_expression(&info.id)?
-                .map(|e| count_elements(&e.element))
+                .map(|e| count_elements(&e.root))
                 .unwrap_or(0);
             summaries.push(ExpressionSummary {
                 id: info.id.to_string(),
@@ -253,7 +255,7 @@ pub struct PathReport {
 }
 
 /// Serde string form of a text content field (e.g. `"heading"`).
-fn field_str(field: &crate::uslm::TextContentField) -> String {
+fn field_str(field: &crate::document::TextContentField) -> String {
     serde_json::to_value(field)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
@@ -277,7 +279,7 @@ pub fn path_report<S: Storage>(
     let provisions = match pair {
         Some((from, to)) => {
             match (dataset.get_expression(from)?, dataset.get_expression(to)?) {
-                (Some(from), Some(to)) => pair_provisions(&from.element, &to.element, path),
+                (Some(from), Some(to)) => pair_provisions(&from.root, &to.root, path),
                 // An expression the dataset does not hold is not an error here:
                 // `present_in` still answers where the path lives.
                 _ => Vec::new(),
@@ -299,7 +301,7 @@ pub fn path_report<S: Storage>(
 /// Which expressions hold the path, each named once with a provision count.
 fn presence_counts<S: Storage>(dataset: &S, path: &str) -> Result<Vec<PathPresence>, DatasetError> {
     let mut ids: Vec<String> = dataset
-        .find_element(path)?
+        .find_nodes(path)?
         .into_iter()
         .map(|(id, _)| id.to_string())
         .collect();
@@ -319,7 +321,7 @@ fn presence_counts<S: Storage>(dataset: &S, path: &str) -> Result<Vec<PathPresen
 }
 
 /// The children of `parent` that sit at `path`, in document order.
-fn kin_at<'a>(parent: &'a USLMElement, path: &str) -> Vec<&'a USLMElement> {
+fn kin_at<'a>(parent: &'a DocumentNode, path: &str) -> Vec<&'a DocumentNode> {
     parent
         .children
         .iter()
@@ -328,8 +330,8 @@ fn kin_at<'a>(parent: &'a USLMElement, path: &str) -> Vec<&'a USLMElement> {
 }
 
 /// The field-level changes between two provisions that share a path.
-fn field_changes(from: &USLMElement, to: &USLMElement) -> Vec<PathFieldChange> {
-    TreeDiff::from_elements(from, to)
+fn field_changes(from: &DocumentNode, to: &DocumentNode) -> Vec<PathFieldChange> {
+    TreeDiff::from_nodes(from, to)
         .changes
         .iter()
         .map(|c| PathFieldChange {
@@ -347,8 +349,8 @@ fn field_changes(from: &USLMElement, to: &USLMElement) -> Vec<PathFieldChange> {
 /// tree instead cannot answer this: it keeps only the children that record
 /// something, so an unchanged provision leaves no node at all.
 fn pair_provisions(
-    from_root: &USLMElement,
-    to_root: &USLMElement,
+    from_root: &DocumentNode,
+    to_root: &DocumentNode,
     path: &str,
 ) -> Vec<ProvisionAtPath> {
     let Some((parent_path, _)) = path.rsplit_once('/') else {
@@ -422,8 +424,8 @@ fn pair_provisions(
 /// The expression root as a single provision. Nothing inside the tree can add
 /// or remove it, so it is in both expressions, in one, or in neither.
 fn root_provision(
-    from_root: &USLMElement,
-    to_root: &USLMElement,
+    from_root: &DocumentNode,
+    to_root: &DocumentNode,
     path: &str,
 ) -> Vec<ProvisionAtPath> {
     match (*from_root.data.path == *path, *to_root.data.path == *path) {
@@ -467,7 +469,9 @@ pub struct ValidationReport {
 /// - every annotation's expression pair actually exists,
 /// - every annotation's `amendment_id` resolves to a real bill amendment,
 /// - every annotation path names an element present in some expression.
-pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetError> {
+pub fn validate<S: Storage + LegislatureReader>(
+    dataset: &S,
+) -> Result<ValidationReport, DatasetError> {
     let mut issues = Vec::new();
 
     // 1. Dates strictly ascending and unique *within each work*. Across works
@@ -516,7 +520,7 @@ pub fn validate<S: Storage>(dataset: &S) -> Result<ValidationReport, DatasetErro
             for path in &ann.paths {
                 // Only whether the path is there, not what sits at it: asking
                 // for the element loads the whole document, once per path.
-                if !dataset.has_element(path)? {
+                if !dataset.has_node(path)? {
                     issues.push(format!(
                         "annotation ({from} -> {to}) references path not found in any expression: {path}"
                     ));
@@ -590,7 +594,7 @@ pub struct AnnotationSummary {
     pub from_date: String,
     /// Newer date of the pair.
     pub to_date: String,
-    /// Legal operation, serde string form (e.g. `"strike"`).
+    /// Legal operation, serde string form (e.g. `"delete"`).
     pub operation: String,
     pub bill_id: String,
     pub amendment_id: String,
@@ -675,9 +679,24 @@ pub struct DiffSummary {
     pub added_paths: Vec<String>,
     /// Paths of elements removed from the older version.
     pub removed_paths: Vec<String>,
+    /// Elements a bill renumbered: where each was, and where it went.
+    ///
+    /// Empty unless the dataset holds redesignation links for the pair. Reported
+    /// beside the other three rather than folded into them, because a move is
+    /// none of them: reading it as a removal plus an addition is the false
+    /// statement the links exist to remove (#93).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved_paths: Vec<MovedPath>,
 }
 
-/// Recursively collect changed/added/removed paths from a diff tree.
+/// One element that changed its number, for a report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MovedPath {
+    pub from: String,
+    pub to: String,
+}
+
+/// Recursively collect changed/added/removed/moved paths from a diff tree.
 fn collect_diff_paths(diff: &TreeDiff, summary: &mut DiffSummary) {
     if !diff.changes.is_empty() {
         summary.changed_paths.push(diff.root_path.clone());
@@ -688,6 +707,12 @@ fn collect_diff_paths(diff: &TreeDiff, summary: &mut DiffSummary) {
     summary
         .removed_paths
         .extend(diff.removed.iter().map(|e| e.path.to_string()));
+    summary
+        .moved_paths
+        .extend(diff.moved.iter().map(|m| MovedPath {
+            from: m.from.path.to_string(),
+            to: m.to.path.to_string(),
+        }));
     for child in &diff.child_diffs {
         collect_diff_paths(child, summary);
     }
@@ -709,6 +734,7 @@ pub fn diff<S: Storage>(
         changed_paths: Vec::new(),
         added_paths: Vec::new(),
         removed_paths: Vec::new(),
+        moved_paths: Vec::new(),
     };
     collect_diff_paths(&tree, &mut summary);
     Ok(summary)
@@ -813,14 +839,14 @@ pub struct BillSummary {
 #[derive(Debug, Clone, Serialize)]
 pub struct AmendmentSummary {
     pub id: String,
-    /// Amending actions (e.g. `strike`, `insert`) in serde string form.
+    /// Amending actions (e.g. `delete`, `insert`) in serde string form.
     pub action_types: Vec<String>,
     pub amending_text: String,
     /// How many word-level changes have been extracted for this amendment.
     pub change_count: usize,
 }
 
-/// Serde string form of an amending action (e.g. `"strikeandinsert"`).
+/// Serde string form of an amending action (e.g. `"repeal_and_reserve"`).
 fn action_str(action: &crate::legislature::AmendingAction) -> String {
     serde_json::to_value(action)
         .ok()
@@ -829,7 +855,7 @@ fn action_str(action: &crate::legislature::AmendingAction) -> String {
 }
 
 /// Summarize a single bill's amendments, or `None` if the bill isn't present.
-pub fn show_bill<S: Storage>(
+pub fn show_bill<S: Storage + LegislatureReader>(
     dataset: &S,
     bill_id: &str,
 ) -> Result<Option<BillSummary>, DatasetError> {
@@ -897,7 +923,7 @@ pub struct RollCallTally {
 }
 
 /// Tally every roll call on one bill, or `None` if the bill has no votes here.
-pub fn votes<S: Storage>(
+pub fn votes<S: Storage + LegislatureReader>(
     dataset: &S,
     bill_id: &str,
 ) -> Result<Option<Vec<RollCallTally>>, DatasetError> {
@@ -958,7 +984,12 @@ pub fn votes<S: Storage>(
 }
 
 /// Summarize a dataset's metadata and contents.
-pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
+///
+/// [`LegislatureReader`] is required because [`DatasetInfo`] reports the bill,
+/// member, sponsor and vote counts as plain numbers, and a plain number cannot
+/// say "not a concept here". Reporting a documents-only dataset needs those
+/// fields to carry the difference, which is a wider change than #127 made.
+pub fn info<S: Storage + LegislatureReader>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
     let meta = dataset.metadata();
     let scope = Scope::derive(dataset)?;
     // Counted, never loaded: a count query costs the same on a 2 GB dataset as

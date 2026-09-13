@@ -44,40 +44,77 @@ _Avoid_: Document, section
 One work as it read on one date. A version of the law, not a version of a file.
 _Avoid_: Version snapshot, revision, edition
 
-**Provision**:
-A unit of law that stays the same thing across versions, even when its text changes or it moves to a new address. Its identity does not depend on its location.
+**Document node**:
+One piece of a document, with its children, as a Dataset stores it. It carries a Structural path, a Node type, a date, up to five text fields, and where its text came from. It carries nothing that belongs to one class of document: those facts sit beside it in a Class payload. An Expression holds the root of a tree of them.
 
-**The identity this definition needs does not exist yet.** Nothing in the code mints or carries one. A provision is reached by a Structural path plus a position within one Expression, which locates it and does not identify it, so "is this the same provision as last year" — the question a researcher actually asks — has no answer today. `docs/adr/0001-structural-paths-locate-not-identify.md` records the decision to mint an identity, and #93 is the work. Read this entry as what a Provision is meant to be, and Structural path as what the code has.
+A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: a court opinion is stored as a single node, and its structure is in its text.
+_Avoid_: Element, USLM element
+
+**Node type**:
+What kind of thing a Document node is, as an open namespaced string: `uscode.section`, `bill.section`, `judicial.opinion`. The namespace names the document class and the local half names the kind. It is open, so another party adds a document class without our permission, and a type this build has never seen is carried rather than dropped. The core reads the type — two nodes of different types are not one provision across two dates — and owns none of the vocabulary.
+
+Three namespaces exist: `uscode`, `bill` and `judicial`. A Bill is `bill.*` and never `uscode.*`, because a bill is not part of the US Code. The root node of each class says what the whole document is: `uscode.document` for a US Code file, `bill.public_law` for a Bill that has been enacted, `judicial.opinion` for a court opinion. The two are not named alike on purpose — for the US Code, title-versus-appendix is already in the path and in the child's own type, while for a Bill nothing else says whether it is enacted, and a reader needs that in order to report it.
+
+A segment of a Structural path uses almost always the same word, and the two document roots are the exception: a path segment is frozen, because moving one renames a Provision, while a type is an interface a person reads.
+_Avoid_: Element type, document type, tag
+
+**Class payload**:
+The facts about a Document node that only its class understands: for the US Code an element's number and the publisher's identifier for it, for a court opinion the case name, the author and the reporters' citations. The core stores it, hands it back unchanged, and never reads it. Nothing a reader needs in order to report a node may live here, which is why how a node's text was obtained is recorded as Provenance instead. The same thing a Kind payload is for a Link, one level down; see Kind payload.
+_Avoid_: Metadata, extra, blob
+
+**Provision**:
+A unit of law that stays the same thing across versions, even when its text changes or it moves to a new address. Its identity does not depend on its location. A Document node is how one is stored; a Provision is what one is.
+
+**A provision has no identity of its own, and will not be given one.** Nothing in the code mints or carries one. A provision is reached by a Structural path plus a position within one Expression, which locates it and does not identify it.
+
+"Is this the same provision as last year" is answered another way: by walking Redesignations. A provision has nothing stable to hash — its text changes, which is the point of tracking it, and its location changes, which is why identity was wanted — so #93 recorded the movement as an edge instead of minting an id. `docs/adr/0001-structural-paths-locate-not-identify.md` records the identity it recommended and the note that replaced it.
+
+Read this entry as what a Provision is; read Structural path for how one is located, and Redesignation, under Statements about the law, for how two locations are known to be one provision.
 _Avoid_: Section, node, element
 
 **Structural path**:
-The address of an element, derived from the hierarchy that the parser found. It locates a Provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both. A path and a position together locate one provision within one Expression. They still do not identify it.
+The address of a Document node, derived from the hierarchy that the parser found. It locates a Provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both. A path and a position together locate one provision within one Expression. They still do not identify it.
 
-Independence from the source document holds only where an element carries a number. Where it carries none, the segment falls back to the one identifier the source does supply — the element's XML id — and the path becomes something no person can read or type:
+A segment is `<kind>_<number>`, and the kind is almost always the local half of the node's Node type, so `uscode.section` and `section_174` cannot disagree about what an element is called. The first segment names the document class: `uscode/title_26`, `judicial/opinion_2812209`.
+
+**A path segment never changes, even where the Node type beside it does.** A Bill's root sits at `publiclawdocument_119-21` while its type reads `bill.public_law`: the type was renamed for a reader, and the path was not, because a root path is a Work id that a Link can point at.
+
+Independence from the source document holds only where an element carries a number. A container that groups a body of law usually carries none: the Federal Rules sit in a `courtRules` element with no number of its own. Such a container takes its segment from the publisher instead — first from the `identifier` attribute, reduced to its last segment, and where there is no identifier, from the heading, which is the only name the publisher gives it:
 
 ```
-uscode/appendix_28a/level_id2e47c0a6-b17c-11ef-b971-e82c9e4f66ce/title_I/level_1
+uscode/appendix_28a/level_Civil/title_I/level_1
+uscode/appendix_11a/level_federal-rules-of-bankruptcy-procedure
 ```
 
-**The exception is common, not marginal.** The regenerated dataset holds **14,484** such paths: 12,748 in the four US Code appendices, and **1,736 across nine ordinary titles**, including 792 in title 29 and 286 in title 38. So a reader naming a provision in labour or veterans' law may have to quote a uuid to do it. #115 is the work, and #122 will add more of them.
+**This is common, not marginal.** 118 containers per release point carry no identifier and take their segment from a heading, and a dataset built from the two committed release points holds **6,962** paths at or below one, across thirteen works. Per release point: 2,363 in the title 11 appendix, 240 in the title 28 appendix, 396 in title 29, 143 in title 38, 132 in title 25, 99 in title 19 and 77 in title 12. Those segments are readable, but they are only as stable as the publisher's wording. Where the publisher rewords a heading, every path below it moves.
 _Avoid_: Path, breadcrumb
 
 **USLM ID**:
-The official identifier of an element, as published in the source document. Many legal documents supply none, which is why a Structural path is derived rather than read.
+The official identifier of a Document node, as published in the source document. Many legal documents supply none, which is why a Structural path is derived rather than read. It belongs to one publisher's schema, so it sits in the `uscode` Class payload rather than in a core field.
 _Avoid_: ID, identifier, reference
 
 **Diff**:
-The set of differences between two Expressions of one Work, in the shape of the document hierarchy.
+The set of differences between two Expressions of one Work, in the shape of the document hierarchy. A child is reported as changed, added, removed, or **moved**. Moved is what a Redesignation buys: where one is known the diff pairs across the renumbering, and where none is known it pairs by position, which is all two documents say on their own.
 _Avoid_: Delta, comparison, change set
+
+**Uncovered period**:
+A stretch of time in which a Dataset holds no Expression of a Work, so it can say nothing about what changed in it. It is the Scope in time rather than in space: "out of scope" for a period instead of for a Structural path.
+
+It is the answer a question spanning dates needs. A dataset holding title 26 at two release points a fortnight apart can prove what section 174 did in that fortnight and nothing else, and a case construing the section in 1974 sits fifty-one uncovered years before the earlier of them. Reporting only the change that is visible would be true and misleading.
+
+**The Scope cannot express this yet.** A Coverage is asked about a path, and answers `InScope` for a work it holds at any date at all, which is right and useless here. So the caller that needed the answer carries its own (`judicial::reliance`, #53), which means a second caller will word it differently. `docs/research/a-court-opinion-in-the-core.md` records why this is the more dangerous half of the mistake the Scope exists to prevent: nobody misreads "we do not hold title 42", and everybody misreads "this provision changed once".
+_Avoid_: Missing dates, blind spot, unknown
 
 ## Bills
 
 **Bill**:
 A legislative instrument that changes existing law. It carries the instructions that do the changing, and once enacted it is published as a public law.
+
+A Bill is a document, so it is a Work with an Expression, like a title of the Code or a court opinion. Its structure carries meaning that its words alone do not: an Amendment nested under "in subsection (a)--" is about a different provision from the same words outside it. **This is not true of the Dataset yet.** A public law parses to one element today, and a Bill is held as a set of Amendments with no structure at all, which is why reading a renumbering needs the source file a second time. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records the decision and #114 the defect.
 _Avoid_: Act, statute, law
 
 **Amendment**:
-An instruction in a Bill that tells a reader how to change existing law.
+An instruction in a Bill that tells a reader how to change existing law. It is identified by what it says, and located by where it sits in the Bill: the hash survives a rebuild, and the position moves whenever a publisher renumbers a title (`docs/adr/0001-structural-paths-locate-not-identify.md`).
 _Avoid_: Edit, modification, revision
 
 ## The legislature
@@ -120,6 +157,8 @@ Every statement a machine made carries all of this, and all of it is core rather
 
 **Provenance**:
 The record of where one statement came from: its source, the method that produced it, when it was made, its Evidence, its Verification state, and the two numbers below.
+
+A Document node carries one too, where it has something to say. There the method records **how the text was obtained** — read from the publisher's markup, from a text layer, or by a machine reading a scan. That is core rather than a Class payload fact, because a reader deciding whether to rely on a passage must not have to open a payload to learn that nobody has checked the words against the page. A node carries provenance only where it differs from its neighbours': every node of a US Code release point came from one publisher by one method, and recording that on each would state one fact a million times over.
 _Avoid_: Lineage, history, audit
 
 **Verification state**:
@@ -158,8 +197,44 @@ _Avoid_: Extra, metadata, blob
 The Link of kind `legislature.amended_by`. It connects one change in a Diff to the Amendment that caused it.
 _Avoid_: Match, mapping, label
 
-**Extension**:
-A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (court, opinion type). The core data model carries no extension concept: a Link's kind is an open namespaced string, and the facts only one kind understands sit in a Kind payload the core stores and never reads.
+**Citation**:
+The Link of kind `judicial.cites`. It says a court opinion cited a Provision: the subject is the opinion, the object is the Structural path the citation resolves to, and the text the rule matched travels with it as Evidence. It is always machine suggested — a pattern matched some words and no person has looked at it.
 
-**The storage layer does not yet hold that line.** The core `Storage` trait requires `LegislatureReader`, whose methods have no default bodies, so every backend must implement bills, sponsors, members and votes — including one that will only ever hold court opinions. The separation is real in the data model and incomplete in the traits beneath it. #127 is the work, and #53 will meet it first.
+It is the statement this project exists to make and nobody publishes. CourtListener finds a U.S. Code citation with eyecite, fails to resolve it, and throws it away; what survives is display markup with no identifier. So the extractor is ours (#52).
+
+The object stops at the section even where the opinion named a subsection, because a citation cannot be trusted at that depth — the published example `981(a)(l)(C)` has a lower-case L where the provision has a paragraph (1) — so the subsection is recorded as written rather than resolved.
+
+Where the Dataset holds the citing opinion, the subject names the node, so a reader can follow the link to the words that made the citation. Where it does not, the subject says plainly that the citing document is outside the file and cannot be checked against it.
+_Avoid_: Reference, cite, mention
+
+**Redesignation**:
+The Link of kind `legislature.redesignated_as`. It says a Provision was renumbered: the subject is the provision as it was, the object is the provision as it became, and each end names the change — a Work, a Structural path, and the two dates — so the edge says *when* the renumbering happened. A path is reused, so an edge with no dates would claim a renumbering held for all time.
+
+A Bill states it in words: "redesignating paragraph (3) as paragraph (2)". Nothing in the US Code records it, which is why a Diff that pairs by position alone reads a renumbering as a rewrite of whichever provision now holds the number, plus the disappearance of the one that moved.
+
+A Redesignation is read from a Bill by either of two readers, and both hand their reading to one resolver that makes the paths. A path a reader proposes must be there: the old one in the earlier Expression, the new one in the later. The words at those two ends are compared, and the measurement travels with the link as Corroboration — which is the stronger half of the check, because a Bill that shifts a whole run of provisions by one letter leaves every path on both sides in place and only the words say which reading is right.
+
+A redesignation a Bill states and no reader can resolve to two paths is an Unplaced statement. It is **recorded**, never dropped. The tool's silence must not read as the corpus's silence.
+
+A Diff reports a Redesignation's effect as **moved**, and that is the one place the word is ours to use: nothing relocated, the number changed. The publisher has no `move` action to confuse it with — its schema defines twelve amending actions and that is not one of them (`.out-of-scope/amending-action-move.md`). A provision that really is relocated is a different thing, and no reader reads one yet.
+_Avoid_: Rename, alias, transfer
+
+**Provision history**:
+The Redesignations one Provision ran through, walked out of the links, oldest first. A projection: nothing stores it, so a Bill added later adds an edge rather than rewriting an identity, and nothing that already points somewhere breaks (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`). An empty history is an answer — the provision has always been where it is — and not a failure.
+_Avoid_: Chain, lineage, ancestry
+
+**Unplaced statement**:
+Something a source states that a reader read and could not turn into a statement about the law. It carries the words, the reason, the reader that failed, and the path in the source document where the words sit, so a reviewer can open them.
+
+It is not an Exclusion. An Exclusion says a Dataset does not hold some material, and here the material is held: the text is in hand, the Amendment is in hand, and what is missing is a Link we could not make. Recording one as an Exclusion would answer "out of scope" for a provision the Dataset holds. It is not a Gap either, because nothing was declared and then missed.
+
+A reason is part of the statement, as it is for an Exclusion: a hole with no reason cannot be told apart from an oversight.
+_Avoid_: Error, failure, skip, warning
+
+**Extension**:
+A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (case name, opinion type). The core data model carries no extension concept, and no document class either. A Link's kind is an open namespaced string, a Document node's type is an open namespaced string, and in both cases the facts only one namespace understands sit in a payload the core stores and never reads (Kind payload, Class payload).
+
+**Two halves of this were not true until recently.** The core's identity, dates and provenance were always class-neutral; its hierarchy and text were one publisher's XML schema, and every node had to declare itself a US Code document or a bill. A court opinion could not be stored without that false claim. `docs/adr/0006-a-document-node-is-class-neutral.md` closed it, and the US Code is now one document class among others rather than the shape of the core (#129).
+
+The storage traits hold the same line. The core `Storage` trait requires documents, links and evidence, and no extension, so a backend that will only ever hold court opinions implements it without writing a word about bills. Code that needs legislature facts asks for them — `S: Storage + LegislatureReader` — and a dataset arriving from another party is asked at run time, through `Storage::legislature`, which answers `None` for "not a concept here" rather than an empty list (#127).
 _Avoid_: Plugin, module, add-on

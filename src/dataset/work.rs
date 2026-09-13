@@ -16,7 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::uslm::USLMElement;
+use crate::document::DocumentNode;
 
 /// A legal document as a concept, with no date attached.
 ///
@@ -116,8 +116,12 @@ pub struct Expression {
     /// `Pre-Tax Cuts Act`. Names one expression, not a moment across the
     /// dataset, so two works may carry the same label.
     pub label: Option<String>,
-    /// The element tree as it read on that date.
-    pub element: USLMElement,
+    /// The root of the document tree as it read on that date.
+    ///
+    /// Named `root` rather than `element`: this is the top of a tree of
+    /// [`DocumentNode`]s, and "element" is USLM's word for a node, which the
+    /// core no longer speaks (#129).
+    pub root: DocumentNode,
 }
 
 /// One expression's headline facts, without its tree.
@@ -175,6 +179,34 @@ pub fn works_between<R: crate::storage::DocumentReader + ?Sized>(
     Ok(WorksBetween { pairs, skipped })
 }
 
+/// Every neighbouring pair of expressions this dataset holds, work by work.
+///
+/// A job with no span of its own needs one: a bill loaded into a dataset states
+/// its renumberings without saying which two release points they sit between,
+/// and the dataset's own expressions are the only answer available.
+///
+/// Neighbouring rather than first-and-last. A redesignation is checked against
+/// the earlier expression, so the widest window would look for a provision in a
+/// release point published before it existed, and report a statement the corpus
+/// makes as one this build cannot place.
+///
+/// A work held on one date only yields no pair, which is an answer: nothing can
+/// be compared across a single expression.
+pub fn adjacent_expressions<R: crate::storage::DocumentReader + ?Sized>(
+    reader: &R,
+) -> Result<Vec<crate::dataset::ExpressionPair>, crate::dataset::DatasetError> {
+    let mut pairs = Vec::new();
+    for work in reader.works()? {
+        // `expressions` answers oldest first, so neighbours in the list are
+        // neighbours in time.
+        let held = reader.expressions(&work)?;
+        for pair in held.windows(2) {
+            pairs.push((pair[0].id.clone(), pair[1].id.clone()));
+        }
+    }
+    Ok(pairs)
+}
+
 /// Split a parsed tree into the works it holds.
 ///
 /// A root that names a work, such as `uscode/title_9`, is one work and is
@@ -183,7 +215,7 @@ pub fn works_between<R: crate::storage::DocumentReader + ?Sized>(
 ///
 /// The container is where a release cycle used to live. Dropping it is what
 /// lets a document that belongs to no release cycle enter a dataset at all.
-pub fn work_roots(root: USLMElement) -> Vec<USLMElement> {
+pub fn work_roots(root: DocumentNode) -> Vec<DocumentNode> {
     if root.data.path.contains('/') {
         return vec![root];
     }

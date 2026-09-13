@@ -78,14 +78,12 @@ fn readme_example_dataset_workflow() {
         panic!("Section 174(a) not found in diff - README example path may be wrong");
     }
 
-    // Save dataset (to temp file)
-    let temp_path = std::env::temp_dir().join("readme_test_dataset.json");
+    // Save dataset (to a directory this test owns, removed when it ends)
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let temp_path = dir.path().join("dataset.json");
     dataset
-        .save(temp_path.to_str().unwrap(), Format::Compact)
+        .save(temp_path.to_str().expect("a utf-8 path"), Format::Compact)
         .expect("Failed to save dataset");
-
-    // Cleanup
-    let _ = std::fs::remove_file(temp_path);
 }
 
 /// Verifies the Dataset example produces expected results.

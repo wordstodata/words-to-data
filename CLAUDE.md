@@ -8,9 +8,21 @@ Never, under any circumstances, mock data when writing tests. Always use real da
 
 Also, do not add tests with #[cfg(test)] to source files. Instead, add them to the `tests/` folder. Doc tests are acceptable.
 
+### The corpus is in an archive. Extract it before you measure anything.
+
+Only four of the release-point files sit loose in git. The rest of the corpus is `tests/test_data/test_files.tar.xz`, and CI extracts it before it runs:
+
+```
+cd tests/test_data && tar xvf test_files.tar.xz
+```
+
+Cold, without it, the suite reports about **193 failures, and every one is a missing file** rather than a fault in the code. A baseline read from that state is worthless, and an agent that believes it will hunt for failures it did not cause. Extract the archive, then take the baseline.
+
+**This bites an agent dispatched into a fresh worktree**, because a new worktree carries the committed files and not the extracted ones. Whoever writes the brief should say so; three agents in a row have had to find it out.
+
 When building new features or fixing bugs:
 0. **Plan** — Confirm which behaviors to test, prioritize them, and design the public interface.
-1. **Establish baseline** — Run the existing suite once, record pass/fail counts. Pre-existing failures are not your problem.
+1. **Establish baseline** — Run the existing suite once, record pass/fail counts. Pre-existing failures are not your problem. Read cargo's own exit code: a pipe into `tail` reports `tail`'s status, so a failing suite looks like a passing one.
 2. **Write test first** (RED) — test MUST fail before implementation exists. Name it like a spec: `should <expected behavior> when <condition>`.
 3. **Run the new test** (targeted) to verify it fails. Show the command, exit code, and output.
 4. **Write minimal implementation** (GREEN) — just enough to pass.

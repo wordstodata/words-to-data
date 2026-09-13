@@ -7,7 +7,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -17,12 +16,12 @@ use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
 use words_to_data::dataset::{Dataset, Format};
+use words_to_data::document::TextContentField;
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::{Evidence, Link};
 use words_to_data::matching::{
     AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches,
 };
-use words_to_data::uslm::TextContentField;
 
 use crate::span::Span;
 use words_to_data::llm::{ChatOptions, LlmAnnotation, LlmClient};
@@ -158,10 +157,17 @@ pub fn run(args: Args) {
                 };
 
                 let annotation = ChangeAnnotation {
+                    // A model answers in the drafter's words, so the reading is
+                    // `from_prose`: `strike` becomes the schema's `delete` and
+                    // `strike and insert` its `substitute`. A word neither
+                    // vocabulary holds still falls back to `Amend`, because an
+                    // annotation must name an action, but it is said out loud
+                    // first. `Amend` on its own would be a quiet lie about what
+                    // the law did.
                     operation: ann
                         .operation
                         .as_deref()
-                        .and_then(|op| AmendingAction::from_str(op).ok())
+                        .and_then(read_operation)
                         .unwrap_or(AmendingAction::Amend),
                     source_bill: BillReference {
                         bill_id: m.bill_id.clone(),
@@ -424,7 +430,7 @@ fn format_candidate(index: usize, candidate: &Candidate) -> String {
 fn push_elements(
     lines: &mut Vec<String>,
     title: &str,
-    elements: &[words_to_data::uslm::ElementData],
+    elements: &[words_to_data::document::NodeData],
 ) {
     if elements.is_empty() {
         return;
@@ -464,6 +470,23 @@ fn field_name(field: &TextContentField) -> &'static str {
         TextContentField::Proviso => "proviso",
         TextContentField::Content => "content",
         TextContentField::Continuation => "continuation",
+    }
+}
+
+/// Read the action a model named, and say so when it cannot be read.
+///
+/// The prompt asks for an operation and a model may answer with a word that is
+/// neither the publisher's nor a drafter's. The caller then has to fall back, and
+/// the fallback is only honest if the word it replaced was named first.
+fn read_operation(operation: &str) -> Option<AmendingAction> {
+    match AmendingAction::from_prose(operation) {
+        Ok(action) => Some(action),
+        Err(e) => {
+            eprintln!(
+                "warning: {e}, so the annotation records `amend` instead of what the model said"
+            );
+            None
+        }
     }
 }
 
@@ -578,16 +601,23 @@ Return valid JSON with `annotations` array:
 ```
 
 - `candidate_index`: Index of the matching candidate (0-based)
-- `operation`: The legal operation type. Must be one of:
-  - "amend" - Modifying existing text
-  - "add" - Adding new content
-  - "delete" - Removing content
-  - "insert" - Inserting new elements
-  - "redesignate" - Renumbering or renaming sections
-  - "repeal" - Repealing a section entirely
-  - "move" - Moving content to a different location
-  - "strike" - Striking text
-  - "strikeandinsert" - Striking and replacing with new text
+- `operation`: The legal operation type. These are the publisher's own words, from
+  `AmendingActionTypeEnum` in the USLM schema, and the answer must be one of them:
+  - "enact" - Enacting a law
+  - "add" - Adding a provision to existing law
+  - "amend" - Modifying an existing provision
+  - "substitute" - Replacing a provision, including "striking X and inserting Y"
+  - "redesignate" - Renumbering a provision that stays where it is
+  - "repeal" - Repealing a provision
+  - "repealAndReserve" - Repealing a provision and reserving its place
+  - "insert" - Adding text to a provision
+  - "delete" - Removing text from a provision, that is, striking it
+  - "conform" - Making text the same as defined replacement text
+  - "noChange" - No change is directed
+  - "unknown" - An action none of the above describes
+  There is no action for relocation. A provision moved to another title is
+  "redesignate" only if it was renumbered; otherwise say "unknown" and explain it
+  in `reasoning`.
 - `causative_text`: **IMPORTANT** - This must be an EXACT substring copied from the amending_text that specifically causes THIS change. Extract only the relevant portion, NOT the entire amending_text. Examples:
   - If amending_text is "Section 123(a) is amended by striking '$100' and inserting '$200', and by adding at the end the following new paragraph..."
   - For the strike/insert change: `"by striking '$100' and inserting '$200'"`

@@ -8,7 +8,9 @@ The shape section says the object of a link may be "a provision identity". There
 
 Everything else in this ADR is built: one `Link` type in the core with a namespaced kind, `legislature.amended_by` as the first kind, the open kind string, and a `Declaration` that lists the namespaces a reader should expect (`Scope::declares_namespace`).
 
-The core data model is document-class-neutral: identity, hierarchy, text, dates, and provenance. Bills, sponsors, members, and votes move to a legislature extension, and courts and opinion types will form a judicial extension. A reader might expect `ChangeAnnotation`, which connects a change to the amendment that caused it, to move into the legislature extension with everything else about amendments. It does not.
+The core data model is document-class-neutral: identity, hierarchy, text, dates, and provenance. Bills, sponsors, members, and votes move to a legislature extension, and courts and opinion types form a judicial extension. A reader might expect `ChangeAnnotation`, which connects a change to the amendment that caused it, to move into the legislature extension with everything else about amendments. It does not.
+
+> **Two of those five were not neutral when this was written.** Identity, dates and provenance were. Hierarchy and text were a `USLMElement`, named after one publisher's XML schema, and every node in the tree had to declare a `DocumentType` of US Code or bill. `docs/adr/0006-a-document-node-is-class-neutral.md` closed that, on this ADR's own rule: the node's type became an open namespaced string, and the facts only one class understands moved into a payload the core never reads. The sentence above is now true of the code (#129).
 
 Instead the core holds one `Link` type: subject, namespaced kind, object, provenance. `ChangeAnnotation` becomes the kind `legislature.amended_by`. A citation becomes `judicial.cites`. A third party's enrichment becomes `westlaw.headnote`. The kind is a namespaced string, not an enum we control.
 

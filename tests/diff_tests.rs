@@ -1,8 +1,12 @@
 use rstest::rstest;
 use words_to_data::{
-    diff::{MentionMatch, TreeDiff},
-    legislature::BillDiff,
-    uslm::{TextContentField, USLMElement, bill_parser::parse_bill_amendments, parser::parse},
+    diff::{MentionMatch, Redesignations, TreeDiff},
+    document::{DocumentNode, TextContentField},
+    legislature::{BillDiff, redesignation::resolve},
+    uslm::{
+        bill_parser::parse_bill_amendments, bill_redesignation::redesignations_stated_in_file,
+        parser::parse,
+    },
 };
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
@@ -14,7 +18,7 @@ fn test_diff_generation_26() {
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
 
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     let s174a_diff = diff
         .find("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
@@ -50,7 +54,7 @@ fn test_diff_generation_across_titles(#[case] title: &str) {
         .unwrap_or_else(|_| panic!("Failed to parse {} from 2025-07-30", title));
 
     // Generate diff
-    let diff = TreeDiff::from_elements(&tree1, &tree2);
+    let diff = TreeDiff::from_nodes(&tree1, &tree2);
 
     // Verify diff was generated
     assert!(!diff.root_path.is_empty(), "Diff should have a root path");
@@ -66,7 +70,7 @@ fn test_similarities() {
         .expect("Error running parser");
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     let mut amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
 
@@ -188,7 +192,7 @@ fn should_return_every_amendment_scoring_above_zero_when_two_amendments_touch_on
         .expect("Error running parser");
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     let mut amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
 
@@ -236,7 +240,7 @@ fn should_order_similarities_by_score_then_amendment_id_when_several_score_at_on
         .expect("Error running parser");
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     let mut amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
 
@@ -281,7 +285,7 @@ fn test_correct_matching_regex() {
     let result_b = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("unable to parse doc");
 
-    let diff: TreeDiff = TreeDiff::from_elements(&result_a, &result_b);
+    let diff: TreeDiff = TreeDiff::from_nodes(&result_a, &result_b);
 
     let s174a = diff.find("uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45F/subsection_c/paragraph_1/subparagraph_A/clause_iii").unwrap();
     let mention_regex = s174a.mention_regex().unwrap();
@@ -301,7 +305,7 @@ fn test_get_all_regexes() {
         .expect("unable to parse doc");
     let result_b = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("unable to parse doc");
-    let diff: TreeDiff = TreeDiff::from_elements(&result_a, &result_b);
+    let diff: TreeDiff = TreeDiff::from_nodes(&result_a, &result_b);
     let s174a = diff.find("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a/paragraph_2").unwrap();
 
     let regs = s174a.all_regexes();
@@ -314,7 +318,7 @@ fn test_shallow_should_return_tree_diff_without_children() {
         .expect("Error running parser");
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     // Find a node that has children
     let s174 = diff
@@ -346,7 +350,7 @@ fn test_scan_for_mentions_should_find_section_45f_mentions_in_bill() {
         .expect("Error running parser");
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     // Parse the bill that amends Section 45F
     let amendment_data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
@@ -397,8 +401,8 @@ fn should_order_diff_children_identically_when_the_same_diff_is_built_twice() {
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
 
-    let first = ordered_paths(&TreeDiff::from_elements(&doc_old, &doc_new));
-    let second = ordered_paths(&TreeDiff::from_elements(&doc_old, &doc_new));
+    let first = ordered_paths(&TreeDiff::from_nodes(&doc_old, &doc_new));
+    let second = ordered_paths(&TreeDiff::from_nodes(&doc_old, &doc_new));
 
     // Membership has never been the problem: the same paths come back every
     // time. Only their order moves, so compare the sequences, not the sets.
@@ -427,11 +431,11 @@ fn should_order_diff_children_identically_when_the_same_diff_is_built_twice() {
 /// Assert that every list on this node follows the order of the source
 /// document, then recurse. `removed` and `child_diffs` follow the older
 /// expression; `added` follows the newer one.
-fn assert_document_order(diff: &TreeDiff, from: &USLMElement, to: &USLMElement) {
+fn assert_document_order(diff: &TreeDiff, from: &DocumentNode, to: &DocumentNode) {
     // A path can name more than one child, so a path maps to every position it
     // occupies. A list is in document order when its entries can be laid onto
     // those positions strictly increasing, taking the earliest that still fits.
-    fn positions(element: &USLMElement) -> std::collections::HashMap<&str, Vec<usize>> {
+    fn positions(element: &DocumentNode) -> std::collections::HashMap<&str, Vec<usize>> {
         let mut by_path: std::collections::HashMap<&str, Vec<usize>> =
             std::collections::HashMap::new();
         for (at, child) in element.children.iter().enumerate() {
@@ -516,7 +520,87 @@ fn should_order_diff_children_by_document_position_when_diffing_a_title() {
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Error running parser");
 
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     assert_document_order(&diff, &doc_old, &doc_new);
+}
+
+/// § 9032 of title 7, "Seed cotton", which `119-hr-1` renumbered and rewrote at
+/// once: "by redesignating subsections (c) and (d) as subsections (d) and (e),
+/// respectively", and the loan rate inside the renumbered subsection went from
+/// $0.25 to $0.30 per pound. The subsection's own heading did not change, so
+/// nothing but a walk into the pair can find the new rate.
+const SECTION_9032: &str = "uscode/title_7/chapter_115/subchapter_II/section_9032";
+
+/// The redesignations `119-hr-1` states, resolved against a title's two
+/// expressions.
+///
+/// Both are needed: a redesignation moves a provision away from one path and
+/// onto another, and `resolve` checks each end against the document that should
+/// hold it (#151).
+fn redesignations_stated_by_the_public_law(
+    before: &DocumentNode,
+    after: &DocumentNode,
+) -> Redesignations {
+    let stated = redesignations_stated_in_file("119-hr-1", PL_XML_PATH).expect("the bill parses");
+    Redesignations::from_pairs(
+        resolve(&stated, before, after)
+            .resolved
+            .iter()
+            .map(|r| (r.from_path.clone(), r.to_path.clone())),
+    )
+}
+
+#[test]
+fn should_report_a_rewrite_inside_a_renumbered_subsection_at_its_new_path_when_a_bill_renumbered_it()
+ {
+    let before = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18")
+        .expect("title 7 should parse");
+    let after = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30")
+        .expect("title 7 should parse");
+    let known = redesignations_stated_by_the_public_law(&before, &after);
+
+    let diff = TreeDiff::from_nodes_with(&before, &after, &known);
+    let at = diff.find(SECTION_9032).expect("§ 9032 changed");
+
+    // The move is reported once, for the pair the bill named.
+    let moved: Vec<(String, String)> = at
+        .moved
+        .iter()
+        .map(|m| (m.from.path.to_string(), m.to.path.to_string()))
+        .collect();
+    assert_eq!(
+        moved
+            .iter()
+            .filter(|(from, _)| *from == format!("{SECTION_9032}/subsection_d"))
+            .count(),
+        1,
+        "subsection (d) moved once, got {moved:?}"
+    );
+    assert!(
+        moved.contains(&(
+            format!("{SECTION_9032}/subsection_d"),
+            format!("{SECTION_9032}/subsection_e"),
+        )),
+        "subsection (d) became subsection (e), got {moved:?}"
+    );
+
+    // And the rewrite below it is reported, at the path the paragraph now holds.
+    let rewritten = diff
+        .find(&format!("{SECTION_9032}/subsection_e/paragraph_1"))
+        .expect("the rewrite inside the renumbered subsection should be reported");
+    let change = rewritten
+        .changes
+        .first()
+        .expect("the paragraph's words should read as changed");
+    assert!(
+        change.old_value.contains("$0.25 per pound"),
+        "the old rate should be the old value, got {:?}",
+        change.old_value
+    );
+    assert!(
+        change.new_value.contains("$0.30 per pound"),
+        "the new rate should be the new value, got {:?}",
+        change.new_value
+    );
 }

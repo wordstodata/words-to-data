@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use crate::dataset::Dataset;
 use crate::diff::{AmendmentSimilarity, MentionMatch, TreeDiff};
 use crate::legislature::AmendingAction;
-use crate::storage::Storage;
+use crate::storage::{LegislatureReader, Storage};
 
 /// A candidate US Code diff that an amendment might have caused.
 pub struct Candidate {
@@ -67,7 +67,7 @@ pub const DEFAULT_SIMILARITY_CUTOFF: f32 = 0.4;
 /// per path it used to return, so the cutoff is what holds the candidate volume
 /// down (#75).
 pub fn build_matches(
-    dataset: &Dataset<impl Storage>,
+    dataset: &Dataset<impl Storage + LegislatureReader>,
     diff: &TreeDiff,
     similarity_cutoff: f32,
 ) -> Vec<AmendmentMatch> {

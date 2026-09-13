@@ -16,8 +16,8 @@ fn should_look_up_download_url_by_date_when_present_in_manifest() {
 #[test]
 fn should_extract_all_xml_files_flat_when_given_a_release_zip() {
     let zip_bytes = std::fs::read("tests/test_data/mirror/sample.zip").unwrap();
-    let dest = std::env::temp_dir().join("w2d_extract_test");
-    let _ = std::fs::remove_dir_all(&dest);
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let dest = dir.path().join("release");
 
     extract_release(&zip_bytes, &dest).unwrap();
 
@@ -28,6 +28,4 @@ fn should_extract_all_xml_files_flat_when_given_a_release_zip() {
         .collect();
     names.sort();
     assert_eq!(names, vec!["usc01.xml", "usc09.xml"]);
-
-    std::fs::remove_dir_all(&dest).unwrap();
 }

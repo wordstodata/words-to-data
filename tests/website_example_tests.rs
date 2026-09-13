@@ -5,7 +5,8 @@
 use words_to_data::{
     dataset::{Dataset, DatasetMetadata},
     diff::TreeDiff,
-    uslm::{TextContentField, bill_parser::parse_bill_amendments, parser::parse},
+    document::TextContentField,
+    uslm::{UslmFacts, bill_parser::parse_bill_amendments, parser::parse},
 };
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
@@ -54,18 +55,20 @@ fn website_example_parse_usc_json_structure() {
 
     // Verify key fields shown in website JSON output
     assert_eq!(s174a.data.path.as_ref(), s174a_path);
+
+    // The publisher's own naming of the subsection is a USLM fact, so it reads
+    // out of the node's class payload rather than out of a core field (#129).
+    let facts = UslmFacts::of(&s174a.data).expect("a USC subsection carries USLM facts");
     assert_eq!(
-        s174a.data.number_value.as_ref(),
-        "a",
+        facts.number_value, "a",
         "number_value should be 'a' as shown on website"
     );
     assert_eq!(
-        s174a.data.number_display.as_ref(),
-        "(a)",
+        facts.number_display, "(a)",
         "number_display should be '(a)' as shown on website"
     );
     assert_eq!(
-        s174a.data.uslm_id.as_deref(),
+        facts.uslm_id.as_deref(),
         Some("/us/usc/t26/s174/a"),
         "uslm_id should match website example"
     );
@@ -98,7 +101,7 @@ fn website_example_compute_diff() {
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
         .expect("Failed to parse new document");
 
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
     // Find the diff for §174(a) (as shown on website)
     let s174a_path =
@@ -143,7 +146,7 @@ fn website_example_diff_json_structure() {
     let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18").unwrap();
     let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30").unwrap();
 
-    let diff = TreeDiff::from_elements(&doc_old, &doc_new);
+    let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
     let s174a_path =
         "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a";
     let s174a_diff = diff.find(s174a_path).unwrap();

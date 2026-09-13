@@ -10,63 +10,161 @@
 //! needs these types and has no USLM to speak of, and a court opinion needs
 //! none of them at all.
 
+pub mod redesignation;
+
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
 use crate::uslm::USLMError;
 
-/// Types of amendments that can be made to existing law via a bill
+/// What a bill says it does to a provision of existing law.
 ///
-/// When a bill modifies existing United States Code, it uses specific
-/// amending actions to describe the type of change being made.
+/// This is the publisher's vocabulary, and nothing else. `AmendingActionTypeEnum`
+/// in `uslm-2.0.17.xsd` (around line 610) allows twelve values, a conforming bill
+/// writes one of them in an `amendingAction/@type` attribute, and there is one
+/// variant here for each. The variants are in the schema's own order, and each
+/// doc comment says what the schema says.
+///
+/// A drafter's prose word is not one of these. "By striking X and inserting Y"
+/// is how the law reads, and the markup for it is `delete` and `insert`. A word
+/// out of the prose — as a model answers it — comes in through
+/// [`AmendingAction::from_prose`], which maps the prose onto the schema, so that
+/// this type holds one vocabulary and not two.
+///
+/// # Reading what was stored before
+///
+/// Until #156 this enum also carried `Strike` and `StrikeAndInsert`, and a real
+/// sweep stored 150 annotations that use them
+/// (`tests/test_data/processed/annotations.json`). Those are records, so the
+/// serde aliases below read them as the schema's word for the same act, exactly
+/// as [`AmendingAction::from_prose`] does. Nothing writes the old word again:
+/// there is no variant for it, so serialization always gives the schema's word.
+///
+/// `move` gets no alias. The schema has no action for a relocation, `redesignate`
+/// is a different fact, and nothing in the repo's recorded data holds the word,
+/// so there is no record to keep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AmendingAction {
-    /// Modify existing text
-    Amend,
-    /// Add new text or sections
+    /// Enacts a law.
+    Enact,
+    /// Adds a provision to existing law.
     Add,
-    /// Remove existing text or sections
-    Delete,
-    /// Insert new text at a specific location
-    Insert,
-    /// Change the designation or numbering of sections
+    /// Modifies an existing provision in the law.
+    Amend,
+    /// Replaces an existing provision in the law.
+    ///
+    /// The alias reads a record written before #156, where "by striking X and
+    /// inserting Y" was stored in the drafter's words.
+    #[serde(alias = "strike_and_insert", alias = "strikeandinsert")]
+    Substitute,
+    /// Changes the number of an existing provision in the law.
     Redesignate,
-    /// Remove an entire section or provision from the law
+    /// Repeals a provision of law or regulation.
     Repeal,
-    /// Relocate an element (may include redesignation)
-    Move,
-    /// Remove specific text within an element (finer than Delete)
-    Strike,
-    /// Remove specific text and replace with new text
-    StrikeAndInsert,
+    /// Repeals a provision and reserves its location.
+    RepealAndReserve,
+    /// Adds text to a proposed provision to the law.
+    Insert,
+    /// Removes text from a proposed provision to the law.
+    ///
+    /// The alias reads a record written before #156, where "by striking X" was
+    /// stored in the drafter's word.
+    #[serde(alias = "strike")]
+    Delete,
+    /// Makes the text the same as the defined replacement text.
+    Conform,
+    /// No change is directed, as in "The authority... continues to read...".
+    NoChange,
+    /// An action the publisher has not yet defined.
+    Unknown,
 }
 
 impl FromStr for AmendingAction {
     type Err = USLMError;
 
-    /// Parse an amending action from its string representation
+    /// Read the value of an `amendingAction/@type` attribute.
     ///
-    /// This implementation is case-insensitive. Returns an error if the
-    /// action type is not recognized.
+    /// Case-insensitive, and it accepts the serde form of a two-word value
+    /// (`repeal_and_reserve`) beside the schema's own (`repealAndReserve`), so a
+    /// value that was stored and read back gives the variant it came from.
+    ///
+    /// Any other word is an error rather than a silent nothing. `Unknown` is the
+    /// schema's own value for an undefined action and is not a bin for a word
+    /// this build cannot read: telling those two apart is the whole of #156.
     fn from_str(s: &str) -> std::result::Result<Self, <Self as std::str::FromStr>::Err> {
         match s.to_lowercase().as_str() {
-            "amend" => Ok(AmendingAction::Amend),
+            "enact" => Ok(AmendingAction::Enact),
             "add" => Ok(AmendingAction::Add),
-            "delete" => Ok(AmendingAction::Delete),
-            "insert" => Ok(AmendingAction::Insert),
+            "amend" => Ok(AmendingAction::Amend),
+            "substitute" => Ok(AmendingAction::Substitute),
             "redesignate" => Ok(AmendingAction::Redesignate),
             "repeal" => Ok(AmendingAction::Repeal),
-            "move" => Ok(AmendingAction::Move),
-            "strike" => Ok(AmendingAction::Strike),
-            "strikeandinsert" | "strike_and_insert" => Ok(AmendingAction::StrikeAndInsert),
+            "repealandreserve" | "repeal_and_reserve" => Ok(AmendingAction::RepealAndReserve),
+            "insert" => Ok(AmendingAction::Insert),
+            "delete" => Ok(AmendingAction::Delete),
+            "conform" => Ok(AmendingAction::Conform),
+            "nochange" | "no_change" => Ok(AmendingAction::NoChange),
+            "unknown" => Ok(AmendingAction::Unknown),
             _ => Err(USLMError::UnknownAmendingAction(s.to_lowercase())),
         }
     }
 }
 
 impl AmendingAction {
+    /// Read a word for an action out of prose, as a model answers it.
+    ///
+    /// A bill's markup writes the publisher's word. A bill's *prose* does not: it
+    /// says "by striking 'or' and inserting 'and'", and a model asked what an
+    /// amendment did answers in those words. Real recorded replies do:
+    /// `tests/test_data/processed/model_replies.json` holds `strikeandinsert`,
+    /// and 150 of the 753 annotations in `tests/test_data/processed/annotations.json`
+    /// were stored as `strike` or `strike_and_insert`.
+    ///
+    /// Those words are mapped onto the schema's word for the same act, rather
+    /// than refused. What the model said is kept in its own right — the reasoning
+    /// and the reply go into the link's [`crate::link::Provenance`], which is what
+    /// a reading is recorded with — so the action may be the publisher's word
+    /// without anything being lost.
+    ///
+    /// | Prose | Schema | Why |
+    /// | --- | --- | --- |
+    /// | `strike` | `delete` | the schema's word for removing text |
+    /// | `strike and insert` | `substitute` | the schema's `substitute` "replaces an existing provision" |
+    ///
+    /// `move` is **not** mapped. The schema has no action for a relocation, and
+    /// `redesignate` is a different fact: it renumbers a provision that stays
+    /// where it is. A caller gets an error and reports it, the same as for any
+    /// other word this does not know.
+    ///
+    /// ```
+    /// use words_to_data::legislature::AmendingAction;
+    ///
+    /// // The drafter's words, mapped onto the publisher's.
+    /// assert_eq!(AmendingAction::from_prose("strike").unwrap(), AmendingAction::Delete);
+    /// assert_eq!(
+    ///     AmendingAction::from_prose("strikeandinsert").unwrap(),
+    ///     AmendingAction::Substitute
+    /// );
+    /// // The publisher's own words read too.
+    /// assert_eq!(AmendingAction::from_prose("repeal").unwrap(), AmendingAction::Repeal);
+    /// // Relocation has no action, in either vocabulary.
+    /// assert!(AmendingAction::from_prose("move").is_err());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`USLMError::UnknownAmendingAction`] when the word is neither a
+    /// value of the schema nor a prose word with a value to map onto.
+    pub fn from_prose(s: &str) -> std::result::Result<Self, USLMError> {
+        match s.to_lowercase().as_str() {
+            "strike" => Ok(AmendingAction::Delete),
+            "strikeandinsert" | "strike_and_insert" => Ok(AmendingAction::Substitute),
+            _ => AmendingAction::from_str(s),
+        }
+    }
+
     /// Extract all text from a node and its descendants
     #[allow(dead_code)]
     fn extract_all_text(node: &roxmltree::Node) -> String {
@@ -103,7 +201,10 @@ pub struct BillAmendment {
     /// This provides a stable, deterministic identifier that works regardless of source format.
     pub id: String,
 
-    /// Type of action (amend, add, delete, insert, redesignate, repeal)
+    /// Every action the bill's markup states, in the order the markup states it.
+    ///
+    /// A bag rather than a set, and one entry for each `amendingAction` in the
+    /// instruction's subtree, so the same action can appear twice.
     pub action_types: Vec<AmendingAction>,
 
     /// The text of the change

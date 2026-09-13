@@ -11,7 +11,7 @@ pub use error::DatasetError;
 pub use scope::{Coverage, DateRange, Declaration, Exclusion, Scope, WorkCoverage};
 pub use work::{
     Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
-    work_roots, works_between,
+    adjacent_expressions, work_roots, works_between,
 };
 
 use serde::{Deserialize, Serialize};
@@ -23,15 +23,16 @@ use crate::annotation::ChangeAnnotation;
 use crate::congress::{
     BillDownload, BillVotes, CosponsorRecord, HouseRollCall, Member, SponsorInfo, VotePosition,
 };
-use crate::diff::TreeDiff;
+use crate::diff::{Redesignations, TreeDiff};
+use crate::document::DocumentNode;
 use crate::legislature::BillDiff;
-use crate::link::Link;
+use crate::legislature::redesignation::{self, RedesignationReport};
+use crate::link::{Link, ProvisionHistory};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
     LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage,
     Storage,
 };
-use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
 use crate::utils::{load_uslm_folder, parse_uslm_xml};
@@ -75,6 +76,19 @@ pub struct SearchResult {
     pub path: String,
     pub field: String,
     pub snippet: String,
+}
+
+/// A source this build could not read, as a dataset error.
+///
+/// One spelling for the two readers of a bill's markup here. `DatasetError`
+/// carries no parse variant, and writing the same four lines of wrapping at each
+/// call site is how one of them ends up saying something different from the
+/// other.
+fn invalid_data(cause: &dyn std::fmt::Display) -> DatasetError {
+    DatasetError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        cause.to_string(),
+    ))
 }
 
 /// The two expressions an annotation sits between. Both name the same work.
@@ -175,22 +189,6 @@ impl<S: Storage> Dataset<S> {
 
     // --- Delegate reader methods ---
 
-    pub fn get_bill(&self, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
-        self.storage.get_bill(bill_id)
-    }
-
-    /// List the IDs of every bill in the dataset.
-    ///
-    /// Pair with [`Dataset::get_bill`] to iterate over all bills:
-    /// ```ignore
-    /// for id in dataset.list_bill_ids()? {
-    ///     let bill = dataset.get_bill(&id)?.unwrap();
-    /// }
-    /// ```
-    pub fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
-        self.storage.list_bill_ids()
-    }
-
     pub fn get_annotations(
         &self,
         from: &ExpressionId,
@@ -199,24 +197,127 @@ impl<S: Storage> Dataset<S> {
         self.storage.get_annotations(from, to)
     }
 
-    pub fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
-        self.storage.get_member(bioguide_id)
-    }
-
-    pub fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
-        self.storage.get_sponsor_info(bill_id)
-    }
-
-    pub fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
-        self.storage.get_bill_votes(bill_id)
-    }
-
+    /// The differences between two expressions of one work.
+    ///
+    /// Where a redesignation link says a provision was renumbered between these
+    /// two dates, the provision is paired with what it became, so the provision
+    /// it displaced reads as removed rather than as rewritten. Where none is
+    /// known, pairing is by position, exactly as before (#93).
+    ///
+    /// [`DocumentReader::compute_diff`] on a bare backend cannot do this, because
+    /// a document reader holds no links. A dataset holds both.
     pub fn compute_diff(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError> {
-        self.storage.compute_diff(from, to)
+        self.diff_over_links(from, to)
+    }
+
+    /// The diff, with a renumbered provision paired to what it became.
+    ///
+    /// Delegates to the backend when this dataset holds no redesignation for the
+    /// pair, which is every dataset until `record_redesignations` has run. That
+    /// keeps the ordinary path exactly as fast as it was, and keeps a backend
+    /// free to answer a diff its own way.
+    fn diff_over_links(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<TreeDiff, DatasetError> {
+        let known = Redesignations::from_links(&self.storage.links_for_pair(from, to)?);
+        if known.is_empty() {
+            return self.storage.compute_diff(from, to);
+        }
+        let (from_expression, to_expression) =
+            crate::storage::memory::require_same_work(&self.storage, from, to)?;
+        Ok(TreeDiff::from_nodes_with(
+            &from_expression.root,
+            &to_expression.root,
+            &known,
+        ))
+    }
+
+    /// Read the redesignations a bill states and record each one as a link.
+    ///
+    /// `from` must be the earlier expression and `to` the later one: a
+    /// redesignation moves a provision *away* from one path and *to* another, and
+    /// each path exists on one side of the move only, so a statement is checked
+    /// against both documents.
+    ///
+    /// Takes statements the caller has already read, rather than the bill this
+    /// dataset stores. Which provision a clause is about comes from where the
+    /// words sat in the bill's markup — a clause inside "in subsection (a)--"
+    /// means something different from the same clause outside it — and a stored
+    /// amendment keeps only the flattened text. Read them with
+    /// [`crate::uslm::bill_redesignation::redesignations_stated`].
+    ///
+    /// Returns the report, including every statement it could not place. A
+    /// caller that drops the report turns this build's silence into the corpus's
+    /// silence.
+    pub fn record_redesignations(
+        &mut self,
+        bill_id: &str,
+        stated: &[redesignation::StatedRedesignation],
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<RedesignationReport, DatasetError> {
+        let (from_expression, to_expression) =
+            crate::storage::memory::require_same_work(&self.storage, from, to)?;
+        let report = redesignation::resolve(stated, &from_expression.root, &to_expression.root);
+        for resolved in &report.resolved {
+            self.storage
+                .add_link(resolved.link(&from.work, &from.at, &to.at, bill_id))?;
+        }
+        Ok(report)
+    }
+
+    /// Record every redesignation a bill's markup states, across the whole
+    /// dataset.
+    ///
+    /// Called as part of loading a bill, so no build can hold a bill and lack
+    /// the links it states. Before this, recording them was a second command
+    /// nothing in the build path ran, and the only sign was an absence: a
+    /// rebuilt corpus came back with 889 `legislature.amended_by` links and no
+    /// redesignations at all (#150).
+    ///
+    /// The bill's own markup, because which provision a clause is about comes
+    /// from where the words sat in it, and a stored amendment keeps only the
+    /// flattened text. A statement resolves in the one work that holds its
+    /// section and fails in every other, so the reports are folded rather than
+    /// concatenated.
+    ///
+    /// Every statement this build cannot place reaches stderr through
+    /// [`RedesignationReport::warn`]. The tool's silence must not read as the
+    /// corpus's silence.
+    pub fn record_redesignations_stated_in(
+        &mut self,
+        bill_id: &str,
+        bill_xml: &str,
+    ) -> Result<RedesignationReport, DatasetError> {
+        let stated = crate::uslm::bill_redesignation::redesignations_stated(bill_id, bill_xml)
+            .map_err(|e| invalid_data(&e))?;
+        // A bill that renumbers nothing is ordinary, and sweeping every work to
+        // prove it would cost a section index per work for no statement.
+        if stated.is_empty() {
+            return Ok(RedesignationReport::default());
+        }
+
+        let mut per_work = Vec::new();
+        for (from, to) in adjacent_expressions(&self.storage)? {
+            per_work.push(self.record_redesignations(bill_id, &stated, &from, &to)?);
+        }
+        let report = RedesignationReport::across_works(per_work);
+        report.warn(bill_id);
+        Ok(report)
+    }
+
+    /// The renumberings one provision ran through, oldest first.
+    ///
+    /// A projection over the redesignation links, walked on demand. See
+    /// [`LinkReader::provision_history`].
+    pub fn provision_history(&self, path: &str) -> Result<ProvisionHistory, DatasetError> {
+        self.storage.provision_history(path)
     }
 
     pub fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
@@ -238,18 +339,11 @@ impl<S: Storage> Dataset<S> {
         self.storage.annotation_pairs()
     }
 
-    pub fn find_element(
+    pub fn find_nodes(
         &self,
         path: &str,
-    ) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
-        self.storage.find_element(path)
-    }
-
-    pub fn votes_by_member(
-        &self,
-        bioguide_id: &str,
-    ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
-        self.storage.votes_by_member(bioguide_id)
+    ) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
+        self.storage.find_nodes(path)
     }
 
     // --- Delegate DatasetWriter methods ---
@@ -264,10 +358,6 @@ impl<S: Storage> Dataset<S> {
 
     pub fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
         self.storage.add_expression(expression)
-    }
-
-    pub fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
-        self.storage.add_bill(bill)
     }
 
     /// Record a verbatim model reply and return its id.
@@ -288,18 +378,6 @@ impl<S: Storage> Dataset<S> {
     /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
     pub fn add_link(&mut self, link: Link) -> Result<(), DatasetError> {
         self.storage.add_link(link)
-    }
-
-    pub fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
-        self.storage.add_member(member)
-    }
-
-    pub fn add_sponsor_info(&mut self, info: SponsorInfo) -> Result<(), DatasetError> {
-        self.storage.add_sponsor_info(info)
-    }
-
-    pub fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
-        self.storage.add_bill_votes(votes)
     }
 
     /// Get paths that have annotations for an expression pair
@@ -344,6 +422,74 @@ impl<S: Storage> Dataset<S> {
         for child in &diff.child_diffs {
             Self::collect_paths_with_changes(child, paths);
         }
+    }
+}
+
+// --- Legislature extension ---
+//
+// One impl block per extension trait rather than a `where` clause on each of
+// the ten methods. The requirement is then stated once, in the place a reader
+// looks for it, and the block itself says which methods exist only because the
+// backend speaks the extension. Ten repetitions of the same clause says the
+// same thing to the compiler and less to a person (#127).
+//
+// The bound is not on the struct: a dataset of court opinions is a dataset, and
+// it keeps every core method above.
+
+/// Reading the legislature, for a dataset whose backend holds one.
+impl<S: Storage + LegislatureReader> Dataset<S> {
+    pub fn get_bill(&self, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
+        self.storage.get_bill(bill_id)
+    }
+
+    /// List the IDs of every bill in the dataset.
+    ///
+    /// Pair with [`Dataset::get_bill`] to iterate over all bills:
+    /// ```ignore
+    /// for id in dataset.list_bill_ids()? {
+    ///     let bill = dataset.get_bill(&id)?.unwrap();
+    /// }
+    /// ```
+    pub fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
+        self.storage.list_bill_ids()
+    }
+
+    pub fn get_member(&self, bioguide_id: &str) -> Result<Option<Member>, DatasetError> {
+        self.storage.get_member(bioguide_id)
+    }
+
+    pub fn get_sponsor_info(&self, bill_id: &str) -> Result<Option<SponsorInfo>, DatasetError> {
+        self.storage.get_sponsor_info(bill_id)
+    }
+
+    pub fn get_bill_votes(&self, bill_id: &str) -> Result<Option<BillVotes>, DatasetError> {
+        self.storage.get_bill_votes(bill_id)
+    }
+
+    pub fn votes_by_member(
+        &self,
+        bioguide_id: &str,
+    ) -> Result<Vec<(HouseRollCall, VotePosition)>, DatasetError> {
+        self.storage.votes_by_member(bioguide_id)
+    }
+}
+
+/// Writing the legislature, for a dataset whose backend holds one.
+impl<S: Storage + LegislatureWriter> Dataset<S> {
+    pub fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
+        self.storage.add_bill(bill)
+    }
+
+    pub fn add_member(&mut self, member: Member) -> Result<(), DatasetError> {
+        self.storage.add_member(member)
+    }
+
+    pub fn add_sponsor_info(&mut self, info: SponsorInfo) -> Result<(), DatasetError> {
+        self.storage.add_sponsor_info(info)
+    }
+
+    pub fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
+        self.storage.add_bill_votes(votes)
     }
 }
 
@@ -423,15 +569,15 @@ impl Dataset<InMemoryStorage> {
     /// Split a parsed tree into works and add one expression for each.
     fn add_works_of(
         &mut self,
-        element: USLMElement,
+        parsed: DocumentNode,
         date: &str,
         label: Option<String>,
     ) -> Result<(), DatasetError> {
-        for root in work_roots(element) {
+        for root in work_roots(parsed) {
             self.add_expression(Expression {
                 id: ExpressionId::new(WorkId::new(root.data.path.to_string()), date),
                 label: label.clone(),
-                element: root,
+                root,
             })?;
         }
         Ok(())
@@ -496,14 +642,10 @@ impl Dataset<InMemoryStorage> {
 
         let bill =
             bill_parser::parse_bill_amendments_from_str(&download.bill_id, &download.bill_xml)
-                .map_err(|e| {
-                    DatasetError::Json(serde_json::Error::io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e.to_string(),
-                    )))
-                })?;
+                .map_err(|e| invalid_data(&e))?;
         let bill_id = bill.bill_id.clone();
         self.add_bill(bill)?;
+        self.record_redesignations_stated_in(&bill_id, &download.bill_xml)?;
 
         // Parse sponsor from metadata
         let sponsors_v: Value = serde_json::from_str(&download.bill_metadata_json)?;
@@ -613,24 +755,29 @@ impl<S: Storage> DocumentReader for Dataset<S> {
         self.storage.prev_expression(id)
     }
 
+    /// The differences between two expressions, over the links as well as the
+    /// documents.
+    ///
+    /// A dataset holds both, so it answers the better question. See
+    /// [`Dataset::compute_diff`].
     fn compute_diff(
         &self,
         from: &ExpressionId,
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError> {
-        self.storage.compute_diff(from, to)
+        self.diff_over_links(from, to)
     }
 
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
         self.storage.search_text(query)
     }
 
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
-        self.storage.find_element(path)
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
+        self.storage.find_nodes(path)
     }
 
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
-        self.storage.has_element(path)
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
+        self.storage.has_node(path)
     }
 }
 
@@ -688,7 +835,7 @@ impl<S: Storage> EvidenceWriter for Dataset<S> {
     }
 }
 
-impl<S: Storage> LegislatureReader for Dataset<S> {
+impl<S: Storage + LegislatureReader> LegislatureReader for Dataset<S> {
     fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
         self.storage.get_bill(id)
     }
@@ -737,7 +884,7 @@ impl<S: Storage> LinkWriter for Dataset<S> {
     }
 }
 
-impl<S: Storage> LegislatureWriter for Dataset<S> {
+impl<S: Storage + LegislatureWriter> LegislatureWriter for Dataset<S> {
     fn add_bill(&mut self, bill: Bill) -> Result<(), DatasetError> {
         self.storage.add_bill(bill)
     }

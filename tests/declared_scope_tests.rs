@@ -125,10 +125,8 @@ fn should_carry_the_declaration_through_sqlite() {
     };
     let memory = dataset_declaring(Some(declaration.clone()));
 
-    let dir = std::path::Path::new("target/declared_scope_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let file = dir.join("declaration.sqlite");
-    std::fs::remove_file(&file).ok();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("declaration.sqlite");
     memory.save_to_sqlite(&file).expect("save to sqlite");
     let sqlite = Dataset::open_sqlite(&file).expect("open sqlite");
 
@@ -177,11 +175,9 @@ fn should_hold_no_legislature_when_it_declares_none_and_has_none() {
 }
 
 /// Save a dataset and run `info` against it the way a person or an agent would.
-fn info_output(dataset: &Dataset<InMemoryStorage>, name: &str) -> String {
-    let dir = std::path::Path::new("target/declared_scope_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let file = dir.join(format!("{name}.sqlite"));
-    std::fs::remove_file(&file).ok();
+fn info_output(dataset: &Dataset<InMemoryStorage>) -> String {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("dataset.sqlite");
     dataset.save_to_sqlite(&file).expect("save to sqlite");
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_words_to_data"))
@@ -199,7 +195,7 @@ fn should_print_an_incomplete_line_when_the_build_left_a_gap() {
         ..Default::default()
     }));
 
-    let stdout = info_output(&dataset, "gap");
+    let stdout = info_output(&dataset);
 
     // A silent gap is the failure mode this feature exists to remove, so the
     // one thing `info` must not do is print a dataset like this as if it were
@@ -216,7 +212,7 @@ fn should_print_an_incomplete_line_when_the_build_left_a_gap() {
 
 #[test]
 fn should_print_no_declaration_lines_when_nothing_was_declared() {
-    let stdout = info_output(&dataset_declaring(None), "undeclared");
+    let stdout = info_output(&dataset_declaring(None));
 
     // Every dataset is undeclared until it is rebuilt, so this output is what
     // almost every reader sees and it must not have changed.

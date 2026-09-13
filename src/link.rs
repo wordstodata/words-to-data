@@ -39,6 +39,14 @@ impl LinkKind {
     /// An opinion citing a provision.
     pub const CITES: &'static str = "judicial.cites";
 
+    /// A provision renumbered by a bill: the subject became the object.
+    ///
+    /// This is the record that answers "is this the same provision as last
+    /// year". The chain through it is computed on demand and never stored
+    /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`,
+    /// `crate::legislature::redesignation`).
+    pub const REDESIGNATED_AS: &'static str = "legislature.redesignated_as";
+
     pub fn new(kind: impl Into<String>) -> Self {
         Self(kind.into())
     }
@@ -296,6 +304,32 @@ pub fn amendment_reference(bill_id: &str, amendment_id: &str) -> String {
     format!("legislature.amendment:{bill_id}:{amendment_id}")
 }
 
+/// The bill and the amendment a reference names, read back out of it.
+///
+/// The inverse of [`amendment_reference`], and here beside it so the one format is
+/// written down once. A reader walking from a changed provision to the bill that
+/// changed it needs this; without it the format is spelled out again at every call
+/// site, and after an edit one of them will be wrong.
+///
+/// `None` for anything that is not an amendment reference — a link object in some
+/// other namespace, or one this build has never seen.
+///
+/// ```
+/// use words_to_data::link::{amendment_reference, amendment_reference_parts};
+///
+/// let reference = amendment_reference("119-hr-1", "a92dddd3");
+/// assert_eq!(
+///     amendment_reference_parts(&reference),
+///     Some(("119-hr-1", "a92dddd3")),
+/// );
+/// assert_eq!(amendment_reference_parts("judicial.opinion:2812209"), None);
+/// ```
+pub fn amendment_reference_parts(reference: &str) -> Option<(&str, &str)> {
+    reference
+        .strip_prefix("legislature.amendment:")?
+        .split_once(':')
+}
+
 impl Link {
     /// What this link says, hashed: its subject, its kind, and its object.
     ///
@@ -444,8 +478,13 @@ pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
         grouped
             .entry(key)
             .or_insert_with(|| ChangeAnnotation {
+                // A legislature payload's operation came from a model, which
+                // answers in the drafter's words, so it is read with `from_prose`.
+                // A link stored before #156 holds `strike` or `strike_and_insert`,
+                // and that reads as the schema's word for the same act rather than
+                // falling back to `Amend`, which would change the fact.
                 operation: field("operation")
-                    .and_then(|op| op.parse().ok())
+                    .and_then(|op| crate::legislature::AmendingAction::from_prose(&op).ok())
                     .unwrap_or(crate::legislature::AmendingAction::Amend),
                 source_bill: BillReference {
                     bill_id: field("bill_id").unwrap_or_default(),
@@ -474,6 +513,149 @@ pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
     }
 
     grouped.into_values().collect()
+}
+
+/// One renumbering in a provision's history.
+///
+/// Read out of a `legislature.redesignated_as` link: the provision sat at
+/// `from_path` in the expression of `from_date`, and at `to_path` in the
+/// expression of `to_date`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedesignationStep {
+    pub from_path: String,
+    pub to_path: String,
+    pub from_date: String,
+    pub to_date: String,
+}
+
+/// The renumberings one provision ran through, oldest first.
+///
+/// A **projection**. Nothing stores it: it is walked out of the links each time
+/// it is asked for, so a bill added later adds an edge rather than rewriting an
+/// identity, and nothing that already points somewhere breaks
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+///
+/// This is the answer to "is this the same provision as last year", which
+/// `docs/adr/0001-structural-paths-locate-not-identify.md` says has none.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProvisionHistory {
+    /// The path that was asked about.
+    pub path: String,
+    /// Every renumbering, oldest first. Empty when this dataset knows of none,
+    /// which is the ordinary case: most provisions keep their number.
+    pub steps: Vec<RedesignationStep>,
+}
+
+impl ProvisionHistory {
+    /// Every path the provision has held, oldest first, ending at the newest.
+    pub fn paths(&self) -> Vec<&str> {
+        let mut paths: Vec<&str> = self
+            .steps
+            .iter()
+            .map(|step| step.from_path.as_str())
+            .collect();
+        match self.steps.last() {
+            Some(last) => paths.push(&last.to_path),
+            None => paths.push(&self.path),
+        }
+        paths
+    }
+
+    /// The earliest path this dataset knows for the provision.
+    ///
+    /// The path itself when no renumbering is known, which is an answer and not
+    /// a failure: the provision has always been where it is.
+    pub fn earliest(&self) -> &str {
+        self.steps
+            .first()
+            .map_or(self.path.as_str(), |step| step.from_path.as_str())
+    }
+
+    /// The newest path this dataset knows for the provision.
+    pub fn latest(&self) -> &str {
+        self.steps
+            .last()
+            .map_or(self.path.as_str(), |step| step.to_path.as_str())
+    }
+
+    /// Whether the two paths name one provision across the renumberings known.
+    pub fn covers(&self, path: &str) -> bool {
+        self.paths().contains(&path)
+    }
+}
+
+/// Walk the redesignation links to a provision's history.
+///
+/// Both directions from `path`: backwards to the earliest name the links give it,
+/// and forwards to the latest. A link of another kind is skipped.
+///
+/// Walking a list rather than querying twice per step is deliberate. The links
+/// table is indexed on the subject's path, which answers the forward direction,
+/// and on the kind, which is enough to fetch every redesignation in a dataset —
+/// there are tens of them, not millions. The backward direction would need an
+/// index on the *object's* path, and adding one would change the stored shape for
+/// a query that is already fast.
+///
+/// A cycle cannot happen in the law, and a misread bill could still write one, so
+/// a path already seen stops the walk instead of looping for ever.
+pub fn history_from_links(path: &str, links: &[Link]) -> ProvisionHistory {
+    let redesignated_as = LinkKind::new(LinkKind::REDESIGNATED_AS);
+    let steps: Vec<RedesignationStep> = links
+        .iter()
+        .filter(|link| link.kind == redesignated_as)
+        .filter_map(step_of)
+        .collect();
+
+    let mut history = ProvisionHistory {
+        path: path.to_string(),
+        steps: Vec::new(),
+    };
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    seen.insert(path.to_string());
+
+    // Backwards: what this provision used to be called.
+    let mut earliest = path.to_string();
+    while let Some(step) = steps.iter().find(|step| step.to_path == earliest) {
+        if !seen.insert(step.from_path.clone()) {
+            break;
+        }
+        earliest = step.from_path.clone();
+        history.steps.insert(0, step.clone());
+    }
+
+    // Forwards: what it became.
+    let mut latest = path.to_string();
+    while let Some(step) = steps.iter().find(|step| step.from_path == latest) {
+        if !seen.insert(step.to_path.clone()) {
+            break;
+        }
+        latest = step.to_path.clone();
+        history.steps.push(step.clone());
+    }
+
+    history
+}
+
+/// One step, read out of a link whose two ends name changes.
+fn step_of(link: &Link) -> Option<RedesignationStep> {
+    let (
+        Target::Change {
+            path: from_path,
+            from_date,
+            to_date,
+            ..
+        },
+        Target::Change { path: to_path, .. },
+    ) = (&link.subject, &link.object)
+    else {
+        return None;
+    };
+    Some(RedesignationStep {
+        from_path: from_path.clone(),
+        to_path: to_path.clone(),
+        from_date: from_date.clone(),
+        to_date: to_date.clone(),
+    })
 }
 
 /// Map a verification state back onto a stored status.

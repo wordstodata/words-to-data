@@ -5,8 +5,9 @@
 //! site renders both. Code that assumes a path is unique within an expression
 //! does not fail loudly — it picks one and discards the other.
 
+use words_to_data::document::DocumentNode;
 use words_to_data::inspect::PathMatch;
-use words_to_data::uslm::{USLMElement, parser::parse};
+use words_to_data::uslm::parser::parse;
 
 const USC26_18: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
 const USC26_30: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
@@ -14,7 +15,7 @@ const USC26_30: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
 /// Both paragraphs (4) of § 45X(d), which the U.S. Code renders in full.
 const DUPLICATED: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_d/paragraph_4";
 
-fn title_26() -> USLMElement {
+fn title_26() -> DocumentNode {
     parse(USC26_30, "2025-07-30").expect("Error running parser")
 }
 
@@ -125,7 +126,7 @@ fn should_report_a_new_provision_that_shares_a_path_with_an_existing_one() {
         "the later expression should hold two"
     );
 
-    let diff = TreeDiff::from_elements(&before, &after);
+    let diff = TreeDiff::from_nodes(&before, &after);
     let mut added = Vec::new();
     added_paths(&diff, &mut added);
 
@@ -362,9 +363,11 @@ fn should_report_counts_but_no_provisions_when_no_expression_pair_is_given() {
 }
 
 /// Title 26 at one release point, held both ways.
-fn dataset_both_backends(
-    name: &str,
-) -> (
+///
+/// The caller must keep the returned directory in scope: dropping it removes the
+/// SQLite database.
+fn dataset_both_backends() -> (
+    tempfile::TempDir,
     words_to_data::dataset::Dataset<words_to_data::storage::InMemoryStorage>,
     words_to_data::dataset::Dataset<words_to_data::storage::SqliteStorage>,
 ) {
@@ -383,22 +386,20 @@ fn dataset_both_backends(
         .add_uslm_xml(USC26_30, "2025-07-30", None)
         .expect("the fixture should parse");
 
-    let dir = std::path::Path::new("target/duplicate_path_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let file = dir.join(format!("{name}.sqlite"));
-    std::fs::remove_file(&file).ok();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("dataset.sqlite");
     memory.save_to_sqlite(&file).expect("save to sqlite");
     let sqlite = Dataset::open_sqlite(&file).expect("open sqlite");
 
-    (memory, sqlite)
+    (dir, memory, sqlite)
 }
 
 #[test]
 fn should_hold_every_provision_sharing_a_path_on_both_backends() {
-    let (memory, sqlite) = dataset_both_backends("find_element");
+    let (_dir, memory, sqlite) = dataset_both_backends();
 
-    let from_memory = memory.find_element(DUPLICATED).expect("find in memory");
-    let from_sqlite = sqlite.find_element(DUPLICATED).expect("find in sqlite");
+    let from_memory = memory.find_nodes(DUPLICATED).expect("find in memory");
+    let from_sqlite = sqlite.find_nodes(DUPLICATED).expect("find in sqlite");
 
     // Both paragraphs (4) are law and both must be reachable. Keying storage by
     // path alone dropped one of them, silently.
@@ -413,7 +414,7 @@ fn should_hold_every_provision_sharing_a_path_on_both_backends() {
         "the SQLite backend should hold both provisions"
     );
 
-    let headings = |found: &[(words_to_data::dataset::ExpressionId, USLMElement)]| -> Vec<String> {
+    let headings = |found: &[(words_to_data::dataset::ExpressionId, DocumentNode)]| -> Vec<String> {
         found
             .iter()
             .map(|(_, e)| e.data.heading.as_deref().unwrap_or("<none>").to_string())
@@ -433,23 +434,23 @@ const ABSENT: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/
 fn should_say_whether_a_path_exists_on_both_backends() {
     use words_to_data::storage::DocumentReader;
 
-    let (memory, sqlite) = dataset_both_backends("has_element");
+    let (_dir, memory, sqlite) = dataset_both_backends();
 
     assert!(
-        memory.has_element(DUPLICATED).expect("ask memory"),
+        memory.has_node(DUPLICATED).expect("ask memory"),
         "the in-memory backend holds this path"
     );
     assert!(
-        sqlite.has_element(DUPLICATED).expect("ask sqlite"),
+        sqlite.has_node(DUPLICATED).expect("ask sqlite"),
         "the SQLite backend holds this path"
     );
 
     assert!(
-        !memory.has_element(ABSENT).expect("ask memory"),
+        !memory.has_node(ABSENT).expect("ask memory"),
         "the in-memory backend does not hold this path"
     );
     assert!(
-        !sqlite.has_element(ABSENT).expect("ask sqlite"),
+        !sqlite.has_node(ABSENT).expect("ask sqlite"),
         "the SQLite backend does not hold this path"
     );
 }
@@ -458,26 +459,23 @@ fn should_say_whether_a_path_exists_on_both_backends() {
 fn should_say_a_path_exists_when_it_names_more_than_one_provision() {
     use words_to_data::storage::DocumentReader;
 
-    let (memory, sqlite) = dataset_both_backends("has_element_duplicate");
+    let (_dir, memory, sqlite) = dataset_both_backends();
 
     // The question is whether at least one provision sits at the path. Two
     // paragraphs (4) sit at this one, and a check which expects a path to name
     // exactly one provision cannot answer for it (ADR 0001, #77, #85).
     assert_eq!(
-        memory
-            .find_element(DUPLICATED)
-            .expect("find in memory")
-            .len(),
+        memory.find_nodes(DUPLICATED).expect("find in memory").len(),
         2,
         "the fixture must really hold two provisions here"
     );
 
     assert!(
-        memory.has_element(DUPLICATED).expect("ask memory"),
+        memory.has_node(DUPLICATED).expect("ask memory"),
         "two provisions at a path still means the path exists"
     );
     assert!(
-        sqlite.has_element(DUPLICATED).expect("ask sqlite"),
+        sqlite.has_node(DUPLICATED).expect("ask sqlite"),
         "two provisions at a path still means the path exists"
     );
 }

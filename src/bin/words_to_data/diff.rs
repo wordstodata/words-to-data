@@ -40,6 +40,17 @@ pub fn run(args: Args) {
     print_paths("Changed", &summary.changed_paths);
     print_paths("Added", &summary.added_paths);
     print_paths("Removed", &summary.removed_paths);
+
+    // A move is not a removal plus an addition, so it gets its own list. An
+    // empty one is not printed: every dataset has none until `redesignations`
+    // has run, and a heading saying "Moved (0)" reads as a claim that nothing
+    // moved (#93).
+    if !summary.moved_paths.is_empty() {
+        println!("\nMoved ({}):", summary.moved_paths.len());
+        for moved in &summary.moved_paths {
+            println!("  {} -> {}", moved.from, moved.to);
+        }
+    }
 }
 
 fn print_paths(label: &str, paths: &[String]) {

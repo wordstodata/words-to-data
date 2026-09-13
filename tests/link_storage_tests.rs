@@ -183,16 +183,20 @@ fn empty_dataset() -> Dataset<InMemoryStorage> {
 }
 
 /// Round-trip a dataset through SQLite so both backends are exercised.
+///
+/// The caller must keep the returned directory in scope: dropping it removes the
+/// database.
 fn through_sqlite(
     dataset: &Dataset<InMemoryStorage>,
-    name: &str,
-) -> Dataset<words_to_data::storage::SqliteStorage> {
-    let dir = std::path::Path::new("target/link_storage_dbs");
-    std::fs::create_dir_all(dir).expect("create sqlite test dir");
-    let file = dir.join(format!("{name}.sqlite"));
-    std::fs::remove_file(&file).ok();
+) -> (
+    tempfile::TempDir,
+    Dataset<words_to_data::storage::SqliteStorage>,
+) {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("dataset.sqlite");
     dataset.save_to_sqlite(&file).expect("save to sqlite");
-    Dataset::open_sqlite(&file).expect("open sqlite")
+    let sqlite = Dataset::open_sqlite(&file).expect("open sqlite");
+    (dir, sqlite)
 }
 
 #[test]
@@ -203,14 +207,10 @@ fn should_carry_a_link_of_a_kind_this_build_has_never_seen() {
         dataset.add_link(link).expect("the link should be stored");
     }
 
+    let (_dir, sqlite) = through_sqlite(&dataset);
     for (label, stored) in [
         ("memory", dataset.links_by_namespace("westlaw").unwrap()),
-        (
-            "sqlite",
-            through_sqlite(&dataset, "unknown_kind")
-                .links_by_namespace("westlaw")
-                .unwrap(),
-        ),
+        ("sqlite", sqlite.links_by_namespace("westlaw").unwrap()),
     ] {
         // A reader that does not understand `westlaw.headnote` must still find
         // it, report it, and hand it back byte-identical. Silent loss is the
@@ -305,7 +305,7 @@ fn should_find_links_by_kind_and_by_the_path_they_are_about() {
     for link in fixture.clone() {
         dataset.add_link(link).expect("stored");
     }
-    let sqlite = through_sqlite(&dataset, "queries");
+    let (_dir, sqlite) = through_sqlite(&dataset);
 
     let Target::Change { path, .. } = &fixture[0].subject else {
         panic!("the fixture's subject is a change");
@@ -367,7 +367,7 @@ fn should_carry_an_unreadable_payload_through_storage_untouched() {
 
     let mut dataset = empty_dataset();
     dataset.add_link(link).expect("stored");
-    let sqlite = through_sqlite(&dataset, "payload");
+    let (_dir, sqlite) = through_sqlite(&dataset);
 
     // The core stores it, hands it back unchanged, and never reads it.
     let stored = sqlite.links_by_namespace("westlaw").unwrap();

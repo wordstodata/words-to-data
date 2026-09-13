@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::congress::{BillVotes, Member, SponsorInfo};
 use crate::dataset::{DatasetMetadata, Expression, ExpressionId, WorkId};
+use crate::document::{ClassPayload, DocumentNode, NodeData, NodeType};
 use crate::intern::StringInterner;
 /// Custom serializer for HashMap with tuple keys (JSON doesn't support non-string keys)
-use crate::link::Link;
+use crate::link::{Link, Provenance};
 use crate::storage::{InMemoryStorage, SCHEMA_VERSION, memory::ExpressionsByWork};
 use crate::uslm::bill_parser::Bill;
-use crate::uslm::{DocumentType, ElementData, ElementType, RefPair, SourceCredit, USLMElement};
 
 /// Index into string table (u32 = 4B vs Arc = 8B + allocation)
 type StrIdx = u32;
@@ -96,42 +96,43 @@ impl Default for StringTable {
     }
 }
 
-/// Compact ElementData with string indices
+/// Compact [`NodeData`] with string indices
+///
+/// Every field is a string index or an option of one, including the class
+/// payload. A payload is interned whole, as the JSON text it is: the compact
+/// format never looks inside a payload any more than the rest of the core does,
+/// and it does not need to in order to store it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ElementDataCompact {
+pub struct NodeDataCompact {
     pub path: StrIdx,
-    pub element_type: ElementType,
-    pub document_type: DocumentType,
+    pub node_type: StrIdx,
     pub date: StrIdx, // Store date as string index too
-    pub number_value: StrIdx,
-    pub number_display: StrIdx,
-    pub verbose_name: StrIdx,
     pub heading: Option<StrIdx>,
     pub chapeau: Option<StrIdx>,
     pub proviso: Option<StrIdx>,
     pub content: Option<StrIdx>,
     pub continuation: Option<StrIdx>,
-    pub uslm_id: Option<StrIdx>,
-    pub uslm_uuid: Option<StrIdx>,
-    pub source_credits: Vec<SourceCreditCompact>,
+    /// Where the node's text came from. Stored whole rather than interned: most
+    /// nodes carry none, and a `Provenance` is a record rather than a string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Box<Provenance>>,
+    /// The namespace of the class payload, and its JSON text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<ClassPayloadCompact>,
 }
 
+/// Compact [`ClassPayload`]: the namespace and the facts, both interned.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RefPairCompact {
-    pub ref_id: StrIdx,
-    pub description: StrIdx,
+pub struct ClassPayloadCompact {
+    pub namespace: StrIdx,
+    pub value: StrIdx,
 }
 
+/// Compact [`DocumentNode`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceCreditCompact {
-    pub ref_pairs: Vec<RefPairCompact>,
-}
-
-/// Compact USLMElement
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct USLMElementCompact {
-    pub data: ElementDataCompact,
-    pub children: Vec<USLMElementCompact>,
+pub struct DocumentNodeCompact {
+    pub data: NodeDataCompact,
+    pub children: Vec<DocumentNodeCompact>,
 }
 
 /// Compact Expression
@@ -140,7 +141,7 @@ pub struct ExpressionCompact {
     pub work: StrIdx,
     pub date: StrIdx,
     pub label: Option<StrIdx>,
-    pub element: USLMElementCompact,
+    pub root: DocumentNodeCompact,
 }
 
 /// Compact Dataset for serialization
@@ -238,47 +239,32 @@ impl DatasetCompact {
             work: table.intern(expression.id.work.as_str()),
             date: table.intern(&expression.id.at),
             label: expression.label.as_ref().map(|l| table.intern(l)),
-            element: Self::compact_element(&expression.element, table),
+            root: Self::compact_node(&expression.root, table),
         }
     }
 
-    fn compact_element(element: &USLMElement, table: &mut StringTable) -> USLMElementCompact {
-        let data = &element.data;
-        USLMElementCompact {
-            data: ElementDataCompact {
+    fn compact_node(node: &DocumentNode, table: &mut StringTable) -> DocumentNodeCompact {
+        let data = &node.data;
+        DocumentNodeCompact {
+            data: NodeDataCompact {
                 path: table.intern(&data.path),
-                element_type: data.element_type,
-                document_type: data.document_type.clone(),
+                node_type: table.intern(data.node_type.as_str()),
                 date: table.intern(&data.date.to_string()),
-                number_value: table.intern(&data.number_value),
-                number_display: table.intern(&data.number_display),
-                verbose_name: table.intern(&data.verbose_name),
                 heading: data.heading.as_ref().map(|s| table.intern(s)),
                 chapeau: data.chapeau.as_ref().map(|s| table.intern(s)),
                 proviso: data.proviso.as_ref().map(|s| table.intern(s)),
                 content: data.content.as_ref().map(|s| table.intern(s)),
                 continuation: data.continuation.as_ref().map(|s| table.intern(s)),
-                uslm_id: data.uslm_id.as_ref().map(|s| table.intern(s)),
-                uslm_uuid: data.uslm_uuid.as_ref().map(|s| table.intern(s)),
-                source_credits: data
-                    .source_credits
-                    .iter()
-                    .map(|sc| SourceCreditCompact {
-                        ref_pairs: sc
-                            .ref_pairs
-                            .iter()
-                            .map(|rp| RefPairCompact {
-                                ref_id: table.intern(&rp.ref_id),
-                                description: table.intern(&rp.description),
-                            })
-                            .collect(),
-                    })
-                    .collect(),
+                provenance: data.provenance.clone(),
+                payload: data.payload.as_ref().map(|payload| ClassPayloadCompact {
+                    namespace: table.intern(&payload.namespace),
+                    value: table.intern(&payload.value),
+                }),
             },
-            children: element
+            children: node
                 .children
                 .iter()
-                .map(|c| Self::compact_element(c, table))
+                .map(|c| Self::compact_node(c, table))
                 .collect(),
         }
     }
@@ -325,55 +311,40 @@ impl DatasetCompact {
                 table.get(compact.date),
             ),
             label: compact.label.map(|i| table.get(i).to_string()),
-            element: Self::expand_element(compact.element, table, interner),
+            root: Self::expand_node(compact.root, table, interner),
         }
     }
 
-    fn expand_element(
-        element: USLMElementCompact,
+    fn expand_node(
+        node: DocumentNodeCompact,
         table: &StringTable,
         interner: &mut StringInterner,
-    ) -> USLMElement {
-        let data = element.data;
+    ) -> DocumentNode {
+        let data = node.data;
         let date_str = table.get(data.date);
 
-        USLMElement {
-            data: ElementData {
+        DocumentNode {
+            data: NodeData {
                 path: table.get_arc(data.path, interner),
-                element_type: data.element_type,
-                document_type: data.document_type,
+                node_type: NodeType::new(table.get(data.node_type)),
                 date: crate::date::date_str_to_date(date_str).unwrap_or_else(|_| {
                     time::Date::from_calendar_date(1970, time::Month::January, 1).unwrap()
                 }),
-                number_value: table.get_arc(data.number_value, interner),
-                number_display: table.get_arc(data.number_display, interner),
-                verbose_name: table.get_arc(data.verbose_name, interner),
                 heading: table.get_arc_option(data.heading, interner),
                 chapeau: table.get_arc_option(data.chapeau, interner),
                 proviso: table.get_arc_option(data.proviso, interner),
                 content: table.get_arc_option(data.content, interner),
                 continuation: table.get_arc_option(data.continuation, interner),
-                uslm_id: table.get_arc_option(data.uslm_id, interner),
-                uslm_uuid: table.get_arc_option(data.uslm_uuid, interner),
-                source_credits: data
-                    .source_credits
-                    .into_iter()
-                    .map(|sc| SourceCredit {
-                        ref_pairs: sc
-                            .ref_pairs
-                            .into_iter()
-                            .map(|rp| RefPair {
-                                ref_id: table.get(rp.ref_id).to_string(),
-                                description: table.get(rp.description).to_string(),
-                            })
-                            .collect(),
-                    })
-                    .collect(),
+                provenance: data.provenance,
+                payload: data.payload.map(|payload| ClassPayload {
+                    namespace: table.get_arc(payload.namespace, interner),
+                    value: table.get(payload.value).into(),
+                }),
             },
-            children: element
+            children: node
                 .children
                 .into_iter()
-                .map(|c| Self::expand_element(c, table, interner))
+                .map(|c| Self::expand_node(c, table, interner))
                 .collect(),
         }
     }

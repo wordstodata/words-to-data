@@ -3,9 +3,11 @@
 
 use clap::{Parser, Subcommand};
 
+mod add_opinions;
 mod annotations;
 mod bills;
 mod build_dataset;
+mod cases_citing;
 mod convert_dataset;
 mod coverage;
 mod diff;
@@ -16,6 +18,7 @@ mod info;
 mod load;
 mod match_amendments;
 mod path;
+mod redesignations;
 mod report;
 mod score_amendments;
 mod search;
@@ -44,6 +47,10 @@ enum Command {
     ScoreAmendments(score_amendments::Args),
     /// Match bill amendments to US Code changes via an LLM and annotate the dataset
     MatchAmendments(match_amendments::Args),
+    /// Record the provisions a bill renumbered, as links (deterministic, no LLM)
+    Redesignations(redesignations::Args),
+    /// Add court opinions from CourtListener, with their U.S.C. citations as links
+    AddOpinions(add_opinions::Args),
 
     // --- Inspection (read-only) ---
     /// Show a dataset's metadata and headline counts
@@ -59,6 +66,8 @@ enum Command {
     Votes(votes::Args),
     /// Full-text search across every expression
     Search(search::Args),
+    /// Which opinions cite a provision, and whether it changed after each was filed
+    CasesCiting(cases_citing::Args),
     /// List the paths that changed between two expressions of one work
     Diff(diff::Args),
     /// Report annotation coverage of a diff (the unannotated work queue)
@@ -78,6 +87,9 @@ fn main() {
         Command::ExtractChanges(args) => extract_changes::run(args),
         Command::ScoreAmendments(args) => score_amendments::run(args),
         Command::MatchAmendments(args) => match_amendments::run(args),
+        Command::Redesignations(args) => redesignations::run(args),
+        Command::AddOpinions(args) => add_opinions::run(args),
+        Command::CasesCiting(args) => cases_citing::run(args),
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),
         Command::Bills(args) => bills::run(args),

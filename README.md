@@ -17,6 +17,8 @@ Written in Rust.
 - **Bill amendment extraction** - Identify USC references and amending actions from bills
 - **Hierarchical diffing** - Compute word-level differences between two expressions of one work
 - **Congress data integration** - Fetch bill metadata and text from Congress.gov API
+- **Court opinions** - Store an opinion from CourtListener beside the statutes it construes, as one node, with the field its text came from recorded
+- **U.S. Code citations as links** - Read the citations out of an opinion's text and record each as a `judicial.cites` link, with the matched text as evidence
 
 ## Installation
 
@@ -143,24 +145,73 @@ The `Dataset` is the primary abstraction for working with versioned legal docume
 
 Use `Dataset` to load documents, compute diffs, and track which amendment caused each change. Ask `works()` what documents it holds and `expressions(&work)` when each was published; `scope()` reports both together, so an empty result can be answered with "out of scope" rather than "not found".
 
-### USLM Elements
+### Document nodes
 
-Documents are represented as trees of `USLMElement` structures. Each element contains:
+Documents are represented as trees of `DocumentNode` structures. Each node contains:
 
-- **ElementData**: Metadata, text content, and identification
-- **Children**: Nested child elements forming the document hierarchy
+- **NodeData**: Its path, its type, its date, its text, and where the text came from
+- **Children**: Nested child nodes forming the document hierarchy
+
+A node says nothing about which class of document it belongs to beyond its type,
+which is an open namespaced string — `uscode.section`, `judicial.opinion`. The
+facts only one class understands travel beside it in a payload the core stores and
+never reads: `words_to_data::uslm::UslmFacts` reads the US Code's,
+`words_to_data::judicial::OpinionFacts` reads a court opinion's. A whole document
+is one node where nothing has taken it apart, which is how a court opinion is
+stored. See `docs/adr/0006-a-document-node-is-class-neutral.md`.
 
 The library uses two types of paths:
 
-1. **Structural Path**: Full hierarchy including all elements
+1. **Structural Path**: Full hierarchy including all nodes
    Example: `uscode/title_26/subtitle_A/chapter_1/section_174`
 
-2. **USLM ID**: Official USLM identifier (excludes structural-only elements)
+2. **USLM ID**: Official USLM identifier (excludes structural-only elements), in
+   the `uscode` payload rather than in a core field
    Example: `/us/usc/t26/s174/a/1`
+
+### Court opinions, and the question they answer
+
+A court opinion goes into the same dataset as the statutes it construes. It is one
+work with one expression, dated the day the court filed it, holding one node. Two
+commands do the work:
+
+```bash
+# Fetch opinions from CourtListener and record their U.S. Code citations as links.
+# Needs COURTLISTENER_API_KEY; --offline reads only what is already cached.
+words_to_data add-opinions dataset.sqlite --opinions 109019,122262,406879
+
+# Which cases cite a provision, and has it moved under them since?
+words_to_data cases-citing dataset.sqlite --cites "26 U.S.C. § 174" --chain
+```
+
+The second is statutory research run backwards: not "what controls this point" but
+"Congress amended this provision — which cases construing the old text can no
+longer be relied on?" It reports the verification state of each citation link, the
+printings it can compare, and — the part that makes it honest — the period between
+the opinion and the earliest printing held, which it says nothing about:
+
+```
+Snow v. Commissioner (judicial/opinion_109019@1974-05-13)
+  opinion text: courtlistener:opinion/109019:html_lawbox / markup / Asserted
+  cites …/section_174 — link is MachineSuggested, matched "26 U. S. C. § 174"
+    2025-07-18 → 2025-07-30: CHANGED, at 4 path(s): …
+    1974-05-13 → 2025-07-18: OUT OF SCOPE. This dataset holds no printing of the
+    cited work in that period, so it cannot say whether the provision changed in
+    it. It is not a statement that nothing changed.
+```
+
+With `--chain` it carries on through `legislature.amended_by` to the amendment,
+the bill, its sponsor and the roll call. See
+`docs/research/a-court-opinion-in-the-core.md` and
+`docs/adr/0008-an-opinions-text-is-one-named-field-chosen-for-fidelity.md`.
+
+The opinion records come from [CourtListener](https://www.courtlistener.com/),
+by Free Law Project, read through its API under its terms. The analysis above is
+ours; Free Law Project has not produced, endorsed or verified it.
 
 ### Text Content Fields
 
-Each element can contain up to five distinct text fields:
+Each node can contain up to five distinct text fields:
 
 - **Heading**: Section or subsection title
 - **Chapeau**: Opening text before enumerated items
@@ -170,20 +221,24 @@ Each element can contain up to five distinct text fields:
 
 ### Diffs
 
-The `TreeDiff` structure mirrors the element hierarchy and tracks:
+The `TreeDiff` structure mirrors the node hierarchy and tracks:
 
 - **Field changes**: Word-level differences in text content fields
-- **Added elements**: New child elements in the newer version
-- **Removed elements**: Elements that existed in the older version
-- **Child diffs**: Recursive diffs for matching child elements
+- **Added nodes**: New child nodes in the newer version
+- **Removed nodes**: Nodes that existed in the older version
+- **Child diffs**: Recursive diffs for matching child nodes
 
 Diffs are computed using word-level granularity via the `similar` crate.
 
 ### Amending Actions
 
-Bills can perform these operations on existing code:
+The publisher's schema defines twelve amending actions (`uslm-2.0.17.xsd`, `AmendingActionTypeEnum`):
 
-`Amend`, `Add`, `Delete`, `Insert`, `Redesignate`, `Repeal`, `Move`, `Strike`, `StrikeAndInsert`
+`enact`, `add`, `amend`, `substitute`, `redesignate`, `repeal`, `repealAndReserve`, `insert`, `delete`, `conform`, `noChange`, `unknown`
+
+The five public laws in the cache use six of them: `insert`, `delete`, `amend`, `add`, `redesignate`, `repeal`.
+
+`AmendingAction` is that list: one variant for each of the twelve values, and no value the publisher cannot emit. An action type this build does not know is reported, never dropped (#156).
 
 ## API Documentation
 

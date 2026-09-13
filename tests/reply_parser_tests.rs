@@ -7,6 +7,7 @@
 //! survives what a model actually sends.
 
 use serde::Deserialize;
+use words_to_data::legislature::AmendingAction;
 use words_to_data::llm::{parse_annotations, parse_changes};
 
 const REPLIES: &str = "tests/test_data/processed/model_replies.json";
@@ -92,18 +93,69 @@ fn should_read_several_annotations_from_one_reply() {
         "one reply can answer for several candidates, got {}",
         annotations.len()
     );
-    // Every operation the model names must survive; one that does not parse
+    // Every operation the model names must survive; one that cannot be read
     // silently becomes `Amend`, which is a quiet lie about what the law did.
+    //
+    // A model answers in the drafter's words, not the publisher's, so the reading
+    // is `from_prose` rather than `parse`. `parse` is the schema's vocabulary and
+    // declines `strikeandinsert` on purpose (#156).
     for annotation in &annotations {
         if let Some(operation) = &annotation.operation {
             assert!(
-                operation
-                    .parse::<words_to_data::legislature::AmendingAction>()
-                    .is_ok(),
+                AmendingAction::from_prose(operation).is_ok(),
                 "the model emitted an operation we cannot read: {operation:?}"
             );
         }
     }
+}
+
+#[test]
+fn should_map_the_drafters_word_onto_the_schema_when_a_model_answers_in_prose() {
+    // Real recorded output: models answered `strikeandinsert` twice in the first
+    // sweep, and `tests/test_data/processed/annotations.json` holds 110
+    // `strike_and_insert` and 40 `strike` from that pipeline. None of the three
+    // is a value of `AmendingActionTypeEnum`, so the word has to land on the
+    // publisher's word for the same act.
+    let operations: Vec<String> = for_command("match-amendments")
+        .iter()
+        .filter_map(|recorded| parse_annotations(&recorded.reply).ok())
+        .flatten()
+        .filter_map(|annotation| annotation.operation)
+        .collect();
+    assert!(
+        operations.iter().any(|op| op == "strikeandinsert"),
+        "the fixture should hold a prose word, got {operations:?}"
+    );
+
+    // Striking text is the schema's `delete`, and striking text and putting other
+    // text in its place is its `substitute`: "replaces an existing provision".
+    assert_eq!(
+        AmendingAction::from_prose("strike").expect("a drafter's word for delete"),
+        AmendingAction::Delete
+    );
+    for written in ["strikeandinsert", "strike_and_insert"] {
+        assert_eq!(
+            AmendingAction::from_prose(written).expect("a drafter's word for substitute"),
+            AmendingAction::Substitute,
+            "{written:?} must read as the schema's word"
+        );
+    }
+
+    // The schema's own words still read, because a model is asked for an action
+    // and often names one.
+    assert_eq!(
+        AmendingAction::from_prose("redesignate").expect("the schema's word"),
+        AmendingAction::Redesignate
+    );
+
+    // `move` is refused rather than mapped. The schema has no action for a
+    // relocation, and `redesignate` is a different fact: it renumbers a provision
+    // that stays where it is. Mapping the two together would record something the
+    // model did not say.
+    assert!(
+        AmendingAction::from_prose("move").is_err(),
+        "no word of the schema means relocation"
+    );
 }
 
 #[test]

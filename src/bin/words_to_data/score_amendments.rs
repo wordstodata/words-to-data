@@ -12,7 +12,7 @@ use clap::Args as ClapArgs;
 use serde::Serialize;
 use words_to_data::dataset::Dataset;
 use words_to_data::diff::AmendmentSimilarity;
-use words_to_data::storage::Storage;
+use words_to_data::storage::{LegislatureReader, Storage};
 
 use crate::load::{self, with_dataset};
 use crate::span::Span;
@@ -74,7 +74,10 @@ pub fn run(args: Args) {
 
 /// Score every expression pair the span resolves to, returning the per-work
 /// scores and the total kept above the cutoff.
-fn score(args: &Args, dataset: &Dataset<impl Storage>) -> (Vec<ScoredWork>, usize) {
+fn score(
+    args: &Args,
+    dataset: &Dataset<impl Storage + LegislatureReader>,
+) -> (Vec<ScoredWork>, usize) {
     let bills: Vec<_> = crate::fail::or_exit(dataset.list_bill_ids(), "Error listing bills")
         .into_iter()
         .map(|id| {

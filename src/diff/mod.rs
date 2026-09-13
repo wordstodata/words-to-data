@@ -8,8 +8,9 @@ use similar::{ChangeTag, TextDiff};
 use time::Date;
 
 use crate::constants::STOP_WORDS;
+use crate::document::{DocumentNode, NodeData, TextContentField};
 use crate::legislature::BillAmendment;
-use crate::uslm::{ElementData, TextContentField, USLMElement, bill_parser::Bill};
+use crate::uslm::bill_parser::Bill;
 
 /// A change detected in a single text content field between two document versions
 ///
@@ -75,10 +76,10 @@ pub enum TextChangeType {
     Equal,
 }
 
-/// A hierarchical diff between two versions of a USLM document tree
+/// A hierarchical diff between two versions of a document tree
 ///
 /// This struct captures all changes between two versions of the same legislative
-/// element and its children. It mirrors the tree structure of `USLMElement`,
+/// element and its children. It mirrors the tree structure of `DocumentNode`,
 /// with diffs computed recursively for all matching children.
 ///
 /// # Structure
@@ -99,14 +100,16 @@ pub enum TextChangeType {
 /// let new_doc = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
 ///
 /// // Compute the diff
-/// let diff = TreeDiff::from_elements(&old_doc, &new_doc);
+/// let diff = TreeDiff::from_nodes(&old_doc, &new_doc);
 ///
 /// // Examine changes
 /// println!("Field changes: {}", diff.changes.len());
 /// println!("Elements added: {}", diff.added.len());
 /// println!("Elements removed: {}", diff.removed.len());
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// No `Eq` or `Hash`: a `NodeData` can carry a `Provenance`, which holds an `f32`.
+// Nothing hashes a diff, so neither is missed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TreeDiff {
     /// The structural path of the element being compared
@@ -116,19 +119,178 @@ pub struct TreeDiff {
     pub changes: Vec<FieldChangeEvent>,
 
     /// Metadata from the original version of this element
-    pub from_element: ElementData,
+    pub from_element: NodeData,
 
     /// Metadata from the new version of this element
-    pub to_element: ElementData,
+    pub to_element: NodeData,
 
     /// Child elements that were added in the new version
-    pub added: Vec<ElementData>,
+    pub added: Vec<NodeData>,
 
     /// Child elements that were removed from the old version
-    pub removed: Vec<ElementData>,
+    pub removed: Vec<NodeData>,
+
+    /// Child elements renumbered between the two versions.
+    ///
+    /// Empty unless the caller supplied the redesignations that apply, which is
+    /// every diff computed straight from two trees
+    /// ([`TreeDiff::from_nodes_with`]).
+    ///
+    /// A projection, like the rest of this struct: it is computed from the two
+    /// documents and the links, and nothing stores it
+    /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved: Vec<NodeMove>,
 
     /// Recursive diffs for child elements present in both versions
+    ///
+    /// A renumbered child is here too, at the path it was given, beside the
+    /// [`NodeMove`] that records the renumbering. So a change inside a renumbered
+    /// container is found where a reader of the later expression would look for
+    /// it, and never at a path only the earlier expression held.
     pub child_diffs: Vec<TreeDiff>,
+}
+
+/// A child element that changed its number: the same law, addressed differently.
+///
+/// Reported separately from a change, an addition and a removal, because it is
+/// none of those. Before this existed, a bill that struck paragraph (2) and
+/// renumbered (3) as (2) read as a rewrite of (2) plus the disappearance of (3) —
+/// two false statements about what the law did (#93).
+///
+/// This records the renumbering and nothing below it. What the subtree now says
+/// is reported beside it, as a child diff at the **new** path: 7 U.S.C. § 9032(d)
+/// became (e) and the loan rate inside it went from $0.25 to $0.30 a pound in the
+/// same bill, and reading the move alone would miss the rate (#152).
+// No `Eq` or `Hash`, for the reason `TreeDiff` has none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct NodeMove {
+    /// The element as it was, at the path it had.
+    pub from: NodeData,
+
+    /// The element as it became, at the path it was given.
+    pub to: NodeData,
+
+    /// Text content changes at the element itself, when the same amendment
+    /// changed its words as well as its number. Usually empty: a redesignation
+    /// renumbers, and something else rewrites.
+    ///
+    /// The same changes are also on the child diff at the element's new path, so
+    /// that each list answers its own question whole: this one says what the
+    /// renumbering did, and the child diff says what the provision at that path
+    /// now reads.
+    pub changes: Vec<FieldChangeEvent>,
+}
+
+/// The redesignations that apply between two versions of a document.
+///
+/// A lookup from the path a provision had to the path it was given. The diff asks
+/// this before it pairs by position, so a renumbered provision is paired with
+/// what it became rather than with whatever took its number.
+///
+/// Built from either side of the model: from the links a dataset holds
+/// ([`Redesignations::from_links`]), or from redesignations just read out of a
+/// bill ([`Redesignations::from_pairs`]). The diff therefore depends on neither
+/// storage nor a bill parser.
+#[derive(Debug, Clone, Default)]
+pub struct Redesignations {
+    /// Old path to new path. One old path moves to one new path: a provision
+    /// cannot become two.
+    by_old_path: HashMap<String, String>,
+}
+
+impl Redesignations {
+    /// Nothing known, so pairing is by position alone.
+    ///
+    /// The honest answer for a reader holding no links, and what
+    /// [`TreeDiff::from_nodes`] uses.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// Build from pairs of old path and new path.
+    pub fn from_pairs(pairs: impl IntoIterator<Item = (String, String)>) -> Self {
+        Self {
+            by_old_path: pairs.into_iter().collect(),
+        }
+    }
+
+    /// Build from the `legislature.redesignated_as` links among those given.
+    ///
+    /// A link of any other kind is skipped. Both ends of a redesignation link
+    /// name a change — a provision as it read across two dates — so a link whose
+    /// ends are shaped otherwise is not one of ours and is left alone.
+    pub fn from_links(links: &[crate::link::Link]) -> Self {
+        use crate::link::{LinkKind, Target};
+
+        let redesignated_as = LinkKind::new(LinkKind::REDESIGNATED_AS);
+        let path_of = |target: &Target| match target {
+            Target::Change { path, .. } => Some(path.clone()),
+            Target::Provision(path) => Some(path.clone()),
+            _ => None,
+        };
+        Self::from_pairs(
+            links
+                .iter()
+                .filter(|link| link.kind == redesignated_as)
+                .filter_map(|link| Some((path_of(&link.subject)?, path_of(&link.object)?))),
+        )
+    }
+
+    /// True when nothing is known, so the diff behaves exactly as it did before
+    /// redesignations existed.
+    pub fn is_empty(&self) -> bool {
+        self.by_old_path.is_empty()
+    }
+
+    /// How many redesignations are known.
+    pub fn len(&self) -> usize {
+        self.by_old_path.len()
+    }
+
+    /// The path a provision was given, when one is known.
+    ///
+    /// Only what a bill stated about *this* path. A provision carried along by a
+    /// renumbered ancestor is not here, because no bill said anything about it —
+    /// ask [`Redesignations::is_one_provision`] about that.
+    fn new_path_of(&self, old_path: &str) -> Option<&str> {
+        self.by_old_path.get(old_path).map(String::as_str)
+    }
+
+    /// True when the two paths are one provision across two dates.
+    ///
+    /// Three ways they can be. The path did not move. A bill renumbered this
+    /// very provision. Or a bill renumbered an ancestor and carried this one
+    /// along — `(c)(1)` becomes `(d)(1)` because `(c)` became `(d)`, and the bill
+    /// said nothing about `(1)` — which leaves the two paths ending alike and
+    /// differing only above the renumbering.
+    ///
+    /// The diff asserts this of every pair it compares. Two paths that answer to
+    /// none of the three are two different provisions, and a diff between them
+    /// would be a statement about nothing.
+    fn is_one_provision(&self, old_path: &str, new_path: &str) -> bool {
+        let mut old_head = old_path;
+        let mut new_head = new_path;
+        loop {
+            if old_head == new_head || self.new_path_of(old_head) == Some(new_head) {
+                return true;
+            }
+            // Drop one trailing segment from each and ask again, higher up. A
+            // renumbering changes one segment and leaves what is below it alone,
+            // so the two paths must agree segment for segment down to the end.
+            let (Some((old_rest, old_last)), Some((new_rest, new_last))) =
+                (old_head.rsplit_once('/'), new_head.rsplit_once('/'))
+            else {
+                return false;
+            };
+            if old_last != new_last {
+                return false;
+            }
+            old_head = old_rest;
+            new_head = new_rest;
+        }
+    }
 }
 
 impl TreeDiff {
@@ -225,7 +387,7 @@ impl TreeDiff {
     //     regs
     // }
 
-    /// Compute the diff between two USLM element trees
+    /// Compute the diff between two document trees
     ///
     /// Compares two versions of the same legislative element and computes all
     /// changes at both the current level and recursively through all children.
@@ -251,7 +413,7 @@ impl TreeDiff {
     /// let old = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
     /// let new = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30").unwrap();
     ///
-    /// let diff = TreeDiff::from_elements(&old, &new);
+    /// let diff = TreeDiff::from_nodes(&old, &new);
     /// ```
     /// True when this diff records nothing at all: no field changes, no added or
     /// removed children, and no changed descendant.
@@ -259,37 +421,101 @@ impl TreeDiff {
         self.changes.is_empty()
             && self.added.is_empty()
             && self.removed.is_empty()
+            && self.moved.is_empty()
             && self.child_diffs.is_empty()
     }
 
-    /// Group an element's children by path, keeping document order within each.
+    /// Group children by their number within the parent, keeping document order
+    /// within each.
     ///
-    /// A path can name more than one child, so the value is every child that
+    /// A number can name more than one child, so the value is every child that
     /// carries it rather than one of them.
-    fn children_by_path(element: &USLMElement) -> HashMap<&str, Vec<&USLMElement>> {
-        let mut by_path: HashMap<&str, Vec<&USLMElement>> = HashMap::new();
-        for child in &element.children {
-            by_path.entry(&child.data.path).or_default().push(child);
+    fn children_by_number<'a>(
+        parent: &DocumentNode,
+        children: &[&'a DocumentNode],
+    ) -> HashMap<&'a str, Vec<&'a DocumentNode>> {
+        let mut by_number: HashMap<&str, Vec<&DocumentNode>> = HashMap::new();
+        for child in children {
+            by_number
+                .entry(number_within(child, parent))
+                .or_default()
+                .push(child);
         }
-        by_path
+        by_number
     }
 
-    pub fn from_elements(from_element: &USLMElement, to_element: &USLMElement) -> TreeDiff {
-        assert!(from_element.data.path == to_element.data.path);
-        let root_path = from_element.data.path.clone();
+    /// Diff two versions of one element, pairing its children by position.
+    ///
+    /// Position is all a pair of documents says on its own. Where a bill
+    /// renumbered a provision, pairing by position reads the renumbering as a
+    /// rewrite; give the redesignations to [`TreeDiff::from_nodes_with`] and it
+    /// pairs across them instead.
+    pub fn from_nodes(from_element: &DocumentNode, to_element: &DocumentNode) -> TreeDiff {
+        Self::from_nodes_with(from_element, to_element, &Redesignations::none())
+    }
+
+    /// Diff two versions of one element, pairing a renumbered provision with
+    /// what it became.
+    ///
+    /// A redesignation takes precedence over position; where none is known,
+    /// position is what we have (`docs/adr/0001-structural-paths-locate-not-identify.md`).
+    ///
+    /// The two elements need not sit at the same path. A renumbered provision
+    /// sits at a different path on each side by definition, and this walks into
+    /// one, so a rewrite inside a renumbered container is reported rather than
+    /// hidden by its parent's new number (#152). What it will not do is diff two
+    /// paths that are not one provision — see
+    /// [`Redesignations::is_one_provision`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the two paths are neither one path nor the two ends of a known
+    /// move, because then they are two different provisions.
+    pub fn from_nodes_with(
+        from_element: &DocumentNode,
+        to_element: &DocumentNode,
+        known: &Redesignations,
+    ) -> TreeDiff {
+        assert!(
+            known.is_one_provision(&from_element.data.path, &to_element.data.path),
+            "a diff is between two dates of one provision, and {} and {} are two provisions",
+            from_element.data.path,
+            to_element.data.path
+        );
+        // The path the provision holds *now*. For all but a renumbered pair the
+        // two are the same path; where they differ, only the later expression
+        // holds this one, and a path means nothing without its date. The earlier
+        // path is not lost: `from_element` carries it, with the date it belongs to.
+        let root_path = to_element.data.path.clone();
+
         // 1. Diff the root element's fields
-        let changes = diff_elements(from_element, to_element);
+        // `diff_nodes` also checks that the two agree on path and on type, which
+        // a renumbered pair cannot: it sits at a different path on each side, and
+        // a bill can renumber it to another level as well.
+        let changes = if from_element.data.path == to_element.data.path {
+            diff_nodes(from_element, to_element)
+        } else {
+            field_changes(from_element, to_element)
+        };
 
-        // 2. Build HashMaps of children by path
-        // A path can name more than one child: the law sometimes numbers two
+        // 2. Pair off the children a bill renumbered, and take them out of the
+        // position pairing below. A renumbered child holds a number that was
+        // somebody else's, so leaving it in would make the two fight over it.
+        let renumbered = plan_moves(from_element, to_element, known);
+        let moved = renumbered.moves(from_element, to_element);
+        let children_left_a = renumbered.remaining(&from_element.children, Side::Old);
+        let children_left_b = renumbered.remaining(&to_element.children, Side::New);
+
+        // 3. Build HashMaps of children by their number within this element
+        // A number can name more than one child: the law sometimes numbers two
         // provisions alike and the document records both (`docs/adr/0001`). So
-        // each path maps to the children that carry it, in document order,
-        // rather than to a single element. Keying by path alone made the second
+        // each number maps to the children that carry it, in document order,
+        // rather than to a single element. Keying by number alone made the second
         // provision invisible — a change to it could not be reported at all.
-        let children_a = Self::children_by_path(from_element);
-        let children_b = Self::children_by_path(to_element);
+        let children_a = Self::children_by_number(from_element, &children_left_a);
+        let children_b = Self::children_by_number(to_element, &children_left_b);
 
-        // 3. Find added, removed, matched
+        // 4. Find added, removed, matched
         let mut added = vec![];
         let mut removed = vec![];
         let mut child_diffs = vec![];
@@ -298,24 +524,38 @@ impl TreeDiff {
         // the order the provisions appear in the law. Iterating the maps let
         // hash order decide, which changed between runs (#73).
         //
-        // Where a path names several provisions, they pair by position: the
+        // Where a number names several provisions, they pair by position: the
         // first on one side answers to the first on the other. Order therefore
         // carries meaning, and a swap in the source is a real change.
         let mut seen: HashMap<&str, usize> = HashMap::new();
-        for child_a in &from_element.children {
-            let path = &*child_a.data.path;
-            let occurrence = seen.entry(path).or_insert(0);
+        for (at, child_a) in from_element.children.iter().enumerate() {
+            // A bill renumbered this child, so it pairs with what it became and
+            // not with whatever took its number. It is walked here, in the older
+            // document's order, so that the moved child's diff sits among its
+            // neighbours rather than in a list of its own. It is not counted in
+            // `seen`, which numbers only the children left to position pairing.
+            if let Some(became) = renumbered.target_of(at) {
+                let child_b = &to_element.children[became];
+                let child_diff = TreeDiff::from_nodes_with(child_a, child_b, known);
+                if !child_diff.is_empty() {
+                    child_diffs.push(child_diff);
+                }
+                continue;
+            }
+
+            let number = number_within(child_a, from_element);
+            let occurrence = seen.entry(number).or_insert(0);
             let index = *occurrence;
             *occurrence += 1;
 
-            match children_b.get(path).and_then(|kin| kin.get(index)) {
+            match children_b.get(number).and_then(|kin| kin.get(index)) {
                 Some(child_b) => {
                     // Matched - recurse
                     // Keep any child that records something. Testing only
                     // `changes` and `child_diffs` here dropped a child whose
                     // sole content was an added or removed element, which lost
                     // every pure insertion in the tree (#54).
-                    let child_diff = TreeDiff::from_elements(child_a, child_b);
+                    let child_diff = TreeDiff::from_nodes_with(child_a, child_b, known);
                     if !child_diff.is_empty() {
                         child_diffs.push(child_diff);
                     }
@@ -329,14 +569,14 @@ impl TreeDiff {
 
         // Iterate through B for added only, again in document order.
         let mut seen = HashMap::new();
-        for child_b in &to_element.children {
-            let path = &*child_b.data.path;
-            let occurrence = seen.entry(path).or_insert(0);
+        for child_b in &children_left_b {
+            let number = number_within(child_b, to_element);
+            let occurrence = seen.entry(number).or_insert(0);
             let index = *occurrence;
             *occurrence += 1;
 
             if children_a
-                .get(path)
+                .get(number)
                 .and_then(|kin| kin.get(index))
                 .is_none()
             {
@@ -351,6 +591,7 @@ impl TreeDiff {
             to_element: to_element.data.clone(),
             added,
             removed,
+            moved,
             child_diffs,
         }
     }
@@ -641,6 +882,7 @@ impl TreeDiff {
             to_element: self.to_element.clone(),
             added: self.added.clone(),
             removed: self.removed.clone(),
+            moved: self.moved.clone(),
             child_diffs: vec![],
         }
     }
@@ -699,6 +941,119 @@ pub struct MentionMatch {
     pub matched_text: String,
 }
 
+/// Which of an element's children paired across a renumbering.
+///
+/// Held as index pairs into the two child lists, because both sides need to be
+/// taken out of the position pairing and a path cannot say which occurrence.
+#[derive(Debug, Default)]
+struct MovePlan {
+    /// One old child's index against the new child's index it became.
+    pairs: Vec<(usize, usize)>,
+}
+
+/// Which side of a diff a child list belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Old,
+    New,
+}
+
+/// Pair off the children a bill renumbered.
+///
+/// Old-document order, so the answer does not depend on a hash. A new child is
+/// claimed once: two old provisions renumbered to one path would be a statement
+/// the bill did not make, and the second is left to position pairing rather than
+/// paired over the first.
+fn plan_moves(
+    from_element: &DocumentNode,
+    to_element: &DocumentNode,
+    known: &Redesignations,
+) -> MovePlan {
+    if known.is_empty() {
+        return MovePlan::default();
+    }
+    let mut pairs = Vec::new();
+    let mut claimed: HashSet<usize> = HashSet::new();
+    for (old_index, child_a) in from_element.children.iter().enumerate() {
+        let Some(new_path) = known.new_path_of(&child_a.data.path) else {
+            continue;
+        };
+        let found = to_element
+            .children
+            .iter()
+            .enumerate()
+            .find(|(new_index, child_b)| {
+                *child_b.data.path == *new_path && !claimed.contains(new_index)
+            });
+        if let Some((new_index, _)) = found {
+            claimed.insert(new_index);
+            pairs.push((old_index, new_index));
+        }
+    }
+    MovePlan { pairs }
+}
+
+/// A child's number within its parent: its path with the parent's stripped off.
+///
+/// Two children pair on this rather than on their whole paths, because inside a
+/// renumbered container the two sides hang under different parents. `(c)(1)` on
+/// one date and `(d)(1)` on the other are one paragraph, and only the tail of the
+/// path says so.
+///
+/// Where a child's path does not extend its parent's, the whole path is the
+/// number. That is what the key always was, so such a child pairs as it did
+/// before.
+fn number_within<'a>(child: &'a DocumentNode, parent: &DocumentNode) -> &'a str {
+    child
+        .data
+        .path
+        .strip_prefix(&*parent.data.path)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(&child.data.path)
+}
+
+impl MovePlan {
+    /// Which new child the old child at this index became, if a bill renumbered it.
+    fn target_of(&self, old_index: usize) -> Option<usize> {
+        self.pairs
+            .iter()
+            .find(|(old, _)| *old == old_index)
+            .map(|(_, new)| *new)
+    }
+
+    /// The moves themselves, with any change to the moved element's own words.
+    fn moves(&self, from_element: &DocumentNode, to_element: &DocumentNode) -> Vec<NodeMove> {
+        self.pairs
+            .iter()
+            .filter_map(|(old_index, new_index)| {
+                let child_a = from_element.children.get(*old_index)?;
+                let child_b = to_element.children.get(*new_index)?;
+                Some(NodeMove {
+                    from: child_a.data.clone(),
+                    to: child_b.data.clone(),
+                    changes: field_changes(child_a, child_b),
+                })
+            })
+            .collect()
+    }
+
+    /// The children on one side that no move claimed, in document order.
+    fn remaining<'a>(&self, children: &'a [DocumentNode], side: Side) -> Vec<&'a DocumentNode> {
+        let claimed = |index: usize| {
+            self.pairs.iter().any(|(old_index, new_index)| match side {
+                Side::Old => *old_index == index,
+                Side::New => *new_index == index,
+            })
+        };
+        children
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !claimed(*index))
+            .map(|(_, child)| child)
+            .collect()
+    }
+}
+
 /// Check if a word is a stop word (case-insensitive)
 fn is_stop_word(word: &str) -> bool {
     let lower = word.to_lowercase();
@@ -724,9 +1079,22 @@ fn is_stop_word(word: &str) -> bool {
 /// # Panics
 ///
 /// Panics if the elements have different paths or types.
-pub fn diff_elements(element_a: &USLMElement, element_b: &USLMElement) -> Vec<FieldChangeEvent> {
+pub fn diff_nodes(element_a: &DocumentNode, element_b: &DocumentNode) -> Vec<FieldChangeEvent> {
     assert!(element_a.data.path == element_b.data.path);
-    assert!(element_a.data.element_type == element_b.data.element_type);
+    // Two nodes at one path must be the same kind of thing to be one provision
+    // across two dates. The type is an open string, so this compares what the
+    // producer wrote rather than a vocabulary the core owns (#129).
+    assert!(element_a.data.node_type == element_b.data.node_type);
+    field_changes(element_a, element_b)
+}
+
+/// Compute field-level changes between two elements that need not share a path.
+///
+/// What [`diff_nodes`] does, without its two checks. A renumbered provision sits
+/// at a different path on each side, by definition, and a bill can renumber it to
+/// another level as well — `redesignating paragraph (1) as subparagraph (A)` — so
+/// neither the path nor the type can be required to match.
+fn field_changes(element_a: &DocumentNode, element_b: &DocumentNode) -> Vec<FieldChangeEvent> {
     let mut changes: Vec<FieldChangeEvent> = Vec::new();
     for field_name in [
         TextContentField::Heading,
@@ -757,8 +1125,8 @@ fn rewrap_usize(s: Option<usize>) -> Option<i32> {
 }
 
 fn diff_field(
-    element_a: &USLMElement,
-    element_b: &USLMElement,
+    element_a: &DocumentNode,
+    element_b: &DocumentNode,
     field_name: TextContentField,
 ) -> FieldChangeEvent {
     let a = element_a

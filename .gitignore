@@ -14,6 +14,10 @@ parsed/
 # Without this a new fixture is skipped by `git add` in silence, and the tests
 # only fail once CI checks out a tree that never had it.
 !tests/test_data/processed/*.json
+# The two cached CourtListener responses for Obergefell v. Hodges, which are the
+# real record a court opinion is stored from (#129). The opinion and its cluster
+# are two requests, and the filing date is only on the cluster.
+!tests/test_data/courtlistener/*.json
 
 # Main directories for dumping data while testing
 usc_data/

@@ -12,6 +12,7 @@ use crate::dataset::{
     SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
+use crate::document::DocumentNode;
 use crate::intern::StringInterner;
 use crate::link::{Link, LinkKind, Provenance, Target};
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
@@ -20,7 +21,6 @@ use crate::storage::{
     LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
     SCHEMA_VERSION, Storage,
 };
-use crate::uslm::USLMElement;
 use crate::uslm::bill_parser::Bill;
 
 pub struct SqliteStorage {
@@ -30,17 +30,17 @@ pub struct SqliteStorage {
 
 /// The columns of `element_index`, in the order the insert takes them.
 const ELEMENT_INDEX_INSERT: &str = "INSERT OR REPLACE INTO element_index \
-     (work, date, path, element_type, heading, chapeau, content, proviso, continuation, ordinal) \
+     (work, date, path, node_type, heading, chapeau, content, proviso, continuation, ordinal) \
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
 
-/// One row of the element index: every searchable field of one element, plus
+/// One row of the element index: every searchable field of one node, plus
 /// where it sits in a document-order walk.
 ///
 /// A struct rather than a tuple because two call sites write these rows, and a
 /// positional tuple let the two drift apart without the compiler noticing.
 struct ElementRow<'a> {
     path: &'a str,
-    element_type: String,
+    node_type: &'a str,
     heading: Option<&'a str>,
     chapeau: Option<&'a str>,
     content: Option<&'a str>,
@@ -59,7 +59,7 @@ impl ElementRow<'_> {
             id.work.as_str(),
             &id.at,
             self.path,
-            self.element_type,
+            self.node_type,
             self.heading,
             self.chapeau,
             self.content,
@@ -336,7 +336,10 @@ impl SqliteStorage {
                 work TEXT NOT NULL,
                 date TEXT NOT NULL,
                 path TEXT NOT NULL,
-                element_type TEXT,
+                -- The node type as the producer wrote it: `uscode.section`,
+                -- `judicial.opinion`. An open namespaced string, so a class this
+                -- build has never seen is stored and read back unchanged (#129).
+                node_type TEXT,
                 -- One column per variant of TextContentField. Indexing only
                 -- some of them made their text unfindable, and silently, which
                 -- reads to a searcher as the law not being there (#82).
@@ -478,7 +481,7 @@ impl SqliteStorage {
                 "INSERT OR REPLACE INTO expressions (work, date, label, element_json) VALUES (?1, ?2, ?3, ?4)",
             )?;
             for expression in storage.all_expressions() {
-                let element_json = serde_json::to_string(&expression.element)?;
+                let element_json = serde_json::to_string(&expression.root)?;
                 stmt.execute(params![
                     expression.id.work.as_str(),
                     &expression.id.at,
@@ -493,7 +496,7 @@ impl SqliteStorage {
             let mut stmt = tx.prepare(ELEMENT_INDEX_INSERT)?;
             for expression in storage.all_expressions() {
                 let mut rows = Vec::new();
-                Self::collect_element_rows(&expression.element, &mut rows);
+                Self::collect_element_rows(&expression.root, &mut rows);
                 for row in rows {
                     row.execute(&mut stmt, &expression.id)?;
                 }
@@ -590,13 +593,13 @@ impl SqliteStorage {
         Ok(())
     }
 
-    /// Collect element data into rows for batch insert (no recursion overhead per-insert)
+    /// Collect node data into rows for batch insert (no recursion overhead per-insert)
     #[allow(clippy::type_complexity)]
-    fn collect_element_rows<'a>(element: &'a USLMElement, rows: &mut Vec<ElementRow<'a>>) {
+    fn collect_element_rows<'a>(element: &'a DocumentNode, rows: &mut Vec<ElementRow<'a>>) {
         let text = |field: &'a Option<Arc<str>>| field.as_ref().map(|s| s.as_ref());
         rows.push(ElementRow {
             path: element.data.path.as_ref(),
-            element_type: format!("{:?}", element.data.element_type),
+            node_type: element.data.node_type.as_str(),
             heading: text(&element.data.heading),
             chapeau: text(&element.data.chapeau),
             content: text(&element.data.content),
@@ -613,7 +616,7 @@ impl SqliteStorage {
     fn index_element(
         stmt: &mut rusqlite::Statement,
         id: &ExpressionId,
-        element: &USLMElement,
+        element: &DocumentNode,
     ) -> Result<(), DatasetError> {
         let mut rows = Vec::new();
         Self::collect_element_rows(element, &mut rows);
@@ -742,13 +745,13 @@ impl SqliteStorage {
             let date: String = row.get(1)?;
             let label: Option<String> = row.get(2)?;
             let element_json: String = row.get(3)?;
-            let element: USLMElement = serde_json::from_str(&element_json)?;
+            let root: DocumentNode = serde_json::from_str(&element_json)?;
 
             let id = ExpressionId::new(WorkId::new(work), date);
             expressions
                 .entry(id.work.clone())
                 .or_default()
-                .insert(id.at.clone(), Expression { id, label, element });
+                .insert(id.at.clone(), Expression { id, label, root });
         }
 
         Ok(expressions)
@@ -940,7 +943,7 @@ impl SqliteStorage {
         Ok(Some(Expression {
             id: ExpressionId::new(WorkId::new(work), date),
             label,
-            element: serde_json::from_str(&element_json)?,
+            root: serde_json::from_str(&element_json)?,
         }))
     }
 }
@@ -1014,7 +1017,7 @@ impl DocumentReader for SqliteStorage {
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError> {
         let (from_e, to_e) = require_same_work(self, from, to)?;
-        Ok(TreeDiff::from_elements(&from_e.element, &to_e.element))
+        Ok(TreeDiff::from_nodes(&from_e.root, &to_e.root))
     }
 
     fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
@@ -1064,7 +1067,7 @@ impl DocumentReader for SqliteStorage {
         Ok(results)
     }
 
-    fn find_element(&self, path: &str) -> Result<Vec<(ExpressionId, USLMElement)>, DatasetError> {
+    fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
         // The index says which expressions hold this path; only those are read.
         // Ordered so both backends answer alike.
         let mut stmt = self.conn.prepare(
@@ -1083,7 +1086,7 @@ impl DocumentReader for SqliteStorage {
         for id in wanted {
             if let Some(expression) = self.get_expression(&id)? {
                 // A path can name more than one provision within an expression.
-                for found in expression.element.find_all(path) {
+                for found in expression.root.find_all(path) {
                     results.push((id.clone(), found.clone()));
                 }
             }
@@ -1092,7 +1095,7 @@ impl DocumentReader for SqliteStorage {
         Ok(results)
     }
 
-    fn has_element(&self, path: &str) -> Result<bool, DatasetError> {
+    fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
         // `idx_elem_path` answers this on its own, so no `element_json` is read.
         // The index holds a row per provision, and one row is enough: the
         // question is whether any provision sits at the path.
@@ -1448,7 +1451,7 @@ impl DocumentWriter for SqliteStorage {
     }
 
     fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
-        let element_json = serde_json::to_string(&expression.element)?;
+        let element_json = serde_json::to_string(&expression.root)?;
         self.conn.execute(
             "INSERT OR REPLACE INTO expressions (work, date, label, element_json) VALUES (?1, ?2, ?3, ?4)",
             params![
@@ -1461,7 +1464,7 @@ impl DocumentWriter for SqliteStorage {
 
         // Index elements
         let mut stmt = self.conn.prepare(ELEMENT_INDEX_INSERT)?;
-        Self::index_element(&mut stmt, &expression.id, &expression.element)?;
+        Self::index_element(&mut stmt, &expression.id, &expression.root)?;
 
         Ok(())
     }
