@@ -215,7 +215,9 @@ A Bill states it in words: "redesignating paragraph (3) as paragraph (2)". Nothi
 A Redesignation is read from a Bill by either of two readers, and both hand their reading to one resolver that makes the paths. A path a reader proposes must be there: the old one in the earlier Expression, the new one in the later. The words at those two ends are compared, and the measurement travels with the link as Corroboration — which is the stronger half of the check, because a Bill that shifts a whole run of provisions by one letter leaves every path on both sides in place and only the words say which reading is right.
 
 A redesignation a Bill states and no reader can resolve to two paths is an Unplaced statement. It is **recorded**, never dropped. The tool's silence must not read as the corpus's silence.
-_Avoid_: Rename, alias, move
+
+A Diff reports a Redesignation's effect as **moved**, and that is the one place the word is ours to use: nothing relocated, the number changed. The publisher has no `move` action to confuse it with — its schema defines twelve amending actions and that is not one of them (`.out-of-scope/amending-action-move.md`). A provision that really is relocated is a different thing, and no reader reads one yet.
+_Avoid_: Rename, alias, transfer
 
 **Provision history**:
 The Redesignations one Provision ran through, walked out of the links, oldest first. A projection: nothing stores it, so a Bill added later adds an edge rather than rewriting an identity, and nothing that already points somewhere breaks (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`). An empty history is an answer — the provision has always been where it is — and not a failure.

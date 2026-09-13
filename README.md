@@ -232,9 +232,13 @@ Diffs are computed using word-level granularity via the `similar` crate.
 
 ### Amending Actions
 
-Bills can perform these operations on existing code:
+The publisher's schema defines twelve amending actions (`uslm-2.0.17.xsd`, `AmendingActionTypeEnum`):
 
-`Amend`, `Add`, `Delete`, `Insert`, `Redesignate`, `Repeal`, `Move`, `Strike`, `StrikeAndInsert`
+`enact`, `add`, `amend`, `substitute`, `redesignate`, `repeal`, `repealAndReserve`, `insert`, `delete`, `conform`, `noChange`, `unknown`
+
+The five public laws in the cache use six of them: `insert`, `delete`, `amend`, `add`, `redesignate`, `repeal`.
+
+`AmendingAction` does not match that list yet. It carries three values the publisher cannot emit — `Move`, `Strike` and `StrikeAndInsert` — and lacks six that it can. An action type this build does not know is currently dropped without a word. #156 tracks it.
 
 ## API Documentation
 

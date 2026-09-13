@@ -38,12 +38,17 @@
 //!
 //! # What this does not handle
 //!
-//! [`crate::legislature::AmendingAction::Move`] — a provision relocated rather
-//! than renumbered, such as a section transferred to another title. Nothing in
-//! the committed corpus carries one, so there is no real fixture to build
-//! against and `CLAUDE.md` forbids inventing one. The model already permits it:
-//! a link's two ends carry a work each, so an edge may cross from one work to
-//! another. **A sample is needed before this is built.**
+//! A provision relocated rather than renumbered — a section transferred to
+//! another title. It was once expected to arrive as
+//! [`crate::legislature::AmendingAction::Move`], and it cannot: the publisher's
+//! schema defines twelve amending actions and `move` is not one of them
+//! (`uslm-2.0.17.xsd:610`, and `.out-of-scope/amending-action-move.md`).
+//!
+//! A bill writes a relocation in words, so reading one is the same kind of
+//! problem as the statements below that this module reports rather than places.
+//! The model already permits the record: a link's two ends carry a work each, so
+//! an edge may cross from one work to another. What is missing is a reader, and
+//! a real clause to build it against.
 //!
 //! A redesignation stated against a *container* rather than a section is not
 //! handled either. `Part VII of subchapter B of chapter 1 is amended by
