@@ -59,7 +59,9 @@ The annotator prototype was removed in September 2026, because the link and veri
 There is a branch called `sleuth` which builds an iced desktop app. It's also reasonably free form
 
 ## AI Building
-If set off on your own autonomous task and you find yourself on the `main` branch, create a new one prefixed with `vibes/`. If filing a PR autonomously, it should target the `vibes` branch instead of `main`
+Work happens on `main`. If set off on your own autonomous task and you find yourself on `main`, create a branch for the work, and file the PR against `main`.
+
+`main` is protected: `Rust Tests` must pass, and a branch must be up to date with `main` before it merges. The second rule is there because two PRs that never conflict in git can still break the build together — one changed a function's arguments, the other added a caller, both were green, and `main` did not compile.
 
 ## Communication
 Communicate _only_ via  ASD-STE100 Simplified Technical English (STE)
