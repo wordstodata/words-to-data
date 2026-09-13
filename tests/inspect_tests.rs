@@ -76,7 +76,7 @@ fn make_fixture() -> Dataset<InMemoryStorage> {
     dataset.add_bill(bill).expect("add bill");
 
     let annotation = ChangeAnnotation {
-        operation: AmendingAction::Strike,
+        operation: AmendingAction::Delete,
         source_bill: BillReference {
             bill_id: "119-hr-1".to_string(),
             amendment_id: "amendment-xyz".to_string(),
@@ -460,7 +460,7 @@ fn should_list_annotations_for_an_expression_pair() {
 
     assert_eq!(anns.len(), 1);
     assert_eq!(anns[0].bill_id, "119-hr-1");
-    assert_eq!(anns[0].operation, "strike");
+    assert_eq!(anns[0].operation, "delete");
     assert_eq!(anns[0].confidence, Some(0.9));
     assert_eq!(anns[0].paths, vec![ANNOTATED_PATH.to_string()]);
     // Every annotation carries the expression pair it belongs to, work and all:
@@ -691,7 +691,7 @@ fn should_report_annotations_for_a_path() {
 
     assert_eq!(report.path, ANNOTATED_PATH);
     assert_eq!(report.annotations.len(), 1);
-    assert_eq!(report.annotations[0].operation, "strike");
+    assert_eq!(report.annotations[0].operation, "delete");
 }
 
 #[test]
@@ -959,7 +959,7 @@ fn should_name_the_absent_path_when_an_annotation_points_nowhere_on_sqlite() {
     store_annotation(
         &mut fixture,
         ChangeAnnotation {
-            operation: AmendingAction::Strike,
+            operation: AmendingAction::Delete,
             source_bill: BillReference {
                 bill_id: "119-hr-1".to_string(),
                 amendment_id: "amendment-xyz".to_string(),

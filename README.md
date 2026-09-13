@@ -238,7 +238,7 @@ The publisher's schema defines twelve amending actions (`uslm-2.0.17.xsd`, `Amen
 
 The five public laws in the cache use six of them: `insert`, `delete`, `amend`, `add`, `redesignate`, `repeal`.
 
-`AmendingAction` does not match that list yet. It carries three values the publisher cannot emit — `Move`, `Strike` and `StrikeAndInsert` — and lacks six that it can. An action type this build does not know is currently dropped without a word. #156 tracks it.
+`AmendingAction` is that list: one variant for each of the twelve values, and no value the publisher cannot emit. An action type this build does not know is reported, never dropped (#156).
 
 ## API Documentation
 

@@ -39,10 +39,10 @@
 //! # What this does not handle
 //!
 //! A provision relocated rather than renumbered — a section transferred to
-//! another title. It was once expected to arrive as
-//! [`crate::legislature::AmendingAction::Move`], and it cannot: the publisher's
-//! schema defines twelve amending actions and `move` is not one of them
-//! (`uslm-2.0.17.xsd:610`, and `.out-of-scope/amending-action-move.md`).
+//! another title. It was once expected to arrive as `AmendingAction::Move`, and
+//! it cannot: the publisher's schema defines twelve amending actions and `move`
+//! is not one of them (`uslm-2.0.17.xsd:610`, and
+//! `.out-of-scope/amending-action-move.md`).
 //!
 //! A bill writes a relocation in words, so reading one is the same kind of
 //! problem as the statements below that this module reports rather than places.

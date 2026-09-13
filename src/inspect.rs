@@ -594,7 +594,7 @@ pub struct AnnotationSummary {
     pub from_date: String,
     /// Newer date of the pair.
     pub to_date: String,
-    /// Legal operation, serde string form (e.g. `"strike"`).
+    /// Legal operation, serde string form (e.g. `"delete"`).
     pub operation: String,
     pub bill_id: String,
     pub amendment_id: String,
@@ -839,14 +839,14 @@ pub struct BillSummary {
 #[derive(Debug, Clone, Serialize)]
 pub struct AmendmentSummary {
     pub id: String,
-    /// Amending actions (e.g. `strike`, `insert`) in serde string form.
+    /// Amending actions (e.g. `delete`, `insert`) in serde string form.
     pub action_types: Vec<String>,
     pub amending_text: String,
     /// How many word-level changes have been extracted for this amendment.
     pub change_count: usize,
 }
 
-/// Serde string form of an amending action (e.g. `"strikeandinsert"`).
+/// Serde string form of an amending action (e.g. `"repeal_and_reserve"`).
 fn action_str(action: &crate::legislature::AmendingAction) -> String {
     serde_json::to_value(action)
         .ok()
