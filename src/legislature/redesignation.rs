@@ -305,13 +305,41 @@ pub struct Unresolved {
     pub reason: Reason,
 }
 
+impl Unresolved {
+    /// The start of the clause, so one statement stays one line.
+    ///
+    /// For a caller that lays the report out its own way. Anything printing the
+    /// whole of `text` will bury every other line it writes.
+    pub fn clause_start(&self) -> String {
+        first_words(&self.text)
+    }
+}
+
 impl fmt::Display for Unresolved {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "warning: redesignation not resolved ({}): {}",
-            self.reason, self.text
+            self.reason,
+            self.clause_start()
         )
+    }
+}
+
+/// The start of a clause, so one statement stays one line.
+///
+/// A clause that renumbers a section can also enact a whole new one, and then it
+/// carries the whole of the enacted text: § 1062 of `119-hr-1` runs past six
+/// thousand characters. Nineteen of those printed in full buried the ten real
+/// lines of a rebuild's output (#164).
+///
+/// The reason is never shortened. It is the part a maintainer acts on, and it is
+/// one short phrase.
+fn first_words(text: &str) -> String {
+    const SHOWN: usize = 140;
+    match text.char_indices().nth(SHOWN) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_string(),
     }
 }
 
@@ -330,12 +358,31 @@ impl RedesignationReport {
         self.resolved.len() + self.unresolved.len()
     }
 
-    /// Write every unresolved statement to stderr, so it reaches the person who
-    /// ran the command.
+    /// One line saying what a sweep recorded and what it could not place.
+    ///
+    /// A rebuild printed nineteen warnings and no count, which reads as a
+    /// failure rather than as work done (#164). `label` names whose sweep it
+    /// was, because a build loops over every bill it loads and an anonymous
+    /// count cannot be read.
+    ///
+    /// Links, not statements: one clause can state fourteen renumberings, so the
+    /// two numbers below count different things and neither is the number of
+    /// statements the bill made. #166 gives the type that third number.
+    pub fn summary(&self, label: &str) -> String {
+        format!(
+            "{label}: {} link(s) recorded, {} statement(s) not placed",
+            self.resolved.len(),
+            self.unresolved.len()
+        )
+    }
+
+    /// Write the summary and every unresolved statement to stderr, so both reach
+    /// the person who ran the command.
     ///
     /// The crate carries no logger and the CLI writes its own warnings with
     /// `eprintln!`, so this does the same (`crate::uslm::parser::ParseReport`).
-    pub fn warn(&self) {
+    pub fn warn(&self, label: &str) {
+        eprintln!("{}", self.summary(label));
         for unresolved in &self.unresolved {
             eprintln!("{unresolved}");
         }
