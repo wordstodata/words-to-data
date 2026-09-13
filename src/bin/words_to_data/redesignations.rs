@@ -85,7 +85,7 @@ pub fn run(args: Args) {
         );
         for unresolved in &report.unresolved {
             println!("  {}", unresolved.reason);
-            println!("    {}", first_words(&unresolved.text));
+            println!("    {}", unresolved.clause_start());
         }
     }
 
@@ -95,16 +95,4 @@ pub fn run(args: Args) {
         "Error saving dataset",
     );
     println!("\nWrote {output}");
-}
-
-/// The start of a clause, so one statement stays one line.
-///
-/// A clause that enacts new text carries the whole of it, which runs to
-/// thousands of characters and buries every other line of the report.
-fn first_words(text: &str) -> String {
-    const SHOWN: usize = 140;
-    match text.char_indices().nth(SHOWN) {
-        Some((end, _)) => format!("{}…", &text[..end]),
-        None => text.to_string(),
-    }
 }

@@ -708,3 +708,65 @@ fn should_record_the_redesignations_a_bill_states_when_the_bill_is_loaded() {
         }
     );
 }
+
+#[test]
+fn should_shorten_the_clause_when_it_reports_a_statement_it_could_not_place() {
+    // #164. A clause that renumbers a section can also enact a whole new one,
+    // and then the clause carries the whole of the enacted text: § 1062 of
+    // `119-hr-1` runs past six thousand characters. Printed in full, nineteen of
+    // these buried the ten real lines of a rebuild's output.
+    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
+    let earlier = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
+    let later = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+
+    let report = resolve(&stated, &earlier, &later);
+
+    let longest = report
+        .unresolved
+        .iter()
+        .max_by_key(|u| u.text.chars().count())
+        .expect("the corpus states something this build cannot place");
+    assert!(
+        longest.text.chars().count() > 1_000,
+        "the fixture is a clause that enacts text, and this one is {} characters",
+        longest.text.chars().count()
+    );
+
+    let line = format!("{longest}");
+    assert!(
+        line.chars().count() < 260,
+        "one statement stays one line, and this one is {} characters: {line}",
+        line.chars().count()
+    );
+    assert!(
+        line.ends_with('…'),
+        "a shortened clause says that it was shortened: {line}"
+    );
+    // The reason is what a maintainer acts on, so it is never shortened.
+    assert!(
+        line.contains(&longest.reason.to_string()),
+        "the reason survives whole: {line}"
+    );
+}
+
+#[test]
+fn should_name_the_bill_and_both_counts_when_it_summarises_a_sweep() {
+    // A rebuild printed nineteen warnings and no count, so the report read as a
+    // failure rather than as work done. The summary is the line that says what
+    // was recorded (#164).
+    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
+    let earlier = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
+    let later = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+
+    let report = resolve(&stated, &earlier, &later);
+
+    assert_eq!(
+        report.summary(BILL_ID),
+        format!(
+            "{BILL_ID}: {} link(s) recorded, {} statement(s) not placed",
+            report.resolved.len(),
+            report.unresolved.len()
+        ),
+        "the line names the bill, what was recorded, and what was not"
+    );
+}

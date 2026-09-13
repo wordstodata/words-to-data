@@ -308,7 +308,7 @@ impl<S: Storage> Dataset<S> {
             per_work.push(self.record_redesignations(bill_id, &stated, &from, &to)?);
         }
         let report = RedesignationReport::across_works(per_work);
-        report.warn();
+        report.warn(bill_id);
         Ok(report)
     }
 
