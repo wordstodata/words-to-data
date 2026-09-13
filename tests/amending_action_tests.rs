@@ -7,10 +7,15 @@
 //! them. They are a real source, not invented data: a `type` attribute in a
 //! conforming bill holds one of them.
 //!
-//! Only six of the twelve appear in the five cached public laws — insert,
-//! delete, amend, add, redesignate, repeal — so the other six are tested
-//! through their schema literal rather than through a bill. Inventing a bill
-//! fragment to carry one would make up a source, which `CLAUDE.md` forbids.
+//! Only six of the twelve appear in the committed markup — insert 1282, delete
+//! 1198, amend 1152, add 388, redesignate 114, repeal 26, counted over every
+//! `amendingAction` in `tests/test_data` — so the other six are tested through
+//! their schema literal rather than through a bill. Inventing a bill fragment to
+//! carry one would make up a source, which `CLAUDE.md` forbids.
+//!
+//! That markup is Public Law 119-21 and nothing else: the corpus holds it twice,
+//! raw and as the congress client cached it, so "the five cached public laws" the
+//! issue speaks of is one law in two copies.
 
 use std::collections::BTreeMap;
 
