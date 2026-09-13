@@ -109,10 +109,12 @@ _Avoid_: Missing dates, blind spot, unknown
 
 **Bill**:
 A legislative instrument that changes existing law. It carries the instructions that do the changing, and once enacted it is published as a public law.
+
+A Bill is a document, so it is a Work with an Expression, like a title of the Code or a court opinion. Its structure carries meaning that its words alone do not: an Amendment nested under "in subsection (a)--" is about a different provision from the same words outside it. **This is not true of the Dataset yet.** A public law parses to one element today, and a Bill is held as a set of Amendments with no structure at all, which is why reading a renumbering needs the source file a second time. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records the decision and #114 the defect.
 _Avoid_: Act, statute, law
 
 **Amendment**:
-An instruction in a Bill that tells a reader how to change existing law.
+An instruction in a Bill that tells a reader how to change existing law. It is identified by what it says, and located by where it sits in the Bill: the hash survives a rebuild, and the position moves whenever a publisher renumbers a title (`docs/adr/0001-structural-paths-locate-not-identify.md`).
 _Avoid_: Edit, modification, revision
 
 ## The legislature
@@ -210,12 +212,22 @@ The Link of kind `legislature.redesignated_as`. It says a Provision was renumber
 
 A Bill states it in words: "redesignating paragraph (3) as paragraph (2)". Nothing in the US Code records it, which is why a Diff that pairs by position alone reads a renumbering as a rewrite of whichever provision now holds the number, plus the disappearance of the one that moved.
 
-A redesignation a Bill states and the parser cannot resolve to two paths is **reported**, never dropped. The tool's silence must not read as the corpus's silence.
+A Redesignation is read from a Bill by either of two readers, and both hand their reading to one resolver that makes the paths. A path a reader proposes must be there: the old one in the earlier Expression, the new one in the later. The words at those two ends are compared, and the measurement travels with the link as Corroboration — which is the stronger half of the check, because a Bill that shifts a whole run of provisions by one letter leaves every path on both sides in place and only the words say which reading is right.
+
+A redesignation a Bill states and no reader can resolve to two paths is an Unplaced statement. It is **recorded**, never dropped. The tool's silence must not read as the corpus's silence.
 _Avoid_: Rename, alias, move
 
 **Provision history**:
 The Redesignations one Provision ran through, walked out of the links, oldest first. A projection: nothing stores it, so a Bill added later adds an edge rather than rewriting an identity, and nothing that already points somewhere breaks (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`). An empty history is an answer — the provision has always been where it is — and not a failure.
 _Avoid_: Chain, lineage, ancestry
+
+**Unplaced statement**:
+Something a source states that a reader read and could not turn into a statement about the law. It carries the words, the reason, the reader that failed, and the path in the source document where the words sit, so a reviewer can open them.
+
+It is not an Exclusion. An Exclusion says a Dataset does not hold some material, and here the material is held: the text is in hand, the Amendment is in hand, and what is missing is a Link we could not make. Recording one as an Exclusion would answer "out of scope" for a provision the Dataset holds. It is not a Gap either, because nothing was declared and then missed.
+
+A reason is part of the statement, as it is for an Exclusion: a hole with no reason cannot be told apart from an oversight.
+_Avoid_: Error, failure, skip, warning
 
 **Extension**:
 A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (case name, opinion type). The core data model carries no extension concept, and no document class either. A Link's kind is an open namespaced string, a Document node's type is an open namespaced string, and in both cases the facts only one namespace understands sit in a payload the core stores and never reads (Kind payload, Class payload).

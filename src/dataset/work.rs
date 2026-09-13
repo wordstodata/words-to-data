@@ -179,6 +179,34 @@ pub fn works_between<R: crate::storage::DocumentReader + ?Sized>(
     Ok(WorksBetween { pairs, skipped })
 }
 
+/// Every neighbouring pair of expressions this dataset holds, work by work.
+///
+/// A job with no span of its own needs one: a bill loaded into a dataset states
+/// its renumberings without saying which two release points they sit between,
+/// and the dataset's own expressions are the only answer available.
+///
+/// Neighbouring rather than first-and-last. A redesignation is checked against
+/// the earlier expression, so the widest window would look for a provision in a
+/// release point published before it existed, and report a statement the corpus
+/// makes as one this build cannot place.
+///
+/// A work held on one date only yields no pair, which is an answer: nothing can
+/// be compared across a single expression.
+pub fn adjacent_expressions<R: crate::storage::DocumentReader + ?Sized>(
+    reader: &R,
+) -> Result<Vec<crate::dataset::ExpressionPair>, crate::dataset::DatasetError> {
+    let mut pairs = Vec::new();
+    for work in reader.works()? {
+        // `expressions` answers oldest first, so neighbours in the list are
+        // neighbours in time.
+        let held = reader.expressions(&work)?;
+        for pair in held.windows(2) {
+            pairs.push((pair[0].id.clone(), pair[1].id.clone()));
+        }
+    }
+    Ok(pairs)
+}
+
 /// Split a parsed tree into the works it holds.
 ///
 /// A root that names a work, such as `uscode/title_9`, is one work and is

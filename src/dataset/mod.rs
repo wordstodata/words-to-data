@@ -11,7 +11,7 @@ pub use error::DatasetError;
 pub use scope::{Coverage, DateRange, Declaration, Exclusion, Scope, WorkCoverage};
 pub use work::{
     Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
-    work_roots, works_between,
+    adjacent_expressions, work_roots, works_between,
 };
 
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,19 @@ pub struct SearchResult {
     pub path: String,
     pub field: String,
     pub snippet: String,
+}
+
+/// A source this build could not read, as a dataset error.
+///
+/// One spelling for the two readers of a bill's markup here. `DatasetError`
+/// carries no parse variant, and writing the same four lines of wrapping at each
+/// call site is how one of them ends up saying something different from the
+/// other.
+fn invalid_data(cause: &dyn std::fmt::Display) -> DatasetError {
+    DatasetError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        cause.to_string(),
+    ))
 }
 
 /// The two expressions an annotation sits between. Both name the same work.
@@ -255,6 +268,46 @@ impl<S: Storage> Dataset<S> {
             self.storage
                 .add_link(resolved.link(&from.work, &from.at, &to.at, bill_id))?;
         }
+        Ok(report)
+    }
+
+    /// Record every redesignation a bill's markup states, across the whole
+    /// dataset.
+    ///
+    /// Called as part of loading a bill, so no build can hold a bill and lack
+    /// the links it states. Before this, recording them was a second command
+    /// nothing in the build path ran, and the only sign was an absence: a
+    /// rebuilt corpus came back with 889 `legislature.amended_by` links and no
+    /// redesignations at all (#150).
+    ///
+    /// The bill's own markup, because which provision a clause is about comes
+    /// from where the words sat in it, and a stored amendment keeps only the
+    /// flattened text. A statement resolves in the one work that holds its
+    /// section and fails in every other, so the reports are folded rather than
+    /// concatenated.
+    ///
+    /// Every statement this build cannot place reaches stderr through
+    /// [`RedesignationReport::warn`]. The tool's silence must not read as the
+    /// corpus's silence.
+    pub fn record_redesignations_stated_in(
+        &mut self,
+        bill_id: &str,
+        bill_xml: &str,
+    ) -> Result<RedesignationReport, DatasetError> {
+        let stated = crate::uslm::bill_redesignation::redesignations_stated(bill_id, bill_xml)
+            .map_err(|e| invalid_data(&e))?;
+        // A bill that renumbers nothing is ordinary, and sweeping every work to
+        // prove it would cost a section index per work for no statement.
+        if stated.is_empty() {
+            return Ok(RedesignationReport::default());
+        }
+
+        let mut per_work = Vec::new();
+        for (from, to) in adjacent_expressions(&self.storage)? {
+            per_work.push(self.record_redesignations(bill_id, &stated, &from, &to)?);
+        }
+        let report = RedesignationReport::across_works(per_work);
+        report.warn();
         Ok(report)
     }
 
@@ -588,14 +641,10 @@ impl Dataset<InMemoryStorage> {
 
         let bill =
             bill_parser::parse_bill_amendments_from_str(&download.bill_id, &download.bill_xml)
-                .map_err(|e| {
-                    DatasetError::Json(serde_json::Error::io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e.to_string(),
-                    )))
-                })?;
+                .map_err(|e| invalid_data(&e))?;
         let bill_id = bill.bill_id.clone();
         self.add_bill(bill)?;
+        self.record_redesignations_stated_in(&bill_id, &download.bill_xml)?;
 
         // Parse sponsor from metadata
         let sponsors_v: Value = serde_json::from_str(&download.bill_metadata_json)?;
