@@ -532,11 +532,19 @@ fn should_order_diff_children_by_document_position_when_diffing_a_title() {
 /// nothing but a walk into the pair can find the new rate.
 const SECTION_9032: &str = "uscode/title_7/chapter_115/subchapter_II/section_9032";
 
-/// The redesignations `119-hr-1` states, resolved against an earlier title.
-fn redesignations_stated_by_the_public_law(before: &DocumentNode) -> Redesignations {
+/// The redesignations `119-hr-1` states, resolved against a title's two
+/// expressions.
+///
+/// Both are needed: a redesignation moves a provision away from one path and
+/// onto another, and `resolve` checks each end against the document that should
+/// hold it (#151).
+fn redesignations_stated_by_the_public_law(
+    before: &DocumentNode,
+    after: &DocumentNode,
+) -> Redesignations {
     let stated = redesignations_stated_in_file("119-hr-1", PL_XML_PATH).expect("the bill parses");
     Redesignations::from_pairs(
-        resolve(&stated, before)
+        resolve(&stated, before, after)
             .resolved
             .iter()
             .map(|r| (r.from_path.clone(), r.to_path.clone())),
@@ -550,7 +558,7 @@ fn should_report_a_rewrite_inside_a_renumbered_subsection_at_its_new_path_when_a
         .expect("title 7 should parse");
     let after = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30")
         .expect("title 7 should parse");
-    let known = redesignations_stated_by_the_public_law(&before);
+    let known = redesignations_stated_by_the_public_law(&before, &after);
 
     let diff = TreeDiff::from_nodes_with(&before, &after, &known);
     let at = diff.find(SECTION_9032).expect("§ 9032 changed");
