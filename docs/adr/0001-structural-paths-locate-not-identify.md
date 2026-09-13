@@ -63,3 +63,9 @@ The cost of the edge, rather than an identifier, is that continuity has to be wa
 > **A redesignation link is not that table, and the difference is the point.** An alias table is a private index beside the data. A link is the data: `docs/adr/0002-links-live-in-the-core.md` requires every reader to see a link, read its subject and object, report its verification state and preserve it when it writes the file again, whether or not it understands the kind. So a reader that does not walk `legislature.redesignated_as` still *sees* it and can say a renumbering was recorded. It gets a coarser diff, not a confident wrong answer, and it can tell which it has.
 >
 > The link also carries provenance naming the bill that said so, which an alias table has no place for. A rename with no source is an assertion nobody can check.
+
+## Correction, 2026-09-13
+
+Two of this ADR's examples name `AmendingAction::Move` — "`AmendingAction` already contains `Redesignate` and `Move`", and "a `Move` reads as a delete plus an add". **There is no `move` amending action.** The publisher's schema defines twelve and that is not one of them (`uslm-2.0.17.xsd:610`); the variant was ours, and only a model could ever fill it. See `.out-of-scope/amending-action-move.md` and #156.
+
+The argument is unharmed. `Redesignate` alone moves a provision's address, 89 links in the committed corpus do exactly that, and a heading the publisher rewords moves one too. The correction is recorded here rather than edited into the text above, because what this ADR decided and what it believed at the time are both part of the record.
