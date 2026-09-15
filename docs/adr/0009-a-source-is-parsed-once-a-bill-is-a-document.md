@@ -17,7 +17,7 @@ The first redesignation is inside clause (i). The second is not, because item (2
 
 The second read recovers nothing the bill did not already give us. It agrees with the stored bill on identity — `amendment_id_around` calls the same `compute_amendment_id` — and measurement over `119-hr-1` confirms it: all 88 amendment ids behind the 89 redesignation links are already keys of the stored bill. The second parse exists to recover what the first one dropped.
 
-**The cause is deeper than a missing field.** `uslm::parser::parse` on a public law returns a root and nothing else: a `pLaw` root holds `<main>`, the parser steps into `<main>` only for a `uscDoc`, so the section and the ten titles below it are dropped (#114). The dataset has never held a bill's structure at all.
+**The cause was deeper than a missing field.** `uslm::parser::parse` on a public law returned a root and nothing else: a `pLaw` root holds `<main>`, the parser stepped into `<main>` only for a `uscDoc`, so the section and the ten titles below it were dropped (#114). The dataset had never held a bill's structure at all. The parser holds it now; storing it is the rest of step 4 below.
 
 ## The decision
 
@@ -58,7 +58,7 @@ Recorded here because the sequence was a decision, and because the middle of it 
 | 1 | `build-dataset` records redesignations, through the XML it holds (#150) | built |
 | 2 | Both ends checked, and the words at them recorded as `Corroboration` | to do |
 | 3 | The diff walks into a moved pair, so a rewrite inside it is reported | to do |
-| 4 | A bill becomes a document (#114) — this ADR | to do |
+| 4 | A bill becomes a document (#114) — this ADR | part built: the parser holds the bill's structure; nothing stores it yet |
 | 5 | Unplaced statements stored, and a report an agent can read | to do |
 | 6 | The model reader (ADR 0010) | to do |
 

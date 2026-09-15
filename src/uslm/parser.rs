@@ -6,8 +6,7 @@ use crate::{
     document::{DocumentNode, NodeData},
     io::load_xml_file,
     uslm::{
-        self, BillType, DocumentType, ElementType, RefPair, SourceCredit, USCType, USLMError,
-        UslmFacts,
+        BillType, DocumentType, ElementType, RefPair, SourceCredit, USCType, USLMError, UslmFacts,
         path::{path_segment_from_heading, should_include_in_uslm_path},
     },
 };
@@ -117,18 +116,57 @@ impl std::fmt::Display for DroppedContainer {
     }
 }
 
-/// What one parse dropped that a reader needs to know about.
+/// An element the parser left out on purpose, and the reason it gave.
 ///
-/// A count alone would not help: the report names each container and where it
-/// sat, so the reader can see which body of law is absent.
+/// A document root holds more than law. `<meta>` describes the document and
+/// `<preface>` carries its number, and a public law closes with
+/// `<legislativeHistory>` and `<endMarker>`. None of the four is a provision, so
+/// none of them enters the tree, and each one is named here with the reason:
+/// a hole with no reason cannot be told apart from an oversight (`CONTEXT.md`,
+/// *Exclusion*).
+///
+/// This is not a [`DroppedContainer`]. A dropped container is a fault — the
+/// parser did not know the name and took law away with it. A declined element is
+/// a decision the parser states.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclinedElement {
+    /// The XML tag name that was left out, such as `legislativeHistory`.
+    pub element_name: String,
+    /// The structural path of the element that held it.
+    pub parent_path: String,
+    /// Why the parser left it out, in words a person can read.
+    pub reason: String,
+}
+
+impl std::fmt::Display for DeclinedElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<{}> in {} was not parsed: {}",
+            self.element_name, self.parent_path, self.reason
+        )
+    }
+}
+
+/// What one parse left out, and whether it meant to.
+///
+/// A count alone would not help: the report names each element and where it sat,
+/// so the reader can see which body of law is absent, and which absence was a
+/// decision.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParseReport {
     /// Every unknown element that held law, in the order the parser met them.
     pub dropped_containers: Vec<DroppedContainer>,
+    /// Every element the parser left out on purpose, with its reason.
+    pub declined_elements: Vec<DeclinedElement>,
 }
 
 impl ParseReport {
-    /// True when the parse dropped nothing a reader needs to know about.
+    /// True when the parse dropped nothing a reader needs to chase.
+    ///
+    /// A declined element does not count. The parser gives the reason it left
+    /// one out, so it is an Exclusion and not a Gap (`CONTEXT.md`), and counting
+    /// it here would make every parse of a bill look like a fault.
     pub fn is_empty(&self) -> bool {
         self.dropped_containers.is_empty()
     }
@@ -138,6 +176,11 @@ impl ParseReport {
     /// The crate carries no logger, and the CLI writes its own warnings with
     /// `eprintln!`, so the parser does the same. Every entry point that hides
     /// the report calls this, which keeps one place to change.
+    ///
+    /// A declined element is not written. The parser declines the same four
+    /// elements in every document, so a line for each would be noise that hides
+    /// the warnings that matter. A caller that wants them reads
+    /// [`ParseReport::declined_elements`].
     pub fn print_to_stderr(&self) {
         for dropped in &self.dropped_containers {
             eprintln!("{dropped}");
@@ -322,11 +365,22 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
             )
             .with_payload(container_facts.to_payload()?);
 
-            // Find <main> and parse its children as direct children of the container
-            let main_node = top_level_node
-                .children()
-                .find(|n| n.has_tag_name("main"))
-                .unwrap_or(top_level_node);
+            // Find <main> and parse its children as direct children of the
+            // container. The root's other children are declined on purpose, and
+            // the report says why, exactly as it does for a bill root (#114).
+            let main_node = match main_of_document_root(
+                &top_level_node,
+                ElementType::USCodeDocument,
+                &container_doc_type,
+            ) {
+                Some(main) => {
+                    record_children_beside_main(&top_level_node, "uscode", report);
+                    main
+                }
+                // A release point always carries `<main>`. A file that does not
+                // is read as though the root held the law directly.
+                None => top_level_node,
+            };
 
             let mut children: Vec<DocumentNode> = Vec::new();
             for child in main_node.children() {
@@ -575,6 +629,103 @@ fn record_if_container(
     });
 }
 
+/// The `<main>` of a document root, which is where the law sits.
+///
+/// Both roots the parser reads are built alike. A `uscDoc` opens with `<meta>`,
+/// which names the title and its type, and keeps the title itself under
+/// `<main>`:
+///
+/// ```xml
+/// <uscDoc identifier="/us/usc/t26">
+///   <meta><dc:title>Title 26</dc:title><dc:type>USCTitle</dc:type></meta>
+///   <main><title identifier="/us/usc/t26"> ...
+/// ```
+///
+/// A `pLaw` opens with `<meta>` and `<preface>`, which carry the public law
+/// number, keeps the enacted text under `<main>`, and closes with
+/// `<legislativeHistory>` and `<endMarker>`. In both the law is one step below
+/// the root, so the parser steps into `<main>` and the law becomes the root's
+/// own children.
+///
+/// This answered for a `uscDoc` only until #114, and a public law therefore
+/// parsed to its root alone: `<main>` was met as an element the parser could not
+/// name, and went with the section and the ten titles below it.
+///
+/// The answer is `None` where the element is not a document root, or where a
+/// root carries no `<main>`. The caller then reads the element's own children.
+fn main_of_document_root<'a, 'input>(
+    node: &roxmltree::Node<'a, 'input>,
+    element_type: ElementType,
+    document_type: &DocumentType,
+) -> Option<roxmltree::Node<'a, 'input>> {
+    let is_document_root = match element_type {
+        ElementType::USCodeDocument => true,
+        // The document type already says the bill was enacted, so the tag name
+        // is not asked a second time.
+        ElementType::PublicLawDocument => matches!(
+            document_type,
+            DocumentType::Bill {
+                bill_type: BillType::PublicLaw,
+                ..
+            }
+        ),
+        _ => false,
+    };
+    if !is_document_root {
+        return None;
+    }
+    node.children().find(|child| child.has_tag_name("main"))
+}
+
+/// Why the parser leaves out a child of a document root that is not `<main>`.
+///
+/// Each of the four is met in every document of its class, and none of them is
+/// law in force. The words are for a person reading the report, so they say what
+/// the element is as well as why it stays out of the tree.
+fn reason_to_decline(element_name: &str) -> &'static str {
+    match element_name {
+        "meta" => {
+            "the publisher's description of the document, read for the document type and not law in force"
+        }
+        "preface" => {
+            "the front matter of the document, read for the public law number and not law in force"
+        }
+        "legislativeHistory" => {
+            "the record of the bill's passage through Congress, and not law in force"
+        }
+        "endMarker" => "the mark that closes the document, and not law in force",
+        _ => "not part of <main>, which is where the law of the document sits",
+    }
+}
+
+/// Record every child of a document root the parser leaves out, and why.
+///
+/// The parser steps into `<main>`, so the root's other children never reach
+/// [`parse_element`] and would otherwise leave the document without a word said
+/// about them. Each one is named on the report with its reason, which is the
+/// answer this project gives everywhere else: an absence with no reason cannot
+/// be told apart from an oversight (`CONTEXT.md`, *Exclusion*).
+///
+/// A child that holds law is a different thing, and keeps the warning #110 gave
+/// it. There the parser does not know the name, and the law below it is lost, so
+/// it is a fault rather than a decision.
+fn record_children_beside_main(root: &roxmltree::Node, root_path: &str, report: &mut ParseReport) {
+    for child in root.children().filter(roxmltree::Node::is_element) {
+        if child.has_tag_name("main") {
+            continue;
+        }
+        if structural_child_count(&child) > 0 {
+            record_if_container(&child, Some(root_path), report);
+            continue;
+        }
+        report.declined_elements.push(DeclinedElement {
+            element_name: child.tag_name().name().to_string(),
+            parent_path: root_path.to_string(),
+            reason: reason_to_decline(child.tag_name().name()).to_string(),
+        });
+    }
+}
+
 // The parent context this function needs is already long, and the report makes
 // one argument more. Grouping them is a change worth making on its own.
 #[allow(clippy::too_many_arguments)]
@@ -690,28 +841,15 @@ fn parse_element(
         payload: Some(facts.to_payload()?),
     };
 
-    let cont_node = match matches!(element_type, uslm::ElementType::USCodeDocument) {
-        // USCDoc headers look like this:
-        // <uscDoc xmlns="http://xml.house.gov/schemas/uslm/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xsi:schemaLocation="http://xml.house.gov/schemas/uslm/1.0 USLM-1.0.15.xsd" xml:lang="en" identifier="/us/usc/t26">
-        //   <meta>
-        //     <dc:title>Title 26</dc:title>
-        //     <dc:type>USCTitle</dc:type>
-        // ...
-        // </meta>
-        //   <main>
-        //     <title id="id2ff1c6b3-76ce-11f0-a3ab-d79a777afc56" identifier="/us/usc/t26">
-        // ...
-        // So we want to skip right to main and keep going from there
-        // TODO perhaps make the USCodeDocument type have meta as an additional field
-        true => {
-            // Some USC data like titles have a <main> child node. We need to step into it if it exists
-            let main_node = node.children().find(|n| n.has_tag_name("main"));
-            match main_node {
-                Some(x) => x,
-                None => node,
-            }
+    // A document root keeps the law one step below itself, in `<main>`. The
+    // parser steps into it, so the law becomes the root's own children, and says
+    // on the report what it left behind. See [`main_of_document_root`].
+    let cont_node = match main_of_document_root(&node, element_type, document_type) {
+        Some(main) => {
+            record_children_beside_main(&node, &structural_path, report);
+            main
         }
-        false => node,
+        None => node,
     };
     // println!(
     //     "{}{}: {}",
