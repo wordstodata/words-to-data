@@ -12,8 +12,9 @@
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
 };
-use words_to_data::inspect::{self, PathMatch, PathReport, Presence};
-use words_to_data::storage::InMemoryStorage;
+use words_to_data::inspect::{self, NotFollowed, PathMatch, PathReport, Presence};
+use words_to_data::link::{LinkKind, VerificationState};
+use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in_file;
 use words_to_data::uslm::parser::parse;
 
@@ -168,4 +169,181 @@ fn should_report_a_move_out_and_a_move_in_when_the_letters_cascade() {
             report.provisions
         );
     }
+}
+
+#[test]
+fn should_name_the_bill_the_dates_and_the_trust_when_a_provision_moved() {
+    // A move is a claim, and a reader must be able to weigh it. The link is
+    // machine suggested: a rule read a sentence in a bill, and no person has
+    // confirmed the reading.
+    let report = report_for("R");
+
+    let via = &report.provisions[0].via;
+    assert_eq!(via.len(), 1, "one link carried the move, got {via:?}");
+    assert_eq!(via[0].bill_id.as_deref(), Some(BILL_ID));
+    assert_eq!(via[0].from_date, BEFORE);
+    assert_eq!(via[0].to_date, AFTER);
+    assert_eq!(via[0].verification, VerificationState::MachineSuggested);
+}
+
+#[test]
+fn should_count_the_links_and_walk_nothing_when_no_expression_pair_is_given() {
+    // With no window there is nothing to resolve. But a reader who asks about a
+    // path that redesignation links name, and gets a clean answer, has no way
+    // to learn that the path names different provisions on different dates.
+    let (dataset, _, _) = title_26_with_redesignations();
+
+    let report = inspect::path_report(&dataset, &subparagraph("S"), None, PathMatch::Subtree)
+        .expect("a path report should build");
+
+    assert!(
+        report.provisions.is_empty(),
+        "nothing is paired without a window, got {:?}",
+        report.provisions
+    );
+    // (R) became (S), and (S) became (T). Both links name this path.
+    assert_eq!(report.unfollowed_redesignations.len(), 2);
+    assert!(
+        report
+            .unfollowed_redesignations
+            .iter()
+            .all(|u| u.reason == NotFollowed::NoWindow),
+        "every one is unfollowed for want of a window, got {:?}",
+        report.unfollowed_redesignations
+    );
+}
+
+#[test]
+fn should_refuse_a_refuted_link_and_say_it_exists() {
+    // A reviewer checked the corpus's own (R) to (S) link and found it wrong.
+    // Reporting a statement known to be false is worse than the string pairing
+    // this report replaces, so the link is not followed. Falling back in
+    // silence would give the reader the old false answer with nothing to show
+    // that a link was passed over.
+    let (dataset, from, to) = title_26_reviewed_as(VerificationState::Refuted);
+
+    let report = inspect::path_report(
+        &dataset,
+        &subparagraph("R"),
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("a path report should build");
+
+    let refused = &report.unfollowed_redesignations;
+    assert_eq!(refused.len(), 1, "the refuted link is named, got {refused:?}");
+    assert_eq!(refused[0].reason, NotFollowed::Refuted);
+    assert_eq!(refused[0].link.from_path, subparagraph("R"));
+    assert_eq!(refused[0].link.to_path, subparagraph("S"));
+    assert!(
+        !report
+            .provisions
+            .iter()
+            .any(|p| matches!(p.presence, Presence::MovedOut { .. })),
+        "a refuted move is not reported as a move, got {:?}",
+        report.provisions
+    );
+}
+
+#[test]
+fn should_follow_a_disputed_link_and_mark_it() {
+    // `Disputed` means someone objects and it is unsettled, which is a weaker
+    // claim than `Refuted`. The move is reported, and the state travels with it
+    // so a reader can see the objection.
+    let (dataset, from, to) = title_26_reviewed_as(VerificationState::Disputed);
+
+    let report = inspect::path_report(
+        &dataset,
+        &subparagraph("R"),
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("a path report should build");
+
+    assert_eq!(
+        report.provisions[0].presence,
+        Presence::MovedOut {
+            to_path: subparagraph("S")
+        }
+    );
+    assert_eq!(
+        report.provisions[0].via[0].verification,
+        VerificationState::Disputed,
+        "the objection is printed beside the claim"
+    );
+    assert!(
+        report.unfollowed_redesignations.is_empty(),
+        "a disputed link is followed, got {:?}",
+        report.unfollowed_redesignations
+    );
+}
+
+/// The corpus, with a reviewer's verdict recorded on the `(R)` to `(S)` link.
+///
+/// The link itself is the corpus's own, with its real paths, dates and bill.
+/// Only the verification state changes, which is exactly what a review records.
+fn title_26_reviewed_as(
+    verdict: VerificationState,
+) -> (Dataset<InMemoryStorage>, ExpressionId, ExpressionId) {
+    let (mut dataset, from, to) = title_26_with_redesignations();
+
+    let mut reviewed = dataset
+        .links_for_path(&subparagraph("R"))
+        .expect("links should read")
+        .into_iter()
+        .find(|link| link.kind.0 == LinkKind::REDESIGNATED_AS)
+        .expect("(R) carries a redesignation link");
+    reviewed.provenance.verification = verdict;
+    dataset.add_link(reviewed).expect("the verdict should store");
+
+    (dataset, from, to)
+}
+
+/// `26 U.S.C. § 951A`, where `119-hr-1` renumbered whole subsections: (c)
+/// became (b), (e) became (c) and (f) became (d).
+const SECTION_951A: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_F/section_951A";
+
+#[test]
+fn should_carry_a_child_along_when_a_bill_renumbered_its_parent() {
+    // The bill said nothing about paragraph (1). It renumbered subsection (c)
+    // to subsection (b), and the paragraph went with it. Pairing by path string
+    // therefore compared the old (c)(1), about net CFC tested income, with the
+    // new (c)(1), which is the old (e)(1) about pro rata shares.
+    let (dataset, from, to) = title_26_with_redesignations();
+
+    let report = inspect::path_report(
+        &dataset,
+        &format!("{SECTION_951A}/subsection_c/paragraph_1"),
+        Some((&from, &to)),
+        PathMatch::Subtree,
+    )
+    .expect("a path report should build");
+
+    assert_eq!(
+        report.provisions[0].presence,
+        Presence::MovedOut {
+            to_path: format!("{SECTION_951A}/subsection_b/paragraph_1")
+        },
+        "the paragraph went where its subsection went, got {:?}",
+        report.provisions
+    );
+    assert_eq!(
+        report.provisions[1].presence,
+        Presence::MovedIn {
+            from_path: format!("{SECTION_951A}/subsection_e/paragraph_1")
+        },
+        "and the paragraph now here came from the subsection that became (c), got {:?}",
+        report.provisions
+    );
+    assert!(
+        !report
+            .provisions
+            .iter()
+            .flat_map(|p| &p.changes)
+            .any(|c| c.old_value.contains("net CFC tested income")
+                && c.new_value.contains("pro rata shares")),
+        "net CFC tested income never became pro rata shares, got {:?}",
+        report.provisions
+    );
 }

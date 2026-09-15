@@ -343,7 +343,6 @@ pub fn path_report<S: Storage>(
     matching: PathMatch,
 ) -> Result<PathReport, DatasetError> {
     let present_in = presence_counts(dataset, path)?;
-    let history = dataset.provision_history(path)?;
 
     let (provisions, unfollowed_redesignations) = match pair {
         Some((from_id, to_id)) => {
@@ -351,7 +350,7 @@ pub fn path_report<S: Storage>(
                 from: &from_id.at,
                 to: &to_id.at,
             };
-            let moves = Moves::walk(&history, path, &window);
+            let moves = moves_for(dataset, path, &window)?;
             match (
                 dataset.get_expression(from_id)?,
                 dataset.get_expression(to_id)?,
@@ -369,7 +368,10 @@ pub fn path_report<S: Storage>(
         // are still named: a reader who asks about a path that redesignation
         // links name, and gets a clean answer, has no way to learn that the
         // path names different provisions on different dates.
-        None => (Vec::new(), unresolved_without_a_window(&history, path)),
+        None => (
+            Vec::new(),
+            unresolved_without_a_window(&dataset.provision_history(path)?, path),
+        ),
     };
 
     let annotations = annotations(dataset, AnnotationQuery::Path { path, matching })?;
@@ -418,6 +420,56 @@ struct Moves {
     into: Option<(String, Vec<RedesignationLink>)>,
     /// Links naming this path that the walk did not follow.
     unfollowed: Vec<UnfollowedRedesignation>,
+}
+
+/// What the links say about `path` across `window`, counting a renumbering a
+/// bill stated about a container above it.
+///
+/// A bill that renumbers `(c)` to `(d)` says nothing about `(c)(1)`, and moves
+/// it all the same. So the nearest container that moved answers for everything
+/// below it, and the child keeps its own segments under the container's new
+/// name. This is the reading [`Redesignations::is_one_provision`] already takes
+/// for the diff, which is why the two commands agree.
+///
+/// Nearest first, because a statement about a deeper container is the more
+/// specific one.
+fn moves_for<S: Storage>(
+    dataset: &S,
+    path: &str,
+    window: &Window<'_>,
+) -> Result<Moves, DatasetError> {
+    let mut moves = Moves::default();
+
+    for container in ancestry(path) {
+        let walked = Moves::walk(&dataset.provision_history(container)?, container, window);
+        moves.unfollowed.extend(walked.unfollowed);
+        moves.out = moves.out.or_else(|| carried(path, container, walked.out));
+        moves.into = moves.into.or_else(|| carried(path, container, walked.into));
+        if moves.out.is_some() && moves.into.is_some() {
+            break;
+        }
+    }
+    Ok(moves)
+}
+
+/// A path and every container above it, nearest first.
+fn ancestry(path: &str) -> impl Iterator<Item = &str> {
+    std::iter::successors(Some(path), |at| {
+        at.rsplit_once('/').map(|(above, _)| above)
+    })
+}
+
+/// Where `path` lands when the `container` above it moved.
+///
+/// The container's new name, with the segments that sit below it unchanged.
+fn carried(
+    path: &str,
+    container: &str,
+    moved: Option<(String, Vec<RedesignationLink>)>,
+) -> Option<(String, Vec<RedesignationLink>)> {
+    let (landed, via) = moved?;
+    let below = &path[container.len()..];
+    Some((format!("{landed}{below}"), via))
 }
 
 impl Moves {
@@ -726,20 +778,24 @@ fn pair_across_moves(
     let mut provisions = Vec::new();
 
     for (position, node) in from_kin.iter().enumerate() {
-        provisions.push(match &moves.out {
+        // The other end has to be there. A bill that renumbered a container and
+        // struck this provision in the same breath leaves a destination the law
+        // does not hold, and naming it would state a place that does not exist.
+        let landed = moves
+            .out
+            .as_ref()
+            .and_then(|(to_path, via)| Some((to_path, via, *to_root.find_all(to_path).get(position)?)));
+
+        provisions.push(match landed {
             // Compared across the move, so "renumbered and otherwise untouched"
             // is one answer rather than a second command.
-            Some((to_path, via)) => ProvisionAtPath {
+            Some((to_path, via, landed)) => ProvisionAtPath {
                 from_position: Some(position),
                 to_position: None,
                 presence: Presence::MovedOut {
                     to_path: to_path.clone(),
                 },
-                changes: to_root
-                    .find_all(to_path)
-                    .get(position)
-                    .map(|landed| field_changes(node, landed))
-                    .unwrap_or_default(),
+                changes: field_changes(node, landed),
                 via: via.clone(),
             },
             None => ProvisionAtPath {
@@ -753,18 +809,18 @@ fn pair_across_moves(
     }
 
     for (position, node) in to_kin.iter().enumerate() {
-        provisions.push(match &moves.into {
-            Some((from_path, via)) => ProvisionAtPath {
+        let left = moves.into.as_ref().and_then(|(from_path, via)| {
+            Some((from_path, via, *from_root.find_all(from_path).get(position)?))
+        });
+
+        provisions.push(match left {
+            Some((from_path, via, left)) => ProvisionAtPath {
                 from_position: None,
                 to_position: Some(position),
                 presence: Presence::MovedIn {
                     from_path: from_path.clone(),
                 },
-                changes: from_root
-                    .find_all(from_path)
-                    .get(position)
-                    .map(|left| field_changes(left, node))
-                    .unwrap_or_default(),
+                changes: field_changes(left, node),
                 via: via.clone(),
             },
             None => ProvisionAtPath {
