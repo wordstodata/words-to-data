@@ -353,9 +353,51 @@ pub struct RedesignationReport {
 }
 
 impl RedesignationReport {
-    /// How many statements were looked at: resolved plus unresolved.
-    pub fn stated(&self) -> usize {
-        self.resolved.len() + self.unresolved.len()
+    /// How many statements the bill made, placed or not.
+    ///
+    /// One clause states many renumberings — "redesignating subparagraphs (H)
+    /// through (U) as subparagraphs (I) through (V)" is one statement and
+    /// fourteen links — so this is never [`Self::links`], and the two numbers
+    /// must never be added (#166).
+    pub fn statements(&self) -> usize {
+        self.statement_names().len()
+    }
+
+    /// How many renumberings this build placed, each written as one link.
+    pub fn links(&self) -> usize {
+        self.resolved.len()
+    }
+
+    /// How many statements this build could not turn into two paths.
+    ///
+    /// Counted by clause, not by row: a clause that states fourteen
+    /// renumberings and fails on three of them is one statement this build
+    /// could not place.
+    pub fn unplaced(&self) -> usize {
+        self.unplaced_names().len()
+    }
+
+    /// Every statement this report is about, each named once.
+    ///
+    /// A statement is named by the amendment it came from and the words it was
+    /// read out of, which is the pair [`Self::across_works`] folds by. Both
+    /// lists name the same statement more than once: the resolved list holds one
+    /// row per renumbering, and the unresolved list one row per renumbering it
+    /// could not place.
+    fn statement_names(&self) -> std::collections::HashSet<(&str, &str)> {
+        self.resolved
+            .iter()
+            .map(|resolved| (resolved.amendment_id.as_str(), resolved.text.as_str()))
+            .chain(self.unplaced_names())
+            .collect()
+    }
+
+    /// Every statement this build could not place, each named once.
+    fn unplaced_names(&self) -> std::collections::HashSet<(&str, &str)> {
+        self.unresolved
+            .iter()
+            .map(|unresolved| (unresolved.amendment_id.as_str(), unresolved.text.as_str()))
+            .collect()
     }
 
     /// One line saying what a sweep recorded and what it could not place.
@@ -365,14 +407,16 @@ impl RedesignationReport {
     /// was, because a build loops over every bill it loads and an anonymous
     /// count cannot be read.
     ///
-    /// Links, not statements: one clause can state fourteen renumberings, so the
-    /// two numbers below count different things and neither is the number of
-    /// statements the bill made. #166 gives the type that third number.
+    /// Three numbers, because one clause can state fourteen renumberings: the
+    /// statements the bill made, the links they became, and the statements this
+    /// build could not place. They count different things, so a reader must read
+    /// all three and add none of them (#166).
     pub fn summary(&self, label: &str) -> String {
         format!(
-            "{label}: {} link(s) recorded, {} statement(s) not placed",
-            self.resolved.len(),
-            self.unresolved.len()
+            "{label}: {} statement(s), {} link(s) recorded, {} statement(s) not placed",
+            self.statements(),
+            self.links(),
+            self.unplaced()
         )
     }
 

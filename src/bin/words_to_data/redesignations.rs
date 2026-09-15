@@ -70,9 +70,11 @@ pub fn run(args: Args) {
     }
     let report = RedesignationReport::across_works(per_work);
 
+    // The report's own counts. One clause states many renumberings, so a count
+    // of links is not a count of statements (#166).
     println!(
         "Recorded {} link(s) across {} work pair(s).",
-        report.resolved.len(),
+        report.links(),
         pairs.len()
     );
     if report.unresolved.is_empty() {
@@ -81,7 +83,7 @@ pub fn run(args: Args) {
         println!(
             "\n{} statement(s) could not be placed. Each is a redesignation the \
              corpus states and this build cannot turn into two paths:",
-            report.unresolved.len()
+            report.unplaced()
         );
         for unresolved in &report.unresolved {
             println!("  {}", unresolved.reason);
