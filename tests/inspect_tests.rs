@@ -794,7 +794,14 @@ fn should_report_the_same_provisions_on_both_backends() {
                 .collect::<Vec<_>>(),
             r.provisions
                 .iter()
-                .map(|p| (p.from_position, p.to_position, p.presence, p.changes.len()))
+                .map(|p| {
+                    (
+                        p.from_position,
+                        p.to_position,
+                        p.presence.clone(),
+                        p.changes.len(),
+                    )
+                })
                 .collect::<Vec<_>>(),
         )
     };

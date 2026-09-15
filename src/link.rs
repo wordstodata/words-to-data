@@ -520,12 +520,21 @@ pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
 /// Read out of a `legislature.redesignated_as` link: the provision sat at
 /// `from_path` in the expression of `from_date`, and at `to_path` in the
 /// expression of `to_date`.
+///
+/// The step carries how far the link can be trusted and which bill stated it.
+/// A caller that walks the chain has to decide whether to rely on each hop, and
+/// a step that said only where the provision went would make that decision
+/// impossible without reading the links a second time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RedesignationStep {
     pub from_path: String,
     pub to_path: String,
     pub from_date: String,
     pub to_date: String,
+    /// How far the statement can be trusted.
+    pub verification: VerificationState,
+    /// The bill that stated the renumbering, where the link names one.
+    pub bill_id: Option<String>,
 }
 
 /// The renumberings one provision ran through, oldest first.
@@ -655,6 +664,13 @@ fn step_of(link: &Link) -> Option<RedesignationStep> {
         to_path: to_path.clone(),
         from_date: from_date.clone(),
         to_date: to_date.clone(),
+        verification: link.provenance.verification,
+        bill_id: link
+            .payload
+            .as_ref()
+            .and_then(|payload| payload.value.get("bill_id"))
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
     })
 }
 
