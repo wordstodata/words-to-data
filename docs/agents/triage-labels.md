@@ -26,11 +26,27 @@ Apply `breaking-changes` when the work does any of these:
 
 - Changes the SQLite schema, which means `SCHEMA_VERSION` in `src/storage/mod.rs` goes up. Datasets are rebuilt, never migrated, so the break must be visible before the work starts.
 - Changes a type that is serialized into a W2D file, such as `DatasetMetadata` or `Provenance`. Adding a field breaks an old reader as surely as removing one.
-- Changes the JSON a CLI command gives an agent.
 
 Adding a new type, or a new link kind, is not a breaking change.
 
 The label groups work that should share one release window. Three breaking issues merged separately give a user three breaks; merged together they give one.
+
+### The JSON a CLI command gives an agent is not a break yet
+
+This list held a third entry, "changes the JSON a CLI command gives an agent", and
+the maintainer removed it on 2026-09-15.
+
+Both entries above are about a file that is **stored**. A stored file outlives the
+build that wrote it, so an old reader meets a new file and cannot read it. A CLI's
+JSON is not stored. It is written fresh on each run, and nothing outside this repo
+is pinned to its shape.
+
+So a command that adds or alters a `--json` field is an ordinary change. It does
+not wait for a release window, and it does not take the label.
+
+This flips back the moment something is published against the shape: a documented
+agent interface, or a reader outside this repo that names a field. Put the entry
+back when that happens.
 
 ### Forcing a rebuild is not the same as breaking the format
 
