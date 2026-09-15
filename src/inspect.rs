@@ -454,9 +454,7 @@ fn moves_for<S: Storage>(
 
 /// A path and every container above it, nearest first.
 fn ancestry(path: &str) -> impl Iterator<Item = &str> {
-    std::iter::successors(Some(path), |at| {
-        at.rsplit_once('/').map(|(above, _)| above)
-    })
+    std::iter::successors(Some(path), |at| at.rsplit_once('/').map(|(above, _)| above))
 }
 
 /// Where `path` lands when the `container` above it moved.
@@ -653,10 +651,8 @@ fn kin_at<'a>(parent: &'a DocumentNode, path: &str) -> Vec<&'a DocumentNode> {
 /// known redesignation, so the assertion the diff makes about its two arguments
 /// holds by construction and this cannot panic.
 fn field_changes(from: &DocumentNode, to: &DocumentNode) -> Vec<PathFieldChange> {
-    let known = Redesignations::from_pairs([(
-        from.data.path.to_string(),
-        to.data.path.to_string(),
-    )]);
+    let known =
+        Redesignations::from_pairs([(from.data.path.to_string(), to.data.path.to_string())]);
     TreeDiff::from_nodes_with(from, to, &known)
         .changes
         .iter()
@@ -781,10 +777,9 @@ fn pair_across_moves(
         // The other end has to be there. A bill that renumbered a container and
         // struck this provision in the same breath leaves a destination the law
         // does not hold, and naming it would state a place that does not exist.
-        let landed = moves
-            .out
-            .as_ref()
-            .and_then(|(to_path, via)| Some((to_path, via, *to_root.find_all(to_path).get(position)?)));
+        let landed = moves.out.as_ref().and_then(|(to_path, via)| {
+            Some((to_path, via, *to_root.find_all(to_path).get(position)?))
+        });
 
         provisions.push(match landed {
             // Compared across the move, so "renumbered and otherwise untouched"
@@ -810,7 +805,11 @@ fn pair_across_moves(
 
     for (position, node) in to_kin.iter().enumerate() {
         let left = moves.into.as_ref().and_then(|(from_path, via)| {
-            Some((from_path, via, *from_root.find_all(from_path).get(position)?))
+            Some((
+                from_path,
+                via,
+                *from_root.find_all(from_path).get(position)?,
+            ))
         });
 
         provisions.push(match left {
