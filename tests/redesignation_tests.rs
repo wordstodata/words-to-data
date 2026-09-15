@@ -661,6 +661,42 @@ fn should_resolve_most_of_the_corpus_and_report_the_rest() {
     );
 }
 
+/// The three numbers a person reading the sweep wants (#166).
+///
+/// One clause states many renumberings — "redesignating subparagraphs (H)
+/// through (U) as subparagraphs (I) through (V)" is one statement and fourteen
+/// links — so a count of links is not a count of statements, and the sum of the
+/// two counts neither.
+#[test]
+fn should_count_statements_links_and_unplaced_statements_when_it_sweeps_the_corpus() {
+    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
+
+    let per_work: Vec<RedesignationReport> = TITLES_NAMED
+        .iter()
+        .map(|file| {
+            let (earlier, later) = release_pair(file);
+            resolve(&stated, &earlier, &later)
+        })
+        .collect();
+    let report = RedesignationReport::across_works(per_work);
+
+    assert_eq!(
+        report.statements(),
+        57,
+        "the bill states 57 redesignations, and one clause counts once"
+    );
+    assert_eq!(
+        report.links(),
+        81,
+        "those statements become 81 renumberings this build can place"
+    );
+    assert_eq!(
+        report.unplaced(),
+        17,
+        "17 statements stay unplaced, and each one is reported"
+    );
+}
+
 #[test]
 fn should_report_every_redesignation_the_corpus_states() {
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
@@ -750,10 +786,11 @@ fn should_shorten_the_clause_when_it_reports_a_statement_it_could_not_place() {
 }
 
 #[test]
-fn should_name_the_bill_and_both_counts_when_it_summarises_a_sweep() {
+fn should_name_the_bill_and_all_three_counts_when_it_summarises_a_sweep() {
     // A rebuild printed nineteen warnings and no count, so the report read as a
     // failure rather than as work done. The summary is the line that says what
-    // was recorded (#164).
+    // was recorded (#164). The count of statements is the third number, which
+    // the type could not give until #166.
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
     let earlier = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
     let later = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
@@ -763,10 +800,11 @@ fn should_name_the_bill_and_both_counts_when_it_summarises_a_sweep() {
     assert_eq!(
         report.summary(BILL_ID),
         format!(
-            "{BILL_ID}: {} link(s) recorded, {} statement(s) not placed",
-            report.resolved.len(),
-            report.unresolved.len()
+            "{BILL_ID}: 57 statement(s), {} link(s) recorded, {} statement(s) not placed",
+            report.links(),
+            report.unplaced()
         ),
-        "the line names the bill, what was recorded, and what was not"
+        "the line names the bill, the statements it read, the links it recorded, \
+         and what it could not place"
     );
 }
