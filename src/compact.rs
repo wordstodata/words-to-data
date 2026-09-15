@@ -4,9 +4,11 @@
 //! Reduces file size ~5x and eliminates duplicate allocations on load.
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::de::{DeserializeOwned, IgnoredAny, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer as _, Serialize};
 
 use crate::congress::{BillVotes, Member, SponsorInfo};
 use crate::dataset::{DatasetMetadata, Expression, ExpressionId, WorkId};
@@ -149,17 +151,25 @@ pub struct ExpressionCompact {
 pub struct DatasetCompact {
     /// The schema this file was written by.
     ///
-    /// Serialized first, and read on its own by [`schema_version_of`] before
-    /// the rest of the file is parsed. Most fields below default to empty, so
-    /// without a guard an older file would load as a dataset that simply holds
-    /// nothing — an empty answer that actually means "wrong schema".
+    /// Serialized first, and read on its own by [`check_schema_version`]
+    /// before the rest of the file is parsed. Most fields below default to
+    /// empty, so without a guard an older file would load as a dataset that
+    /// simply holds nothing — an empty answer that actually means "wrong
+    /// schema".
     ///
     /// `#[serde(default)]` so a file written before the field existed reads 0
     /// rather than failing to parse.
     #[serde(default)]
     pub schema_version: i32,
-    pub string_table: StringTable,
+    /// What the dataset says about itself.
+    ///
+    /// Serialized second, so a reader meets it before the string table and can
+    /// read it without the body — the string table alone is most of the file.
+    /// serde reads a struct's fields in whatever order the document states
+    /// them, so where this one sits is a cost and not a format: a file written
+    /// in either order reads by either reader.
     pub metadata: DatasetMetadata,
+    pub string_table: StringTable,
     pub expressions: Vec<ExpressionCompact>,
     /// Bills (stored as-is, no dedup needed)
     #[serde(default)]
@@ -181,17 +191,87 @@ pub struct DatasetCompact {
     pub bill_votes: HashMap<String, BillVotes>,
 }
 
-/// Just the schema version, read without parsing the rest of the file.
+/// Read one field from the head of a compact file, and stop at it.
+///
+/// serde reads a struct by walking the whole object, because a field it asks
+/// for can sit anywhere in it. A reader that knows its field comes first does
+/// not need that walk. This one reads the members in the order they are
+/// written and stops as soon as it has the one it came for, so the cost does
+/// not grow with the body below.
+///
+/// The stop leaves the object unfinished, and serde_json reports that as an
+/// error. So the value travels out through the borrow the probe holds, and the
+/// error is discarded once the value is in hand.
+///
+/// `Ok(None)` means the object ended and the field was not in it.
+fn read_leading_field<T: DeserializeOwned, R: Read>(
+    reader: R,
+    name: &str,
+) -> Result<Option<T>, serde_json::Error> {
+    let mut found = None;
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let walked = deserializer.deserialize_map(FieldProbe {
+        name,
+        found: &mut found,
+    });
+    match walked {
+        Ok(()) => Ok(found),
+        Err(_) if found.is_some() => Ok(found),
+        Err(error) => Err(error),
+    }
+}
+
+/// The visitor [`read_leading_field`] walks the object with.
+struct FieldProbe<'a, T> {
+    name: &'a str,
+    found: &'a mut Option<T>,
+}
+
+impl<'de, T: DeserializeOwned> Visitor<'de> for FieldProbe<'_, T> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(formatter, "a compact dataset object")
+    }
+
+    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+        while let Some(key) = map.next_key::<String>()? {
+            if key == self.name {
+                *self.found = Some(map.next_value()?);
+                return Ok(());
+            }
+            map.next_value::<IgnoredAny>()?;
+        }
+        Ok(())
+    }
+}
+
+/// The schema a compact file was written by, read without the rest of the file.
 ///
 /// The check has to come first. Every other field changes shape between
 /// schemas, so parsing the whole file to reach the version fails on one of
 /// those fields instead, and reports a serde error about a type mismatch deep
 /// in the document rather than the one thing the reader needs to be told: this
 /// file was written by another build, rebuild it.
-#[derive(Deserialize)]
-struct SchemaProbe {
-    #[serde(default)]
-    schema_version: i32,
+///
+/// A file written before the field existed reads 0 rather than failing.
+fn schema_version_of<R: Read>(reader: R) -> Result<i32, crate::dataset::DatasetError> {
+    Ok(read_leading_field(reader, "schema_version")?.unwrap_or(0))
+}
+
+/// What a compact file says about itself, read without the rest of the file.
+///
+/// Who wrote the dataset, what it is called, and what it declares it covers.
+/// None of it needs the body, and the body is almost all of the file, so this
+/// stops at the metadata. Give it a buffered reader: it reads a byte at a time.
+pub fn metadata_of<R: Read>(reader: R) -> Result<DatasetMetadata, crate::dataset::DatasetError> {
+    match read_leading_field(reader, "metadata")? {
+        Some(metadata) => Ok(metadata),
+        None => Err(crate::dataset::DatasetError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "this compact file states no metadata",
+        ))),
+    }
 }
 
 /// Refuse a compact-JSON file this build cannot read.
@@ -199,11 +279,15 @@ struct SchemaProbe {
 /// The same guard SQLite has had since #68. Without it the JSON path fails the
 /// quiet way instead: an older file parses, every collection defaults to empty,
 /// and the dataset reports that it holds nothing.
-pub fn check_schema_version(json: &str) -> Result<(), crate::dataset::DatasetError> {
-    let probe: SchemaProbe = serde_json::from_str(json)?;
-    if probe.schema_version != SCHEMA_VERSION {
+///
+/// Reads from a stream and stops at the version, so a file this build cannot
+/// read is refused after its first line rather than after all of it. Give it a
+/// buffered reader: it reads a byte at a time.
+pub fn check_schema_version<R: Read>(reader: R) -> Result<(), crate::dataset::DatasetError> {
+    let found = schema_version_of(reader)?;
+    if found != SCHEMA_VERSION {
         return Err(crate::dataset::DatasetError::SchemaVersionMismatch {
-            found: probe.schema_version,
+            found,
             expected: SCHEMA_VERSION,
         });
     }
@@ -222,8 +306,8 @@ impl DatasetCompact {
 
         Self {
             schema_version: SCHEMA_VERSION,
-            string_table: table,
             metadata: storage.metadata.clone(),
+            string_table: table,
             expressions,
             bills: storage.bills.clone(),
             links: storage.links.clone(),
