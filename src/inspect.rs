@@ -16,8 +16,9 @@ use serde::Serialize;
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{Party, PartyOnDate, VotePosition};
 use crate::dataset::{DatasetError, ExpressionId, Scope, SearchResult, WorkId};
-use crate::diff::TreeDiff;
+use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
+use crate::link::{ProvisionHistory, RedesignationStep, VerificationState};
 use crate::storage::{LegislatureReader, Storage};
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
@@ -202,15 +203,67 @@ pub struct PathPresence {
 }
 
 /// Whether a provision at a path survived an expression pair.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+///
+/// A move carries the other end's path inside the variant. An optional field
+/// beside a plain `InBoth` was rejected: a caller that read the state and
+/// ignored the field would get exactly the false answer #165 removes, so the
+/// wrong reading is made unrepresentable instead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Presence {
-    /// In both expressions, so its field changes are comparable.
+    /// In both expressions, at this path, so its field changes are comparable.
     InBoth,
     /// Only in the newer expression: new law at this path.
     Added,
     /// Only in the older expression.
     Removed,
+    /// The provision that was at this path is at another path in the newer
+    /// expression. A bill renumbered it.
+    MovedOut { to_path: String },
+    /// The provision at this path in the newer expression was at another path
+    /// in the older one. A bill renumbered it.
+    MovedIn { from_path: String },
+}
+
+/// One redesignation link, as a report names it.
+///
+/// It says what the link says and who said it, so a reader can weigh the claim
+/// instead of taking it. The verification state is here and no corroboration
+/// figure is: a figure is evidence for a reviewer, not a substitute for one
+/// (`CONTEXT.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RedesignationLink {
+    pub from_path: String,
+    pub to_path: String,
+    /// The earlier of the two dates the link was observed between.
+    pub from_date: String,
+    /// The later of them.
+    pub to_date: String,
+    pub verification: VerificationState,
+    /// The bill that stated the renumbering, where the link names one.
+    pub bill_id: Option<String>,
+}
+
+/// Why a report did not follow a redesignation link that names its path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotFollowed {
+    /// No expression pair was given, so there is no window to resolve in.
+    NoWindow,
+    /// The link was checked and found wrong. Reporting a statement known to be
+    /// false is worse than the string pairing this report replaces.
+    Refuted,
+}
+
+/// A redesignation link the report saw and did not follow.
+///
+/// Said aloud rather than skipped. A silent fall back to pairing by path string
+/// gives the reader today's false answer with nothing to show that a link was
+/// passed over.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnfollowedRedesignation {
+    pub link: RedesignationLink,
+    pub reason: NotFollowed,
 }
 
 /// One provision at a structural path, across an expression pair.
@@ -236,8 +289,13 @@ pub struct ProvisionAtPath {
     pub to_position: Option<usize>,
     pub presence: Presence,
     /// Field-level changes for this provision. Always empty for an addition or
-    /// a removal, which have nothing on the other side to compare against.
+    /// a removal, which have nothing on the other side to compare against. For
+    /// a move they are measured **across** the move, so "renumbered and
+    /// otherwise untouched" is one answer rather than two commands.
     pub changes: Vec<PathFieldChange>,
+    /// The redesignation links this entry relied on, oldest first. Empty for a
+    /// provision no bill renumbered, which is the ordinary case.
+    pub via: Vec<RedesignationLink>,
 }
 
 /// Everything known about one structural path: where it exists, what happened
@@ -246,10 +304,20 @@ pub struct ProvisionAtPath {
 pub struct PathReport {
     pub path: String,
     /// The expressions that hold the path, each named once with a count.
+    ///
+    /// Literal, and it stays literal. "How many provisions sit at this string
+    /// on this date" is a question about the file, and its answer is a fact.
     pub present_in: Vec<PathPresence>,
     /// Each provision at the path across the requested expression pair, in
     /// document order. Empty when no pair was given.
+    ///
+    /// A path may hold more than one provision across a pair: where a bill
+    /// renumbered, one provision left the path and another took it.
     pub provisions: Vec<ProvisionAtPath>,
+    /// Redesignation links naming this path that the report did not follow,
+    /// each with the reason. Every one of them when no pair was given, because
+    /// then there is no window to resolve in.
+    pub unfollowed_redesignations: Vec<UnfollowedRedesignation>,
     /// Annotations that reference this path (across all expression pairs).
     pub annotations: Vec<AnnotationSummary>,
 }
@@ -275,17 +343,33 @@ pub fn path_report<S: Storage>(
     matching: PathMatch,
 ) -> Result<PathReport, DatasetError> {
     let present_in = presence_counts(dataset, path)?;
+    let history = dataset.provision_history(path)?;
 
-    let provisions = match pair {
-        Some((from, to)) => {
-            match (dataset.get_expression(from)?, dataset.get_expression(to)?) {
-                (Some(from), Some(to)) => pair_provisions(&from.root, &to.root, path),
+    let (provisions, unfollowed_redesignations) = match pair {
+        Some((from_id, to_id)) => {
+            let window = Window {
+                from: &from_id.at,
+                to: &to_id.at,
+            };
+            let moves = Moves::walk(&history, path, &window);
+            match (
+                dataset.get_expression(from_id)?,
+                dataset.get_expression(to_id)?,
+            ) {
+                (Some(from), Some(to)) => (
+                    pair_provisions(&from.root, &to.root, path, &moves),
+                    moves.unfollowed,
+                ),
                 // An expression the dataset does not hold is not an error here:
                 // `present_in` still answers where the path lives.
-                _ => Vec::new(),
+                _ => (Vec::new(), moves.unfollowed),
             }
         }
-        None => Vec::new(),
+        // No window, so nothing is resolved and nothing is walked. The links
+        // are still named: a reader who asks about a path that redesignation
+        // links name, and gets a clean answer, has no way to learn that the
+        // path names different provisions on different dates.
+        None => (Vec::new(), unresolved_without_a_window(&history, path)),
     };
 
     let annotations = annotations(dataset, AnnotationQuery::Path { path, matching })?;
@@ -294,8 +378,188 @@ pub fn path_report<S: Storage>(
         path: path.to_string(),
         present_in,
         provisions,
+        unfollowed_redesignations,
         annotations,
     })
+}
+
+/// The two dates an expression pair covers.
+struct Window<'a> {
+    from: &'a str,
+    to: &'a str,
+}
+
+/// Where a walk has reached: a path, and the date it holds that path on.
+///
+/// The date is what keeps a run of renumberings apart from a chain of them. One
+/// bill moved `45X(c)(6)(R)` to (S) and (S) to (T) **in the same period**, so
+/// the two links are two provisions moving at once and not one provision moving
+/// twice. A hop may only start where the hop before it ended, in time as well
+/// as in place.
+struct Standing {
+    path: String,
+    date: String,
+}
+
+/// What the redesignation links say about one path across one window.
+///
+/// Walked out of [`provision_history`], the projection that makes the diff
+/// right. Nothing here decides for a second time whether two paths are one
+/// provision; it reads the links the dataset already holds.
+///
+/// [`provision_history`]: crate::storage::LinkReader::provision_history
+#[derive(Default)]
+struct Moves {
+    /// The path the provision at this path moved to, and the links walked to
+    /// reach it.
+    out: Option<(String, Vec<RedesignationLink>)>,
+    /// The path the provision now at this path came from, and the links walked
+    /// back to reach it.
+    into: Option<(String, Vec<RedesignationLink>)>,
+    /// Links naming this path that the walk did not follow.
+    unfollowed: Vec<UnfollowedRedesignation>,
+}
+
+impl Moves {
+    /// Follow the links away from `path` and back to it, inside `window`.
+    fn walk(history: &ProvisionHistory, path: &str, window: &Window<'_>) -> Self {
+        let mut unfollowed = Vec::new();
+        let out = follow(history, path, window, Forwards, &mut unfollowed);
+        let into = follow(history, path, window, Backwards, &mut unfollowed);
+        Self {
+            out,
+            into,
+            unfollowed,
+        }
+    }
+}
+
+/// Step away from `path` through the links, one hop at a time, and answer where
+/// the walk ends. `None` when it took no hop, so the provision did not move.
+///
+/// Where the dataset holds release points between the two asked about, a
+/// provision may move more than once, so this follows the chain rather than one
+/// link. Each hop must begin on the date the hop before it ended, and no hop
+/// may leave the window: a renumbering outside it is a statement about another
+/// period, and this report is about this one (#172).
+fn follow(
+    history: &ProvisionHistory,
+    path: &str,
+    window: &Window<'_>,
+    direction: Direction,
+    unfollowed: &mut Vec<UnfollowedRedesignation>,
+) -> Option<(String, Vec<RedesignationLink>)> {
+    let mut standing = direction.start(path, window);
+    let mut walked: Vec<RedesignationLink> = Vec::new();
+
+    while let Some(step) = history
+        .steps
+        .iter()
+        .find(|step| direction.continues(step, &standing, window))
+    {
+        // A refuted link was checked and found wrong. Following it would state
+        // something known to be false, which is worse than the string pairing
+        // this walk replaces, so the walk stops and says so.
+        if step.verification == VerificationState::Refuted {
+            unfollowed.push(UnfollowedRedesignation {
+                link: RedesignationLink::from(step),
+                reason: NotFollowed::Refuted,
+            });
+            break;
+        }
+        walked.push(RedesignationLink::from(step));
+        standing = direction.next(step);
+    }
+
+    (standing.path != path).then_some((standing.path, walked))
+}
+
+/// Which way along the links a walk goes.
+#[derive(Clone, Copy)]
+enum Direction {
+    /// Away from the path, towards the later date: what the provision here
+    /// became.
+    Forwards,
+    /// Back from the path, towards the earlier date: what the provision here
+    /// used to be.
+    Backwards,
+}
+
+use Direction::{Backwards, Forwards};
+
+impl Direction {
+    /// Where the walk starts: the path asked about, on the date this direction
+    /// leaves from.
+    fn start(self, path: &str, window: &Window<'_>) -> Standing {
+        Standing {
+            path: path.to_string(),
+            date: match self {
+                Forwards => window.from.to_string(),
+                Backwards => window.to.to_string(),
+            },
+        }
+    }
+
+    /// Whether this step carries the walk on from where it stands, without
+    /// leaving the window.
+    fn continues(self, step: &RedesignationStep, standing: &Standing, window: &Window<'_>) -> bool {
+        match self {
+            Forwards => {
+                step.from_path == standing.path
+                    && step.from_date >= standing.date
+                    && step.to_date.as_str() <= window.to
+            }
+            Backwards => {
+                step.to_path == standing.path
+                    && step.to_date <= standing.date
+                    && step.from_date.as_str() >= window.from
+            }
+        }
+    }
+
+    /// Where this step puts the walk next.
+    fn next(self, step: &RedesignationStep) -> Standing {
+        let (path, date) = match self {
+            Forwards => (&step.to_path, &step.to_date),
+            Backwards => (&step.from_path, &step.from_date),
+        };
+        Standing {
+            path: path.clone(),
+            date: date.clone(),
+        }
+    }
+}
+
+impl From<&RedesignationStep> for RedesignationLink {
+    fn from(step: &RedesignationStep) -> Self {
+        Self {
+            from_path: step.from_path.clone(),
+            to_path: step.to_path.clone(),
+            from_date: step.from_date.clone(),
+            to_date: step.to_date.clone(),
+            verification: step.verification,
+            bill_id: step.bill_id.clone(),
+        }
+    }
+}
+
+/// The redesignation links that name a path, when no expression pair was given.
+///
+/// One entry each, all unfollowed, because there is no window to follow them
+/// in.
+fn unresolved_without_a_window(
+    history: &ProvisionHistory,
+    path: &str,
+) -> Vec<UnfollowedRedesignation> {
+    history
+        .steps
+        .iter()
+        .filter(|step| step.from_path == path || step.to_path == path)
+        .map(|step| UnfollowedRedesignation {
+            link: RedesignationLink::from(step),
+            reason: NotFollowed::NoWindow,
+        })
+        .collect()
 }
 
 /// Which expressions hold the path, each named once with a provision count.
@@ -329,9 +593,19 @@ fn kin_at<'a>(parent: &'a DocumentNode, path: &str) -> Vec<&'a DocumentNode> {
         .collect()
 }
 
-/// The field-level changes between two provisions that share a path.
+/// The field-level changes between two dates of one provision.
+///
+/// The two nodes need not share a path: a renumbered provision sits at a
+/// different path on each side, and "renumbered and otherwise untouched" is the
+/// statement a reader needs. The pair being compared is handed to the diff as a
+/// known redesignation, so the assertion the diff makes about its two arguments
+/// holds by construction and this cannot panic.
 fn field_changes(from: &DocumentNode, to: &DocumentNode) -> Vec<PathFieldChange> {
-    TreeDiff::from_nodes(from, to)
+    let known = Redesignations::from_pairs([(
+        from.data.path.to_string(),
+        to.data.path.to_string(),
+    )]);
+    TreeDiff::from_nodes_with(from, to, &known)
         .changes
         .iter()
         .map(|c| PathFieldChange {
@@ -352,7 +626,15 @@ fn pair_provisions(
     from_root: &DocumentNode,
     to_root: &DocumentNode,
     path: &str,
+    moves: &Moves,
 ) -> Vec<ProvisionAtPath> {
+    // Where a bill renumbered, the path names one provision before and another
+    // after, so pairing the two would compare two different provisions. That is
+    // the whole of #165.
+    if moves.out.is_some() || moves.into.is_some() {
+        return pair_across_moves(from_root, to_root, path, moves);
+    }
+
     let Some((parent_path, _)) = path.rsplit_once('/') else {
         return Vec::new();
     };
@@ -391,6 +673,7 @@ fn pair_provisions(
                 to_position: Some(to_position),
                 presence: Presence::InBoth,
                 changes: field_changes(from_kin[j], to_kin[j]),
+                via: Vec::new(),
             });
             from_position += 1;
             to_position += 1;
@@ -404,6 +687,7 @@ fn pair_provisions(
                 to_position: None,
                 presence: Presence::Removed,
                 changes: Vec::new(),
+                via: Vec::new(),
             });
             from_position += 1;
         }
@@ -413,9 +697,84 @@ fn pair_provisions(
                 to_position: Some(to_position),
                 presence: Presence::Added,
                 changes: Vec::new(),
+                via: Vec::new(),
             });
             to_position += 1;
         }
+    }
+
+    provisions
+}
+
+/// Pair the provisions at a path a bill renumbered.
+///
+/// Each side is answered on its own, because a renumbering acts on one side at
+/// a time. A provision that was here and moved away is reported against where
+/// it went; a provision that is here now and came from elsewhere is reported
+/// against where it came from; and whatever is left over on either side is an
+/// addition or a removal. Nothing at this path is ever "in both", because the
+/// two ends are two different provisions — which is the false statement #165
+/// exists to remove.
+fn pair_across_moves(
+    from_root: &DocumentNode,
+    to_root: &DocumentNode,
+    path: &str,
+    moves: &Moves,
+) -> Vec<ProvisionAtPath> {
+    let from_kin = from_root.find_all(path);
+    let to_kin = to_root.find_all(path);
+    let mut provisions = Vec::new();
+
+    for (position, node) in from_kin.iter().enumerate() {
+        provisions.push(match &moves.out {
+            // Compared across the move, so "renumbered and otherwise untouched"
+            // is one answer rather than a second command.
+            Some((to_path, via)) => ProvisionAtPath {
+                from_position: Some(position),
+                to_position: None,
+                presence: Presence::MovedOut {
+                    to_path: to_path.clone(),
+                },
+                changes: to_root
+                    .find_all(to_path)
+                    .get(position)
+                    .map(|landed| field_changes(node, landed))
+                    .unwrap_or_default(),
+                via: via.clone(),
+            },
+            None => ProvisionAtPath {
+                from_position: Some(position),
+                to_position: None,
+                presence: Presence::Removed,
+                changes: Vec::new(),
+                via: Vec::new(),
+            },
+        });
+    }
+
+    for (position, node) in to_kin.iter().enumerate() {
+        provisions.push(match &moves.into {
+            Some((from_path, via)) => ProvisionAtPath {
+                from_position: None,
+                to_position: Some(position),
+                presence: Presence::MovedIn {
+                    from_path: from_path.clone(),
+                },
+                changes: from_root
+                    .find_all(from_path)
+                    .get(position)
+                    .map(|left| field_changes(left, node))
+                    .unwrap_or_default(),
+                via: via.clone(),
+            },
+            None => ProvisionAtPath {
+                from_position: None,
+                to_position: Some(position),
+                presence: Presence::Added,
+                changes: Vec::new(),
+                via: Vec::new(),
+            },
+        });
     }
 
     provisions
@@ -434,18 +793,21 @@ fn root_provision(
             to_position: Some(0),
             presence: Presence::InBoth,
             changes: field_changes(from_root, to_root),
+            via: Vec::new(),
         }],
         (true, false) => vec![ProvisionAtPath {
             from_position: Some(0),
             to_position: None,
             presence: Presence::Removed,
             changes: Vec::new(),
+            via: Vec::new(),
         }],
         (false, true) => vec![ProvisionAtPath {
             from_position: None,
             to_position: Some(0),
             presence: Presence::Added,
             changes: Vec::new(),
+            via: Vec::new(),
         }],
         // The path names nothing in either expression.
         (false, false) => Vec::new(),

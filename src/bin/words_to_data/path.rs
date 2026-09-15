@@ -72,12 +72,17 @@ pub fn run(args: Args) {
             report.provisions.len()
         );
         for p in &report.provisions {
-            println!("  {} — {}", verdict(p.presence), positions(p));
+            println!("  {} — {}", verdict(&p.presence), positions(p));
+            for link in &p.via {
+                println!("      {}", stated_by(link));
+            }
             for c in &p.changes {
                 println!("      {}: {:?} -> {:?}", c.field, c.old_value, c.new_value);
             }
         }
     }
+
+    print_unfollowed(&report.unfollowed_redesignations);
 
     // Say which paths the count covers. A bare "Annotations (0)" reads as
     // "nothing was attributed here", which is a different statement.
@@ -100,11 +105,75 @@ fn provisions(n: usize) -> String {
     }
 }
 
-fn verdict(presence: inspect::Presence) -> &'static str {
+fn verdict(presence: &inspect::Presence) -> String {
     match presence {
-        inspect::Presence::InBoth => "in both",
-        inspect::Presence::Added => "added",
-        inspect::Presence::Removed => "removed",
+        inspect::Presence::InBoth => "in both".to_string(),
+        inspect::Presence::Added => "added".to_string(),
+        inspect::Presence::Removed => "removed".to_string(),
+        // The destination is named here rather than left to a second command.
+        // A move whose other end is not shown is the answer this report exists
+        // to replace.
+        inspect::Presence::MovedOut { to_path } => format!("moved out to {to_path}"),
+        inspect::Presence::MovedIn { from_path } => format!("moved in from {from_path}"),
+    }
+}
+
+/// Who said a provision moved, when, and how far it can be trusted.
+///
+/// Every link is followed whatever its corroboration figure, so the state and
+/// the provenance are printed beside the claim instead. Corroboration is
+/// evidence for a reviewer, not a substitute for one.
+fn stated_by(link: &inspect::RedesignationLink) -> String {
+    let bill = match &link.bill_id {
+        Some(bill) => format!("stated by {bill}"),
+        None => "stated by an unnamed source".to_string(),
+    };
+    format!(
+        "{bill}, between {} and {} ({})",
+        link.from_date,
+        link.to_date,
+        trust(link.verification)
+    )
+}
+
+fn trust(verification: words_to_data::link::VerificationState) -> &'static str {
+    use words_to_data::link::VerificationState as V;
+    match verification {
+        V::Asserted => "asserted by a source",
+        V::MachineSuggested => "machine suggested, unconfirmed",
+        V::HumanConfirmed => "human confirmed",
+        V::Disputed => "disputed",
+        V::Refuted => "refuted",
+    }
+}
+
+/// Say which redesignation links the report saw and did not follow.
+///
+/// Silence here would put the reader back where #165 found them: a path named
+/// by redesignation links, answered as though no link existed.
+fn print_unfollowed(unfollowed: &[inspect::UnfollowedRedesignation]) {
+    if unfollowed.is_empty() {
+        return;
+    }
+    let no_window = unfollowed
+        .iter()
+        .all(|u| u.reason == inspect::NotFollowed::NoWindow);
+    if no_window {
+        println!(
+            "\n{} redesignation link(s) name this path. Give --from and --to to resolve them.",
+            unfollowed.len()
+        );
+        return;
+    }
+
+    println!("\nRedesignations not followed ({}):", unfollowed.len());
+    for u in unfollowed {
+        let why = match u.reason {
+            inspect::NotFollowed::NoWindow => "no expression pair was given",
+            inspect::NotFollowed::Refuted => "refuted, so it was checked and found wrong",
+        };
+        println!("  {} -> {} — {why}", u.link.from_path, u.link.to_path);
+        println!("      {}", stated_by(&u.link));
     }
 }
 
