@@ -412,14 +412,20 @@ struct Standing {
 /// [`provision_history`]: crate::storage::LinkReader::provision_history
 #[derive(Default)]
 struct Moves {
-    /// The path the provision at this path moved to, and the links walked to
-    /// reach it.
-    out: Option<(String, Vec<RedesignationLink>)>,
-    /// The path the provision now at this path came from, and the links walked
-    /// back to reach it.
-    into: Option<(String, Vec<RedesignationLink>)>,
+    /// Where the provision at this path went.
+    out: Option<Move>,
+    /// Where the provision now at this path came from.
+    into: Option<Move>,
     /// Links naming this path that the walk did not follow.
     unfollowed: Vec<UnfollowedRedesignation>,
+}
+
+/// One end of a move, and the links the walk followed to reach it.
+struct Move {
+    /// The other path: where the provision went, or where it came from.
+    other: String,
+    /// The links the walk relied on, oldest first.
+    via: Vec<RedesignationLink>,
 }
 
 /// What the links say about `path` across `window`, counting a renumbering a
@@ -460,14 +466,13 @@ fn ancestry(path: &str) -> impl Iterator<Item = &str> {
 /// Where `path` lands when the `container` above it moved.
 ///
 /// The container's new name, with the segments that sit below it unchanged.
-fn carried(
-    path: &str,
-    container: &str,
-    moved: Option<(String, Vec<RedesignationLink>)>,
-) -> Option<(String, Vec<RedesignationLink>)> {
-    let (landed, via) = moved?;
+fn carried(path: &str, container: &str, moved: Option<Move>) -> Option<Move> {
+    let moved = moved?;
     let below = &path[container.len()..];
-    Some((format!("{landed}{below}"), via))
+    Some(Move {
+        other: format!("{}{below}", moved.other),
+        via: moved.via,
+    })
 }
 
 impl Moves {
@@ -498,9 +503,9 @@ fn follow(
     window: &Window<'_>,
     direction: Direction,
     unfollowed: &mut Vec<UnfollowedRedesignation>,
-) -> Option<(String, Vec<RedesignationLink>)> {
+) -> Option<Move> {
     let mut standing = direction.start(path, window);
-    let mut walked: Vec<RedesignationLink> = Vec::new();
+    let mut via: Vec<RedesignationLink> = Vec::new();
 
     while let Some(step) = history
         .steps
@@ -517,11 +522,14 @@ fn follow(
             });
             break;
         }
-        walked.push(RedesignationLink::from(step));
+        via.push(RedesignationLink::from(step));
         standing = direction.next(step);
     }
 
-    (standing.path != path).then_some((standing.path, walked))
+    (standing.path != path).then_some(Move {
+        other: standing.path,
+        via,
+    })
 }
 
 /// Which way along the links a walk goes.
@@ -777,21 +785,22 @@ fn pair_across_moves(
         // The other end has to be there. A bill that renumbered a container and
         // struck this provision in the same breath leaves a destination the law
         // does not hold, and naming it would state a place that does not exist.
-        let landed = moves.out.as_ref().and_then(|(to_path, via)| {
-            Some((to_path, via, *to_root.find_all(to_path).get(position)?))
-        });
+        let moved = moves
+            .out
+            .as_ref()
+            .and_then(|out| Some((out, *to_root.find_all(&out.other).get(position)?)));
 
-        provisions.push(match landed {
+        provisions.push(match moved {
             // Compared across the move, so "renumbered and otherwise untouched"
             // is one answer rather than a second command.
-            Some((to_path, via, landed)) => ProvisionAtPath {
+            Some((out, landed)) => ProvisionAtPath {
                 from_position: Some(position),
                 to_position: None,
                 presence: Presence::MovedOut {
-                    to_path: to_path.clone(),
+                    to_path: out.other.clone(),
                 },
                 changes: field_changes(node, landed),
-                via: via.clone(),
+                via: out.via.clone(),
             },
             None => ProvisionAtPath {
                 from_position: Some(position),
@@ -804,23 +813,20 @@ fn pair_across_moves(
     }
 
     for (position, node) in to_kin.iter().enumerate() {
-        let left = moves.into.as_ref().and_then(|(from_path, via)| {
-            Some((
-                from_path,
-                via,
-                *from_root.find_all(from_path).get(position)?,
-            ))
-        });
+        let moved = moves
+            .into
+            .as_ref()
+            .and_then(|into| Some((into, *from_root.find_all(&into.other).get(position)?)));
 
-        provisions.push(match left {
-            Some((from_path, via, left)) => ProvisionAtPath {
+        provisions.push(match moved {
+            Some((into, left)) => ProvisionAtPath {
                 from_position: None,
                 to_position: Some(position),
                 presence: Presence::MovedIn {
-                    from_path: from_path.clone(),
+                    from_path: into.other.clone(),
                 },
                 changes: field_changes(left, node),
-                via: via.clone(),
+                via: into.via.clone(),
             },
             None => ProvisionAtPath {
                 from_position: None,
