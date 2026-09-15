@@ -17,6 +17,7 @@ pub use work::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use crate::annotation::ChangeAnnotation;
@@ -608,11 +609,17 @@ impl Dataset<InMemoryStorage> {
         match format {
             Format::Compact => {
                 use crate::compact::{DatasetCompact, check_schema_version};
-                let json = fs::read_to_string(path)?;
                 // Before the full parse: every other field changes shape
                 // between schemas, so parsing first would fail on one of those
                 // and report a type mismatch instead of "rebuild this file".
-                check_schema_version(&json)?;
+                //
+                // The check streams and stops at the version, so a file this
+                // build cannot read is refused without being read. The file is
+                // then opened a second time for the parse itself, which reads
+                // the text in one go because that is the faster way to parse a
+                // large file.
+                check_schema_version(io::BufReader::new(fs::File::open(path)?))?;
+                let json = fs::read_to_string(path)?;
                 let compact: DatasetCompact = serde_json::from_str(&json)?;
                 Ok(Self::with_storage(compact.into_storage()))
             }
