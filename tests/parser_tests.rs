@@ -1,7 +1,7 @@
 use rstest::rstest;
 use words_to_data::document::DocumentNode;
 use words_to_data::uslm::UslmFacts;
-use words_to_data::uslm::parser::{parse, parse_from_str};
+use words_to_data::uslm::parser::{parse, parse_from_str, parse_with_report};
 
 /// The USLM facts of a node, out of its class payload.
 ///
@@ -60,10 +60,25 @@ fn test_parse_public_law() {
     // namespaces it on its own (#129).
     assert_eq!(root.data.node_type.as_str(), "bill.public_law");
 
-    // Check that children have structural format paths
+    // A child carries the publisher's own identifier, which spells the public
+    // law number with a slash where the root spells it with a hyphen: the root
+    // has no identifier of its own, so the parser builds one from the
+    // `<docNumber>`, and the publisher writes `/us/pl/119/21/tI` below it.
+    //
+    // The count is asserted first. Until #114 the root had no children at all,
+    // and a property asserted of each child was true of every member of an empty
+    // list.
+    assert_eq!(
+        root.children.len(),
+        11,
+        "the bill holds one section and ten titles"
+    );
     for child in &root.children {
         if let Some(uslm_id) = facts(child).uslm_id {
-            assert!(uslm_id.starts_with("/us/pl/119-21/"));
+            assert!(
+                uslm_id.starts_with("/us/pl/119/21/"),
+                "a child carries the publisher's identifier, got {uslm_id}"
+            );
         }
     }
 }
@@ -280,5 +295,109 @@ fn should_drop_a_real_provision_the_publisher_nested_inside_a_quoted_block() {
     assert_eq!(
         elsewhere, 1,
         "the well-formed 'Applicable provision' at 414(s)(4) should survive"
+    );
+}
+
+/// A `pLaw` root holds its law in `<main>`, beside material that describes the
+/// document. Until #114 the parser stepped into `<main>` for a US Code root
+/// only, so a public law parsed to its root alone and the whole body of the bill
+/// went with the element the parser could not name.
+#[test]
+fn should_hold_the_bills_section_and_titles_when_a_public_law_is_parsed() {
+    let (root, report) = parse_with_report(PL_XML_PATH, "2025-07-04")
+        .expect("the committed public law should parse");
+
+    let children: Vec<_> = root
+        .children
+        .iter()
+        .map(|child| child.data.path.as_ref())
+        .collect();
+    assert_eq!(
+        children,
+        [
+            "publiclawdocument_119-21/section_1",
+            "publiclawdocument_119-21/title_I",
+            "publiclawdocument_119-21/title_II",
+            "publiclawdocument_119-21/title_III",
+            "publiclawdocument_119-21/title_IV",
+            "publiclawdocument_119-21/title_V",
+            "publiclawdocument_119-21/title_VI",
+            "publiclawdocument_119-21/title_VII",
+            "publiclawdocument_119-21/title_VIII",
+            "publiclawdocument_119-21/title_IX",
+            "publiclawdocument_119-21/title_X",
+        ],
+        "the bill's section and its ten titles are the root's children"
+    );
+
+    // `<main>` is a name the parser steps into now, so it raises no warning.
+    assert!(
+        report.dropped_containers.is_empty(),
+        "a public law should drop no container it cannot name, got {:?}",
+        report.dropped_containers
+    );
+}
+
+/// The parser steps into `<main>`, so the root's other children never enter the
+/// tree. Each one is named on the report with the reason it was declined: an
+/// absence with no reason cannot be told apart from an oversight (`CONTEXT.md`,
+/// *Exclusion*).
+#[test]
+fn should_give_a_reason_when_a_public_law_root_child_is_not_law() {
+    let (_root, report) = parse_with_report(PL_XML_PATH, "2025-07-04")
+        .expect("the committed public law should parse");
+
+    let declined: Vec<_> = report
+        .declined_elements
+        .iter()
+        .map(|element| element.element_name.as_str())
+        .collect();
+    assert_eq!(
+        declined,
+        ["meta", "preface", "legislativeHistory", "endMarker"],
+        "every child of the root beside <main> is answered for"
+    );
+
+    for element in &report.declined_elements {
+        assert_eq!(
+            element.parent_path, "publiclawdocument_119-21",
+            "a declined element says where it sat"
+        );
+        assert!(
+            !element.reason.is_empty(),
+            "{} was declined with no reason",
+            element.element_name
+        );
+    }
+}
+
+/// A `uscDoc` root holds `<meta>` beside `<main>`, and the parser steps over it
+/// exactly as it steps over the four of a bill. One rule, stated once, for both
+/// roots: the step into `<main>` for one root only is what #114 was.
+#[test]
+fn should_give_a_reason_when_a_us_code_root_child_is_not_law() {
+    let (root, report) =
+        parse_with_report("tests/test_data/usc/2025-07-18/usc09.xml", "2025-07-18")
+            .expect("title 9 should parse");
+
+    let declined: Vec<_> = report
+        .declined_elements
+        .iter()
+        .map(|element| (element.element_name.as_str(), element.reason.as_str()))
+        .collect();
+    assert_eq!(declined.len(), 1, "title 9 holds <meta> and <main>");
+    assert_eq!(declined[0].0, "meta");
+    assert!(
+        !declined[0].1.is_empty(),
+        "<meta> was declined with no reason"
+    );
+
+    // The law of the title is where it was. A stated decision is not a warning,
+    // so the report is still empty of them.
+    assert!(!root.children.is_empty(), "title 9 still parses");
+    assert!(
+        report.is_empty(),
+        "a declined element is not a dropped container, got {:?}",
+        report.dropped_containers
     );
 }
