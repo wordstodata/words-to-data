@@ -69,3 +69,36 @@ The cost of the edge, rather than an identifier, is that continuity has to be wa
 Two of this ADR's examples name `AmendingAction::Move` — "`AmendingAction` already contains `Redesignate` and `Move`", and "a `Move` reads as a delete plus an add". **There is no `move` amending action.** The publisher's schema defines twelve and that is not one of them (`uslm-2.0.17.xsd:610`); the variant was ours, and only a model could ever fill it. See `.out-of-scope/amending-action-move.md` and #156.
 
 The argument is unharmed. `Redesignate` alone moves a provision's address, 89 links in the committed corpus do exactly that, and a heading the publisher rewords moves one too. The correction is recorded here rather than edited into the text above, because what this ADR decided and what it believed at the time are both part of the record.
+
+## Note, 2026-09-15: a command asks the resolver, never the string
+
+This ADR states its rule about paths. #165 showed the rule has to be stated about
+**commands** as well.
+
+`diff` consults the redesignation links before it pairs, and
+`TreeDiff::from_nodes_with` asserts `Redesignations::is_one_provision` before it
+compares anything: two paths that are neither one path nor the two ends of a known
+move are two provisions, and a diff between them is a statement about nothing.
+
+`path` had no such rule. It paired by string equality, and so reported that
+`26 U.S.C. § 45X(c)(6)(R)` stayed where it was and changed from neodymium to
+metallurgical coal. Neither half is true. The bill inserted a new subparagraph at
+(R) and redesignated (R) through (Z) as (S) through (AA), so the two provisions the
+command compared are two provisions, and the one the reader asked about is at (S).
+
+Because the letters cascade, the command made the same false statement at every
+letter it was asked about: nickel became neodymium, niobium became nickel, and so
+on to (AA).
+
+So:
+
+**A command that asks whether two paths are one provision asks the resolver, never
+the string.** The resolver is `Redesignations::is_one_provision` across a pair of
+documents, and `LinkReader::provision_history` for the walk along a chain. Neither
+is new and both are public. A command that re-implements the question inherits none
+of the checks that make the answer true, and the next one to do so reproduces #165.
+
+The other half stays literal, and deliberately. "How many provisions sit at this
+string on this date" is a question about the file, and its answer is a fact that
+needs no link. It is the **pairing** — the claim that two of them are one thing
+across two dates — that needs the resolver.

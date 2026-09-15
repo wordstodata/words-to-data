@@ -110,7 +110,7 @@ _Avoid_: Missing dates, blind spot, unknown
 **Bill**:
 A legislative instrument that changes existing law. It carries the instructions that do the changing, and once enacted it is published as a public law.
 
-A Bill is a document, so it is a Work with an Expression, like a title of the Code or a court opinion. Its structure carries meaning that its words alone do not: an Amendment nested under "in subsection (a)--" is about a different provision from the same words outside it. **This is not true of the Dataset yet.** A public law parses to one element today, and a Bill is held as a set of Amendments with no structure at all, which is why reading a renumbering needs the source file a second time. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records the decision and #114 the defect.
+A Bill is a document, so it is a Work with an Expression, like a title of the Code or a court opinion. Its structure carries meaning that its words alone do not: an Amendment nested under "in subsection (a)--" is about a different provision from the same words outside it. **This is not true of the Dataset yet.** The parser holds the structure now — a public law parses to its section and its ten titles, where it parsed to one element until #114 — but a Bill is still *stored* as a set of Amendments with no structure at all, which is why reading a renumbering needs the source file a second time. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records the decision and the order of the work.
 _Avoid_: Act, statute, law
 
 **Amendment**:
