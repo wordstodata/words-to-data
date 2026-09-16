@@ -33,6 +33,196 @@ words-to-data = "0.3.0"
 - Title data: https://uscode.house.gov/download/download.shtml
 - Bill data: https://congress.gov
 
+## Build a Dataset: The Six Steps
+
+Six commands turn an empty directory into a finished dataset. Run them in this
+order:
+
+```
+build-dataset → extract-changes → score-amendments → match-amendments → [redesignations] → convert-dataset
+```
+
+A dataset that missed a step looks complete. The file keeps no list of the steps
+that ran, so a missing step shows only as an absence. One rebuild wrote 889
+`legislature.amended_by` links and no redesignation links at all, and nothing
+reported it (#150). Read the counts that each command prints, and compare them
+with the counts in this section.
+
+Build the CLI first:
+
+```bash
+cargo build --release
+# The binary is target/release/words_to_data
+```
+
+### What each step costs
+
+| Step | Calls a model | Cache | A second run costs |
+| --- | --- | --- | --- |
+| 1. `build-dataset` | no | `<user cache dir>/words_to_data` | bandwidth, on a cache miss |
+| 2. `extract-changes` | **yes** | `changes_cache.json`, beside the dataset | nothing, while that file stays there |
+| 3. `score-amendments` | no | not applicable | nothing |
+| 4. `match-amendments` | **yes** | **none** | **all of its model calls, again** |
+| 5. `redesignations` (for a re-run only) | no | not applicable | nothing |
+| 6. `convert-dataset` | no | not applicable | nothing |
+
+**Two steps call a model, and only two: `extract-changes` and `match-amendments`.
+These two steps spend money. No other step sends a request to a model.**
+
+### Step 1 — `build-dataset`
+
+```bash
+words_to_data build-dataset \
+  --uslm-dates 2025-07-18,2025-07-30 \
+  --bills 119-hr-1 \
+  dataset.json
+```
+
+The output path is positional, and it is the last argument here. `--bills` needs
+the `CONGRESS_API_KEY` environment variable. Get a key from
+https://api.congress.gov/sign-up/.
+
+This step downloads each release point and keeps it in a cache. The default cache
+directory is `<user cache dir>/words_to_data`, which is `~/.cache/words_to_data`
+on Linux. Use `--cache-dir` for a different directory. The extracted files of one
+release point use approximately 660 MB of disk. A later build reads the cache and
+downloads nothing.
+
+**This step records redesignations.** The dataset records the renumberings that a
+bill states at the time it loads that bill, so no build can hold a bill and lack
+the links the bill states (#155). Over the two committed release points and five
+bills, `build-dataset` alone writes **80** `legislature.redesignated_as` links.
+Check the number with `words_to_data info dataset.json`.
+
+### Step 2 — `extract-changes` (calls a model)
+
+```bash
+words_to_data extract-changes dataset.json --threads 8
+```
+
+This step reads the word-level changes out of each amendment, and writes them
+into the dataset. It sends one request for each amendment that carries no changes
+yet. The five committed bills hold **606** amendments, so a cold run sends
+approximately 606 requests.
+
+The command speaks to an OpenAI-compatible chat-completions server. The default
+is a local server at `http://localhost:8080`. For a hosted endpoint, give
+`--base-url` and `--model`. Put the key in the `W2D_API_KEY` environment
+variable: a key in `--api-key` goes into the shell history and into `ps`.
+
+**Keep `changes_cache.json` beside the dataset.** The command writes this file
+into the same directory as the dataset, and reads it at the start of each run. A
+run that finds the cache sends no request for an amendment the cache holds. A run
+that does not find the cache buys all of those replies again. `--no-cache` forces
+a new request for each amendment, which is correct only when you know that the
+replies must change.
+
+The command writes the cache after each successful request, so you can stop a run
+and start it again without a loss. A request that fails is not cached, and a
+later run tries it again.
+
+### Step 3 — `score-amendments` (no model)
+
+```bash
+words_to_data score-amendments dataset.json --between 2025-07-18 2025-07-30
+```
+
+This step compares each amendment against the US Code diff, and gives each pair a
+similarity score. The calculation is deterministic, and the same dataset always
+gives the same scores.
+
+Use `--between FROM TO` for every work that both dates hold, or `--from` and
+`--to` together for one named pair, such as
+`--from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30`.
+
+The scores go to `similarity_scores.json` beside the dataset, or to the path in
+`--output`. **That file is a report, and no command reads it.** Step 4 calculates
+the same scores again from the dataset. So step 3 writes nothing into the
+dataset, and a reader who skips it gets the same dataset. Run it to see which
+candidates step 4 will offer the model, and at which cutoff. The two steps have
+the same default cutoff of 0.4.
+
+### Step 4 — `match-amendments` (calls a model)
+
+```bash
+words_to_data match-amendments dataset.json --between 2025-07-18 2025-07-30
+```
+
+This step asks the model which change each amendment caused, and writes each
+answer into the dataset as a `legislature.amended_by` link. It takes the same
+span flags as step 3, and the same model flags as step 2.
+
+**This step has no cache (#123).** It sends a request for each amendment that has
+candidates, on each run, and it looks at no earlier reply first. The last measured
+run over the committed corpus sent approximately **656** requests, one for each
+amendment with candidates across the 58 works. A regenerate buys all of them
+again. This is the largest repeated cost in the pipeline.
+
+Two more results follow from the absent cache:
+
+- A rebuild is not reproducible. The same commit over the same sources gave 893
+  links on one run and 899 on the next.
+- Collect your changes into few rebuilds. Until #123 is done, a rebuild is the
+  expensive operation, and not a free one.
+
+The command writes `candidates.json` beside the dataset. That file records the
+question, but it holds no reply, so it is not a cache.
+
+### Step 5 — `redesignations` (for a re-run only)
+
+Step 1 records the redesignations already, so the ordinary path does not include
+this command. Use it to record the redesignations again without a rebuild — for
+example after a change to the reader, or to see the report for one named bill.
+
+```bash
+words_to_data redesignations dataset.json \
+  --bill-id 119-hr-1 \
+  --bill-xml ~/.cache/words_to_data/bill/119/hr/1/public_law.xml \
+  --between 2025-07-18 2025-07-30
+```
+
+`--bill-xml` and `--bill-id` are both necessary today. The command reads the
+bill's markup a second time, because the dataset does not store a bill's
+structure yet. A clause inside "in subsection (a)--" is about a different
+provision from the same clause outside it, and a stored amendment keeps only the
+flattened text. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`
+records the decision that removes the second read, and these two flags with it.
+
+The command prints each statement that it cannot place. A statement that no
+reader can turn into two paths is recorded, and never dropped.
+
+**Which two release points a redesignation is checked against is an open
+question.** Step 1 tries each statement against every neighbouring pair of
+expressions that the dataset holds. Nothing compares the bill's date with those
+dates. Each work in the corpus holds two release points today, so each work
+offers one pair, and the question does not yet bite. See
+[#172](https://github.com/wordstodata/words-to-data/issues/172). Do not read this
+document as an answer to it.
+
+### Step 6 — `convert-dataset`
+
+```bash
+words_to_data convert-dataset dataset.json dataset.sqlite
+```
+
+The output argument is positional and optional. Without it, the command swaps the
+extension of the input. The direction comes from the two extensions.
+
+**Convert last.** Steps 2, 4 and 5 write back into the dataset. Each of them
+refuses a SQLite file and tells you to convert it first. Steps 1 and 3 accept
+either form. So keep compact JSON for the whole pipeline, and convert at the end.
+
+### What the finished dataset holds
+
+`words_to_data info dataset.json` reports the links of each kind. A complete run
+gives two kinds:
+
+- `legislature.redesignated_as`, from step 1. The committed corpus gives 80.
+- `legislature.amended_by`, from step 4. The last measured run gave 899.
+
+A count of zero for `legislature.redesignated_as` says that step 1 did not record
+them. A count of zero for `legislature.amended_by` says that step 4 did not run.
+
 ## Quick Start
 
 ### Dataset Workflow
