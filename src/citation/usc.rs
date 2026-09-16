@@ -117,6 +117,26 @@ const DASHES: [char; 6] = [
     '\u{2014}', // EM DASH
 ];
 
+/// Every dash of [`DASHES`] written as an ASCII hyphen, so that two spellings of
+/// one section number compare equal.
+///
+/// The publisher writes `/us/usc/t42/s300gg–11` with an en dash and prose writes
+/// `42 U.S.C. § 300gg-11` with a hyphen. They name one section, and comparing
+/// them character by character answered that the Code has no such section (#141).
+///
+/// **This makes a lookup key and nothing else.** The publisher's identifier and
+/// the citation's text are records of what was said, and a stored structural path
+/// is an index of the hierarchy; none of the three is rewritten
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+/// Both sides of a comparison must be folded, or the mismatch only moves.
+///
+/// Folding loses nothing in this corpus. Of the 59,599 section identifiers the
+/// 2025-07-30 release publishes, 5,351 carry an en dash, no other dash of the
+/// family appears, and no two identifiers fold together.
+pub fn fold_dashes(text: &str) -> String {
+    text.replace(DASHES, "-")
+}
+
 /// A title, a reporter, and a number in the section position — whether or not the
 /// rest of it is a citation this module can read.
 ///

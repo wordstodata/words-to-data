@@ -26,7 +26,7 @@ use crate::dataset::{Coverage, Scope};
 use crate::document::{DocumentNode, NodeType};
 use crate::uslm::{ElementType, UslmFacts};
 
-use super::usc::UscCitation;
+use super::usc::{UscCitation, fold_dashes};
 
 /// Whether a node is a section of the US Code, and not of a public law.
 ///
@@ -43,6 +43,13 @@ fn is_usc_section(node_type: &NodeType) -> bool {
 /// The identifier `/us/usc/t26/s174` is what a citation can be turned into
 /// without reading anything; the structural path is what the model uses. This
 /// maps the first to the second.
+///
+/// The key is the identifier with its dashes folded
+/// ([`fold_dashes`](super::usc::fold_dashes)), because the publisher writes a
+/// dash in a section number as an en dash and prose writes a hyphen. Both sides
+/// of the comparison are folded — the key stored here and the key a citation is
+/// looked up by — so one spelling finds the other (#141). Nothing stored is
+/// touched: the values are the paths as the build wrote them, en dashes and all.
 #[derive(Debug, Clone, Default)]
 pub struct SectionPaths {
     paths: BTreeMap<String, Vec<String>>,
@@ -62,7 +69,7 @@ impl SectionPaths {
             && let Some(uslm_id) = UslmFacts::of(&work.data).and_then(|facts| facts.uslm_id)
         {
             self.paths
-                .entry(uslm_id)
+                .entry(fold_dashes(&uslm_id))
                 .or_default()
                 .push(work.data.path.to_string());
         }
@@ -76,8 +83,13 @@ impl SectionPaths {
     /// More than one is possible: the law sometimes numbers two provisions
     /// alike, and the document records both, so reporting only the first would
     /// be a silent loss (`DocumentNode::find_all`).
+    ///
+    /// The identifier asked for is folded the same way the keys are, so a
+    /// citation may spell a dash either way.
     pub fn paths_of(&self, uslm_id: &str) -> &[String] {
-        self.paths.get(uslm_id).map_or(&[], Vec::as_slice)
+        self.paths
+            .get(&fold_dashes(uslm_id))
+            .map_or(&[], Vec::as_slice)
     }
 
     /// How many identifiers are indexed.

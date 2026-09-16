@@ -62,6 +62,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::citation::usc::fold_dashes;
 use crate::document::DocumentNode;
 use crate::link::{
     Corroboration, Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
@@ -898,6 +899,11 @@ fn roman(mut value: u32) -> String {
 /// path. A redesignation needs the node as well, because a citation such as
 /// `898(c)` names a number and not a level, and only the document can say that
 /// `(c)` is a subsection.
+///
+/// The key is folded with [`fold_dashes`], as `SectionPaths` folds its own: the
+/// publisher sets a section number with an en dash — `/us/usc/t26/s1400Z–1` — and
+/// a bill's text types a hyphen. The two name one section, and comparing them
+/// character by character reported § 1400Z-1 as a section the Code does not hold.
 #[derive(Debug, Default)]
 pub struct SectionIndex<'a> {
     sections: std::collections::BTreeMap<String, Vec<&'a DocumentNode>>,
@@ -917,7 +923,7 @@ impl<'a> SectionIndex<'a> {
             && let Some(id) = crate::uslm::UslmFacts::of(&node.data).and_then(|facts| facts.uslm_id)
         {
             self.sections
-                .entry(plain_dashes(&id))
+                .entry(fold_dashes(&id))
                 .or_default()
                 .push(node);
         }
@@ -929,7 +935,7 @@ impl<'a> SectionIndex<'a> {
     /// The sections one USLM identifier names, in document order.
     pub fn get(&self, uslm_id: &str) -> &[&'a DocumentNode] {
         self.sections
-            .get(&plain_dashes(uslm_id))
+            .get(&fold_dashes(uslm_id))
             .map_or(&[], Vec::as_slice)
     }
 
@@ -941,18 +947,6 @@ impl<'a> SectionIndex<'a> {
     pub fn is_empty(&self) -> bool {
         self.sections.is_empty()
     }
-}
-
-/// Every dash written as a plain hyphen.
-///
-/// The publisher sets a section number with an en dash — `/us/usc/t26/s1400Z–1` —
-/// and a bill's text types a hyphen. The two name one section, and comparing them
-/// byte for byte reported § 1400Z-1 as a section the Code does not hold.
-fn plain_dashes(text: &str) -> String {
-    text.replace(
-        ['\u{2010}', '\u{2011}', '\u{2012}', '\u{2013}', '\u{2014}'],
-        "-",
-    )
 }
 
 /// Turn stated redesignations into paths, against both of the documents the

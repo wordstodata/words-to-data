@@ -18,9 +18,17 @@ use words_to_data::storage::{InMemoryStorage, LinkReader};
 const RELEASE: &str = "2025-07-30";
 const TITLE_1: &str = "tests/test_data/usc/2025-07-30/usc01.xml";
 const TITLE_26: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
+const TITLE_42: &str = "tests/test_data/usc/2025-07-30/usc42.xml";
 
 /// Section 174 as the 2025-07-30 release point publishes it.
 const SECTION_174: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174";
+
+/// Section 300gg–11 where the 2025-07-30 release point puts it.
+///
+/// The publisher writes the dash as an en dash, and the stored path keeps it:
+/// #141 folds the dash in a lookup key and changes nothing that is stored.
+const SECTION_300GG_11: &str =
+    "uscode/title_42/chapter_6A/subchapter_XXV/part_A/subpart_II/section_300gg\u{2013}11";
 
 /// A dataset holding the titles named, and an index of where their sections are.
 fn dataset_holding(titles: &[(&str, &str)]) -> (Dataset<InMemoryStorage>, SectionPaths) {
@@ -274,4 +282,62 @@ fn should_carry_a_citation_link_through_storage_when_the_dataset_is_saved() {
         stored[0].provenance.verification,
         VerificationState::MachineSuggested
     );
+}
+
+#[test]
+fn should_resolve_to_the_published_section_when_prose_writes_the_dash_as_a_hyphen() {
+    let (dataset, paths) = dataset_holding(&[(TITLE_42, "uscode/title_42")]);
+    let scope = dataset.scope().expect("scope should derive");
+
+    // The publisher indexes this section as `/us/usc/t42/s300gg–11`, with an en
+    // dash, and prose writes an ASCII hyphen. The two name one section, so the
+    // citation must find it (#141). About 5,000 sections are reachable only if
+    // the dash matches, most of them in this title.
+    let found = usc::find("a group health plan under 42 U.S.C. \u{a7} 300gg-11 (2018)");
+    let citation = found.first().expect("one citation");
+    let cited = resolve(citation, &scope, &paths);
+
+    // What the text wrote travels as the text wrote it. Only the key the lookup
+    // is made with is folded.
+    assert_eq!(cited[0].section, "300gg-11");
+    assert_eq!(cited[0].uslm_id, "/us/usc/t42/s300gg-11");
+    assert_eq!(
+        cited[0].resolution,
+        Resolution::Provision {
+            paths: vec![SECTION_300GG_11.to_string()]
+        },
+        "the release publishes this section, so `Absent` is a false statement \
+         about the law"
+    );
+
+    let links = cites_links(&obergefell(), citation, &cited);
+    assert_eq!(links.len(), 1, "one link, got {links:?}");
+    assert_eq!(
+        links[0].object,
+        Target::Provision(SECTION_300GG_11.to_string()),
+        "the link names the stored path, which keeps the publisher's en dash"
+    );
+}
+
+#[test]
+fn should_say_absent_when_a_dashed_section_number_is_not_in_the_title() {
+    let (dataset, paths) = dataset_holding(&[(TITLE_42, "uscode/title_42")]);
+    let scope = dataset.scope().expect("scope should derive");
+
+    // The guard on the fold. Title 42 publishes `300gg–9` and `300gg–91` to
+    // `300gg–95`, and no `300gg–99`. A fold that matched loosely would answer
+    // with one of the neighbours, which is the false statement this project
+    // treats as worse than no answer at all.
+    let found = usc::find("a plan under 42 U.S.C. \u{a7} 300gg-99");
+    let citation = found.first().expect("one citation");
+    let cited = resolve(citation, &scope, &paths);
+
+    assert_eq!(cited[0].uslm_id, "/us/usc/t42/s300gg-99");
+    assert_eq!(
+        cited[0].resolution,
+        Resolution::Absent,
+        "the title is held and has no such section, which is an answer about \
+         the law"
+    );
+    assert!(cites_links(&obergefell(), citation, &cited).is_empty());
 }
