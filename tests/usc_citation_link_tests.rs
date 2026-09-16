@@ -1,8 +1,8 @@
 //! An opinion citing the U.S. Code becomes a link (#52).
 //!
-//! The dataset under test is the real U.S. Code: title 26 and title 1 of the
+//! The dataset under test is the real U.S. Code: titles 1, 25, 26 and 42 of the
 //! 2025-07-30 release point, from `tests/test_data/usc`. Every path asserted
-//! below is a path that release point actually publishes.
+//! below is a path that release point actually publishes, en dashes and all.
 //!
 //! What a citation resolves to is a structural path, because the model has no
 //! provision identity yet (#93,
@@ -17,6 +17,7 @@ use words_to_data::storage::{InMemoryStorage, LinkReader};
 
 const RELEASE: &str = "2025-07-30";
 const TITLE_1: &str = "tests/test_data/usc/2025-07-30/usc01.xml";
+const TITLE_25: &str = "tests/test_data/usc/2025-07-30/usc25.xml";
 const TITLE_26: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
 const TITLE_42: &str = "tests/test_data/usc/2025-07-30/usc42.xml";
 
@@ -29,6 +30,11 @@ const SECTION_174: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/par
 /// #141 folds the dash in a lookup key and changes nothing that is stored.
 const SECTION_300GG_11: &str =
     "uscode/title_42/chapter_6A/subchapter_XXV/part_A/subpart_II/section_300gg\u{2013}11";
+
+/// Section 479a–1 where the 2025-07-30 release point puts it. The title holds
+/// section 479a as well, which is why #135 read a citation to `479a–1` as
+/// nothing rather than as section 479a.
+const SECTION_479A_1: &str = "uscode/title_25/chapter_14/subchapter_V/section_479a\u{2013}1";
 
 /// A dataset holding the titles named, and an index of where their sections are.
 fn dataset_holding(titles: &[(&str, &str)]) -> (Dataset<InMemoryStorage>, SectionPaths) {
@@ -340,4 +346,37 @@ fn should_say_absent_when_a_dashed_section_number_is_not_in_the_title() {
          the law"
     );
     assert!(cites_links(&obergefell(), citation, &cited).is_empty());
+}
+
+#[test]
+fn should_read_and_resolve_the_citation_when_prose_writes_the_dash_as_an_en_dash() {
+    let (dataset, paths) = dataset_holding(&[(TITLE_25, "uscode/title_25")]);
+    let scope = dataset.scope().expect("scope should derive");
+
+    // Real prose from the notes to the Federal Rules of Criminal Procedure, in
+    // `tests/test_data/usc/2025-07-30/usc18a.xml`. #135 read nothing here on
+    // purpose, because reading `479a` would have named a different section of
+    // the release. Now the whole number is read and the fold resolves it (#141).
+    let text = "on a list published in the Federal Register under \
+                25 U.S.C. \u{a7}\u{202f}479a\u{2013}1.";
+
+    let (found, report) = usc::find_with_report(text);
+
+    assert_eq!(found.len(), 1, "one citation, got {found:?}");
+    let citation = &found[0];
+    // The number the text wrote, en dash and all: it is the evidence a reviewer
+    // checks the link against.
+    assert_eq!(citation.sections, ["479a\u{2013}1"]);
+    assert!(report.is_empty(), "nothing was declined, got {report:?}");
+
+    let cited = resolve(citation, &scope, &paths);
+
+    assert_eq!(cited[0].uslm_id, "/us/usc/t25/s479a\u{2013}1");
+    assert_eq!(
+        cited[0].resolution,
+        Resolution::Provision {
+            paths: vec![SECTION_479A_1.to_string()]
+        },
+        "the release publishes section 479a–1"
+    );
 }

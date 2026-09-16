@@ -33,23 +33,43 @@ fn should_report_the_missing_marker_when_a_citation_has_no_section_mark() {
 }
 
 #[test]
-fn should_read_nothing_and_say_so_when_a_dash_carries_a_lettered_number_on() {
+fn should_read_the_whole_number_when_a_dash_carries_a_lettered_number_on() {
     // Real prose from the notes to the Federal Rules of Civil Procedure, in
     // `tests/test_data/usc/2025-07-30/usc28a.xml`. The Code writes the dash part
-    // of a lettered section number with an en dash, which the published separator
-    // class `[\-.:]` does not read.
+    // of a lettered section number with an en dash.
     //
     // Both `15 U.S.C. § 77z` and `15 U.S.C. § 77z-1` are sections of the release,
     // so reading the first when the text names the second would name a real but
-    // different provision. Nothing is read, and the skip says why.
+    // different provision. #135 therefore read nothing here and said why. #141
+    // reads the dash family, so the whole number is read instead, and a fold of
+    // the dash resolves it.
     let text = "the Private Securities Litigation Reform Act, 15 U.S.C. \u{a7}\u{a7}\u{202f}77z\u{2013}1, and";
+
+    let (found, report) = usc::find_with_report(text);
+
+    assert_eq!(found.len(), 1, "one citation, got {found:?}");
+    assert_eq!(
+        found[0].sections,
+        ["77z\u{2013}1"],
+        "the number is read whole, and with the dash the source wrote"
+    );
+    assert!(report.is_empty(), "nothing was declined, got {report:?}");
+}
+
+#[test]
+fn should_read_nothing_and_say_so_when_the_number_runs_on_past_a_section_number() {
+    // No section number has five trailing letters — `15 U.S.C. § 77bbbb` and
+    // `16 U.S.C. § 460dddd` are the longest runs the Code uses — so the pattern
+    // stops at four and the number is cut short. Reading `78aaaa` where the text
+    // says `78aaaaa` names a number the text did not write, so nothing is read.
+    let text = "under 15 U.S.C. \u{a7} 78aaaaa, the rule";
 
     let (found, report) = usc::find_with_report(text);
 
     assert!(found.is_empty(), "nothing is read, got {found:?}");
     assert_eq!(report.skipped.len(), 1, "one skip, got {report:?}");
     assert_eq!(
-        report.skipped[0].text, "15 U.S.C. \u{a7}\u{a7}\u{202f}77z\u{2013}1",
+        report.skipped[0].text, "15 U.S.C. \u{a7} 78aaaaa",
         "the evidence covers the whole number, not the part that was read"
     );
     assert_eq!(
@@ -106,35 +126,32 @@ fn should_say_the_count_and_an_example_for_each_reason_when_the_report_is_summar
 
     // One line for each reason met, not one for each skip. A title of the Code
     // writes the marker-less form thousands of times.
-    assert_eq!(summary.len(), 2, "two reasons met, got {summary:?}");
+    //
+    // One reason is met here since #141. The notes cite `25 U.S.C. § 479a–1`
+    // twice, which was the second reason until the dash family was read, and
+    // both are now read and resolved rather than declined.
+    assert_eq!(summary.len(), 1, "one reason met, got {summary:?}");
     assert!(summary.iter().all(|line| line.starts_with("warning: ")));
     assert!(
         summary[0].contains("no section marker"),
-        "the first reason met must be named: {summary:?}"
+        "the reason met must be named: {summary:?}"
     );
     assert!(
         summary[0].contains("89 U.S.C. citation"),
         "the count must say how much was declined: {summary:?}"
     );
     assert!(
-        summary[1].contains("a section number that cannot be read whole"),
-        "the second reason met must be named: {summary:?}"
+        !report
+            .skipped
+            .iter()
+            .any(|skipped| skipped.reason == SkipReason::SectionNumberNotRead),
+        "no citation in these notes has a number the reader cannot read whole: \
+         {report:?}"
     );
-    // The first skip of each reason, so a reader can go and look at one.
-    let first_not_read = report
-        .skipped
-        .iter()
-        .find(|skipped| skipped.reason == SkipReason::SectionNumberNotRead)
-        .expect("the notes to Rule 6 cite 25 U.S.C. \u{a7} 479a-1");
-    assert_eq!(
-        first_not_read.text, "25 U.S.C. \u{a7}\u{202f}479a\u{2013}1",
-        "the number, and not the full stop that ends the sentence"
-    );
+    // The first skip of the reason, so a reader can go and look at one.
+    let first_skip = report.skipped.first().expect("the notes decline citations");
     assert!(
-        summary[1].contains(&format!(
-            "{:?} at {}",
-            first_not_read.text, first_not_read.start
-        )),
+        summary[0].contains(&format!("{:?} at {}", first_skip.text, first_skip.start)),
         "the summary must point at a skip: {summary:?}"
     );
 }
