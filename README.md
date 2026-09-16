@@ -209,8 +209,9 @@ The output argument is positional and optional. Without it, the command swaps th
 extension of the input. The direction comes from the two extensions.
 
 **Convert last.** Steps 2, 4 and 5 write back into the dataset. Each of them
-refuses a SQLite file and tells you to convert it first. Steps 1 and 3 accept
-either form. So keep compact JSON for the whole pipeline, and convert at the end.
+refuses a SQLite file and tells you to convert it first. Step 1 always writes
+compact JSON, whatever the output name. Only step 3 reads either form. So keep
+compact JSON for the whole pipeline, and convert at the end.
 
 ### What the finished dataset holds
 
