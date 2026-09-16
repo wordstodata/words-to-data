@@ -13,7 +13,7 @@
 //! reader of this file can see exactly what is matched. Every place this file
 //! departs from the published source is marked where it happens, with what the
 //! published pattern says and why we differ, because a silent divergence from an
-//! upstream pattern is a maintenance trap. [`LAW_SECTION`] carries three such
+//! upstream pattern is a maintenance trap. [`law_section`] carries four such
 //! notes.
 //!
 //! # What is read, and what is declined
@@ -33,9 +33,19 @@
 //! citation is worse than a missed one. So it is counted and named, not matched.
 //!
 //! A section number cut short is declined for the same reason, and that is the
-//! whole of the rest: `25 U.S.C. § 479a–1` is read as nothing rather than as
-//! section 479a, because the release holds both ([`ends_cleanly`]). Fourteen
-//! citations in the release land there.
+//! whole of the rest: a number the pattern cannot read to its end is read as
+//! nothing rather than as the part of it that matched, because the part names a
+//! different provision ([`ends_cleanly`]).
+//!
+//! `25 U.S.C. § 479a–1` was such a number until #141. The Code sets a lettered
+//! section number's dash as an en dash, and the published separator class reads
+//! the ASCII hyphen alone. [`law_section`] now reads the dash family after a
+//! letter, and the fold of [`fold_dashes`] resolves the number whichever dash it
+//! is written with. The four appendix files of the 2025-07-30 release declined
+//! six citations of this shape and now read all six.
+//!
+//! What stays declined is a number that runs on past anything a section number
+//! may be, such as `§ 78aaaaa`.
 
 use std::sync::LazyLock;
 
@@ -74,7 +84,7 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// (?:\d+(?:\((?:[a-zA-Z]{1}|\d{1,2})\))+)|(?:\d+(?:[\-.:]\d+){,3})
 /// ```
 ///
-/// Three changes from it.
+/// Four changes from it.
 ///
 /// `{,3}` is written `{0,3}`, because Python accepts an open lower bound and
 /// Rust does not. That is mechanical.
@@ -101,13 +111,44 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// 77bbbb`, `16 U.S.C. § 460dddd` — so a longer run is not a section number. The
 /// bound is what keeps [`ends_cleanly`] able to refuse `§ 78aaaaa` instead of
 /// reading a number that no section has.
-const LAW_SECTION: &str = r"(?:\d+[a-zA-Z]{0,4}(?:\((?:[a-zA-Z]{1}|\d{1,2})\))+)|(?:\d+[a-zA-Z]{0,4}(?:[\-.:]\d+[a-zA-Z]{0,4}){0,3})";
+///
+/// A third alternative reads a **lettered** number whose separator is any dash of
+/// [`DASHES`], and it is preferred over the published one: `25 U.S.C. § 479a–1`
+/// is read whole rather than as section 479a, which is a different section of the
+/// same release. #135 declined that citation because reading half of a number
+/// names the wrong provision; now the whole number is read and #141 resolves it
+/// whichever dash it is written with. #135 counted fourteen citations of this
+/// shape in the release, six of them in its four appendix files.
+///
+/// The alternative asks for a letter before the dash, so a **digit** number keeps
+/// the published separator class and nothing else. There the dash is a range —
+/// the notes write `18 U.S.C. §§ 3141–3150` — and the first number is a section
+/// the text really cited, which [`ends_cleanly`] explains and this keeps.
+///
+/// It takes a subsection after the number for the same reason the first
+/// alternative does, so `15 U.S.C. §§ 77z–1(a)(6)` is read whole and the
+/// subsection travels as written.
+fn law_section() -> String {
+    let dashes = dash_class();
+    let subsection = r"(?:\((?:[a-zA-Z]{1}|\d{1,2})\))";
+    let with_a_subsection = format!(r"\d+[a-zA-Z]{{0,4}}{subsection}+");
+    let dashed_after_a_letter =
+        format!(r"\d+[a-zA-Z]{{1,4}}(?:[{dashes}]\d+[a-zA-Z]{{0,4}}){{1,3}}{subsection}*");
+    let as_published = r"\d+[a-zA-Z]{0,4}(?:[\-.:]\d+[a-zA-Z]{0,4}){0,3}";
+
+    format!("(?:{with_a_subsection})|(?:{dashed_after_a_letter})|(?:{as_published})")
+}
 
 /// Every dash the Code writes inside a section number.
 ///
-/// `law.section` reads the ASCII hyphen of `[\-.:]` and nothing else, and the
-/// published Code prints `479a–1` with an en dash. The rest of the family is here
-/// so that a number written with one is not read cut short ([`ends_cleanly`]).
+/// The published `law.section` reads the ASCII hyphen of `[\-.:]` and nothing
+/// else, and the published Code prints `479a–1` with an en dash. The family is
+/// named once, here, and read three ways: [`law_section`] reads a number written
+/// with any of them, [`fold_dashes`] makes one lookup key out of all of them, and
+/// [`ends_cleanly`] refuses a number that a dash carries on past.
+///
+/// Only the en dash is in the 2025-07-30 release. The rest are here because a
+/// citation is text somebody typed, and the cost of reading one is nothing.
 const DASHES: [char; 6] = [
     '-',        // HYPHEN-MINUS
     '\u{2010}', // HYPHEN
@@ -116,6 +157,26 @@ const DASHES: [char; 6] = [
     '\u{2013}', // EN DASH
     '\u{2014}', // EM DASH
 ];
+
+/// Every dash of [`DASHES`] written as an ASCII hyphen, so that two spellings of
+/// one section number compare equal.
+///
+/// The publisher writes `/us/usc/t42/s300gg–11` with an en dash and prose writes
+/// `42 U.S.C. § 300gg-11` with a hyphen. They name one section, and comparing
+/// them character by character answered that the Code has no such section (#141).
+///
+/// **This makes a lookup key and nothing else.** The publisher's identifier and
+/// the citation's text are records of what was said, and a stored structural path
+/// is an index of the hierarchy; none of the three is rewritten
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+/// Both sides of a comparison must be folded, or the mismatch only moves.
+///
+/// Folding loses nothing in this corpus. Of the 59,599 section identifiers the
+/// 2025-07-30 release publishes, 5,351 carry an en dash, no other dash of the
+/// family appears, and no two identifiers fold together.
+pub fn fold_dashes(text: &str) -> String {
+    text.replace(DASHES, "-")
+}
 
 /// A title, a reporter, and a number in the section position — whether or not the
 /// rest of it is a citation this module can read.
@@ -147,8 +208,9 @@ static CANDIDATE: LazyLock<Regex> = LazyLock::new(|| {
 /// `\b` in front keeps the title from starting inside a longer word.
 static CITATION: LazyLock<Regex> = LazyLock::new(|| {
     let reporters = reporters_pattern();
+    let section = law_section();
     Regex::new(&format!(
-        r"\b(?P<title>\d+),?\s+(?P<reporter>{reporters}),?\s+{SECTION_MARKER}\s*(?P<section>{LAW_SECTION})"
+        r"\b(?P<title>\d+),?\s+(?P<reporter>{reporters}),?\s+{SECTION_MARKER}\s*(?P<section>{section})"
     ))
     .expect("the vendored U.S.C. pattern must compile")
 });
@@ -158,10 +220,9 @@ static CITATION: LazyLock<Regex> = LazyLock::new(|| {
 /// Anchored, because it is matched against the text that follows a citation and
 /// a match anywhere later would belong to something else.
 static FURTHER_SECTION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(
-        r"^(?:\s*,\s*|\s+and\s+)(?P<section>{LAW_SECTION})"
-    ))
-    .expect("the further-section pattern must compile")
+    let section = law_section();
+    Regex::new(&format!(r"^(?:\s*,\s*|\s+and\s+)(?P<section>{section})"))
+        .expect("the further-section pattern must compile")
 });
 
 /// The start of another citation: a number we have just read turns out to be the
@@ -271,11 +332,15 @@ pub enum SkipReason {
     /// a wrong citation is worse than a missed one.
     NoSectionMarker,
     /// A marker is there, and the number beside it cannot be read whole, as in
-    /// `25 U.S.C. § 479a–1`.
+    /// `15 U.S.C. § 78aaaaa`.
     ///
     /// Reading the part of it that the pattern does read would name a different
-    /// provision — section 479a is not section 479a–1, and the release holds both
-    /// — so nothing is read. See [`ends_cleanly`].
+    /// number from the one the text wrote — `78aaaa`, where the text says
+    /// `78aaaaa` — so nothing is read. See [`ends_cleanly`].
+    ///
+    /// `25 U.S.C. § 479a–1` was the common shape of this until #141, and is now
+    /// read whole ([`law_section`]). No citation in the committed notes lands
+    /// here any more.
     SectionNumberNotRead,
 }
 
@@ -426,7 +491,7 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
             .expect("the pattern names a section")
             .as_str();
         if !ends_cleanly(text, whole.end()) {
-            // The section number runs on, as in `§ 479a–1`. What we matched is a
+            // The section number runs on, as in `§ 78aaaaa`. What we matched is a
             // different provision from the one cited.
             continue;
         }
@@ -508,12 +573,15 @@ fn further_section(text: &str, end: usize) -> Option<(usize, usize)> {
 ///
 /// A dash and then a letter or a digit mean the same, when the number read ends
 /// in a letter. The Code numbers its lettered sections `479a–1`, `77z–1` and
-/// `2000e–5`, and prints the dash as an en dash, which the published separator
-/// class `[\-.:]` does not read. The 2025-07-30 release holds `25 U.S.C. § 479a`
-/// and `25 U.S.C. § 479a–1` both, so reading the first where the text names the
-/// second would name a real but different provision. A number that ends in a
-/// digit is left alone: there the dash is the range of `§§ 1961–63`, and the
-/// first section named is still one the text cited.
+/// `2000e–5`, and the 2025-07-30 release holds `25 U.S.C. § 479a` and
+/// `25 U.S.C. § 479a–1` both, so reading the first where the text names the
+/// second would name a real but different provision.
+///
+/// [`law_section`] reads those three whole since #141, so what this refuses is a
+/// number that runs on past even that — a fifth letter, as in `§ 78aaaaa`, or a
+/// fourth dashed part. A number that ends in a digit is left alone: there the
+/// dash is the range of `§§ 1961–63`, and the first section named is still one
+/// the text cited.
 fn ends_cleanly(text: &str, end: usize) -> bool {
     let mut after = text[end..].chars();
     let Some(next) = after.next() else {
