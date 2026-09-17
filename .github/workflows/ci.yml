@@ -9,49 +9,123 @@ on:
   pull_request:
   # The merge queue tests a batch of candidates as one commit, and it reports
   # through this event. Without it a queued pull request waits for a check that
-  # never runs, so this must be on `main` before the queue is turned on.
+  # never runs.
   merge_group:
 
 env:
   CARGO_TERM_COLOR: always
+  # The test files that take the longest, grouped into shards below. Named once
+  # here because the `rest` shard runs everything that is NOT in this list, so
+  # one list keeps the two halves from drifting apart.
+  #
+  # The groups are balanced against measured times, not file counts: before this
+  # change five of 53 binaries were 59% of the run. `cli_llm_tests` alone is 88 s
+  # and is the floor — no sharding beats the slowest single binary, because cargo
+  # cannot split one binary across jobs.
+  #
+  # Measured locally: one 77 s, two 88 s, three 81 s, four 76 s, rest 56 s.
+  # Those shards pass 41, 13, 28, 76 and 345 tests, which is 503 — the count the
+  # unsharded suite gives, so the split drops nothing.
+  SHARD_1: redesignation_tests duplicate_path_tests website_example_tests
+  SHARD_2: cli_llm_tests
+  SHARD_3: matching_tests path_redesignation_tests diff_tests
+  SHARD_4: readme_example_tests sqlite_tests no_regression_tests utils_tests usc_citation_link_tests court_opinion_citation_tests dataset_tests
 
 jobs:
-  rust-test:
-    name: Rust Tests
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: build
+    - run: cargo fmt --check
+    - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Every shard reports, so one failure does not hide the state of the rest.
+      fail-fast: false
+      matrix:
+        shard: [ one, two, three, four, rest ]
 
     steps:
     - uses: actions/checkout@v4
       with:
         lfs: true
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
       with:
-        components: rustfmt, clippy
+        shared-key: build
 
-    # Every run used to compile every dependency from nothing. `main` is
-    # protected and a branch must be up to date before it merges, so a run of
-    # PRs pays that cost once each, in sequence. The cache is keyed on the
-    # lockfile and the toolchain, so a dependency change still rebuilds.
-    - name: Cache cargo registry and target
-      uses: Swatinem/rust-cache@v2
-
-    - name: Check formatting
-      run: cargo fmt --check
-
-    # `--all-targets` compiles the tests as well as the library, so this is
-    # also the type check. There is no separate build step: `cargo test` below
-    # builds what it runs, and a `cargo build` between the two compiled the
-    # library a third time for nothing.
-    - name: Run clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
-
-    # `xf`, not `xvf`. The archive holds 119 entries and naming each one filled
-    # the log without telling a reader anything. A failure to extract still
-    # fails the step.
     - name: Unzip test files
       run: cd tests/test_data && tar xf test_files.tar.xz
 
-    - name: Run Rust tests
-      run: cargo test -p words-to-data --verbose
+    # The four named shards hold the slow files. The `rest` shard is computed as
+    # everything in `tests/` that the four do not name, so a test file added
+    # later is picked up without anybody remembering to list it. Silence must not
+    # read as coverage.
+    - name: Choose this shard's test files
+      id: pick
+      run: |
+        set -euo pipefail
+        case "${{ matrix.shard }}" in
+          one)   names="$SHARD_1" ;;
+          two)   names="$SHARD_2" ;;
+          three) names="$SHARD_3" ;;
+          four)  names="$SHARD_4" ;;
+          rest)
+            named="$SHARD_1 $SHARD_2 $SHARD_3 $SHARD_4"
+            names=""
+            for f in tests/*.rs; do
+              base="$(basename "$f" .rs)"
+              case " $named " in *" $base "*) continue ;; esac
+              names="$names $base"
+            done
+            ;;
+        esac
+        # A rename in tests/ must fail here rather than silently drop a file.
+        for n in $names; do
+          test -f "tests/$n.rs" || { echo "no such test file: tests/$n.rs"; exit 1; }
+        done
+        args=""
+        for n in $names; do args="$args --test $n"; done
+        echo "args=$args" >> "$GITHUB_OUTPUT"
+        echo "This shard runs:$args"
+
+    - name: Run integration tests
+      run: cargo test -p words-to-data ${{ steps.pick.outputs.args }}
+
+    # The library's own unit tests and the doc tests have no `--test` name, so
+    # they ride with the `rest` shard. `--doc` cannot be combined with other
+    # target selection, hence the separate command.
+    - name: Run unit and doc tests
+      if: matrix.shard == 'rest'
+      run: |
+        cargo test -p words-to-data --lib
+        cargo test -p words-to-data --doc
+
+  # Branch protection requires a check named exactly `Rust Tests`, and the merge
+  # queue depends on it. A matrix job reports as `Test (one)` and so on, so that
+  # context would never appear and every pull request would block. This job is
+  # the one that carries the name.
+  rust-tests:
+    name: Rust Tests
+    needs: [ lint, test ]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: Report whether every job passed
+      run: |
+        echo "lint:  ${{ needs.lint.result }}"
+        echo "test:  ${{ needs.test.result }}"
+        test "${{ needs.lint.result }}" = "success" || exit 1
+        test "${{ needs.test.result }}" = "success" || exit 1
