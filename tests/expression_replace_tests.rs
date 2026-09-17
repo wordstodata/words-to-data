@@ -23,6 +23,9 @@ const TITLE_8: &str = "uscode/title_8";
 /// A section of the chapter that only the 30 July tree has.
 const DROPPED_SECTION: &str = "uscode/title_8/chapter_16/section_1801";
 
+/// Real text of section 1801(a), which also stands only in the 30 July tree.
+const DROPPED_TEXT: &str = "aliens in the circumstances described in this subtitle";
+
 /// The date that keys the expression. Both trees below go in under this one
 /// key, because a replacement is what this file is about: an operator stored
 /// the wrong release point and then writes the correct one over it.
@@ -73,5 +76,29 @@ fn should_report_no_node_when_a_replacing_tree_drops_it() {
     assert!(
         !dataset.has_node(DROPPED_SECTION).unwrap(),
         "section 1801 is not in the tree that the dataset now holds"
+    );
+}
+
+#[test]
+fn should_return_no_search_hit_from_a_tree_that_was_replaced() {
+    let mut dataset = Dataset::new_sqlite(metadata()).expect("a SQLite dataset");
+    dataset
+        .add_expression(expression_from("2025-07-30"))
+        .expect("the first tree is stored");
+    assert!(
+        !dataset.search_text(DROPPED_TEXT).unwrap().is_empty(),
+        "the 30 July tree holds this text"
+    );
+
+    dataset
+        .add_expression(expression_from("2025-07-18"))
+        .expect("the second tree replaces the first");
+
+    let hits = dataset.search_text(DROPPED_TEXT).unwrap();
+    assert!(
+        hits.is_empty(),
+        "search reported {} hits from a tree the dataset no longer holds, the first at {}",
+        hits.len(),
+        hits.first().map(|hit| hit.path.as_str()).unwrap_or("")
     );
 }
