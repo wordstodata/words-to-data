@@ -1450,22 +1450,37 @@ impl DocumentWriter for SqliteStorage {
         let _ = self.save_metadata();
     }
 
+    /// Store one expression, replacing whatever that work and date held.
+    ///
+    /// The tree, the removal of its old index rows and the insertion of the new
+    /// ones are one transaction. Two reasons, and both are faults this had:
+    ///
+    /// * The old rows must go. `INSERT OR REPLACE` only replaces a row whose key
+    ///   collides, and the key is `(work, date, ordinal)`, so a shorter tree left
+    ///   the tail of the longer one behind. Those rows name provisions the dataset
+    ///   no longer holds, and `has_node` and `search_text` read nothing else (#187).
+    /// * A reader must not see the index between the two states. A delete and an
+    ///   insert that are not atomic leave a window in which the index holds
+    ///   neither the old rows nor the new.
     fn add_expression(&mut self, expression: Expression) -> Result<(), DatasetError> {
         let element_json = serde_json::to_string(&expression.root)?;
-        self.conn.execute(
+        let work = expression.id.work.as_str();
+        let tx = self.conn.transaction()?;
+
+        tx.execute(
             "INSERT OR REPLACE INTO expressions (work, date, label, element_json) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                expression.id.work.as_str(),
-                &expression.id.at,
-                &expression.label,
-                element_json
-            ],
+            params![work, &expression.id.at, &expression.label, element_json],
         )?;
 
-        // Index elements
-        let mut stmt = self.conn.prepare(ELEMENT_INDEX_INSERT)?;
+        tx.execute(
+            "DELETE FROM element_index WHERE work = ?1 AND date = ?2",
+            params![work, &expression.id.at],
+        )?;
+        let mut stmt = tx.prepare(ELEMENT_INDEX_INSERT)?;
         Self::index_element(&mut stmt, &expression.id, &expression.root)?;
+        drop(stmt);
 
+        tx.commit()?;
         Ok(())
     }
 }
