@@ -21,6 +21,8 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
@@ -47,13 +49,8 @@ const REAL_EXTRACTION: &str =
 /// Real recorded replies, one per command shape.
 const REPLIES: &str = "tests/test_data/processed/model_replies.json";
 
-/// A real recorded reply for `command`, cut in half.
-///
-/// A reply that failed to parse is never stored (`docs/adr/0005`), so the corpus
-/// holds no malformed reply and never will. Cutting a real one short is not
-/// invented data: it is what a `max_tokens` ceiling does to a reply in flight,
-/// and the surviving half is the model's own text.
-fn truncated_real_reply(command: &str) -> String {
+/// The longest real recorded reply for `command`, as the model sent it.
+fn real_reply(command: &str) -> String {
     #[derive(serde::Deserialize)]
     struct RecordedReply {
         command: String,
@@ -62,12 +59,22 @@ fn truncated_real_reply(command: &str) -> String {
     let json = std::fs::read_to_string(REPLIES).expect("the fixture should be readable");
     let replies: Vec<RecordedReply> =
         serde_json::from_str(&json).expect("the fixture should parse");
-    let full = replies
+    replies
         .into_iter()
         .filter(|r| r.command == command)
         .max_by_key(|r| r.reply.len())
         .expect("the fixture should hold a reply for this command")
-        .reply;
+        .reply
+}
+
+/// A real recorded reply for `command`, cut in half.
+///
+/// A reply that failed to parse is never stored (`docs/adr/0005`), so the corpus
+/// holds no malformed reply and never will. Cutting a real one short is not
+/// invented data: it is what a `max_tokens` ceiling does to a reply in flight,
+/// and the surviving half is the model's own text.
+fn truncated_real_reply(command: &str) -> String {
+    let full = real_reply(command);
     full[..full.len() / 2].to_string()
 }
 
@@ -91,6 +98,14 @@ fn only_amendment_id(dataset_path: &str) -> String {
 /// Returns the base URL to point the CLI at. The thread is detached: it dies
 /// with the test binary.
 fn start_stub_server(content: String) -> String {
+    counting_stub_server(content).0
+}
+
+/// The same stub, with a count of the replies it has served.
+///
+/// A cache is only real if a second run calls no model, and the count is the
+/// only thing that can say so: the dataset looks the same either way.
+fn counting_stub_server(content: String) -> (String, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("the stub should bind");
     let address = listener
         .local_addr()
@@ -100,6 +115,9 @@ fn start_stub_server(content: String) -> String {
         "choices": [{ "message": { "content": content } }]
     })
     .to_string();
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let served = Arc::clone(&calls);
 
     thread::spawn(move || {
         for stream in listener.incoming() {
@@ -131,10 +149,11 @@ fn start_stub_server(content: String) -> String {
                 body
             );
             let _ = stream.write_all(response.as_bytes());
+            served.fetch_add(1, Ordering::SeqCst);
         }
     });
 
-    format!("http://{address}")
+    (format!("http://{address}"), calls)
 }
 
 /// Write a compact-JSON dataset holding one real amendment, with no changes on
@@ -192,6 +211,8 @@ fn dataset_with_amendments(name: &str, count: usize) -> String {
 fn dataset_for_matching(name: &str) -> String {
     let directory = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&directory).expect("the fixture directory should exist");
+    // A cache left by an earlier run of this test would answer for the server.
+    let _ = std::fs::remove_file(format!("{directory}/matches_cache.json"));
 
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "Matching Test Fixture".to_string(),
@@ -614,5 +635,65 @@ fn should_exit_zero_when_some_amendments_fail() {
         output.status.success(),
         "a lost amendment is not a failed run, got {:?}",
         output.status
+    );
+}
+
+
+/// Run `match-amendments` over the pair of release points the fixture holds.
+fn run_match_amendments(dataset_path: &str, base_url: &str, extra: &[&str]) -> std::process::Output {
+    let from = format!("{TITLE_26}@{EARLY}");
+    let to = format!("{TITLE_26}@{LATE}");
+    Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "match-amendments",
+            dataset_path,
+            "--from",
+            &from,
+            "--to",
+            &to,
+            "--base-url",
+            base_url,
+            "--threads",
+            "1",
+        ])
+        .args(extra)
+        .output()
+        .expect("the binary should run")
+}
+
+/// Every call `match-amendments` makes is bought, so a second run over an
+/// unchanged dataset must buy nothing (#123). The dataset reads the same
+/// whether a reply was cached or re-queried, so the test counts the calls the
+/// server answered, and reads the count the run reports.
+#[test]
+fn should_make_no_model_call_when_match_amendments_runs_again_over_an_unchanged_dataset() {
+    let dataset_path = dataset_for_matching("llm_match_cache");
+    let (base_url, calls) = counting_stub_server(real_reply("match-amendments"));
+
+    let first = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        first.status.success(),
+        "the first run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let bought = calls.load(Ordering::SeqCst);
+    assert!(bought > 0, "the first run should call the model");
+
+    let second = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        second.status.success(),
+        "the second run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        bought,
+        "the second run should call the model for nothing"
+    );
+
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(
+        stdout.contains(&format!("{bought} replies reused")),
+        "the run should say how many replies it reused, got:\n{stdout}"
     );
 }

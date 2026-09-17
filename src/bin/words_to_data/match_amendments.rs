@@ -5,6 +5,7 @@
 //! actually caused, and record the answer as a `ChangeAnnotation` written back
 //! into the dataset in place.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -120,10 +121,17 @@ pub fn run(args: Args) {
     };
     let annotator = format!("model:{model_name}");
 
+    // A reply already bought for a question is reused rather than bought
+    // again, as `extract-changes` has always done with its own cache.
+    let cache_path = sibling(&args.dataset, "matches_cache.json");
+    let cache = Mutex::new(load_cache(&cache_path));
+
     let pairs = args.span.resolve(&dataset);
     let mut candidates_by_work = Vec::new();
     let mut applied = 0;
     let mut annotated_paths = 0;
+    let mut reused = 0;
+    let mut queried = 0;
     // Amendments whose reply never parsed, gathered across every pair in the
     // span so one run reports one total.
     let mut failed: Vec<String> = Vec::new();
@@ -135,12 +143,32 @@ pub fn run(args: Args) {
         println!("\n{from} -> {to}");
         print_stats(&matches);
 
-        // Ask the LLM which candidate(s) each amendment matches.
-        let (matched, lost) = classify_all(&llm, &matches, args.threads, &opts);
+        // Split the amendments into the ones a cached reply already answers
+        // and the ones the model still has to be asked about.
+        let mut answered: Vec<(usize, Classification)> = Vec::new();
+        let mut todo: Vec<Task> = Vec::new();
+        for (index, m) in matches.iter().enumerate() {
+            let question = question(m);
+            match cached_classification(&cache, &question) {
+                Some(classification) => answered.push((index, classification)),
+                None => todo.push(Task {
+                    match_index: index,
+                    amendment_id: m.amendment_id.clone(),
+                    question,
+                }),
+            }
+        }
+        println!("{} cached; {} to query", answered.len(), todo.len());
+        reused += answered.len();
+        queried += todo.len();
+
+        // Ask the LLM which candidate(s) each remaining amendment matches.
+        let (matched, lost) = classify_all(&llm, &todo, args.threads, &cache, &cache_path, &opts);
         failed.extend(lost);
+        answered.extend(matched);
 
         // Apply the LLM's annotations single-threaded.
-        for (match_idx, classification) in matched {
+        for (match_idx, classification) in answered {
             let m = &matches[match_idx];
             // One reply produced every annotation below, so it is recorded once
             // and referenced, not copied onto each.
@@ -233,6 +261,7 @@ pub fn run(args: Args) {
         "\nApplied {applied} annotation(s) across {} work(s)",
         candidates_by_work.len()
     );
+    println!("{reused} replies reused; {queried} model calls made");
     println!("Annotated paths: {annotated_paths}");
     crate::report::failed_amendments(&failed);
     println!("Wrote {}", candidates_path.display());
@@ -259,18 +288,23 @@ fn print_stats(matches: &[AmendmentMatch]) {
     println!("Amendments with 2+ candidates: {many}");
 }
 
-/// Run LLM classification over every match using `threads` OS worker threads.
+/// Run LLM classification over every task using `threads` OS worker threads.
 ///
-/// Workers only read match data and return `(match_index, annotations)`; the
+/// Workers only read their task and return `(match_index, classification)`; the
 /// caller applies the annotations to the dataset single-threaded.
+/// Each successful reply is inserted into `cache` and flushed to `cache_path`
+/// immediately (under the lock), so a run interrupted part-way leaves a cache
+/// the next run can resume from.
 /// Returns the classifications that succeeded, and the ids of the amendments
 /// that failed so the caller can report the loss. A reply that does not parse
 /// is not kept: it backs no statement, so it is not evidence
 /// (`docs/adr/0005`). Running the command again is the retry.
 fn classify_all(
     llm: &LlmClient,
-    matches: &[AmendmentMatch],
+    tasks: &[Task],
     threads: usize,
+    cache: &Mutex<Cache>,
+    cache_path: &Path,
     opts: &ChatOptions,
 ) -> (Vec<(usize, Classification)>, Vec<String>) {
     let next = AtomicUsize::new(0);
@@ -284,24 +318,33 @@ fn classify_all(
             scope.spawn(|| {
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(m) = matches.get(i) else { break };
+                    let Some(task) = tasks.get(i) else { break };
 
-                    let outcome = match classify(llm, m, opts) {
+                    let outcome = match classify(llm, &task.question, opts) {
                         Ok(classification) => {
-                            results.lock().unwrap().push((i, classification));
+                            // Insert and persist while holding the lock so the
+                            // on-disk cache is always consistent with memory.
+                            let mut guard = cache.lock().unwrap();
+                            guard.insert(task.question.key.clone(), classification.reply.clone());
+                            write_cache(cache_path, &guard);
+                            drop(guard);
+                            results
+                                .lock()
+                                .unwrap()
+                                .push((task.match_index, classification));
                             "matched"
                         }
                         Err(err) => {
                             // One call, so the raw reply inside `err` stays in one
                             // piece even when several workers fail at once.
-                            eprintln!("ERROR matching {}: {err}", m.amendment_id);
-                            failed.lock().unwrap().push(m.amendment_id.clone());
+                            eprintln!("ERROR matching {}: {err}", task.amendment_id);
+                            failed.lock().unwrap().push(task.amendment_id.clone());
                             "failed"
                         }
                     };
 
                     let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    println!("[{n}/{}] {outcome}", matches.len());
+                    println!("[{n}/{}] {outcome}", tasks.len());
                 }
             });
         }
@@ -327,18 +370,103 @@ struct Classification {
 /// Query the LLM for one amendment and parse its annotation list.
 fn classify(
     llm: &LlmClient,
-    m: &AmendmentMatch,
+    question: &Question,
     opts: &ChatOptions,
 ) -> Result<Classification, String> {
-    let user_prompt = build_user_prompt(m);
-    let reply = llm.chat(SYSTEM_PROMPT, &user_prompt, opts)?;
+    let reply = llm.chat(SYSTEM_PROMPT, &question.user_prompt, opts)?;
     let annotations = words_to_data::llm::parse_annotations(&reply)
         .map_err(|e| format!("{e}\n--- raw model output ---\n{reply}"))?;
     Ok(Classification {
         annotations,
-        prompt_hash: prompt_hash(SYSTEM_PROMPT, &user_prompt),
+        prompt_hash: question.prompt_hash.clone(),
         reply,
     })
+}
+
+/// One amendment queued for a model call.
+struct Task {
+    /// Where the answer belongs in the run's match list.
+    match_index: usize,
+    amendment_id: String,
+    question: Question,
+}
+
+/// One amendment's question: the prompt to send, and the key its answer is
+/// cached under.
+struct Question {
+    user_prompt: String,
+    prompt_hash: String,
+    key: String,
+}
+
+/// Build the question for one amendment.
+///
+/// The cache key holds both halves of what was asked: a hash of the candidates
+/// the model was shown, and a hash of the exact prompt it was shown them in. A
+/// candidate hash on its own would reuse a reply after the prompt changed,
+/// which answers a question nobody asked.
+fn question(m: &AmendmentMatch) -> Question {
+    let user_prompt = build_user_prompt(m);
+    let prompt_hash = prompt_hash(SYSTEM_PROMPT, &user_prompt);
+    let key = format!("{}:{prompt_hash}", candidate_hash(m));
+    Question {
+        user_prompt,
+        prompt_hash,
+        key,
+    }
+}
+
+/// A hash of what the model is asked about: the amendment, and every candidate
+/// offered for it, in the order it reads them.
+fn candidate_hash(m: &AmendmentMatch) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(m.amendment_id.as_bytes());
+    for candidate in &m.candidates {
+        hasher.update([0u8]);
+        hasher.update(serde_json::to_vec(&candidate.diff).expect("a diff should serialize"));
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Replies bought by earlier runs, by the key of the question each answered.
+///
+/// Only the reply is kept. It is what the model said, and the annotations are a
+/// reading of it, so a later run reads it again rather than trusting a summary.
+type Cache = HashMap<String, String>;
+
+/// The reply an earlier run bought for this question, if there is one.
+///
+/// A cached reply that no longer parses is dropped rather than kept, so the
+/// amendment is queried again. A reply that parses into no statement is not
+/// evidence (`docs/adr/0005`), and that holds when it comes off the disk too.
+fn cached_classification(cache: &Mutex<Cache>, question: &Question) -> Option<Classification> {
+    let reply = cache.lock().unwrap().get(&question.key).cloned()?;
+    let annotations = words_to_data::llm::parse_annotations(&reply).ok()?;
+    Some(Classification {
+        annotations,
+        prompt_hash: question.prompt_hash.clone(),
+        reply,
+    })
+}
+
+/// Load the reply cache from disk, or start empty when it does not exist yet.
+fn load_cache(path: &Path) -> Cache {
+    match fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).expect("Error parsing cache file"),
+        Err(_) => Cache::new(),
+    }
+}
+
+/// Persist the reply cache so a later run can resume without re-querying.
+///
+/// Writes to a temp file then renames, so an interrupt mid-write can never
+/// leave a half-written (corrupt, unresumable) cache on disk.
+fn write_cache(path: &Path, cache: &Cache) {
+    let json = serde_json::to_string_pretty(cache).expect("Error serializing cache");
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, json).expect("Error writing cache");
+    fs::rename(&tmp, path).expect("Error replacing cache");
 }
 
 /// A hash of the exact prompt that was sent.
