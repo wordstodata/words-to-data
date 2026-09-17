@@ -7,6 +7,10 @@ on:
   # on `main` meant no PR into `vibes` was ever tested, and it would also skip a
   # stacked PR that targets a feature branch.
   pull_request:
+  # The merge queue tests a batch of candidates as one commit, and it reports
+  # through this event. Without it a queued pull request waits for a check that
+  # never runs, so this must be on `main` before the queue is turned on.
+  merge_group:
 
 env:
   CARGO_TERM_COLOR: always
