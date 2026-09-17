@@ -77,6 +77,10 @@ pub struct Args {
     #[arg(long, default_value_t = DEFAULT_SIMILARITY_CUTOFF)]
     pub similarity_cutoff: f32,
 
+    /// Re-query the LLM for every amendment, ignoring any cached replies
+    #[arg(long)]
+    pub no_cache: bool,
+
     /// Where to write the annotated dataset (defaults to overwriting the input)
     #[arg(long)]
     pub output: Option<String>,
@@ -144,12 +148,18 @@ pub fn run(args: Args) {
         print_stats(&matches);
 
         // Split the amendments into the ones a cached reply already answers
-        // and the ones the model still has to be asked about.
+        // and the ones the model still has to be asked about. `--no-cache`
+        // sends every one of them to the model.
         let mut answered: Vec<(usize, Classification)> = Vec::new();
         let mut todo: Vec<Task> = Vec::new();
         for (index, m) in matches.iter().enumerate() {
             let question = question(m);
-            match cached_classification(&cache, &question) {
+            let cached = if args.no_cache {
+                None
+            } else {
+                cached_classification(&cache, &question)
+            };
+            match cached {
                 Some(classification) => answered.push((index, classification)),
                 None => todo.push(Task {
                     match_index: index,

@@ -775,3 +775,39 @@ fn should_query_the_model_again_when_the_prompt_behind_a_cached_reply_has_change
         "no stale reply should be reused, got:\n{stdout}"
     );
 }
+
+
+/// `extract-changes` has `--no-cache` for the run that has to buy its answers
+/// again. `match-amendments` answers to the same flag (#123).
+#[test]
+fn should_query_the_model_again_when_no_cache_is_given() {
+    let dataset_path = dataset_for_matching("llm_match_no_cache");
+    let (base_url, calls) = counting_stub_server(real_reply("match-amendments"));
+
+    let first = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        first.status.success(),
+        "the first run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let bought = calls.load(Ordering::SeqCst);
+    assert!(bought > 0, "the first run should fill the cache");
+
+    let second = run_match_amendments(&dataset_path, &base_url, &["--no-cache"]);
+    assert!(
+        second.status.success(),
+        "the second run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        bought * 2,
+        "the flag should send every amendment to the model again"
+    );
+
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(
+        stdout.contains("0 replies reused"),
+        "the flag should reuse nothing, got:\n{stdout}"
+    );
+}
