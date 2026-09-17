@@ -62,7 +62,7 @@ cargo build --release
 | 1. `build-dataset` | no | `<user cache dir>/words_to_data` | bandwidth, on a cache miss |
 | 2. `extract-changes` | **yes** | `changes_cache.json`, beside the dataset | nothing, while that file stays there |
 | 3. `score-amendments` | no | not applicable | nothing |
-| 4. `match-amendments` | **yes** | **none** | **all of its model calls, again** |
+| 4. `match-amendments` | **yes** | `matches_cache.json`, beside the dataset | nothing, while that file stays there |
 | 5. `redesignations` (for a re-run only) | no | not applicable | nothing |
 | 6. `convert-dataset` | no | not applicable | nothing |
 
@@ -152,21 +152,33 @@ This step asks the model which change each amendment caused, and writes each
 answer into the dataset as a `legislature.amended_by` link. It takes the same
 span flags as step 3, and the same model flags as step 2.
 
-**This step has no cache (#123).** It sends a request for each amendment that has
-candidates, on each run, and it looks at no earlier reply first. The last measured
-run over the committed corpus sent approximately **656** requests, one for each
-amendment with candidates across the 58 works. A regenerate buys all of them
-again. This is the largest repeated cost in the pipeline.
+It sends a request for each amendment that has candidates and that no cached
+reply answers. A cold run over the committed corpus sends approximately **656**
+requests, one for each amendment with candidates across the 58 works.
 
-Two more results follow from the absent cache:
+**Keep `matches_cache.json` beside the dataset.** The command writes this file
+into the same directory as the dataset, and reads it at the start of each run. A
+run that finds the cache sends no request for an amendment that the cache
+answers, and it prints the replies that it reused and the calls that it made. A
+run that does not find the cache buys all of those replies again. `--no-cache`
+forces a new request for each amendment, which is correct only when you know that
+the replies must change.
 
-- A rebuild is not reproducible. The same commit over the same sources gave 893
-  links on one run and 899 on the next.
-- Collect your changes into few rebuilds. Until #123 is done, a rebuild is the
-  expensive operation, and not a free one.
+The command writes the cache after each successful request, so you can stop a run
+and start it again without a loss. A request that fails is not cached, and a
+later run tries it again.
+
+The cache holds each reply under two hashes: the candidates that the model saw,
+and the prompt that the command sent them in. The command reuses a reply only
+when both agree with the run that it makes now. A new prompt, or a new
+`--similarity-cutoff`, is a different question, and it buys new replies.
+
+**The cache also makes a rebuild reproducible.** Before the cache, the same commit
+over the same sources gave 893 links on one run and 899 on the next (#123). A run
+that reuses the cached replies writes the same links each time.
 
 The command writes `candidates.json` beside the dataset. That file records the
-question, but it holds no reply, so it is not a cache.
+question for a reader, and no command reads it.
 
 ### Step 5 — `redesignations` (for a re-run only)
 
