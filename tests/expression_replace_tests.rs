@@ -26,6 +26,11 @@ const DROPPED_SECTION: &str = "uscode/title_8/chapter_16/section_1801";
 /// Real text of section 1801(a), which also stands only in the 30 July tree.
 const DROPPED_TEXT: &str = "aliens in the circumstances described in this subtitle";
 
+/// The definitions section of the Immigration and Nationality Act. Both trees
+/// hold it, so it is the control: a backend that answers "no" to everything
+/// would pass on the dropped section alone.
+const KEPT_SECTION: &str = "uscode/title_8/chapter_12/subchapter_I/section_1101";
+
 /// The date that keys the expression. Both trees below go in under this one
 /// key, because a replacement is what this file is about: an operator stored
 /// the wrong release point and then writes the correct one over it.
@@ -101,4 +106,31 @@ fn should_return_no_search_hit_from_a_tree_that_was_replaced() {
         hits.len(),
         hits.first().map(|hit| hit.path.as_str()).unwrap_or("")
     );
+}
+
+/// The two backends must agree, and the assertion compares them rather than
+/// compares each to a literal. A later change that makes one of them drift
+/// then fails here, instead of hiding until a reader trusts the wrong one.
+#[test]
+fn should_give_the_same_answer_in_both_backends_when_an_expression_is_replaced() {
+    let mut in_memory = Dataset::new(metadata());
+    let mut sqlite = Dataset::new_sqlite(metadata()).expect("a SQLite dataset");
+
+    for published in ["2025-07-30", "2025-07-18"] {
+        let expression = expression_from(published);
+        in_memory
+            .add_expression(expression.clone())
+            .expect("the in-memory dataset stores the tree");
+        sqlite
+            .add_expression(expression)
+            .expect("the SQLite dataset stores the tree");
+    }
+
+    for path in [DROPPED_SECTION, KEPT_SECTION] {
+        assert_eq!(
+            sqlite.has_node(path).unwrap(),
+            in_memory.has_node(path).unwrap(),
+            "the two backends disagree about {path}"
+        );
+    }
 }
