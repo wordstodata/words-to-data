@@ -62,4 +62,4 @@ All three need a rebuild. Only the first one makes a reader obsolete.
 
 So when triaging, say which of the three it is, and whether a rebuild is needed — those are two questions, not one. An issue that forces a rebuild without breaking the format still has to say so in its body, because a user who does not rebuild will silently hold stale data. That is worse than a refusal, not better.
 
-The rebuild cost is not fixed. `#123` records that `match-amendments` has no cache, so a rebuild re-buys its model calls; until that is fixed, grouping work into fewer rebuilds is worth more than the label alone suggests.
+The rebuild cost is not fixed. Both model-bound steps keep a cache beside the dataset (`#123`), so a rebuild that keeps those files re-buys no model call; a rebuild that loses them, or that changes a prompt, buys every reply again.

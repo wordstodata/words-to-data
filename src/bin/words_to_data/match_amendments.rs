@@ -466,7 +466,11 @@ type Cache = HashMap<String, Cached>;
 /// amendment is queried again. A reply that parses into no statement is not
 /// evidence (`docs/adr/0005`), and that holds when it comes off the disk too.
 fn cached_classification(cache: &Mutex<Cache>, question: &Question) -> Option<Classification> {
-    let cached = cache.lock().unwrap().get(&question.candidate_hash).cloned()?;
+    let cached = cache
+        .lock()
+        .unwrap()
+        .get(&question.candidate_hash)
+        .cloned()?;
     if cached.prompt_hash != question.prompt_hash {
         return None;
     }

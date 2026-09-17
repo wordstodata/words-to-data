@@ -638,9 +638,12 @@ fn should_exit_zero_when_some_amendments_fail() {
     );
 }
 
-
 /// Run `match-amendments` over the pair of release points the fixture holds.
-fn run_match_amendments(dataset_path: &str, base_url: &str, extra: &[&str]) -> std::process::Output {
+fn run_match_amendments(
+    dataset_path: &str,
+    base_url: &str,
+    extra: &[&str],
+) -> std::process::Output {
     let from = format!("{TITLE_26}@{EARLY}");
     let to = format!("{TITLE_26}@{LATE}");
     Command::new(env!("CARGO_BIN_EXE_words_to_data"))
@@ -698,7 +701,6 @@ fn should_make_no_model_call_when_match_amendments_runs_again_over_an_unchanged_
     );
 }
 
-
 /// A prompt hash this build does not produce, in the shape of a real one.
 const ANOTHER_PROMPT: &str = "00000000000000000000000000000000000000000000000000000000000000ff";
 
@@ -714,12 +716,14 @@ fn matches_cache_path(dataset_path: &str) -> std::path::PathBuf {
 fn say_the_cached_replies_answered_another_prompt(dataset_path: &str) {
     let path = matches_cache_path(dataset_path);
     let text = std::fs::read_to_string(&path).expect("the first run should write a cache");
-    let mut cache: serde_json::Value =
-        serde_json::from_str(&text).expect("the cache should parse");
+    let mut cache: serde_json::Value = serde_json::from_str(&text).expect("the cache should parse");
     let entries = cache
         .as_object_mut()
         .expect("the cache should be an object of cached replies");
-    assert!(!entries.is_empty(), "the first run should cache its replies");
+    assert!(
+        !entries.is_empty(),
+        "the first run should cache its replies"
+    );
 
     for entry in entries.values_mut() {
         let prompt_hash = entry
@@ -776,7 +780,6 @@ fn should_query_the_model_again_when_the_prompt_behind_a_cached_reply_has_change
     );
 }
 
-
 /// `extract-changes` has `--no-cache` for the run that has to buy its answers
 /// again. `match-amendments` answers to the same flag (#123).
 #[test]
@@ -811,7 +814,6 @@ fn should_query_the_model_again_when_no_cache_is_given() {
         "the flag should reuse nothing, got:\n{stdout}"
     );
 }
-
 
 /// Start `match-amendments` and leave it running.
 ///
