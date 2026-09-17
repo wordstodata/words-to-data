@@ -54,10 +54,14 @@ fn title_8_as_published(date: &str) -> DocumentNode {
     work_roots(parsed).pop().expect("the file holds one title")
 }
 
+fn keyed_id() -> ExpressionId {
+    ExpressionId::new(WorkId::new(TITLE_8), KEYED_AT)
+}
+
 /// The one keyed expression, carrying whichever published tree is named.
 fn expression_from(published: &str) -> Expression {
     Expression {
-        id: ExpressionId::new(WorkId::new(TITLE_8), KEYED_AT),
+        id: keyed_id(),
         label: None,
         root: title_8_as_published(published),
     }
@@ -133,4 +137,55 @@ fn should_give_the_same_answer_in_both_backends_when_an_expression_is_replaced()
             "the two backends disagree about {path}"
         );
     }
+}
+
+/// A replace that stops part of the way through must leave the dataset as it
+/// was. This is the difference between one transaction and three statements:
+/// with three, the expression row is already the new tree and the index is
+/// already part new, so the dataset holds a half of each.
+///
+/// The database is the boundary here, so the fault is put in at the database:
+/// a trigger that refuses one index row. Every tree in the test is real.
+#[test]
+fn should_keep_the_previous_expression_when_a_replace_stops_part_way() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("dataset.db");
+
+    let mut dataset = Dataset::open_sqlite(&path).expect("a SQLite dataset on disk");
+    dataset
+        .add_expression(expression_from("2025-07-30"))
+        .expect("the first tree is stored");
+    drop(dataset);
+
+    // Title 8 has thousands of nodes at either release point, so row 100 is
+    // well inside the write and well after the first row.
+    let conn = rusqlite::Connection::open(&path).expect("a second connection");
+    conn.execute_batch(
+        "CREATE TRIGGER refuse_row_100 BEFORE INSERT ON element_index
+         WHEN NEW.ordinal = 100
+         BEGIN SELECT RAISE(ABORT, 'the write stops here'); END;",
+    )
+    .expect("the trigger is created");
+    drop(conn);
+
+    let mut dataset = Dataset::open_sqlite(&path).expect("the dataset opens again");
+    let outcome = dataset.add_expression(expression_from("2025-07-18"));
+    assert!(outcome.is_err(), "the replace must report that it failed");
+
+    let stored = dataset
+        .get_expression(&keyed_id())
+        .expect("reading the expression")
+        .expect("the previous expression is still there");
+    assert!(
+        stored.root.find(DROPPED_SECTION).is_some(),
+        "the stored tree must still be the 30 July one"
+    );
+    assert!(
+        dataset.has_node(DROPPED_SECTION).unwrap(),
+        "the index must still describe the 30 July tree"
+    );
+    assert!(
+        dataset.has_node(KEPT_SECTION).unwrap(),
+        "and it must still hold the rows the failed write would have rewritten"
+    );
 }
