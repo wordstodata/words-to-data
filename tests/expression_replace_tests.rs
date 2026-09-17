@@ -1,0 +1,191 @@
+//! Replacing an expression that a dataset already holds.
+//!
+//! The element index of a SQLite dataset is a derivation of the stored trees
+//! (`docs/adr/0007`), so after a replacement it must describe the tree that is
+//! stored and nothing else. The in-memory backend holds the trees themselves,
+//! so it is the reference for the answer.
+//!
+//! The corpus holds Title 8 at two release points. The 30 July tree has
+//! chapter 16, IMMIGRATION FEES; the 18 July tree does not. The two trees are
+//! therefore a real replacement that drops provisions, and no test below has
+//! to invent one.
+
+use words_to_data::dataset::{
+    Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
+};
+use words_to_data::document::DocumentNode;
+use words_to_data::storage::DocumentReader;
+use words_to_data::uslm::parser::parse;
+
+/// Aliens and Nationality. One work, which the corpus holds twice.
+const TITLE_8: &str = "uscode/title_8";
+
+/// A section of the chapter that only the 30 July tree has.
+const DROPPED_SECTION: &str = "uscode/title_8/chapter_16/section_1801";
+
+/// Real text of section 1801(a), which also stands only in the 30 July tree.
+const DROPPED_TEXT: &str = "aliens in the circumstances described in this subtitle";
+
+/// The definitions section of the Immigration and Nationality Act. Both trees
+/// hold it, so it is the control: a backend that answers "no" to everything
+/// would pass on the dropped section alone.
+const KEPT_SECTION: &str = "uscode/title_8/chapter_12/subchapter_I/section_1101";
+
+/// The date that keys the expression. Both trees below go in under this one
+/// key, because a replacement is what this file is about: an operator stored
+/// the wrong release point and then writes the correct one over it.
+const KEYED_AT: &str = "2025-07-18";
+
+fn metadata() -> DatasetMetadata {
+    DatasetMetadata {
+        name: "Expression replacement".to_string(),
+        description: "Title 8 at two release points".to_string(),
+        author: "Test".to_string(),
+        source_urls: vec![],
+        license: "MIT".to_string(),
+        version: "0.1.0".to_string(),
+        ..Default::default()
+    }
+}
+
+fn title_8_as_published(date: &str) -> DocumentNode {
+    let path = format!("tests/test_data/usc/{date}/usc08.xml");
+    let parsed = parse(&path, date).expect("the corpus holds title 8 at this release point");
+    work_roots(parsed).pop().expect("the file holds one title")
+}
+
+fn keyed_id() -> ExpressionId {
+    ExpressionId::new(WorkId::new(TITLE_8), KEYED_AT)
+}
+
+/// The one keyed expression, carrying whichever published tree is named.
+fn expression_from(published: &str) -> Expression {
+    Expression {
+        id: keyed_id(),
+        label: None,
+        root: title_8_as_published(published),
+    }
+}
+
+#[test]
+fn should_report_no_node_when_a_replacing_tree_drops_it() {
+    let mut dataset = Dataset::new_sqlite(metadata()).expect("a SQLite dataset");
+    dataset
+        .add_expression(expression_from("2025-07-30"))
+        .expect("the first tree is stored");
+    assert!(
+        dataset.has_node(DROPPED_SECTION).unwrap(),
+        "the 30 July tree holds section 1801"
+    );
+
+    dataset
+        .add_expression(expression_from("2025-07-18"))
+        .expect("the second tree replaces the first");
+
+    assert!(
+        !dataset.has_node(DROPPED_SECTION).unwrap(),
+        "section 1801 is not in the tree that the dataset now holds"
+    );
+}
+
+#[test]
+fn should_return_no_search_hit_from_a_tree_that_was_replaced() {
+    let mut dataset = Dataset::new_sqlite(metadata()).expect("a SQLite dataset");
+    dataset
+        .add_expression(expression_from("2025-07-30"))
+        .expect("the first tree is stored");
+    assert!(
+        !dataset.search_text(DROPPED_TEXT).unwrap().is_empty(),
+        "the 30 July tree holds this text"
+    );
+
+    dataset
+        .add_expression(expression_from("2025-07-18"))
+        .expect("the second tree replaces the first");
+
+    let hits = dataset.search_text(DROPPED_TEXT).unwrap();
+    assert!(
+        hits.is_empty(),
+        "search reported {} hits from a tree the dataset no longer holds, the first at {}",
+        hits.len(),
+        hits.first().map(|hit| hit.path.as_str()).unwrap_or("")
+    );
+}
+
+/// The two backends must agree, and the assertion compares them rather than
+/// compares each to a literal. A later change that makes one of them drift
+/// then fails here, instead of hiding until a reader trusts the wrong one.
+#[test]
+fn should_give_the_same_answer_in_both_backends_when_an_expression_is_replaced() {
+    let mut in_memory = Dataset::new(metadata());
+    let mut sqlite = Dataset::new_sqlite(metadata()).expect("a SQLite dataset");
+
+    for published in ["2025-07-30", "2025-07-18"] {
+        let expression = expression_from(published);
+        in_memory
+            .add_expression(expression.clone())
+            .expect("the in-memory dataset stores the tree");
+        sqlite
+            .add_expression(expression)
+            .expect("the SQLite dataset stores the tree");
+    }
+
+    for path in [DROPPED_SECTION, KEPT_SECTION] {
+        assert_eq!(
+            sqlite.has_node(path).unwrap(),
+            in_memory.has_node(path).unwrap(),
+            "the two backends disagree about {path}"
+        );
+    }
+}
+
+/// A replace that stops part of the way through must leave the dataset as it
+/// was. This is the difference between one transaction and three statements:
+/// with three, the expression row is already the new tree and the index is
+/// already part new, so the dataset holds a half of each.
+///
+/// The database is the boundary here, so the fault is put in at the database:
+/// a trigger that refuses one index row. Every tree in the test is real.
+#[test]
+fn should_keep_the_previous_expression_when_a_replace_stops_part_way() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("dataset.db");
+
+    let mut dataset = Dataset::open_sqlite(&path).expect("a SQLite dataset on disk");
+    dataset
+        .add_expression(expression_from("2025-07-30"))
+        .expect("the first tree is stored");
+    drop(dataset);
+
+    // Title 8 has thousands of nodes at either release point, so row 100 is
+    // well inside the write and well after the first row.
+    let conn = rusqlite::Connection::open(&path).expect("a second connection");
+    conn.execute_batch(
+        "CREATE TRIGGER refuse_row_100 BEFORE INSERT ON element_index
+         WHEN NEW.ordinal = 100
+         BEGIN SELECT RAISE(ABORT, 'the write stops here'); END;",
+    )
+    .expect("the trigger is created");
+    drop(conn);
+
+    let mut dataset = Dataset::open_sqlite(&path).expect("the dataset opens again");
+    let outcome = dataset.add_expression(expression_from("2025-07-18"));
+    assert!(outcome.is_err(), "the replace must report that it failed");
+
+    let stored = dataset
+        .get_expression(&keyed_id())
+        .expect("reading the expression")
+        .expect("the previous expression is still there");
+    assert!(
+        stored.root.find(DROPPED_SECTION).is_some(),
+        "the stored tree must still be the 30 July one"
+    );
+    assert!(
+        dataset.has_node(DROPPED_SECTION).unwrap(),
+        "the index must still describe the 30 July tree"
+    );
+    assert!(
+        dataset.has_node(KEPT_SECTION).unwrap(),
+        "and it must still hold the rows the failed write would have rewritten"
+    );
+}
