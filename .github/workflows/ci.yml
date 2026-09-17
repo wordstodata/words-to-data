@@ -7,6 +7,10 @@ on:
   # on `main` meant no PR into `vibes` was ever tested, and it would also skip a
   # stacked PR that targets a feature branch.
   pull_request:
+  # The merge queue tests a batch of candidates as one commit, and it reports
+  # through this event. Without it a queued pull request waits for a check that
+  # never runs, so this must be on `main` before the queue is turned on.
+  merge_group:
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,17 +30,28 @@ jobs:
       with:
         components: rustfmt, clippy
 
+    # Every run used to compile every dependency from nothing. `main` is
+    # protected and a branch must be up to date before it merges, so a run of
+    # PRs pays that cost once each, in sequence. The cache is keyed on the
+    # lockfile and the toolchain, so a dependency change still rebuilds.
+    - name: Cache cargo registry and target
+      uses: Swatinem/rust-cache@v2
+
     - name: Check formatting
       run: cargo fmt --check
 
+    # `--all-targets` compiles the tests as well as the library, so this is
+    # also the type check. There is no separate build step: `cargo test` below
+    # builds what it runs, and a `cargo build` between the two compiled the
+    # library a third time for nothing.
     - name: Run clippy
       run: cargo clippy --all-targets --all-features -- -D warnings
 
-    - name: Build
-      run: cargo build -p words-to-data --lib --verbose
-
+    # `xf`, not `xvf`. The archive holds 119 entries and naming each one filled
+    # the log without telling a reader anything. A failure to extract still
+    # fails the step.
     - name: Unzip test files
-      run: cd tests/test_data && tar xvf test_files.tar.xz
+      run: cd tests/test_data && tar xf test_files.tar.xz
 
     - name: Run Rust tests
       run: cargo test -p words-to-data --verbose
