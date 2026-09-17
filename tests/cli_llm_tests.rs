@@ -811,3 +811,108 @@ fn should_query_the_model_again_when_no_cache_is_given() {
         "the flag should reuse nothing, got:\n{stdout}"
     );
 }
+
+
+/// Start `match-amendments` and leave it running.
+///
+/// Its output goes nowhere: a killed run's progress lines are not what the
+/// caller reads, and a pipe nobody empties would stop the run before the kill.
+fn spawn_match_amendments(dataset_path: &str, base_url: &str) -> std::process::Child {
+    let from = format!("{TITLE_26}@{EARLY}");
+    let to = format!("{TITLE_26}@{LATE}");
+    Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "match-amendments",
+            dataset_path,
+            "--from",
+            &from,
+            "--to",
+            &to,
+            "--base-url",
+            base_url,
+            "--threads",
+            "1",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the binary should run")
+}
+
+/// How many replies the cache beside the dataset holds, or none when the run
+/// has not written it yet.
+fn cached_reply_count(dataset_path: &str) -> usize {
+    let Ok(text) = std::fs::read_to_string(matches_cache_path(dataset_path)) else {
+        return 0;
+    };
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|cache| cache.as_object().map(serde_json::Map::len))
+        .unwrap_or(0)
+}
+
+/// Wait until the running command has cached at least `count` replies.
+fn wait_for_cached_replies(dataset_path: &str, count: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    while std::time::Instant::now() < deadline {
+        if cached_reply_count(dataset_path) >= count {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("the run should cache {count} replies before the deadline");
+}
+
+/// The number a run printed after `label`, for example the total it matched.
+fn number_after(stdout: &str, label: &str) -> usize {
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix(label))
+        .expect("the run should print this line")
+        .trim()
+        .parse()
+        .expect("the line should end in a number")
+}
+
+/// A sweep over a corpus runs for hours, and the machine it runs on does not
+/// always wait. What a killed run bought is kept, so the next run pays only for
+/// what is left (#123).
+#[test]
+fn should_resume_from_the_cache_when_a_run_is_interrupted() {
+    let dataset_path = dataset_for_matching("llm_match_resume");
+    let (base_url, calls) = counting_stub_server(real_reply("match-amendments"));
+
+    // Kill the first run once it has bought a few replies.
+    let mut run = spawn_match_amendments(&dataset_path, &base_url);
+    wait_for_cached_replies(&dataset_path, 5);
+    run.kill().expect("the run should stop");
+    run.wait().expect("the run should end");
+
+    let kept = cached_reply_count(&dataset_path);
+    assert!(kept >= 5, "the killed run should leave what it bought");
+    let bought = calls.load(Ordering::SeqCst);
+
+    let second = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        second.status.success(),
+        "the second run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(
+        stdout.contains(&format!("{kept} replies reused")),
+        "the second run should reuse every reply the killed one bought, got:\n{stdout}"
+    );
+
+    let total = number_after(&stdout, "Total amendments with candidates:");
+    assert!(
+        kept < total,
+        "the first run should have been stopped part-way, with {total} to buy and {kept} bought"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst) - bought,
+        total - kept,
+        "the second run should buy what is left, and nothing more"
+    );
+}
