@@ -697,3 +697,81 @@ fn should_make_no_model_call_when_match_amendments_runs_again_over_an_unchanged_
         "the run should say how many replies it reused, got:\n{stdout}"
     );
 }
+
+
+/// A prompt hash this build does not produce, in the shape of a real one.
+const ANOTHER_PROMPT: &str = "00000000000000000000000000000000000000000000000000000000000000ff";
+
+/// The reply cache `match-amendments` keeps beside a dataset.
+fn matches_cache_path(dataset_path: &str) -> std::path::PathBuf {
+    std::path::Path::new(dataset_path).with_file_name("matches_cache.json")
+}
+
+/// Say that every cached reply answered a prompt this build does not send.
+///
+/// The candidates are left alone, so the cache still holds a reply for each of
+/// them: only the prompt behind those replies is now another one.
+fn say_the_cached_replies_answered_another_prompt(dataset_path: &str) {
+    let path = matches_cache_path(dataset_path);
+    let text = std::fs::read_to_string(&path).expect("the first run should write a cache");
+    let mut cache: serde_json::Value =
+        serde_json::from_str(&text).expect("the cache should parse");
+    let entries = cache
+        .as_object_mut()
+        .expect("the cache should be an object of cached replies");
+    assert!(!entries.is_empty(), "the first run should cache its replies");
+
+    for entry in entries.values_mut() {
+        let prompt_hash = entry
+            .get_mut("prompt_hash")
+            .expect("a cached reply should record the prompt it answered");
+        *prompt_hash = serde_json::Value::String(ANOTHER_PROMPT.to_string());
+    }
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&cache).expect("the cache should serialize"),
+    )
+    .expect("the cache should be writable");
+}
+
+/// A reply answers a question, and the prompt is half of that question. A cache
+/// that looked at the candidates alone would hand back a reply to a prompt this
+/// build no longer sends, and the dataset would show nothing of it (#123).
+///
+/// The prompt cannot be changed from the command line, so the test changes the
+/// cache the way a changed prompt does: the candidates stay, and the prompt
+/// behind each stored reply is one this build does not produce.
+#[test]
+fn should_query_the_model_again_when_the_prompt_behind_a_cached_reply_has_changed() {
+    let dataset_path = dataset_for_matching("llm_match_prompt_change");
+    let (base_url, calls) = counting_stub_server(real_reply("match-amendments"));
+
+    let first = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        first.status.success(),
+        "the first run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let bought = calls.load(Ordering::SeqCst);
+    assert!(bought > 0, "the first run should fill the cache");
+
+    say_the_cached_replies_answered_another_prompt(&dataset_path);
+
+    let second = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        second.status.success(),
+        "the second run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        bought * 2,
+        "a reply bought under another prompt answers nothing, so every amendment should be asked again"
+    );
+
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(
+        stdout.contains("0 replies reused"),
+        "no stale reply should be reused, got:\n{stdout}"
+    );
+}

@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use clap::Args as ClapArgs;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
@@ -325,7 +325,13 @@ fn classify_all(
                             // Insert and persist while holding the lock so the
                             // on-disk cache is always consistent with memory.
                             let mut guard = cache.lock().unwrap();
-                            guard.insert(task.question.key.clone(), classification.reply.clone());
+                            guard.insert(
+                                task.question.candidate_hash.clone(),
+                                Cached {
+                                    reply: classification.reply.clone(),
+                                    prompt_hash: classification.prompt_hash.clone(),
+                                },
+                            );
                             write_cache(cache_path, &guard);
                             drop(guard);
                             results
@@ -391,28 +397,23 @@ struct Task {
     question: Question,
 }
 
-/// One amendment's question: the prompt to send, and the key its answer is
-/// cached under.
+/// One amendment's question: the prompt to send, and the two hashes a reply to
+/// it is filed under.
 struct Question {
     user_prompt: String,
+    /// What the model is asked about.
+    candidate_hash: String,
+    /// The words it is asked in.
     prompt_hash: String,
-    key: String,
 }
 
 /// Build the question for one amendment.
-///
-/// The cache key holds both halves of what was asked: a hash of the candidates
-/// the model was shown, and a hash of the exact prompt it was shown them in. A
-/// candidate hash on its own would reuse a reply after the prompt changed,
-/// which answers a question nobody asked.
 fn question(m: &AmendmentMatch) -> Question {
     let user_prompt = build_user_prompt(m);
-    let prompt_hash = prompt_hash(SYSTEM_PROMPT, &user_prompt);
-    let key = format!("{}:{prompt_hash}", candidate_hash(m));
     Question {
+        candidate_hash: candidate_hash(m),
+        prompt_hash: prompt_hash(SYSTEM_PROMPT, &user_prompt),
         user_prompt,
-        prompt_hash,
-        key,
     }
 }
 
@@ -429,24 +430,41 @@ fn candidate_hash(m: &AmendmentMatch) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Replies bought by earlier runs, by the key of the question each answered.
+/// One amendment's cached answer: what the model said, and what it answered.
 ///
-/// Only the reply is kept. It is what the model said, and the annotations are a
-/// reading of it, so a later run reads it again rather than trusting a summary.
-type Cache = HashMap<String, String>;
+/// Only the reply is kept, not the annotations read out of it. The reply is
+/// what the model sent, and the annotations are a reading of it, so a later run
+/// reads it again rather than trust a summary of it.
+#[derive(Clone, Serialize, Deserialize)]
+struct Cached {
+    reply: String,
+    prompt_hash: String,
+}
+
+/// Replies bought by earlier runs, by a hash of the candidates each answered
+/// for. `changes_cache.json` is the same file for `extract-changes`.
+type Cache = HashMap<String, Cached>;
 
 /// The reply an earlier run bought for this question, if there is one.
+///
+/// The key is the pair, not the candidates alone: a reply is only reused when
+/// the prompt recorded beside it is the prompt this build now sends. A
+/// candidate hash on its own would hand back an answer to a question nobody
+/// asked, and nothing in the dataset would show it (#123).
 ///
 /// A cached reply that no longer parses is dropped rather than kept, so the
 /// amendment is queried again. A reply that parses into no statement is not
 /// evidence (`docs/adr/0005`), and that holds when it comes off the disk too.
 fn cached_classification(cache: &Mutex<Cache>, question: &Question) -> Option<Classification> {
-    let reply = cache.lock().unwrap().get(&question.key).cloned()?;
-    let annotations = words_to_data::llm::parse_annotations(&reply).ok()?;
+    let cached = cache.lock().unwrap().get(&question.candidate_hash).cloned()?;
+    if cached.prompt_hash != question.prompt_hash {
+        return None;
+    }
+    let annotations = words_to_data::llm::parse_annotations(&cached.reply).ok()?;
     Some(Classification {
         annotations,
-        prompt_hash: question.prompt_hash.clone(),
-        reply,
+        prompt_hash: cached.prompt_hash,
+        reply: cached.reply,
     })
 }
 
