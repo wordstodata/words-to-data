@@ -496,48 +496,14 @@ impl<S: Storage + LegislatureWriter> Dataset<S> {
 
 // --- InMemoryStorage-specific methods ---
 
-impl Clone for Dataset<InMemoryStorage> {
-    fn clone(&self) -> Self {
-        Self {
-            storage: self.storage.clone(),
-        }
-    }
-}
-
-impl Dataset<InMemoryStorage> {
-    /// Create a new in-memory dataset with the given metadata
-    pub fn new(metadata: DatasetMetadata) -> Self {
-        Self::with_storage(InMemoryStorage::new(metadata))
-    }
-
-    /// Add changes to an amendment in any bill
-    pub fn add_changes_to_amendment(&mut self, amendment_id: &str, bill_diff: &BillDiff) {
-        for bill in self.storage.bills.values_mut() {
-            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
-                amendment.changes.push(bill_diff.clone());
-                return;
-            }
-        }
-    }
-
-    /// Record where an amendment's word-level changes came from.
-    ///
-    /// The amending text is parsed from the bill and is a fact from a source.
-    /// The changes are a model's reading of it, and until this existed nothing
-    /// said so (#58).
-    pub fn set_amendment_provenance(
-        &mut self,
-        amendment_id: &str,
-        provenance: crate::link::Provenance,
-    ) {
-        for bill in self.storage.bills.values_mut() {
-            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
-                amendment.provenance = Some(provenance);
-                return;
-            }
-        }
-    }
-
+// --- Reading USLM into any backend ---
+//
+// A release point is parsed once and becomes one expression per work, and where
+// those expressions land is the backend's business. These methods sat on the
+// in-memory dataset alone, which is why a SQLite dataset could not grow (#180).
+// Nothing stored changes by making them generic: an expression is still
+// `(work, date)` (`docs/adr/0003-storage-is-keyed-by-work.md`).
+impl<S: Storage> Dataset<S> {
     /// Parse a USLM XML file and add each work it holds as an expression.
     pub fn add_uslm_xml(
         &mut self,
@@ -582,6 +548,49 @@ impl Dataset<InMemoryStorage> {
             })?;
         }
         Ok(())
+    }
+}
+
+impl Clone for Dataset<InMemoryStorage> {
+    fn clone(&self) -> Self {
+        Self {
+            storage: self.storage.clone(),
+        }
+    }
+}
+
+impl Dataset<InMemoryStorage> {
+    /// Create a new in-memory dataset with the given metadata
+    pub fn new(metadata: DatasetMetadata) -> Self {
+        Self::with_storage(InMemoryStorage::new(metadata))
+    }
+
+    /// Add changes to an amendment in any bill
+    pub fn add_changes_to_amendment(&mut self, amendment_id: &str, bill_diff: &BillDiff) {
+        for bill in self.storage.bills.values_mut() {
+            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
+                amendment.changes.push(bill_diff.clone());
+                return;
+            }
+        }
+    }
+
+    /// Record where an amendment's word-level changes came from.
+    ///
+    /// The amending text is parsed from the bill and is a fact from a source.
+    /// The changes are a model's reading of it, and until this existed nothing
+    /// said so (#58).
+    pub fn set_amendment_provenance(
+        &mut self,
+        amendment_id: &str,
+        provenance: crate::link::Provenance,
+    ) {
+        for bill in self.storage.bills.values_mut() {
+            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
+                amendment.provenance = Some(provenance);
+                return;
+            }
+        }
     }
 
     /// Save to file in specified format

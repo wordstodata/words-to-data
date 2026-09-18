@@ -4,10 +4,8 @@
 use clap::Args as ClapArgs;
 use words_to_data::congress::CongressClient;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, Format};
-use words_to_data::uscode;
 
-/// Default mirror manifest (release-point date -> zip URL).
-const DEFAULT_MIRROR_INDEX: &str = "https://wordstodata.com/mirror/uslm/index.json";
+use crate::release_points::{self, DEFAULT_MIRROR_INDEX, Missing, ReleaseSource};
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -55,17 +53,10 @@ fn read_declaration(path: Option<&String>) -> Option<Declaration> {
 }
 
 pub fn run(args: Args) {
-    let index = uscode::fetch_index(&args.mirror_index).expect("Error fetching mirror manifest");
-
-    let cache_dir = args
-        .cache_dir
-        .clone()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(uscode::default_cache_dir);
-
-    // Process oldest-first so the dataset's version order matches the timeline.
-    let mut dates = args.uslm_dates.clone();
-    dates.sort();
+    let source = crate::fail::or_exit(
+        ReleaseSource::from_mirror(&args.mirror_index, args.cache_dir.as_deref()),
+        "Error fetching mirror manifest",
+    );
 
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "US Code".to_string(),
@@ -77,22 +68,14 @@ pub fn run(args: Args) {
         declaration: read_declaration(args.declaration.as_ref()),
     });
 
-    for date in &dates {
-        let Some(url) = index.url_for(date) else {
-            eprintln!("Skipping {date}: not in mirror manifest");
-            continue;
-        };
-
-        // Reuses the cached extraction when present; only downloads on a miss.
-        println!("Loading release point {date}...");
-        let folder =
-            uscode::ensure_release(url, date, &cache_dir).expect("Error fetching release point");
-
-        println!("Parsing {date}...");
-        dataset
-            .add_uslm_folder(folder.to_str().unwrap(), date, None)
-            .expect("Error adding version");
-    }
+    // The same path `add-release-points` takes, so a dataset that grew holds
+    // what a dataset that was built holds. A date the mirror does not carry is
+    // reported and skipped: this command builds what it can, and a run that
+    // grows a dataset instead stops.
+    crate::fail::or_exit(
+        release_points::add_all(&mut dataset, &source, &args.uslm_dates, Missing::Skip),
+        "Error adding release points",
+    );
 
     if !args.bills.is_empty() {
         let api_key = std::env::var("CONGRESS_API_KEY").expect(
