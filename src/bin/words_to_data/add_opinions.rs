@@ -44,32 +44,49 @@ pub struct Args {
     #[arg(long)]
     pub offline: bool,
 
-    /// Where to write a compact JSON dataset (defaults to overwriting the input).
-    /// Ignored for SQLite, which is written in place.
+    /// Where to write a compact JSON dataset. Required for compact JSON, which
+    /// is never written back over its input. Ignored for SQLite, which grows in
+    /// place.
     #[arg(long)]
     pub output: Option<String>,
 }
 
 pub fn run(args: Args) {
+    // Where the result goes: `None` is SQLite, which grows in place. Compact
+    // JSON must be told, and it is asked here rather than at the save, so a run
+    // that has nowhere to put its result spends none of the maintainer's daily
+    // 125 requests.
+    let output = if crate::load::is_sqlite(&args.dataset) {
+        None
+    } else {
+        Some(crate::load::output_or_refuse(
+            &args.dataset,
+            args.output.as_deref(),
+            "add-opinions",
+        ))
+    };
+
     let client = build_client(&args);
 
-    if crate::load::is_sqlite(&args.dataset) {
-        let mut dataset =
-            crate::fail::or_exit(Dataset::open_sqlite(&args.dataset), "Error opening dataset");
-        add_opinions(&mut dataset, &client, &args.opinions);
-        println!("\nWrote {}", args.dataset);
-    } else {
-        let mut dataset = crate::fail::or_exit(
-            Dataset::load(&args.dataset, Format::Compact),
-            "Error loading dataset",
-        );
-        add_opinions(&mut dataset, &client, &args.opinions);
-        let output = args.output.as_deref().unwrap_or(&args.dataset);
-        crate::fail::or_exit(
-            dataset.save(output, Format::Compact),
-            "Error saving dataset",
-        );
-        println!("\nWrote {output}");
+    match output {
+        None => {
+            let mut dataset =
+                crate::fail::or_exit(Dataset::open_sqlite(&args.dataset), "Error opening dataset");
+            add_opinions(&mut dataset, &client, &args.opinions);
+            println!("\nWrote {}", args.dataset);
+        }
+        Some(output) => {
+            let mut dataset = crate::fail::or_exit(
+                Dataset::load(&args.dataset, Format::Compact),
+                "Error loading dataset",
+            );
+            add_opinions(&mut dataset, &client, &args.opinions);
+            crate::fail::or_exit(
+                dataset.save(output, Format::Compact),
+                "Error saving dataset",
+            );
+            println!("\nWrote {output}");
+        }
     }
 
     println!("CourtListener requests spent: {}", client.requests_spent());

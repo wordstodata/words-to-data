@@ -15,7 +15,8 @@
 
 use std::process::{Command, Output};
 
-use words_to_data::dataset::{Dataset, DatasetMetadata};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
+use words_to_data::storage::InMemoryStorage;
 
 /// The ten opinions, as the command takes them.
 const TEN: &str = "2812209,109019,122262,9434365,2651100,6248,6931314,8991218,1527901,406879";
@@ -35,11 +36,8 @@ fn run(args: &[&str]) -> Output {
         .expect("the binary should run")
 }
 
-/// A dataset holding title 1 and nothing else, at its own path per test.
-fn title_1_only(name: &str) -> String {
-    let path = format!("{}/{name}.sqlite", env!("CARGO_TARGET_TMPDIR"));
-    let _ = std::fs::remove_file(&path);
-
+/// Title 1 as it read on 2025-07-18, and nothing else.
+fn title_1() -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "Title 1 only".to_string(),
         description: "One title, so a citation to title 26 is out of scope".to_string(),
@@ -56,7 +54,23 @@ fn title_1_only(name: &str) -> String {
         )
         .expect("title 1 should parse");
     dataset
+}
+
+/// A dataset holding title 1 and nothing else, at its own path per test.
+fn title_1_only(name: &str) -> String {
+    let path = format!("{}/{name}.sqlite", env!("CARGO_TARGET_TMPDIR"));
+    let _ = std::fs::remove_file(&path);
+    title_1()
         .save_to_sqlite(&path)
+        .expect("the fixture should save");
+    path
+}
+
+/// The same title, as a compact JSON dataset rather than SQLite.
+fn title_1_json(name: &str) -> String {
+    let path = format!("{}/{name}.json", env!("CARGO_TARGET_TMPDIR"));
+    title_1()
+        .save(&path, Format::Compact)
         .expect("the fixture should save");
     path
 }
@@ -207,5 +221,38 @@ fn should_fail_by_name_when_a_record_is_not_cached_and_the_client_is_offline() {
     assert!(
         complaint.contains("999999999") && complaint.contains("offline"),
         "the failure should name the record and say why, got: {complaint}"
+    );
+}
+
+/// A compact JSON dataset is written whole, so a command that wrote back over
+/// its input would destroy the dataset if the write stopped part way (#186).
+#[test]
+fn should_refuse_to_write_over_the_input_when_add_opinions_is_given_no_output() {
+    let dataset = title_1_json("cli_opinions_no_output");
+    let before = std::fs::read(&dataset).expect("the fixture should be readable");
+
+    let output = run(&[
+        "add-opinions",
+        &dataset,
+        "--offline",
+        "--cache-dir",
+        CACHE,
+        "--opinions",
+        "6248",
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "a write back over the input is refused, not done"
+    );
+    let complaint = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        complaint.contains("--output"),
+        "the refusal should say what to do instead, got: {complaint}"
+    );
+    assert_eq!(
+        std::fs::read(&dataset).expect("the input should still be there"),
+        before,
+        "the input dataset must not change"
     );
 }
