@@ -671,7 +671,7 @@ impl Dataset<InMemoryStorage> {
         // it before this, so the nesting a redesignation is read out of existed
         // only inside one function call and was then thrown away.
         let (expression, parse_report) =
-            bill_parser::bill_expression(&markup).map_err(|e| invalid_data(&e))?;
+            bill_parser::bill_expression(&markup, &bill_id).map_err(|e| invalid_data(&e))?;
         parse_report.print_to_stderr();
         self.add_expression(expression)?;
 

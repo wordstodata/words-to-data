@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
 /// Bill-specific parsing logic
@@ -12,9 +12,11 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     dataset::{Expression, ExpressionId, WorkId},
+    document::DocumentNode,
     io::load_xml_file,
     legislature::{AmendingAction, BillAmendment},
     uslm::parser::{ParseError, normalize_quotes},
+    uslm::{AmendmentFacts, UslmFacts},
 };
 
 /// Data extracted from a bill document
@@ -271,6 +273,11 @@ pub fn approved_date(document: &roxmltree::Document) -> Result<String> {
 /// publisher gave the law — and the date is the day the bill says it was
 /// approved (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
 ///
+/// `bill_id` is the name the dataset knows the bill by, such as `119-hr-1`. It
+/// is not the publisher's number, and it is the one the amendment hashes and
+/// every link are minted under, so the stored document states its amendments
+/// under the same name the rest of the dataset uses.
+///
 /// # Examples
 ///
 /// ```
@@ -280,14 +287,16 @@ pub fn approved_date(document: &roxmltree::Document) -> Result<String> {
 /// let xml = std::fs::read_to_string(path).unwrap();
 /// let document = roxmltree::Document::parse(&xml).unwrap();
 ///
-/// let (expression, _) = bill_expression(&document).unwrap();
+/// let (expression, _) = bill_expression(&document, "119-hr-1").unwrap();
 /// assert_eq!(expression.id.to_string(), "publiclawdocument_119-21@2025-07-04");
 /// ```
 pub fn bill_expression(
     document: &roxmltree::Document,
+    bill_id: &str,
 ) -> Result<(Expression, crate::uslm::parser::ParseReport)> {
     let date = approved_date(document)?;
-    let (root, report) = crate::uslm::parser::parse_from_document_with_report(document, &date)?;
+    let (mut root, report) = crate::uslm::parser::parse_from_document_with_report(document, &date)?;
+    state_amendments(&mut root, document, bill_id)?;
     Ok((
         Expression {
             id: ExpressionId::new(WorkId::new(root.data.path.to_string()), date),
@@ -296,6 +305,95 @@ pub fn bill_expression(
         },
         report,
     ))
+}
+
+/// Record on each instruction node the amendment its words are
+///
+/// The USLM parser builds a tree for any document class and knows nothing about
+/// amendments, so this is a second pass over the same markup rather than an
+/// argument threaded through the parser. It costs one walk of a bill, and it
+/// keeps the bill's vocabulary in the bill's own module.
+///
+/// An instruction is matched to its node by the publisher's `identifier`, which
+/// is the one name both the markup and the tree hold. An instruction the parser
+/// left out of the tree — quoted text, a repealed element — therefore records
+/// nothing, which is the honest answer: the dataset has no node to point at.
+fn state_amendments(
+    root: &mut DocumentNode,
+    document: &roxmltree::Document,
+    bill_id: &str,
+) -> Result<()> {
+    let stated: HashMap<&str, AmendmentFacts> = document
+        .root()
+        .descendants()
+        .filter(|node| node.attribute("role").unwrap_or_default() == "instruction")
+        .filter_map(|node| {
+            Some((
+                node.attribute("identifier")?,
+                AmendmentFacts {
+                    id: compute_amendment_id(bill_id, &node_text(&node)),
+                },
+            ))
+        })
+        .collect();
+
+    record_amendments(root, &stated)
+}
+
+/// Walk the tree, writing each node's amendment into its class payload.
+fn record_amendments(
+    node: &mut DocumentNode,
+    stated: &HashMap<&str, AmendmentFacts>,
+) -> Result<()> {
+    if let Some(mut facts) = UslmFacts::of(&node.data) {
+        let amendment = facts
+            .uslm_id
+            .as_deref()
+            .and_then(|uslm_id| stated.get(uslm_id));
+        if let Some(amendment) = amendment {
+            facts.amendment = Some(amendment.clone());
+            node.data.payload = Some(facts.to_payload()?);
+        }
+    }
+    for child in &mut node.children {
+        record_amendments(child, stated)?;
+    }
+    Ok(())
+}
+
+/// Where each amendment's words sit in a bill's document, by content id
+///
+/// The other half of [`AmendmentFacts`]: an amendment is identified by its
+/// content hash and located by the path of the node whose words it is
+/// (`docs/adr/0001-structural-paths-locate-not-identify.md`).
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::bill_parser::{amendment_paths, bill_expression};
+///
+/// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// let xml = std::fs::read_to_string(path).unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+/// let (bill, _) = bill_expression(&document, "119-hr-1").unwrap();
+///
+/// let located = amendment_paths(&bill.root);
+/// assert_eq!(located.len(), 603);
+/// assert!(located.values().all(|path| path.starts_with("publiclawdocument_119-21/")));
+/// ```
+pub fn amendment_paths(root: &DocumentNode) -> BTreeMap<String, String> {
+    let mut located = BTreeMap::new();
+    collect_amendment_paths(root, &mut located);
+    located
+}
+
+fn collect_amendment_paths(node: &DocumentNode, located: &mut BTreeMap<String, String>) {
+    if let Some(amendment) = UslmFacts::of(&node.data).and_then(|facts| facts.amendment) {
+        located.insert(amendment.id, node.data.path.to_string());
+    }
+    for child in &node.children {
+        collect_amendment_paths(child, located);
+    }
 }
 
 /// Parse a bill XML file and extract all amendments to the United States Code

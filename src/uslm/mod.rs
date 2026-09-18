@@ -503,6 +503,32 @@ pub struct UslmFacts {
     /// Source credits and references for this element
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_credits: Vec<SourceCredit>,
+
+    /// The amendment this node states, when it is a bill's instruction
+    ///
+    /// `None` everywhere else, which is every node of the US Code and every
+    /// part of a bill that gives no instruction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amendment: Option<AmendmentFacts>,
+}
+
+/// What a bill's instruction element states, beyond where it sits
+///
+/// The publisher marks an instruction `role="instruction"`, and
+/// [`crate::uslm::bill_parser`] extracts one [`crate::legislature::BillAmendment`]
+/// from each. This is the bridge between the two: the node carries the
+/// amendment's identity, so the same amendment is both located by a path and
+/// identified by its content hash
+/// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AmendmentFacts {
+    /// The amendment's identity: `sha256("{bill_id}:{amending_text}")`.
+    ///
+    /// The hash and not the path, because the hash survives a rebuild while a
+    /// path moves when a publisher renumbers. `Link::id` and the
+    /// `legislature.amended_by` links already point at it
+    /// (`docs/adr/0001-structural-paths-locate-not-identify.md`).
+    pub id: String,
 }
 
 impl UslmFacts {

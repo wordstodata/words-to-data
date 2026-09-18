@@ -10,6 +10,10 @@ use std::collections::HashMap;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, WorkId};
+use words_to_data::document::DocumentNode;
+use words_to_data::storage::InMemoryStorage;
+use words_to_data::uslm::UslmFacts;
+use words_to_data::uslm::bill_parser::amendment_paths;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -54,7 +58,7 @@ fn committed_bill_download() -> BillDownload {
     }
 }
 
-fn dataset_holding_the_bill() -> Dataset<words_to_data::storage::InMemoryStorage> {
+fn dataset_holding_the_bill() -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(metadata());
     dataset
         .load_bill_download(&committed_bill_download())
@@ -96,5 +100,77 @@ fn should_keep_the_structure_the_parser_found_when_the_bill_is_stored() {
             .find("publiclawdocument_119-21/title_VII/subtitle_A")
             .is_some(),
         "the bill's own nesting should be there to walk"
+    );
+}
+
+/// The stored bill document, which every case below reads.
+fn stored_bill_root(dataset: &Dataset<InMemoryStorage>) -> DocumentNode {
+    let held = dataset
+        .expressions(&WorkId::new(BILL_WORK))
+        .expect("the dataset should answer for the bill's work");
+    dataset
+        .get_expression(&held[0].id)
+        .expect("the expression should read")
+        .expect("the expression should be there")
+        .root
+}
+
+#[test]
+fn should_locate_every_amendment_by_a_path_when_the_bill_is_stored() {
+    let dataset = dataset_holding_the_bill();
+    let bill = dataset
+        .get_bill(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the bill should be there");
+    let root = stored_bill_root(&dataset);
+
+    let located = amendment_paths(&root);
+
+    assert_eq!(
+        located.len(),
+        bill.amendments.len(),
+        "every amendment the bill states should sit at a path in the bill"
+    );
+    for id in bill.amendments.keys() {
+        assert!(
+            located.contains_key(id),
+            "amendment {id} is stored with no path into the bill"
+        );
+    }
+}
+
+#[test]
+fn should_keep_the_content_hash_as_the_identity_when_an_amendment_gains_a_path() {
+    let dataset = dataset_holding_the_bill();
+    let bill = dataset
+        .get_bill(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the bill should be there");
+    let root = stored_bill_root(&dataset);
+    let located = amendment_paths(&root);
+
+    // The motivating amendment: "Section 898(c) is amended by striking
+    // paragraph (2) and redesignating paragraph (3) as paragraph (2)."
+    let (id, _) = bill
+        .amendments
+        .iter()
+        .find(|(_, amendment)| amendment.amending_text.contains("Section 898(c)"))
+        .expect("the bill amends section 898(c)");
+
+    let path = located.get(id).expect("that amendment should be located");
+    assert!(
+        path.starts_with(BILL_WORK),
+        "an amendment sits inside the bill, at {path}"
+    );
+    let node = root
+        .find(path)
+        .expect("the path should find the node whose words the amendment is");
+    // The path locates and the hash identifies, so the node found this way
+    // still states the amendment the hash was taken over (ADR 0001).
+    assert_eq!(
+        UslmFacts::of(&node.data)
+            .and_then(|facts| facts.amendment)
+            .map(|amendment| amendment.id),
+        Some(id.clone())
     );
 }
