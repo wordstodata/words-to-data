@@ -277,3 +277,83 @@ fn should_hold_the_same_bytes_as_a_rebuild_when_a_dataset_grew_one_step_at_a_tim
         "a dataset that grew and a dataset that was built hold the same bytes"
     );
 }
+
+/// The input is the input, however it is spelled.
+///
+/// `--output` naming the file the run reads is the same truncating write the
+/// refusal exists to prevent, so it is refused in the same way.
+#[test]
+fn should_refuse_to_write_over_the_input_when_the_output_names_the_input() {
+    let dataset = json_dataset("grow_json_same_output", &["2025-07-18"]);
+    let cache = cache_holding("grow_json_same_output", &["2025-07-30"]);
+    let before = std::fs::read(&dataset).expect("the fixture should be readable");
+    // The same file, spelled two ways: as it was given, and with a step that
+    // goes nowhere. Both name the dataset the run reads.
+    let round_about = dataset.replace("/target/tmp/", "/target/tmp/./");
+
+    for same in [dataset.clone(), round_about] {
+        let output = run(&[
+            "add-release-points",
+            &dataset,
+            "--uslm-dates",
+            "2025-07-30",
+            "--offline",
+            "--cache-dir",
+            &cache,
+            "--output",
+            &same,
+        ]);
+
+        assert!(
+            !output.status.success(),
+            "--output {same} names the input, so it is refused"
+        );
+        let complaint = stderr_of(&output);
+        assert!(
+            complaint.contains("will not write back over"),
+            "the refusal should say why, got: {complaint}"
+        );
+        assert_eq!(
+            std::fs::read(&dataset).expect("the input should still be there"),
+            before,
+            "the input dataset must not change"
+        );
+    }
+}
+
+/// A release point that is not there is named, not skipped.
+///
+/// A run that added nothing, said nothing and exited zero would read as a
+/// dataset that grew. `build-dataset` builds what it can and reports what it
+/// skipped; a run that grows a dataset stops instead.
+#[test]
+fn should_fail_by_name_when_a_release_point_is_not_cached_and_the_run_is_offline() {
+    let dataset = sqlite_dataset("grow_missing", &["2025-07-18"]);
+    let cache = cache_holding("grow_missing", &[]);
+
+    let output = run(&[
+        "add-release-points",
+        &dataset,
+        "--uslm-dates",
+        "2025-08-13",
+        "--offline",
+        "--cache-dir",
+        &cache,
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "a release point that never arrived is not a success"
+    );
+    let complaint = stderr_of(&output);
+    assert!(
+        complaint.contains("2025-08-13") && complaint.contains("cache"),
+        "the failure should name the release point and say why, got: {complaint}"
+    );
+
+    let listed = stdout_of(&run(&["expressions", &dataset]));
+    assert!(
+        !listed.contains("2025-08-13"),
+        "and the dataset holds nothing from the run that failed, got:\n{listed}"
+    );
+}

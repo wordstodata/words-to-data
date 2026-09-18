@@ -494,8 +494,6 @@ impl<S: Storage + LegislatureWriter> Dataset<S> {
     }
 }
 
-// --- InMemoryStorage-specific methods ---
-
 // --- Reading USLM into any backend ---
 //
 // A release point is parsed once and becomes one expression per work, and where
@@ -550,6 +548,8 @@ impl<S: Storage> Dataset<S> {
         Ok(())
     }
 }
+
+// --- InMemoryStorage-specific methods ---
 
 impl Clone for Dataset<InMemoryStorage> {
     fn clone(&self) -> Self {

@@ -51,8 +51,8 @@ pub fn refuse_sqlite(path: &str, command: &str) {
 /// not first spend a model call or an API quota.
 pub fn output_or_refuse<'a>(dataset: &str, output: Option<&'a str>, command: &str) -> &'a str {
     match output {
-        Some(path) => path,
-        None => {
+        Some(path) if !is_the_same_file(dataset, path) => path,
+        _ => {
             eprintln!(
                 "{command} grows the dataset, and it will not write back over {dataset}.\n\
                  Name where the result goes:\n    \
@@ -64,6 +64,18 @@ pub fn output_or_refuse<'a>(dataset: &str, output: Option<&'a str>, command: &st
             );
             std::process::exit(1);
         }
+    }
+}
+
+/// Whether two paths name one file.
+///
+/// Compared as the file system resolves them, so `--output` cannot reach the
+/// input by another spelling of the same place. A path that does not resolve is
+/// compared as it was written: it names no file yet, so it cannot be the input.
+fn is_the_same_file(one: &str, other: &str) -> bool {
+    match (std::fs::canonicalize(one), std::fs::canonicalize(other)) {
+        (Ok(one), Ok(other)) => one == other,
+        _ => one == other,
     }
 }
 
