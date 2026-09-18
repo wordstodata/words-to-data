@@ -4,6 +4,7 @@
 use clap::{Parser, Subcommand};
 
 mod add_opinions;
+mod add_release_points;
 mod annotations;
 mod bills;
 mod build_dataset;
@@ -19,6 +20,7 @@ mod load;
 mod match_amendments;
 mod path;
 mod redesignations;
+mod release_points;
 mod report;
 mod score_amendments;
 mod search;
@@ -51,6 +53,8 @@ enum Command {
     Redesignations(redesignations::Args),
     /// Add court opinions from CourtListener, with their U.S.C. citations as links
     AddOpinions(add_opinions::Args),
+    /// Add more US Code release points to a dataset that is already there
+    AddReleasePoints(add_release_points::Args),
 
     // --- Inspection (read-only) ---
     /// Show a dataset's metadata and headline counts
@@ -89,6 +93,7 @@ fn main() {
         Command::MatchAmendments(args) => match_amendments::run(args),
         Command::Redesignations(args) => redesignations::run(args),
         Command::AddOpinions(args) => add_opinions::run(args),
+        Command::AddReleasePoints(args) => add_release_points::run(args),
         Command::CasesCiting(args) => cases_citing::run(args),
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),

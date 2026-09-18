@@ -34,6 +34,51 @@ pub fn refuse_sqlite(path: &str, command: &str) {
     }
 }
 
+/// Where a command that grows a compact JSON dataset writes its result, or a
+/// stop when no `--output` was named.
+///
+/// A compact JSON dataset is written whole: `Dataset::save` calls `fs::write`,
+/// which empties the target before it writes. A command that defaulted to its
+/// input would therefore destroy that dataset if the write stopped part way,
+/// and the dataset can hold hundreds of model calls that cost money to make
+/// again. Durability belongs to the store rather than to a serializer (#186),
+/// so the compact JSON path refuses instead of trying to be safe.
+///
+/// SQLite never comes here. A SQLite dataset grows in place, under a
+/// transaction, which is the store giving the guarantee.
+///
+/// Call this **before** the work starts. A run that cannot save its result must
+/// not first spend a model call or an API quota.
+pub fn output_or_refuse<'a>(dataset: &str, output: Option<&'a str>, command: &str) -> &'a str {
+    match output {
+        Some(path) if !is_the_same_file(dataset, path) => path,
+        _ => {
+            eprintln!(
+                "{command} grows the dataset, and it will not write back over {dataset}.\n\
+                 Name where the result goes:\n    \
+                 words_to_data {command} {dataset} ... --output <new file>\n\
+                 A compact JSON dataset is written whole, so a write over the input \
+                 that stopped part way would destroy it.\n\
+                 To grow a dataset in place, convert it to SQLite first:\n    \
+                 words_to_data convert-dataset {dataset}"
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Whether two paths name one file.
+///
+/// Compared as the file system resolves them, so `--output` cannot reach the
+/// input by another spelling of the same place. A path that does not resolve is
+/// compared as it was written: it names no file yet, so it cannot be the input.
+fn is_the_same_file(one: &str, other: &str) -> bool {
+    match (std::fs::canonicalize(one), std::fs::canonicalize(other)) {
+        (Ok(one), Ok(other)) => one == other,
+        _ => one == other,
+    }
+}
+
 /// Open a dataset, choosing the backend from the file extension.
 pub fn open(path: &str) -> Result<OpenDataset, DatasetError> {
     if is_sqlite(path) {
