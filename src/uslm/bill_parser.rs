@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
 
 /// Bill-specific parsing logic
@@ -333,7 +333,7 @@ fn state_bill_facts(
     document: &roxmltree::Document,
     bill_id: &str,
 ) -> Result<()> {
-    let mut kept = std::collections::HashSet::new();
+    let mut kept = HashSet::new();
     collect_uslm_ids(root, &mut kept);
 
     let mut stated: HashMap<String, BillMarkup> = HashMap::new();
@@ -379,7 +379,7 @@ fn state_bill_facts(
 }
 
 /// Every USLM identifier the tree kept, which is what an owner is looked up in.
-fn collect_uslm_ids(node: &DocumentNode, kept: &mut std::collections::HashSet<String>) {
+fn collect_uslm_ids(node: &DocumentNode, kept: &mut HashSet<String>) {
     if let Some(uslm_id) = UslmFacts::of(&node.data).and_then(|facts| facts.uslm_id) {
         kept.insert(uslm_id);
     }
