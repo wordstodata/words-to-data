@@ -197,3 +197,83 @@ fn should_write_the_grown_dataset_to_the_output_when_a_json_dataset_grows() {
         "the dataset it grew from must not change"
     );
 }
+
+/// A release point makes a window, and the steps that resolve one are separate
+/// commands. A run that added a printing and said nothing else would read as a
+/// finished job, so it names the window it made and what that window holds.
+#[test]
+fn should_name_the_new_window_and_what_it_holds_when_a_dataset_grows() {
+    let dataset = sqlite_dataset("grow_windows", &["2025-07-18"]);
+    let cache = cache_holding("grow_windows", &["2025-07-30"]);
+
+    let output = run(&[
+        "add-release-points",
+        &dataset,
+        "--uslm-dates",
+        "2025-07-30",
+        "--offline",
+        "--cache-dir",
+        &cache,
+    ]);
+
+    assert!(
+        output.status.success(),
+        "add-release-points should exit zero, stderr: {}",
+        stderr_of(&output)
+    );
+    let printed = stdout_of(&output);
+
+    assert!(
+        printed.contains("uscode/title_1  2025-07-18 -> 2025-07-30"),
+        "the window the release point made should be named, got:\n{printed}"
+    );
+    assert!(
+        printed.contains("no link"),
+        "and a window nothing has run over holds no link, got:\n{printed}"
+    );
+    assert!(
+        printed.contains("--between 2025-07-18 2025-07-30"),
+        "with the span the next steps take, got:\n{printed}"
+    );
+}
+
+/// The promise of the ticket: growing is not a lesser way of building.
+///
+/// A dataset that took its two printings one at a time is the same file as a
+/// dataset that took both at once, byte for byte. The compact form keeps no
+/// order of arrival and no count of release points, which is why no stored type
+/// and no schema version changes to let a dataset grow.
+#[test]
+fn should_hold_the_same_bytes_as_a_rebuild_when_a_dataset_grew_one_step_at_a_time() {
+    let dataset = json_dataset("grow_equals_rebuild", &["2025-07-18"]);
+    let cache = cache_holding("grow_equals_rebuild", &["2025-07-30"]);
+    let grown = format!(
+        "{}/grow_equals_rebuild_grown.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+
+    let output = run(&[
+        "add-release-points",
+        &dataset,
+        "--uslm-dates",
+        "2025-07-30",
+        "--offline",
+        "--cache-dir",
+        &cache,
+        "--output",
+        &grown,
+    ]);
+    assert!(
+        output.status.success(),
+        "add-release-points should exit zero, stderr: {}",
+        stderr_of(&output)
+    );
+
+    let rebuilt = json_dataset("grow_equals_rebuild_rebuilt", &["2025-07-18", "2025-07-30"]);
+
+    assert_eq!(
+        std::fs::read(&grown).expect("the grown dataset should be readable"),
+        std::fs::read(&rebuilt).expect("the rebuilt dataset should be readable"),
+        "a dataset that grew and a dataset that was built hold the same bytes"
+    );
+}

@@ -236,6 +236,39 @@ gives two kinds:
 A count of zero for `legislature.redesignated_as` says that step 1 did not record
 them. A count of zero for `legislature.amended_by` says that step 4 did not run.
 
+### Growing a dataset — `add-release-points`
+
+A dataset does not have to be built again when one more release point comes out.
+
+```bash
+# A SQLite dataset grows in place.
+words_to_data add-release-points dataset.sqlite --uslm-dates 2025-08-13
+
+# A compact JSON dataset must be told where to write.
+words_to_data add-release-points dataset.json --uslm-dates 2025-08-13 \
+  --output dataset-2025-08-13.json
+```
+
+**A compact JSON dataset is never written back over its input.** The file is
+written whole, so a write that stopped part way would destroy the dataset it was
+growing, together with every model call in it. A run without `--output` therefore
+refuses and says so. A SQLite dataset grows in place, under a transaction, which
+is the store giving the guarantee the JSON form cannot. `add-opinions` follows
+the same rule.
+
+The command reads the same mirror and the same cache as step 1, and `--offline`
+reads only the cache. It adds release points and runs no step over them, so it
+ends by naming each window it made and what that window holds. A window holding
+no link has had no step run over it, **or** had one that found nothing — a
+dataset records no list of the steps that ran, so nobody can tell the two apart
+from the file.
+
+**Run the window steps again after the dataset grows.** Steps 4 and 5 take a
+`--between` span, and the run names the span to give them. A redesignation is
+recorded against the windows the dataset held when the bill was loaded, so a bill
+loaded before a release point arrived holds no link into the new window until
+step 5 runs over it again (#181).
+
 ## Quick Start
 
 ### Dataset Workflow
