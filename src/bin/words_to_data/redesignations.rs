@@ -1,6 +1,6 @@
 //! `words_to_data redesignations` — record the provisions a bill renumbered.
 //!
-//! Reads the `redesignate` clauses out of a bill's markup, resolves each one to
+//! Reads the `redesignate` clauses out of a bill, resolves each one to
 //! the two paths it moved a provision between, and writes each as a
 //! `legislature.redesignated_as` link. The diff then pairs a renumbered provision
 //! with what it became instead of with whatever took its number (#93).
