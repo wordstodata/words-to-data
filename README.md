@@ -189,16 +189,15 @@ example after a change to the reader, or to see the report for one named bill.
 ```bash
 words_to_data redesignations dataset.json \
   --bill-id 119-hr-1 \
-  --bill-xml ~/.cache/words_to_data/bill/119/hr/1/public_law.xml \
   --between 2025-07-18 2025-07-30
 ```
 
-`--bill-xml` and `--bill-id` are both necessary today. The command reads the
-bill's markup a second time, because the dataset does not store a bill's
-structure yet. A clause inside "in subsection (a)--" is about a different
-provision from the same clause outside it, and a stored amendment keeps only the
-flattened text. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`
-records the decision that removes the second read, and these two flags with it.
+`--bill-id` names which bill in the dataset to read. The command reads that
+bill's own document, which step 1 stored, so nothing opens the Congress cache a
+second time. A clause inside "in subsection (a)--" is about a different
+provision from the same clause outside it, and the stored bill holds that
+nesting. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records
+the decision.
 
 The command prints each statement that it cannot place. A statement that no
 reader can turn into two paths is recorded, and never dropped.

@@ -14,6 +14,7 @@ use words_to_data::document::DocumentNode;
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::UslmFacts;
 use words_to_data::uslm::bill_parser::amendment_paths;
+use words_to_data::uslm::bill_redesignation::{redesignations_stated, redesignations_stated_in};
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -173,6 +174,24 @@ fn should_keep_the_content_hash_as_the_identity_when_an_amendment_gains_a_path()
             .map(|amendment| amendment.id),
         Some(id.clone())
     );
+}
+
+#[test]
+fn should_state_the_same_redesignations_from_the_stored_bill_as_from_its_markup() {
+    let dataset = dataset_holding_the_bill();
+    let root = stored_bill_root(&dataset);
+
+    let xml = std::fs::read_to_string(format!("{BILL_DIR}/public_law.xml"))
+        .expect("the bill should be committed");
+    let from_markup = redesignations_stated(BILL_ID, &xml).expect("the bill's markup should read");
+
+    let from_the_dataset = redesignations_stated_in(BILL_ID, &root);
+
+    // The second read of the bill recovered nothing the first one could not
+    // keep. `119-hr-1` states 57 renumberings, and the stored bill states the
+    // same 57, word for word (ADR 0009).
+    assert_eq!(from_markup.len(), 57);
+    assert_eq!(from_the_dataset, from_markup);
 }
 
 /// Whether any node of a tree carries this heading.

@@ -282,10 +282,10 @@ impl<S: Storage> Dataset<S> {
     /// rebuilt corpus came back with 889 `legislature.amended_by` links and no
     /// redesignations at all (#150).
     ///
-    /// Takes the bill's markup already read into memory, so that loading a bill
-    /// reads its XML once. Which provision a clause is about comes from where
-    /// the words sat in the markup, and a stored amendment keeps only the
-    /// flattened text. A statement resolves in the one work that holds its
+    /// Takes the bill's own document, not its XML. Which provision a clause is
+    /// about comes from where the words sat in the bill, and the stored document
+    /// holds that nesting — which is the whole of what the second parse used to
+    /// recover (ADR 0009). A statement resolves in the one work that holds its
     /// section and fails in every other, so the reports are folded rather than
     /// concatenated.
     ///
@@ -295,10 +295,9 @@ impl<S: Storage> Dataset<S> {
     pub fn record_redesignations_stated_in(
         &mut self,
         bill_id: &str,
-        markup: &roxmltree::Document,
+        bill: &DocumentNode,
     ) -> Result<RedesignationReport, DatasetError> {
-        let stated =
-            crate::uslm::bill_redesignation::redesignations_stated_in_document(bill_id, markup);
+        let stated = crate::uslm::bill_redesignation::redesignations_stated_in(bill_id, bill);
         // A bill that renumbers nothing is ordinary, and sweeping every work to
         // prove it would cost a section index per work for no statement.
         if stated.is_empty() {
@@ -442,6 +441,56 @@ impl<S: Storage> Dataset<S> {
 impl<S: Storage + LegislatureReader> Dataset<S> {
     pub fn get_bill(&self, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
         self.storage.get_bill(bill_id)
+    }
+
+    /// One bill's own document, as this dataset holds it.
+    ///
+    /// A bill is a work like any other, stored under the number its publisher
+    /// gave it — `publiclawdocument_119-21` — while the dataset knows the bill
+    /// by the id it was downloaded under, `119-hr-1`. The two are joined by what
+    /// the bill says rather than by a second name written down twice: every
+    /// instruction in the stored document carries the content hash minted under
+    /// the dataset's id, so the document that states this bill's amendments is
+    /// this bill's document
+    /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    ///
+    /// `None` means this dataset holds no document for that bill. A dataset
+    /// built before #196 holds the bill's amendments and no document, which is
+    /// the same answer: there is nothing here to read.
+    ///
+    /// Only works whose path opens with a public law's are opened, because
+    /// reading every title of the Code to find one bill would cost the whole
+    /// corpus. The node type below is what says the class; the path is a filter.
+    pub fn bill_document(&self, bill_id: &str) -> Result<Option<Expression>, DatasetError> {
+        let Some(bill) = self.get_bill(bill_id)? else {
+            return Ok(None);
+        };
+
+        let opens_a_public_law = format!(
+            "{}_",
+            crate::uslm::ElementType::PublicLawDocument.path_segment_name()
+        );
+        for work in self.works()? {
+            if !work.as_str().starts_with(&opens_a_public_law) {
+                continue;
+            }
+            let Some(latest) = self.expressions(&work)?.pop() else {
+                continue;
+            };
+            let Some(expression) = self.get_expression(&latest.id)? else {
+                continue;
+            };
+            if expression.root.data.node_type.namespace() != crate::document::NodeType::BILL {
+                continue;
+            }
+            let states_this_bill = crate::uslm::bill_parser::amendment_paths(&expression.root)
+                .keys()
+                .any(|amendment| bill.amendments.contains_key(amendment));
+            if states_this_bill {
+                return Ok(Some(expression));
+            }
+        }
+        Ok(None)
     }
 
     /// List the IDs of every bill in the dataset.
@@ -674,9 +723,14 @@ impl Dataset<InMemoryStorage> {
         let (expression, parse_report) =
             bill_parser::bill_expression(&markup, &bill_id).map_err(|e| invalid_data(&e))?;
         parse_report.print_to_stderr();
-        self.add_expression(expression)?;
 
-        self.record_redesignations_stated_in(&bill_id, &markup)?;
+        // The redesignations come out of that document, which is what stops the
+        // bill's XML from being read a second time. Read before the document is
+        // stored rather than after, which saves a copy of the whole bill and
+        // changes nothing: the sweep pairs neighbouring expressions, and a bill
+        // has one, so the bill's own work yields no pair either way.
+        self.record_redesignations_stated_in(&bill_id, &expression.root)?;
+        self.add_expression(expression)?;
 
         // Parse sponsor from metadata
         let sponsors_v: Value = serde_json::from_str(&download.bill_metadata_json)?;

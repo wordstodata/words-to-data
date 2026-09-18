@@ -58,7 +58,7 @@ Recorded here because the sequence was a decision, and because the middle of it 
 | 1 | `build-dataset` records redesignations, through the XML it holds (#150) | built |
 | 2 | Both ends checked, and the words at them recorded as `Corroboration` | to do |
 | 3 | The diff walks into a moved pair, so a rewrite inside it is reported | to do |
-| 4 | A bill becomes a document (#114) — this ADR | part built: the parser holds the bill's structure; nothing stores it yet |
+| 4 | A bill becomes a document (#114) — this ADR | built (#196): the bill is a work with an expression, an amendment has a path, and `--bill-xml` is gone |
 | 5 | Unplaced statements stored, and a report an agent can read | to do |
 | 6 | The model reader (ADR 0010) | to do |
 

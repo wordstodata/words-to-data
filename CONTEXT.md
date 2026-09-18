@@ -110,11 +110,13 @@ _Avoid_: Missing dates, blind spot, unknown
 **Bill**:
 A legislative instrument that changes existing law. It carries the instructions that do the changing, and once enacted it is published as a public law.
 
-A Bill is a document, so it is a Work with an Expression, like a title of the Code or a court opinion. Its structure carries meaning that its words alone do not: an Amendment nested under "in subsection (a)--" is about a different provision from the same words outside it. **This is not true of the Dataset yet.** The parser holds the structure now — a public law parses to its section and its ten titles, where it parsed to one element until #114 — but a Bill is still *stored* as a set of Amendments with no structure at all, which is why reading a renumbering needs the source file a second time. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records the decision and the order of the work.
+A Bill is a document, so it is a Work with an Expression, like a title of the Code or a court opinion. Its structure carries meaning that its words alone do not: an Amendment nested under "in subsection (a)--" is about a different provision from the same words outside it. A Dataset holds that structure: the Bill is a Work of its own, under the number its publisher gave it — `publiclawdocument_119-21` — with one Expression, dated the day the Bill says it was approved. It is published once, so there will only ever be one. The Dataset knows the same Bill by the id it was downloaded under, `119-hr-1`, and the two are joined by what the Bill says rather than by a name written down twice: every instruction in the document carries the Amendment hash minted under that id. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records the decision and the order of the work.
 _Avoid_: Act, statute, law
 
 **Amendment**:
-An instruction in a Bill that tells a reader how to change existing law. It is identified by what it says, and located by where it sits in the Bill: the hash survives a rebuild, and the position moves whenever a publisher renumbers a title (`docs/adr/0001-structural-paths-locate-not-identify.md`).
+An instruction in a Bill that tells a reader how to change existing law. It is identified by what it says, and located by where it sits in the Bill: the hash survives a rebuild, and the position moves whenever a publisher renumbers a title (`docs/adr/0001-structural-paths-locate-not-identify.md`). Both are held — the hash keys the Amendment, and the node at its path in the stored Bill carries the same hash, so one can be read from the other.
+
+The words an Amendment **enacts** are not a Provision. They are quoted text, not law in force, and a Provision is a location an annotation can name, so they stay out of the hierarchy and travel in the Bill node's Class payload instead (#86).
 _Avoid_: Edit, modification, revision
 
 ## The legislature

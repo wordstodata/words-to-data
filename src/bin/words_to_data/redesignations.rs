@@ -5,10 +5,12 @@
 //! `legislature.redesignated_as` link. The diff then pairs a renumbered provision
 //! with what it became instead of with whatever took its number (#93).
 //!
-//! Takes the bill's XML rather than the bill the dataset stores. Which provision
-//! a clause is about comes from where the words sat in the markup — a clause
-//! inside "in subsection (a)--" means something different from the same clause
-//! outside it — and a stored amendment keeps only the flattened text.
+//! Reads the bill out of the dataset. Which provision a clause is about comes
+//! from where the words sat in the bill — a clause inside "in subsection (a)--"
+//! means something different from the same clause outside it — and the dataset
+//! now holds the bill as a document, with that nesting in it. Until #196 it did
+//! not, so this command took the bill's XML and read the same file a second
+//! time.
 //!
 //! **Every statement it cannot place is printed.** A run that resolved nothing
 //! and said nothing would read as a corpus with no redesignations in it, and the
@@ -18,7 +20,7 @@ use clap::Args as ClapArgs;
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::redesignation::RedesignationReport;
 use words_to_data::storage::DocumentReader;
-use words_to_data::uslm::bill_redesignation::redesignations_stated_in_file;
+use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
 
 use crate::span::Span;
 
@@ -27,11 +29,7 @@ pub struct Args {
     /// Path to a dataset (compact JSON) holding the works the bill amends
     pub dataset: String,
 
-    /// The bill's USLM XML, such as a `public_law.xml` from the Congress cache
-    #[arg(long)]
-    pub bill_xml: String,
-
-    /// How the bill is named in links and reports, such as `119-hr-1`
+    /// Which bill to read, as the dataset names it, such as `119-hr-1`
     #[arg(long)]
     pub bill_id: String,
 
@@ -50,10 +48,20 @@ pub fn run(args: Args) {
         "Error loading dataset",
     );
 
-    let stated = crate::fail::or_exit(
-        redesignations_stated_in_file(&args.bill_id, &args.bill_xml),
-        "Error reading the bill",
-    );
+    let bill = crate::fail::or_exit(
+        dataset.bill_document(&args.bill_id),
+        "Error reading the dataset's bills",
+    )
+    .unwrap_or_else(|| {
+        eprintln!(
+            "This dataset holds no document for bill {}. Load the bill with \
+             build-dataset, which stores it (#196).",
+            args.bill_id
+        );
+        std::process::exit(1);
+    });
+
+    let stated = redesignations_stated_in(&args.bill_id, &bill.root);
     println!("{} states {} redesignation(s).", args.bill_id, stated.len());
 
     // One report per work. A statement resolves in the work that holds its

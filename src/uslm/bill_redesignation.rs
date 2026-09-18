@@ -38,10 +38,11 @@ use std::sync::LazyLock;
 use regex::Regex;
 use roxmltree::{Document, Node};
 
+use crate::document::DocumentNode;
 use crate::io::load_xml_file;
 use crate::legislature::redesignation::{Reason, StatedRedesignation, Step, read_clause};
-use crate::uslm::ElementType;
 use crate::uslm::parser::{ParseError, normalize_quotes};
+use crate::uslm::{ElementType, UscReference, UslmFacts};
 
 pub type Result<T> = std::result::Result<T, ParseError>;
 
@@ -107,6 +108,315 @@ pub fn redesignations_stated_in_document(
         .filter(is_redesignate_action)
         .map(|action| read_action(bill_id, action, &code_of_1986))
         .collect()
+}
+
+// --- Reading the bill a dataset holds ---
+//
+// The same reading as above, from the stored bill rather than from its XML. The
+// words of a clause, the phrases that open a scope and the citation that names
+// a section are the same either way, so only the walk differs: the markup reader
+// climbs `ancestors()`, and this one carries the stack of levels it came down
+// through.
+//
+// What the markup holds and the tree does not travels in the bill node's class
+// payload — the amending actions and the US Code references
+// (`crate::uslm::UslmFacts`). With those stored, the second read of the bill's
+// XML recovers nothing the first one could not keep, which is what ADR 0009
+// decided.
+
+/// Every redesignation a bill states, read from the bill a dataset holds.
+///
+/// The same statements, in the same order, as
+/// [`redesignations_stated`] reads out of the same bill's XML.
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::bill_parser::bill_expression;
+/// use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
+///
+/// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// let xml = std::fs::read_to_string(path).unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+/// let (bill, _) = bill_expression(&document, "119-hr-1").unwrap();
+///
+/// assert_eq!(redesignations_stated_in("119-hr-1", &bill.root).len(), 57);
+/// ```
+pub fn redesignations_stated_in(bill_id: &str, root: &DocumentNode) -> Vec<StatedRedesignation> {
+    let code_of_1986 = stored_titles_declaring_the_1986_code(root);
+    let mut stated = Vec::new();
+    let mut came_through = Vec::new();
+    read_stored_levels(root, &mut came_through, bill_id, &code_of_1986, &mut stated);
+    stated
+}
+
+/// Walk the bill, reading each `redesignate` action at the level that states it.
+///
+/// `came_through` is every node from the root down to this one, which is what
+/// the markup reader gets from `ancestors()`.
+fn read_stored_levels<'a>(
+    node: &'a DocumentNode,
+    came_through: &mut Vec<&'a DocumentNode>,
+    bill_id: &str,
+    code_of_1986: &[String],
+    stated: &mut Vec<StatedRedesignation>,
+) {
+    came_through.push(node);
+
+    // One statement per action, not one per level: a clause that renumbers twice
+    // states two redesignations.
+    let redesignations = stored_facts(node)
+        .map(|facts| {
+            facts
+                .amending_actions
+                .iter()
+                .filter(|action| *action == "redesignate")
+                .count()
+        })
+        .unwrap_or(0);
+    for _ in 0..redesignations {
+        stated.push(read_stored_action(came_through, bill_id, code_of_1986));
+    }
+
+    for child in &node.children {
+        read_stored_levels(child, came_through, bill_id, code_of_1986, stated);
+    }
+    came_through.pop();
+}
+
+/// The USLM facts of a node, or `None` when it carries none.
+fn stored_facts(node: &DocumentNode) -> Option<UslmFacts> {
+    UslmFacts::of(&node.data)
+}
+
+/// Whether a node is a level of the bill's own hierarchy.
+///
+/// The stored counterpart of [`is_level`]. A `Level` is the parser's
+/// structural filler and names nothing, so it opens no scope, exactly as in the
+/// markup.
+fn is_stored_level(node: &DocumentNode) -> bool {
+    node.data.node_type.local() != ElementType::Level.path_segment_name()
+}
+
+/// One statement, read from the level that states it and the levels above it.
+fn read_stored_action(
+    came_through: &[&DocumentNode],
+    bill_id: &str,
+    code_of_1986: &[String],
+) -> StatedRedesignation {
+    let levels: Vec<&DocumentNode> = came_through
+        .iter()
+        .rev()
+        .copied()
+        .filter(|node| is_stored_level(node))
+        .collect();
+    let clause = levels
+        .first()
+        .map(|node| stored_own_text(node))
+        .unwrap_or_default();
+
+    let mut container: Vec<Step> = Vec::new();
+    let mut amending_line = None;
+    for (depth, level) in levels.iter().enumerate() {
+        let text = match depth {
+            0 => clause.clone(),
+            _ => stored_own_text(level),
+        };
+        if let Some(step) = leading_in_phrase(&text) {
+            container.push(step);
+        }
+        if let Some(line) = amending_line_of(&text) {
+            amending_line = Some((line, *level));
+            break;
+        }
+    }
+    container.reverse();
+
+    let mut statement = StatedRedesignation {
+        amendment_id: stored_amendment_id(&levels, bill_id),
+        text: clause.clone(),
+        section: None,
+        container,
+        renumberings: Vec::new(),
+        unreadable: None,
+    };
+
+    if amending_line
+        .as_ref()
+        .is_some_and(|(line, _)| line.contains("table of sections"))
+    {
+        statement.unreadable = Some(Reason::TableOfSections);
+        return statement;
+    }
+
+    match read_clause(&clause) {
+        Ok(renumberings) => statement.renumberings = renumberings,
+        Err(reason) => {
+            statement.unreadable = Some(reason);
+            return statement;
+        }
+    }
+
+    let Some((line, holder)) = amending_line else {
+        statement.unreadable = Some(Reason::NoSectionNamed);
+        return statement;
+    };
+
+    match stored_section_under_amendment(&line, holder, came_through, code_of_1986) {
+        Ok((section, trail)) => {
+            statement.section = Some(section);
+            let mut steps: Vec<Step> = trail.into_iter().map(Step::numbered).collect();
+            steps.append(&mut statement.container);
+            statement.container = steps;
+        }
+        Err(reason) => statement.unreadable = Some(reason),
+    }
+    statement
+}
+
+/// The id of the amendment this action belongs to, as the bill stores it.
+///
+/// The innermost level marked an instruction, whose node already carries the
+/// content hash [`crate::uslm::bill_parser`] minted for it. Where no level is an
+/// instruction the markup reader hashes the empty string, and so does this.
+fn stored_amendment_id(levels: &[&DocumentNode], bill_id: &str) -> String {
+    levels
+        .iter()
+        .find_map(|node| stored_facts(node).and_then(|facts| facts.amendment))
+        .map(|amendment| amendment.id)
+        .unwrap_or_else(|| crate::uslm::bill_parser::compute_amendment_id(bill_id, ""))
+}
+
+/// The words of one stored level, without the levels nested inside it.
+///
+/// The markup reader takes the level's own text run and leaves the nested levels
+/// out. The parser has already split that run into the number and the five text
+/// fields, and put the nested levels in `children`, so putting the fields back
+/// together in document order is the same words.
+fn stored_own_text(node: &DocumentNode) -> String {
+    let mut text = stored_facts(node)
+        .map(|facts| facts.number_display)
+        .unwrap_or_default();
+    for field in [
+        node.data.heading.as_deref(),
+        node.data.chapeau.as_deref(),
+        node.data.content.as_deref(),
+        node.data.proviso.as_deref(),
+        node.data.continuation.as_deref(),
+    ] {
+        text.push_str(field.unwrap_or_default());
+    }
+    normalize_quotes(&collapse_spaces(&text))
+}
+
+/// The bill titles that declare a bare section to mean the Internal Revenue
+/// Code, read from the stored bill.
+///
+/// The stored counterpart of [`titles_declaring_the_1986_code`], and the same
+/// clause in the same words.
+fn stored_titles_declaring_the_1986_code(root: &DocumentNode) -> Vec<String> {
+    let mut declaring = Vec::new();
+    collect_declaring_titles(root, &mut declaring);
+    declaring
+}
+
+fn collect_declaring_titles(node: &DocumentNode, declaring: &mut Vec<String>) {
+    let is_title = node.data.node_type.local() == ElementType::Title.path_segment_name();
+    if is_title
+        && let Some(identifier) = stored_facts(node).and_then(|facts| facts.uslm_id)
+        && stored_declares_the_1986_code(node)
+    {
+        declaring.push(identifier);
+    }
+    for child in &node.children {
+        collect_declaring_titles(child, declaring);
+    }
+}
+
+/// Whether a stored title carries the References clause, in its own words.
+fn stored_declares_the_1986_code(node: &DocumentNode) -> bool {
+    let says_so = node.data.content.as_deref().is_some_and(|content| {
+        let text = collapse_spaces(content);
+        text.contains("whenever in this title") && text.contains("Internal Revenue Code of 1986")
+    });
+    says_so || node.children.iter().any(stored_declares_the_1986_code)
+}
+
+/// Every US Code reference in a stored subtree, in document order.
+fn stored_usc_references(node: &DocumentNode) -> Vec<UscReference> {
+    let mut found = stored_facts(node)
+        .map(|facts| facts.references)
+        .unwrap_or_default();
+    for child in &node.children {
+        found.extend(stored_usc_references(child));
+    }
+    found
+}
+
+/// The section a stored level's amending line names, and the designations below
+/// it.
+///
+/// The stored counterpart of [`section_under_amendment`], reading the same three
+/// forms in the same order of trust.
+fn stored_section_under_amendment(
+    line: &str,
+    holder: &DocumentNode,
+    came_through: &[&DocumentNode],
+    code_of_1986: &[String],
+) -> std::result::Result<(String, Vec<String>), Reason> {
+    let cited = citation_in(line).ok_or(Reason::NoSectionNamed)?;
+    let (number, trail) = cited;
+
+    if let Some(title) = title_named_in(line) {
+        return Ok((uslm_section_id(&title, &number), trail));
+    }
+
+    let names_an_act = line.contains(" of the ");
+    if names_an_act {
+        let codified = stored_usc_references(holder).into_iter().find(|reference| {
+            line.contains(reference.display.trim()) && !reference.display.contains("note")
+        });
+        if let Some(reference) = codified {
+            return Ok((
+                uslm_section_id(&reference.title, &reference.section),
+                reference.trail,
+            ));
+        }
+    }
+
+    // A bare section: the title must come from the publisher, not from us. The
+    // walk climbs from the holder, and stops where the markup reader stops —
+    // at a section, or at a parent that is not a level.
+    let mut at = came_through
+        .iter()
+        .rposition(|node| std::ptr::eq(*node, holder));
+    while let Some(index) = at {
+        let node = came_through[index];
+        let confirming = stored_usc_references(node)
+            .into_iter()
+            .find(|reference| reference.section == number);
+        if let Some(reference) = confirming {
+            return Ok((uslm_section_id(&reference.title, &number), trail));
+        }
+        if node.data.node_type.local() == ElementType::Section.path_segment_name() {
+            break;
+        }
+        at = index
+            .checked_sub(1)
+            .filter(|above| is_stored_level(came_through[*above]));
+    }
+
+    let in_a_declaring_title = came_through.iter().any(|node| {
+        node.data.node_type.local() == ElementType::Title.path_segment_name()
+            && stored_facts(node)
+                .and_then(|facts| facts.uslm_id)
+                .is_some_and(|id| code_of_1986.contains(&id))
+    });
+    if in_a_declaring_title {
+        return Ok((uslm_section_id(INTERNAL_REVENUE_CODE, &number), trail));
+    }
+
+    Err(Reason::NoTitleForSection(number))
 }
 
 /// The bill titles that declare a bare section reference to mean the Internal
@@ -376,18 +686,10 @@ fn section_under_amendment(
     holder: Node,
     code_of_1986: &[String],
 ) -> std::result::Result<(String, Vec<String>), Reason> {
-    static CITATION: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)section\s+([0-9][0-9A-Za-z\-]*)\s*((?:\([0-9A-Za-z]{1,6}\))*)").unwrap()
-    });
-    static OF_TITLE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?i)of\s+title\s+([0-9]+[A-Za-z]?)\b").unwrap());
+    let (number, trail) = citation_in(line).ok_or(Reason::NoSectionNamed)?;
 
-    let cited = CITATION.captures(line).ok_or(Reason::NoSectionNamed)?;
-    let number = cited[1].to_string();
-    let trail = designations_in(&cited[2]);
-
-    if let Some(titled) = OF_TITLE.captures(line) {
-        return Ok((uslm_section_id(&titled[1], &number), trail));
+    if let Some(title) = title_named_in(line) {
+        return Ok((uslm_section_id(&title, &number), trail));
     }
 
     let names_an_act = line.contains(" of the ");
@@ -428,6 +730,25 @@ fn section_under_amendment(
     Err(Reason::NoTitleForSection(number))
 }
 
+/// The section number an amending line cites, and the designations below it.
+///
+/// One reading for both readers of a bill, so the stored bill and its markup
+/// cannot come to different answers about the same sentence.
+fn citation_in(line: &str) -> Option<(String, Vec<String>)> {
+    static CITATION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)section\s+([0-9][0-9A-Za-z\-]*)\s*((?:\([0-9A-Za-z]{1,6}\))*)").unwrap()
+    });
+    let cited = CITATION.captures(line)?;
+    Some((cited[1].to_string(), designations_in(&cited[2])))
+}
+
+/// The title of the US Code an amending line names outright: `of title 10`.
+fn title_named_in(line: &str) -> Option<String> {
+    static OF_TITLE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)of\s+title\s+([0-9]+[A-Za-z]?)\b").unwrap());
+    Some(OF_TITLE.captures(line)?[1].to_string())
+}
+
 /// The title of the US Code the Internal Revenue Code of 1986 is.
 const INTERNAL_REVENUE_CODE: &str = "26";
 
@@ -446,17 +767,6 @@ fn designations_in(parenthesised: &str) -> Vec<String> {
         .collect()
 }
 
-/// A reference into the US Code, as the publisher wrote it.
-struct UscReference {
-    title: String,
-    section: String,
-    /// The designations below the section, from the reference's own path.
-    trail: Vec<String>,
-    /// The words on the page, which say whether the reference is to the section
-    /// or to the notes under it.
-    display: String,
-}
-
 /// The reference in an amending line that gives the codified home of the Act it
 /// names.
 ///
@@ -469,29 +779,13 @@ fn codified_reference(holder: Node, line: &str) -> Option<UscReference> {
 }
 
 /// Every US Code reference in a subtree.
+///
+/// One reading for both readers of a bill: the stored bill carries the same
+/// references, split into the same parts by the same function
+/// (`crate::uslm::bill_parser::usc_reference`).
 fn usc_references(node: Node) -> Vec<UscReference> {
     node.descendants()
         .filter(|child| child.tag_name().name().eq_ignore_ascii_case("ref"))
-        .filter_map(|child| {
-            let href = child.attribute("href")?;
-            let rest = href.strip_prefix("/us/usc/t")?;
-            let (title, rest) = rest.split_once("/s")?;
-            let mut parts = rest.split('/');
-            let section = parts.next()?.to_string();
-            let display: String = child
-                .descendants()
-                .filter(Node::is_text)
-                .filter_map(|text| text.text())
-                .collect();
-            Some(UscReference {
-                title: title.to_string(),
-                section,
-                trail: parts
-                    .filter(|part| !part.is_empty())
-                    .map(str::to_string)
-                    .collect(),
-                display: collapse_spaces(&display),
-            })
-        })
+        .filter_map(|child| crate::uslm::bill_parser::usc_reference(&child))
         .collect()
 }

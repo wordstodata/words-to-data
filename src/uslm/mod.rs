@@ -510,6 +510,55 @@ pub struct UslmFacts {
     /// part of a bill that gives no instruction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub amendment: Option<AmendmentFacts>,
+
+    /// The amending actions this node's own words give, as the bill typed them
+    ///
+    /// `redesignate`, `strike`, `insert`. The publisher writes each one as an
+    /// `<amendingAction>` around the verb, which is a marker inside a level
+    /// rather than a level of its own, so the tree drops it. Without these the
+    /// stored bill cannot say which of its clauses renumber a provision, and the
+    /// bill's XML would have to be read a second time to find out.
+    ///
+    /// The node's *own* words: an action inside a level nested below this one
+    /// belongs to that level. Empty for every node of the US Code, which gives
+    /// no instructions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub amending_actions: Vec<String>,
+
+    /// Every US Code reference in this node's own words
+    ///
+    /// The publisher's own `<ref href="/us/usc/…">`, which says where in the Code
+    /// an Act the bill names is codified, and which carries the marginal note —
+    /// `26 USC 898` — that tells a reader which title a bare `section 898`
+    /// means. The tree keeps neither the reference nor the note it sits in.
+    ///
+    /// The node's own words, in the same sense as [`UslmFacts::amending_actions`]:
+    /// a reference under a nested level belongs to that level, and a reference
+    /// the parser dropped along with its element belongs to the nearest node the
+    /// tree does hold. Empty for every node of the US Code, whose citations are
+    /// read out of the text by [`crate::citation::usc`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<UscReference>,
+}
+
+/// A reference into the US Code, as a bill's publisher wrote it
+///
+/// Split into its parts at parse time rather than kept as one href, because
+/// every reader of it wants the same three: which title, which section, and what
+/// the words on the page say. The words matter — a reference whose display text
+/// says `note` points at the notes under a section and not at the section — so
+/// they are kept rather than thrown away with the markup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UscReference {
+    /// The title of the Code: `26`.
+    pub title: String,
+    /// The section within it: `898`.
+    pub section: String,
+    /// The designations below the section, from the reference's own path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trail: Vec<String>,
+    /// The words on the page, as the reader sees them: `7 U.S.C. 2015(o)`.
+    pub display: String,
 }
 
 /// What a bill's instruction element states, beyond where it sits

@@ -16,7 +16,7 @@ use crate::{
     io::load_xml_file,
     legislature::{AmendingAction, BillAmendment},
     uslm::parser::{ParseError, normalize_quotes},
-    uslm::{AmendmentFacts, UslmFacts},
+    uslm::{AmendmentFacts, UscReference, UslmFacts},
 };
 
 /// Data extracted from a bill document
@@ -296,7 +296,7 @@ pub fn bill_expression(
 ) -> Result<(Expression, crate::uslm::parser::ParseReport)> {
     let date = approved_date(document)?;
     let (mut root, report) = crate::uslm::parser::parse_from_document_with_report(document, &date)?;
-    state_amendments(&mut root, document, bill_id)?;
+    state_bill_facts(&mut root, document, bill_id)?;
     Ok((
         Expression {
             id: ExpressionId::new(WorkId::new(root.data.path.to_string()), date),
@@ -307,59 +307,131 @@ pub fn bill_expression(
     ))
 }
 
-/// Record on each instruction node the amendment its words are
+/// What a bill's markup states at one node, on its way into the node's payload.
+#[derive(Default)]
+struct BillMarkup {
+    amendment: Option<AmendmentFacts>,
+    amending_actions: Vec<String>,
+    references: Vec<UscReference>,
+}
+
+/// Record on each node of a bill what its own markup states
 ///
 /// The USLM parser builds a tree for any document class and knows nothing about
-/// amendments, so this is a second pass over the same markup rather than an
-/// argument threaded through the parser. It costs one walk of a bill, and it
-/// keeps the bill's vocabulary in the bill's own module.
+/// amendments, amending actions or references, so this is a second pass over the
+/// same markup rather than four arguments threaded through the parser. It costs
+/// one walk of a bill, and it keeps the bill's vocabulary in the bill's own
+/// module.
 ///
-/// An instruction is matched to its node by the publisher's `identifier`, which
-/// is the one name both the markup and the tree hold. An instruction the parser
-/// left out of the tree — quoted text, a repealed element — therefore records
-/// nothing, which is the honest answer: the dataset has no node to point at.
-fn state_amendments(
+/// A node is matched by the publisher's `identifier`, which is the one name both
+/// the markup and the tree hold. An action or a reference is recorded against
+/// the nearest identified element the tree kept, so what the parser dropped —
+/// a marginal note, a quoted block — leaves its references on the level that
+/// held it rather than nowhere at all.
+fn state_bill_facts(
     root: &mut DocumentNode,
     document: &roxmltree::Document,
     bill_id: &str,
 ) -> Result<()> {
-    let stated: HashMap<&str, AmendmentFacts> = document
-        .root()
-        .descendants()
-        .filter(|node| node.attribute("role").unwrap_or_default() == "instruction")
-        .filter_map(|node| {
-            Some((
-                node.attribute("identifier")?,
-                AmendmentFacts {
-                    id: compute_amendment_id(bill_id, &node_text(&node)),
-                    enacted_text: enacted_text(&node),
-                },
-            ))
-        })
-        .collect();
+    let mut kept = std::collections::HashSet::new();
+    collect_uslm_ids(root, &mut kept);
 
-    record_amendments(root, &stated)
-}
+    let mut stated: HashMap<String, BillMarkup> = HashMap::new();
+    let owner_of = |node: &Node| -> Option<String> {
+        node.ancestors()
+            .filter_map(|above| above.attribute("identifier"))
+            .find(|identifier| kept.contains(*identifier))
+            .map(str::to_string)
+    };
 
-/// Walk the tree, writing each node's amendment into its class payload.
-fn record_amendments(
-    node: &mut DocumentNode,
-    stated: &HashMap<&str, AmendmentFacts>,
-) -> Result<()> {
-    if let Some(mut facts) = UslmFacts::of(&node.data) {
-        let amendment = facts
-            .uslm_id
-            .as_deref()
-            .and_then(|uslm_id| stated.get(uslm_id));
-        if let Some(amendment) = amendment {
-            facts.amendment = Some(amendment.clone());
-            node.data.payload = Some(facts.to_payload()?);
+    for node in document.root().descendants() {
+        let tag = node.tag_name().name();
+
+        if node.attribute("role").unwrap_or_default() == "instruction"
+            && let Some(identifier) = node.attribute("identifier")
+        {
+            stated.entry(identifier.to_string()).or_default().amendment = Some(AmendmentFacts {
+                id: compute_amendment_id(bill_id, &node_text(&node)),
+                enacted_text: enacted_text(&node),
+            });
+        }
+
+        if tag.eq_ignore_ascii_case("amendingAction")
+            && let Some(action) = node.attribute("type")
+            && let Some(owner) = owner_of(&node)
+        {
+            stated
+                .entry(owner)
+                .or_default()
+                .amending_actions
+                .push(action.to_string());
+        }
+
+        if tag.eq_ignore_ascii_case("ref")
+            && let Some(reference) = usc_reference(&node)
+            && let Some(owner) = owner_of(&node)
+        {
+            stated.entry(owner).or_default().references.push(reference);
         }
     }
+
+    record_bill_facts(root, &stated)
+}
+
+/// Every USLM identifier the tree kept, which is what an owner is looked up in.
+fn collect_uslm_ids(node: &DocumentNode, kept: &mut std::collections::HashSet<String>) {
+    if let Some(uslm_id) = UslmFacts::of(&node.data).and_then(|facts| facts.uslm_id) {
+        kept.insert(uslm_id);
+    }
+    for child in &node.children {
+        collect_uslm_ids(child, kept);
+    }
+}
+
+/// Walk the tree, writing what the markup stated into each node's payload.
+fn record_bill_facts(node: &mut DocumentNode, stated: &HashMap<String, BillMarkup>) -> Result<()> {
+    if let Some(mut facts) = UslmFacts::of(&node.data)
+        && let Some(markup) = facts
+            .uslm_id
+            .as_deref()
+            .and_then(|uslm_id| stated.get(uslm_id))
+    {
+        facts.amendment = markup.amendment.clone();
+        facts.amending_actions = markup.amending_actions.clone();
+        facts.references = markup.references.clone();
+        node.data.payload = Some(facts.to_payload()?);
+    }
     for child in &mut node.children {
-        record_amendments(child, stated)?;
+        record_bill_facts(child, stated)?;
     }
     Ok(())
+}
+
+/// One reference into the US Code, or `None` when the `<ref>` names something
+/// else.
+///
+/// A bill's references point at Acts, at the Statutes at Large and at other
+/// bills as well. Only the ones into the Code are kept, because they are the
+/// only ones that say where a provision lives.
+pub(crate) fn usc_reference(node: &Node) -> Option<UscReference> {
+    let rest = node.attribute("href")?.strip_prefix("/us/usc/t")?;
+    let (title, rest) = rest.split_once("/s")?;
+    let mut parts = rest.split('/');
+    let section = parts.next()?.to_string();
+    let display: String = node
+        .descendants()
+        .filter(Node::is_text)
+        .filter_map(|text| text.text())
+        .collect();
+    Some(UscReference {
+        title: title.to_string(),
+        section,
+        trail: parts
+            .filter(|part| !part.is_empty())
+            .map(str::to_string)
+            .collect(),
+        display: display.split_whitespace().collect::<Vec<_>>().join(" "),
+    })
 }
 
 /// The text an instruction enacts, in document order

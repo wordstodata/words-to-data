@@ -386,6 +386,8 @@ fn parse_document(
                 document_type: container_doc_type.clone(),
                 source_credits: vec![],
                 amendment: None,
+                amending_actions: Vec::new(),
+                references: Vec::new(),
             };
             let container_data = NodeData::new(
                 "uscode",
@@ -850,9 +852,11 @@ fn parse_element(
         uslm_uuid: uslm_uuid.as_deref().map(str::to_string),
         document_type: document_type.clone(),
         source_credits,
-        // What a bill's instruction states is read from the bill's own markup,
-        // after the tree is built: see `crate::uslm::bill_parser::bill_expression`.
+        // What a bill's markup states at this node is read from the markup after
+        // the tree is built: see `crate::uslm::bill_parser::bill_expression`.
         amendment: None,
+        amending_actions: Vec::new(),
+        references: Vec::new(),
     };
 
     let element_data = NodeData {
