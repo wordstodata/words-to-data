@@ -529,6 +529,22 @@ pub struct AmendmentFacts {
     /// `legislature.amended_by` links already point at it
     /// (`docs/adr/0001-structural-paths-locate-not-identify.md`).
     pub id: String,
+
+    /// The text this instruction enacts, in document order
+    ///
+    /// The words the bill writes inside `<quotedContent>`. They stay out of the
+    /// hierarchy, because quoted amendment text is not law in force, and as a
+    /// provision it would become a searchable, diffable location an annotation
+    /// could name (#86). They are kept here because `extract-changes` needs
+    /// those words, and a record split between a tree and a flat string
+    /// somewhere else turns "parse once" into "parse once and keep a copy"
+    /// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+    ///
+    /// One entry for each block the bill quotes. Two blocks are two pieces of
+    /// enacted text, and joining them would make one sentence the bill never
+    /// wrote.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enacted_text: Vec<String>,
 }
 
 impl UslmFacts {

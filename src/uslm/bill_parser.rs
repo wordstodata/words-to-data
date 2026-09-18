@@ -332,6 +332,7 @@ fn state_amendments(
                 node.attribute("identifier")?,
                 AmendmentFacts {
                     id: compute_amendment_id(bill_id, &node_text(&node)),
+                    enacted_text: enacted_text(&node),
                 },
             ))
         })
@@ -359,6 +360,31 @@ fn record_amendments(
         record_amendments(child, stated)?;
     }
     Ok(())
+}
+
+/// The text an instruction enacts, in document order
+///
+/// The bill's own `<quotedContent>`, which the parser keeps out of the tree
+/// because it is not law in force (#86). One entry for each quoted block.
+///
+/// A block nested inside another is not taken twice: the outer block already
+/// carries the inner one's words, and the inner block is part of what the outer
+/// one enacts.
+fn enacted_text(instruction: &Node) -> Vec<String> {
+    instruction
+        .descendants()
+        .filter(|node| node.tag_name().name().eq_ignore_ascii_case("quotedContent"))
+        .filter(|node| {
+            !node.ancestors().skip(1).any(|above| {
+                above
+                    .tag_name()
+                    .name()
+                    .eq_ignore_ascii_case("quotedContent")
+            })
+        })
+        .map(|node| node_text(&node))
+        .filter(|text| !text.trim().is_empty())
+        .collect()
 }
 
 /// Where each amendment's words sit in a bill's document, by content id

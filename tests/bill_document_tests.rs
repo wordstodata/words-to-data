@@ -174,3 +174,62 @@ fn should_keep_the_content_hash_as_the_identity_when_an_amendment_gains_a_path()
         Some(id.clone())
     );
 }
+
+/// Whether any node of a tree carries this heading.
+fn any_heading(node: &DocumentNode, heading: &str) -> bool {
+    node.data.heading.as_deref() == Some(heading)
+        || node
+            .children
+            .iter()
+            .any(|child| any_heading(child, heading))
+}
+
+#[test]
+fn should_keep_the_words_a_bill_enacts_in_the_payload_when_the_tree_leaves_them_out() {
+    let dataset = dataset_holding_the_bill();
+    let bill = dataset
+        .get_bill(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the bill should be there");
+    let root = stored_bill_root(&dataset);
+    let located = amendment_paths(&root);
+
+    // 119-hr-1 adds a whole new section 20306 to chapter 203 of title 51.
+    let (id, _) = bill
+        .amendments
+        .iter()
+        .find(|(_, amendment)| {
+            amendment
+                .amending_text
+                .contains("Chapter 203 of title 51, United States Code, is amended")
+        })
+        .expect("the bill adds a section to chapter 203 of title 51");
+
+    let node = root
+        .find(&located[id])
+        .expect("the amendment should sit at a path in the bill");
+    let stated = UslmFacts::of(&node.data)
+        .and_then(|facts| facts.amendment)
+        .expect("an instruction node states its amendment");
+
+    assert_eq!(
+        stated.enacted_text.len(),
+        1,
+        "the instruction quotes one block, so one block is kept"
+    );
+    assert!(
+        stated.enacted_text[0].contains("20306. Deadlines."),
+        "the words the bill enacts should travel with the node that enacts them"
+    );
+
+    // And they are not law in force, so they are not a provision of the bill
+    // (#86). Were the quoted section in the tree, it would be a node with its
+    // own heading, which an annotation could then name.
+    assert!(
+        !any_heading(
+            &root,
+            "Special appropriations for Mars missions, Artemis missions, and Moon to Mars program"
+        ),
+        "quoted amendment text must not enter the hierarchy as a provision"
+    );
+}
