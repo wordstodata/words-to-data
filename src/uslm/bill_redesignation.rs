@@ -72,14 +72,41 @@ pub fn redesignations_stated_in_file(
 
 /// Every redesignation a bill states, read from markup already in memory.
 pub fn redesignations_stated(bill_id: &str, xml: &str) -> Result<Vec<StatedRedesignation>> {
-    let document = Document::parse(xml)?;
-    let code_of_1986 = titles_declaring_the_1986_code(&document);
-    Ok(document
+    Ok(redesignations_stated_in_document(
+        bill_id,
+        &Document::parse(xml)?,
+    ))
+}
+
+/// Every redesignation a bill states, read from XML already parsed.
+///
+/// The same reading as [`redesignations_stated`], from a document the caller
+/// already holds. One `roxmltree::Document` then feeds the amendments, the
+/// bill's own document and this, so a build reads the bill's XML once
+/// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::bill_redesignation::redesignations_stated_in_document;
+///
+/// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// let xml = std::fs::read_to_string(path).unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+///
+/// assert_eq!(redesignations_stated_in_document("119-hr-1", &document).len(), 57);
+/// ```
+pub fn redesignations_stated_in_document(
+    bill_id: &str,
+    document: &Document,
+) -> Vec<StatedRedesignation> {
+    let code_of_1986 = titles_declaring_the_1986_code(document);
+    document
         .root()
         .descendants()
         .filter(is_redesignate_action)
         .map(|action| read_action(bill_id, action, &code_of_1986))
-        .collect())
+        .collect()
 }
 
 /// The bill titles that declare a bare section reference to mean the Internal

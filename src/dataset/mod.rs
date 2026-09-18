@@ -282,8 +282,9 @@ impl<S: Storage> Dataset<S> {
     /// rebuilt corpus came back with 889 `legislature.amended_by` links and no
     /// redesignations at all (#150).
     ///
-    /// The bill's own markup, because which provision a clause is about comes
-    /// from where the words sat in it, and a stored amendment keeps only the
+    /// Takes the bill's markup already read into memory, so that loading a bill
+    /// reads its XML once. Which provision a clause is about comes from where
+    /// the words sat in the markup, and a stored amendment keeps only the
     /// flattened text. A statement resolves in the one work that holds its
     /// section and fails in every other, so the reports are folded rather than
     /// concatenated.
@@ -294,10 +295,10 @@ impl<S: Storage> Dataset<S> {
     pub fn record_redesignations_stated_in(
         &mut self,
         bill_id: &str,
-        bill_xml: &str,
+        markup: &roxmltree::Document,
     ) -> Result<RedesignationReport, DatasetError> {
-        let stated = crate::uslm::bill_redesignation::redesignations_stated(bill_id, bill_xml)
-            .map_err(|e| invalid_data(&e))?;
+        let stated =
+            crate::uslm::bill_redesignation::redesignations_stated_in_document(bill_id, markup);
         // A bill that renumbers nothing is ordinary, and sweeping every work to
         // prove it would cost a section index per work for no statement.
         if stated.is_empty() {
@@ -675,7 +676,7 @@ impl Dataset<InMemoryStorage> {
         parse_report.print_to_stderr();
         self.add_expression(expression)?;
 
-        self.record_redesignations_stated_in(&bill_id, &download.bill_xml)?;
+        self.record_redesignations_stated_in(&bill_id, &markup)?;
 
         // Parse sponsor from metadata
         let sponsors_v: Value = serde_json::from_str(&download.bill_metadata_json)?;
