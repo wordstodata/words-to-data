@@ -11,6 +11,7 @@ use roxmltree::Node;
 use sha2::{Digest, Sha256};
 
 use crate::{
+    dataset::{Expression, ExpressionId, WorkId},
     io::load_xml_file,
     legislature::{AmendingAction, BillAmendment},
     uslm::parser::{ParseError, normalize_quotes},
@@ -176,12 +177,122 @@ pub fn parse_bill_amendments_from_str_with_report(
     bill_id: &str,
     xml_str: &str,
 ) -> Result<(Bill, AmendmentReport)> {
-    let doc = roxmltree::Document::parse(xml_str)?;
-    let (amendments, report) = amendments_with_report(&doc.root(), bill_id);
-    Ok((
+    Ok(bill_of_document(
+        &roxmltree::Document::parse(xml_str)?,
+        bill_id,
+    ))
+}
+
+/// The amendments a bill states, from XML already read into memory
+///
+/// The same extraction as [`parse_bill_amendments_from_str_with_report`], from
+/// an XML document a caller has already built, so that one read of the bill can
+/// feed the amendments, the document and the redesignations alike
+/// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::bill_parser::bill_of_document;
+///
+/// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// let xml = std::fs::read_to_string(path).unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+///
+/// let (bill, report) = bill_of_document(&document, "119-hr-1");
+/// assert!(!bill.amendments.is_empty());
+/// assert!(report.is_empty());
+/// ```
+pub fn bill_of_document(document: &roxmltree::Document, bill_id: &str) -> (Bill, AmendmentReport) {
+    let (amendments, report) = amendments_with_report(&document.root(), bill_id);
+    (
         Bill {
             bill_id: bill_id.to_string(),
             amendments,
+        },
+        report,
+    )
+}
+
+/// The date a public law's own markup says it was approved
+///
+/// A bill is published once and never amended, so this is the one date it has,
+/// exactly as a court opinion has the date the court filed it. The bill states
+/// it in its `<meta>`, as `<approvedDate>` and again as Dublin Core `<date>`.
+///
+/// Read from the bill rather than taken from the caller. A date supplied
+/// alongside a document is a second place the same fact lives, and after an edit
+/// one of the two will be wrong.
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::bill_parser::approved_date;
+///
+/// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// let xml = std::fs::read_to_string(path).unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+///
+/// assert_eq!(approved_date(&document).unwrap(), "2025-07-04");
+/// ```
+///
+/// # Errors
+///
+/// Returns [`ParseError::UnsupportedDocumentType`] when the markup states no
+/// approval date. A guessed date would put the bill in the wrong place in every
+/// dataset that held it, which is the confident wrong answer this project exists
+/// to prevent.
+pub fn approved_date(document: &roxmltree::Document) -> Result<String> {
+    let meta = document
+        .descendants()
+        .find(|node| node.has_tag_name("meta"))
+        .ok_or_else(|| {
+            ParseError::UnsupportedDocumentType("the bill states no <meta>".to_string())
+        })?;
+
+    meta.children()
+        .find(|node| node.has_tag_name("approvedDate") || node.tag_name().name() == "date")
+        .and_then(|node| node.text())
+        .map(str::trim)
+        .filter(|date| !date.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            ParseError::UnsupportedDocumentType(
+                "the bill states no date it was approved".to_string(),
+            )
+        })
+}
+
+/// The bill as one expression of one work, ready to store
+///
+/// A bill is a Work with an Expression, in the same collection as the Code, and
+/// a court opinion already enters a dataset this way. The work is the root
+/// node's own path — `publiclawdocument_119-21`, built from the number the
+/// publisher gave the law — and the date is the day the bill says it was
+/// approved (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::bill_parser::bill_expression;
+///
+/// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+/// let xml = std::fs::read_to_string(path).unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+///
+/// let (expression, _) = bill_expression(&document).unwrap();
+/// assert_eq!(expression.id.to_string(), "publiclawdocument_119-21@2025-07-04");
+/// ```
+pub fn bill_expression(
+    document: &roxmltree::Document,
+) -> Result<(Expression, crate::uslm::parser::ParseReport)> {
+    let date = approved_date(document)?;
+    let (root, report) = crate::uslm::parser::parse_from_document_with_report(document, &date)?;
+    Ok((
+        Expression {
+            id: ExpressionId::new(WorkId::new(root.data.path.to_string()), date),
+            label: None,
+            root,
         },
         report,
     ))

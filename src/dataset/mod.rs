@@ -656,11 +656,25 @@ impl Dataset<InMemoryStorage> {
         use crate::uslm::bill_parser;
         use serde_json::Value;
 
-        let bill =
-            bill_parser::parse_bill_amendments_from_str(&download.bill_id, &download.bill_xml)
-                .map_err(|e| invalid_data(&e))?;
+        // One read of the XML, for every reader of it. The bill's amendments and
+        // the bill's document used to be two parses of the same 2.7 MB string
+        // (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+        let markup =
+            roxmltree::Document::parse(&download.bill_xml).map_err(|e| invalid_data(&e))?;
+
+        let (bill, amendment_report) = bill_parser::bill_of_document(&markup, &download.bill_id);
+        amendment_report.print_to_stderr();
         let bill_id = bill.bill_id.clone();
         self.add_bill(bill)?;
+
+        // The bill itself, with the structure the parser found. Nothing stored
+        // it before this, so the nesting a redesignation is read out of existed
+        // only inside one function call and was then thrown away.
+        let (expression, parse_report) =
+            bill_parser::bill_expression(&markup).map_err(|e| invalid_data(&e))?;
+        parse_report.print_to_stderr();
+        self.add_expression(expression)?;
+
         self.record_redesignations_stated_in(&bill_id, &download.bill_xml)?;
 
         // Parse sponsor from metadata
