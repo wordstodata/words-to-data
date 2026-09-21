@@ -516,6 +516,11 @@ fn should_print_the_statements_it_could_not_place_when_the_command_runs() {
             .add_uslm_xml(file, date, None)
             .expect("title 26 should load");
     }
+    // The bill as well, because the command reads it from the dataset rather
+    // than from a file beside it (#196).
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the bill should load");
     dataset
         .save(&path, Format::Compact)
         .expect("the fixture should save");
@@ -524,8 +529,6 @@ fn should_print_the_statements_it_could_not_place_when_the_command_runs() {
         .args([
             "redesignations",
             &path,
-            "--bill-xml",
-            BILL,
             "--bill-id",
             BILL_ID,
             "--between",

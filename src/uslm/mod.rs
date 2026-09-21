@@ -503,6 +503,97 @@ pub struct UslmFacts {
     /// Source credits and references for this element
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_credits: Vec<SourceCredit>,
+
+    /// The amendment this node states, when it is a bill's instruction
+    ///
+    /// `None` everywhere else, which is every node of the US Code and every
+    /// part of a bill that gives no instruction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amendment: Option<AmendmentFacts>,
+
+    /// The amending actions this node's own words give, as the bill typed them
+    ///
+    /// `redesignate`, `strike`, `insert`. The publisher writes each one as an
+    /// `<amendingAction>` around the verb, which is a marker inside a level
+    /// rather than a level of its own, so the tree drops it. Without these the
+    /// stored bill cannot say which of its clauses renumber a provision, and the
+    /// bill's XML would have to be read a second time to find out.
+    ///
+    /// The node's *own* words: an action inside a level nested below this one
+    /// belongs to that level. Empty for every node of the US Code, which gives
+    /// no instructions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub amending_actions: Vec<String>,
+
+    /// Every US Code reference in this node's own words
+    ///
+    /// The publisher's own `<ref href="/us/usc/…">`, which says where in the Code
+    /// an Act the bill names is codified, and which carries the marginal note —
+    /// `26 USC 898` — that tells a reader which title a bare `section 898`
+    /// means. The tree keeps neither the reference nor the note it sits in.
+    ///
+    /// The node's own words, in the same sense as [`UslmFacts::amending_actions`]:
+    /// a reference under a nested level belongs to that level, and a reference
+    /// the parser dropped along with its element belongs to the nearest node the
+    /// tree does hold. Empty for every node of the US Code, whose citations are
+    /// read out of the text by [`crate::citation::usc`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<UscReference>,
+}
+
+/// A reference into the US Code, as a bill's publisher wrote it
+///
+/// Split into its parts at parse time rather than kept as one href, because
+/// every reader of it wants the same three: which title, which section, and what
+/// the words on the page say. The words matter — a reference whose display text
+/// says `note` points at the notes under a section and not at the section — so
+/// they are kept rather than thrown away with the markup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UscReference {
+    /// The title of the Code: `26`.
+    pub title: String,
+    /// The section within it: `898`.
+    pub section: String,
+    /// The designations below the section, from the reference's own path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trail: Vec<String>,
+    /// The words on the page, as the reader sees them: `7 U.S.C. 2015(o)`.
+    pub display: String,
+}
+
+/// What a bill's instruction element states, beyond where it sits
+///
+/// The publisher marks an instruction `role="instruction"`, and
+/// [`crate::uslm::bill_parser`] extracts one [`crate::legislature::BillAmendment`]
+/// from each. This is the bridge between the two: the node carries the
+/// amendment's identity, so the same amendment is both located by a path and
+/// identified by its content hash
+/// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AmendmentFacts {
+    /// The amendment's identity: `sha256("{bill_id}:{amending_text}")`.
+    ///
+    /// The hash and not the path, because the hash survives a rebuild while a
+    /// path moves when a publisher renumbers. `Link::id` and the
+    /// `legislature.amended_by` links already point at it
+    /// (`docs/adr/0001-structural-paths-locate-not-identify.md`).
+    pub id: String,
+
+    /// The text this instruction enacts, in document order
+    ///
+    /// The words the bill writes inside `<quotedContent>`. They stay out of the
+    /// hierarchy, because quoted amendment text is not law in force, and as a
+    /// provision it would become a searchable, diffable location an annotation
+    /// could name (#86). They are kept here because `extract-changes` needs
+    /// those words, and a record split between a tree and a flat string
+    /// somewhere else turns "parse once" into "parse once and keep a copy"
+    /// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+    ///
+    /// One entry for each block the bill quotes. Two blocks are two pieces of
+    /// enacted text, and joining them would make one sentence the bill never
+    /// wrote.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enacted_text: Vec<String>,
 }
 
 impl UslmFacts {

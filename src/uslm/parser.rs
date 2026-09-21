@@ -276,14 +276,42 @@ pub fn parse_from_str_with_report(
     xml_str: &str,
     date: &str,
 ) -> Result<(DocumentNode, ParseReport)> {
+    parse_from_document_with_report(&roxmltree::Document::parse(xml_str)?, date)
+}
+
+/// Parse USLM XML that is already read into memory, and keep the report
+///
+/// The same parse as [`parse_from_str_with_report`], from an XML document a
+/// caller has already built. One `roxmltree::Document` can then feed every
+/// reader of one source, which is how a bill is read once instead of three
+/// times (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::parser::parse_from_document_with_report;
+///
+/// let xml = std::fs::read_to_string("tests/test_data/usc/2025-07-18/usc09.xml").unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+/// let (root, report) = parse_from_document_with_report(&document, "2025-07-18").unwrap();
+///
+/// assert_eq!(&*root.data.path, "uscode");
+/// assert!(report.is_empty());
+/// ```
+pub fn parse_from_document_with_report(
+    document: &roxmltree::Document,
+    date: &str,
+) -> Result<(DocumentNode, ParseReport)> {
     let mut report = ParseReport::default();
-    let element = parse_document(xml_str, date, &mut report)?;
+    let element = parse_document(document, date, &mut report)?;
     Ok((element, report))
 }
 
-fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result<DocumentNode> {
-    let doc = roxmltree::Document::parse(xml_str)?;
-
+fn parse_document(
+    doc: &roxmltree::Document,
+    date: &str,
+    report: &mut ParseReport,
+) -> Result<DocumentNode> {
     let top_level_node = doc
         .descendants()
         .find(|n| n.tag_name().name() == "uscDoc" || n.has_tag_name("pLaw"));
@@ -357,6 +385,9 @@ fn parse_document(xml_str: &str, date: &str, report: &mut ParseReport) -> Result
                 uslm_uuid: None,
                 document_type: container_doc_type.clone(),
                 source_credits: vec![],
+                amendment: None,
+                amending_actions: Vec::new(),
+                references: Vec::new(),
             };
             let container_data = NodeData::new(
                 "uscode",
@@ -821,6 +852,11 @@ fn parse_element(
         uslm_uuid: uslm_uuid.as_deref().map(str::to_string),
         document_type: document_type.clone(),
         source_credits,
+        // What a bill's markup states at this node is read from the markup after
+        // the tree is built: see `crate::uslm::bill_parser::bill_expression`.
+        amendment: None,
+        amending_actions: Vec::new(),
+        references: Vec::new(),
     };
 
     let element_data = NodeData {

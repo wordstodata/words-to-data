@@ -172,8 +172,8 @@ fn report_windows<S: Storage>(dataset: &Dataset<S>, before: &[ExpressionPair], w
     }
     for (from, to) in spans_of(&new) {
         println!(
-            "  words_to_data redesignations {written} --bill-xml <bill>.xml \
-             --bill-id <bill> --between {from} {to}"
+            "  words_to_data redesignations {written} --bill-id <bill> \
+             --between {from} {to}"
         );
         println!("  words_to_data match-amendments {written} --between {from} {to}");
     }
