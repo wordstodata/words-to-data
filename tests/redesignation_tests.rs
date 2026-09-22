@@ -558,6 +558,57 @@ fn should_print_the_statements_it_could_not_place_when_the_command_runs() {
     );
 }
 
+/// A database is changed where it sits, so the run needs nowhere to write it
+/// (#195). `redesignations` used to refuse a SQLite dataset and say to convert
+/// it to JSON first, which is the form that cannot give the run a transaction.
+#[test]
+fn should_change_the_database_in_place_when_redesignations_is_given_sqlite() {
+    let path = format!("{}/redesignations.sqlite", env!("CARGO_TARGET_TMPDIR"));
+    let _ = std::fs::remove_file(&path);
+
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
+        dataset
+            .add_uslm_xml(file, date, None)
+            .expect("title 26 should load");
+    }
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the bill should load");
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+
+    // No --output: the database is where the result belongs.
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "redesignations",
+            &path,
+            "--bill-id",
+            BILL_ID,
+            "--between",
+            BEFORE,
+            AFTER,
+        ])
+        .output()
+        .expect("the binary should run");
+
+    assert!(
+        output.status.success(),
+        "the command should accept a database, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let changed = Dataset::open_sqlite(&path).expect("the database should open");
+    let links = changed
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("reading the links should work");
+    assert!(
+        !links.is_empty(),
+        "the run should leave its links in the database it was given"
+    );
+}
+
 /// The titles the corpus's redesignations name, as release-point file names.
 ///
 /// Only the titles needed. Sweeping all fifty-seven files to place fifty-seven
