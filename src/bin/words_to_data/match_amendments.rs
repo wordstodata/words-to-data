@@ -23,6 +23,7 @@ use words_to_data::link::{Evidence, Link};
 use words_to_data::matching::{
     AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches,
 };
+use words_to_data::storage::{LegislatureReader, Storage};
 
 use crate::span::Span;
 use words_to_data::llm::{ChatOptions, LlmAnnotation, LlmClient};
@@ -98,12 +99,29 @@ struct CandidatesOfWork {
     amendments: Vec<serde_json::Value>,
 }
 
+/// Everything one run needs apart from the dataset it works on.
+///
+/// The dataset is the one thing that differs between the two backends, so it is
+/// the one thing passed separately.
+struct Matching<'a> {
+    args: &'a Args,
+    llm: &'a LlmClient,
+    opts: &'a ChatOptions,
+    model_name: &'a str,
+    annotator: &'a str,
+    cache: &'a Mutex<Cache>,
+    cache_path: &'a Path,
+}
+
 pub fn run(args: Args) {
-    crate::load::refuse_sqlite(&args.dataset, "match-amendments");
-    let mut dataset = crate::fail::or_exit(
-        Dataset::load(&args.dataset, Format::Compact),
-        "Error loading dataset",
-    );
+    // Where the result goes: `None` is a database, which is changed in place.
+    // A W2D file is read into memory, so the result has to be written out
+    // again.
+    let output = if crate::load::is_sqlite(&args.dataset) {
+        None
+    } else {
+        Some(args.output.as_deref().unwrap_or(&args.dataset))
+    };
 
     let opts = crate::fail::or_exit(
         chat_options(
@@ -130,152 +148,191 @@ pub fn run(args: Args) {
     let cache_path = sibling(&args.dataset, "matches_cache.json");
     let cache = Mutex::new(load_cache(&cache_path));
 
-    let pairs = args.span.resolve(&dataset);
-    let mut candidates_by_work = Vec::new();
-    let mut applied = 0;
-    let mut annotated_paths = 0;
-    let mut reused = 0;
-    let mut queried = 0;
-    // Amendments whose reply never parsed, gathered across every pair in the
-    // span so one run reports one total.
-    let mut failed: Vec<String> = Vec::new();
+    let matching = Matching {
+        args: &args,
+        llm: &llm,
+        opts: &opts,
+        model_name: &model_name,
+        annotator: &annotator,
+        cache: &cache,
+        cache_path: &cache_path,
+    };
 
-    for (from, to) in pairs {
-        let diff = crate::fail::or_exit(dataset.compute_diff(&from, &to), "Error computing diff");
-
-        let matches = build_matches(&dataset, &diff, args.similarity_cutoff);
-        println!("\n{from} -> {to}");
-        print_stats(&matches);
-
-        // Split the amendments into the ones a cached reply already answers
-        // and the ones the model still has to be asked about. `--no-cache`
-        // sends every one of them to the model.
-        let mut answered: Vec<(usize, Classification)> = Vec::new();
-        let mut todo: Vec<Task> = Vec::new();
-        for (index, m) in matches.iter().enumerate() {
-            let question = question(m);
-            let cached = if args.no_cache {
-                None
-            } else {
-                cached_classification(&cache, &question)
-            };
-            match cached {
-                Some(classification) => answered.push((index, classification)),
-                None => todo.push(Task {
-                    match_index: index,
-                    amendment_id: m.amendment_id.clone(),
-                    question,
-                }),
-            }
+    match output {
+        None => {
+            let mut dataset =
+                crate::fail::or_exit(Dataset::open_sqlite(&args.dataset), "Error opening dataset");
+            matching.apply(&mut dataset);
+            println!("Wrote {}", args.dataset);
         }
-        println!("{} cached; {} to query", answered.len(), todo.len());
-        reused += answered.len();
-        queried += todo.len();
-
-        // Ask the LLM which candidate(s) each remaining amendment matches.
-        let (matched, lost) = classify_all(&llm, &todo, args.threads, &cache, &cache_path, &opts);
-        failed.extend(lost);
-        answered.extend(matched);
-
-        // Apply the LLM's annotations single-threaded.
-        for (match_idx, classification) in answered {
-            let m = &matches[match_idx];
-            // One reply produced every annotation below, so it is recorded once
-            // and referenced, not copied onto each.
-            let reply_id = crate::fail::or_exit(
-                dataset.add_reply(&classification.reply),
-                "Error recording the model reply",
+        Some(output) => {
+            let mut dataset = crate::fail::or_exit(
+                Dataset::load(&args.dataset, Format::Compact),
+                "Error loading dataset",
             );
-            for ann in classification.annotations {
-                let Some(candidate) = usize::try_from(ann.candidate_index)
-                    .ok()
-                    .and_then(|i| m.candidates.get(i))
-                else {
-                    continue;
-                };
+            matching.apply(&mut dataset);
+            crate::fail::or_exit(
+                dataset.save(output, Format::Compact),
+                "Error saving dataset",
+            );
+            println!("Wrote {output}");
+        }
+    }
+}
 
-                let annotation = ChangeAnnotation {
-                    // A model answers in the drafter's words, so the reading is
-                    // `from_prose`: `strike` becomes the schema's `delete` and
-                    // `strike and insert` its `substitute`. A word neither
-                    // vocabulary holds still falls back to `Amend`, because an
-                    // annotation must name an action, but it is said out loud
-                    // first. `Amend` on its own would be a quiet lie about what
-                    // the law did.
-                    operation: ann
-                        .operation
-                        .as_deref()
-                        .and_then(read_operation)
-                        .unwrap_or(AmendingAction::Amend),
-                    source_bill: BillReference {
-                        bill_id: m.bill_id.clone(),
-                        amendment_id: m.amendment_id.clone(),
-                        causative_text: ann
-                            .causative_text
-                            .clone()
-                            .unwrap_or_else(|| m.amending_text.clone()),
-                    },
-                    paths: vec![candidate.diff.root_path.clone()],
-                    metadata: AnnotationMetadata {
-                        status: AnnotationStatus::Pending,
-                        confidence: ann.confidence,
-                        annotator: annotator.clone(),
-                        timestamp: time::OffsetDateTime::now_utc(),
-                        notes: None,
-                        reasoning: ann.reasoning,
-                    },
+impl Matching<'_> {
+    /// Ask the model about every amendment in the span, and write what it
+    /// answers into the dataset.
+    fn apply<S: Storage + LegislatureReader>(&self, dataset: &mut Dataset<S>) {
+        let args = self.args;
+        let pairs = args.span.resolve(&*dataset);
+        let mut candidates_by_work = Vec::new();
+        let mut applied = 0;
+        let mut annotated_paths = 0;
+        let mut reused = 0;
+        let mut queried = 0;
+        // Amendments whose reply never parsed, gathered across every pair in the
+        // span so one run reports one total.
+        let mut failed: Vec<String> = Vec::new();
+
+        for (from, to) in pairs {
+            let diff =
+                crate::fail::or_exit(dataset.compute_diff(&from, &to), "Error computing diff");
+
+            let matches = build_matches(&*dataset, &diff, args.similarity_cutoff);
+            println!("\n{from} -> {to}");
+            print_stats(&matches);
+
+            // Split the amendments into the ones a cached reply already answers
+            // and the ones the model still has to be asked about. `--no-cache`
+            // sends every one of them to the model.
+            let mut answered: Vec<(usize, Classification)> = Vec::new();
+            let mut todo: Vec<Task> = Vec::new();
+            for (index, m) in matches.iter().enumerate() {
+                let question = question(m);
+                let cached = if args.no_cache {
+                    None
+                } else {
+                    cached_classification(self.cache, &question)
                 };
-                // Links are what is stored, so this writes links rather than
-                // handing an annotation to a convenience that fans out. One
-                // annotation is one link per path it names.
-                for mut link in Link::from_annotation(&annotation, &from, &to) {
-                    link.provenance.evidence = Some(Evidence {
-                        reasoning: annotation.metadata.reasoning.clone(),
-                        reply: Some(reply_id.clone()),
-                        model: Some(model_name.clone()),
-                        prompt_hash: Some(classification.prompt_hash.clone()),
-                    });
-                    crate::fail::or_exit(dataset.add_link(link), "Error adding link");
+                match cached {
+                    Some(classification) => answered.push((index, classification)),
+                    None => todo.push(Task {
+                        match_index: index,
+                        amendment_id: m.amendment_id.clone(),
+                        question,
+                    }),
                 }
-                applied += 1;
             }
+            println!("{} cached; {} to query", answered.len(), todo.len());
+            reused += answered.len();
+            queried += todo.len();
+
+            // Ask the LLM which candidate(s) each remaining amendment matches.
+            let (matched, lost) = classify_all(
+                self.llm,
+                &todo,
+                args.threads,
+                self.cache,
+                self.cache_path,
+                self.opts,
+            );
+            failed.extend(lost);
+            answered.extend(matched);
+
+            // Apply the LLM's annotations single-threaded.
+            for (match_idx, classification) in answered {
+                let m = &matches[match_idx];
+                // One reply produced every annotation below, so it is recorded once
+                // and referenced, not copied onto each.
+                let reply_id = crate::fail::or_exit(
+                    dataset.add_reply(&classification.reply),
+                    "Error recording the model reply",
+                );
+                for ann in classification.annotations {
+                    let Some(candidate) = usize::try_from(ann.candidate_index)
+                        .ok()
+                        .and_then(|i| m.candidates.get(i))
+                    else {
+                        continue;
+                    };
+
+                    let annotation = ChangeAnnotation {
+                        // A model answers in the drafter's words, so the reading is
+                        // `from_prose`: `strike` becomes the schema's `delete` and
+                        // `strike and insert` its `substitute`. A word neither
+                        // vocabulary holds still falls back to `Amend`, because an
+                        // annotation must name an action, but it is said out loud
+                        // first. `Amend` on its own would be a quiet lie about what
+                        // the law did.
+                        operation: ann
+                            .operation
+                            .as_deref()
+                            .and_then(read_operation)
+                            .unwrap_or(AmendingAction::Amend),
+                        source_bill: BillReference {
+                            bill_id: m.bill_id.clone(),
+                            amendment_id: m.amendment_id.clone(),
+                            causative_text: ann
+                                .causative_text
+                                .clone()
+                                .unwrap_or_else(|| m.amending_text.clone()),
+                        },
+                        paths: vec![candidate.diff.root_path.clone()],
+                        metadata: AnnotationMetadata {
+                            status: AnnotationStatus::Pending,
+                            confidence: ann.confidence,
+                            annotator: self.annotator.to_string(),
+                            timestamp: time::OffsetDateTime::now_utc(),
+                            notes: None,
+                            reasoning: ann.reasoning,
+                        },
+                    };
+                    // Links are what is stored, so this writes links rather than
+                    // handing an annotation to a convenience that fans out. One
+                    // annotation is one link per path it names.
+                    for mut link in Link::from_annotation(&annotation, &from, &to) {
+                        link.provenance.evidence = Some(Evidence {
+                            reasoning: annotation.metadata.reasoning.clone(),
+                            reply: Some(reply_id.clone()),
+                            model: Some(self.model_name.to_string()),
+                            prompt_hash: Some(classification.prompt_hash.clone()),
+                        });
+                        crate::fail::or_exit(dataset.add_link(link), "Error adding link");
+                    }
+                    applied += 1;
+                }
+            }
+
+            annotated_paths += dataset.annotated_paths(&from, &to).len();
+            candidates_by_work.push(CandidatesOfWork {
+                work: from.work.to_string(),
+                from: from.to_string(),
+                to: to.to_string(),
+                amendments: candidates_view(&matches),
+            });
         }
 
-        annotated_paths += dataset.annotated_paths(&from, &to).len();
-        candidates_by_work.push(CandidatesOfWork {
-            work: from.work.to_string(),
-            from: from.to_string(),
-            to: to.to_string(),
-            amendments: candidates_view(&matches),
-        });
+        // Persist the candidate view next to the dataset for inspection.
+        let candidates_path = sibling(&args.dataset, "candidates.json");
+        crate::fail::or_exit(
+            fs::write(
+                &candidates_path,
+                serde_json::to_string_pretty(&candidates_by_work)
+                    .expect("Error serializing candidates"),
+            ),
+            "Error writing candidates.json",
+        );
+
+        println!(
+            "\nApplied {applied} annotation(s) across {} work(s)",
+            candidates_by_work.len()
+        );
+        println!("{reused} replies reused; {queried} model calls made");
+        println!("Annotated paths: {annotated_paths}");
+        crate::report::failed_amendments(&failed);
+        println!("Wrote {}", candidates_path.display());
     }
-
-    // Persist the candidate view next to the dataset for inspection.
-    let candidates_path = sibling(&args.dataset, "candidates.json");
-    crate::fail::or_exit(
-        fs::write(
-            &candidates_path,
-            serde_json::to_string_pretty(&candidates_by_work)
-                .expect("Error serializing candidates"),
-        ),
-        "Error writing candidates.json",
-    );
-
-    let output = args.output.as_deref().unwrap_or(&args.dataset);
-    crate::fail::or_exit(
-        dataset.save(output, Format::Compact),
-        "Error saving dataset",
-    );
-
-    println!(
-        "\nApplied {applied} annotation(s) across {} work(s)",
-        candidates_by_work.len()
-    );
-    println!("{reused} replies reused; {queried} model calls made");
-    println!("Annotated paths: {annotated_paths}");
-    crate::report::failed_amendments(&failed);
-    println!("Wrote {}", candidates_path.display());
-    println!("Wrote {output}");
 }
 
 fn print_stats(matches: &[AmendmentMatch]) {

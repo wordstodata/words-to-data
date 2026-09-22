@@ -26,7 +26,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
-use words_to_data::storage::EvidenceReader;
+use words_to_data::link::LinkKind;
+use words_to_data::storage::{EvidenceReader, LinkReader};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 /// A real public law from the test corpus: HR 1 of the 119th Congress.
@@ -209,6 +210,29 @@ fn dataset_with_amendments(name: &str, count: usize) -> String {
 /// rather than invented words. It decides which candidates appear, not what the
 /// command does with a reply, which is what the test is about.
 fn dataset_for_matching(name: &str) -> String {
+    let (dataset, directory) = matching_fixture(name);
+    let path = format!("{directory}/dataset.json");
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+    path
+}
+
+/// The same fixture as a database, which is the form the pipeline is meant to
+/// work against (#195).
+fn sqlite_dataset_for_matching(name: &str) -> String {
+    let (dataset, directory) = matching_fixture(name);
+    let path = format!("{directory}/dataset.sqlite");
+    // A database left by an earlier run would already hold this run's links.
+    let _ = std::fs::remove_file(&path);
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+    path
+}
+
+/// Build the fixture in memory, in its own directory, and hand back both.
+fn matching_fixture(name: &str) -> (Dataset<words_to_data::storage::InMemoryStorage>, String) {
     let directory = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&directory).expect("the fixture directory should exist");
     // A cache left by an earlier run of this test would answer for the server.
@@ -238,11 +262,7 @@ fn dataset_for_matching(name: &str) -> String {
     }
     dataset.add_bill(bill).expect("the bill should be added");
 
-    let path = format!("{directory}/dataset.json");
-    dataset
-        .save(&path, Format::Compact)
-        .expect("the fixture should save");
-    path
+    (dataset, directory)
 }
 
 #[test]
@@ -662,6 +682,34 @@ fn run_match_amendments(
         .args(extra)
         .output()
         .expect("the binary should run")
+}
+
+/// A database is changed where it sits, so the run needs nowhere to write it
+/// (#195). `match-amendments` used to refuse a SQLite dataset and say to
+/// convert it to JSON first, which is the form that cannot give the run a
+/// transaction.
+#[test]
+fn should_change_the_database_in_place_when_match_amendments_is_given_sqlite() {
+    let dataset_path = sqlite_dataset_for_matching("llm_match_sqlite");
+    let base_url = start_stub_server(real_reply("match-amendments"));
+
+    // No --output: the database is where the result belongs.
+    let output = run_match_amendments(&dataset_path, &base_url, &[]);
+
+    assert!(
+        output.status.success(),
+        "the command should accept a database, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let changed = Dataset::open_sqlite(&dataset_path).expect("the database should open");
+    let links = changed
+        .links_by_kind(LinkKind::AMENDED_BY)
+        .expect("reading the links should work");
+    assert!(
+        !links.is_empty(),
+        "the run should leave its links in the database it was given"
+    );
 }
 
 /// Every call `match-amendments` makes is bought, so a second run over an
