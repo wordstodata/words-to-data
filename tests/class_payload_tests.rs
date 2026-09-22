@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use tempfile::TempDir;
 use words_to_data::dataset::{
-    Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
+    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
 };
 use words_to_data::document::{ClassPayload, DocumentNode};
 use words_to_data::inspect;
@@ -168,8 +168,8 @@ fn should_report_and_search_nodes_whose_payload_is_in_an_unknown_namespace() {
     );
 
     for (label, dataset) in [
-        ("memory", &unknown as &dyn ReportsNodes),
-        ("sqlite", &sqlite as &dyn ReportsNodes),
+        ("memory", &unknown as &dyn AnyBackend),
+        ("sqlite", &sqlite as &dyn AnyBackend),
     ] {
         // A payload it cannot open must cost a reader nothing. It still counts
         // the nodes, finds one by path, and searches the words inside it.
@@ -233,17 +233,79 @@ fn should_diff_two_expressions_whose_payloads_are_in_an_unknown_namespace() {
     }
 }
 
-/// The three questions asked of both backends above, behind one name.
+#[test]
+fn should_hand_back_a_payload_byte_for_byte_on_both_backends_and_through_a_w2d_file() {
+    let (known, unknown) = known_and_unknown(TITLE_9, &[EARLY]);
+    let expected = unknown.payloads();
+    assert_eq!(
+        expected.len(),
+        known.payloads().len(),
+        "relabelling should move every payload, not drop any"
+    );
+    assert!(
+        expected.len() > 50,
+        "the fixture should carry a payload worth round-tripping, got {}",
+        expected.len()
+    );
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let file = dir.path().join("dataset.w2d");
+    let file = file.to_str().expect("a printable path");
+    unknown
+        .save(file, Format::Compact)
+        .expect("write the W2D file");
+    let from_file = Dataset::load(file, Format::Compact).expect("read the W2D file");
+
+    let (_sqlite_dir, sqlite) = to_sqlite(&unknown);
+
+    for (label, carried) in [
+        ("memory", unknown.payloads()),
+        ("sqlite", sqlite.payloads()),
+        ("w2d file", from_file.payloads()),
+    ] {
+        // `docs/adr/0006` holds a payload as JSON *text* rather than as a value
+        // tree so that "hands it back unchanged" means byte for byte. A
+        // reserialization would reorder an object's keys, pass any check of
+        // what the JSON *means*, and break a third party's signature over the
+        // bytes it sent. Two `str` are equal only when their bytes are equal,
+        // so comparing the text is the byte comparison, readably.
+        assert_eq!(carried.len(), expected.len(), "{label} payload count");
+        for ((path, got), (_, want)) in carried.iter().zip(&expected) {
+            assert_eq!(
+                &*got.namespace, &*want.namespace,
+                "{label} renamed the namespace at {path}"
+            );
+            assert_eq!(
+                &*got.value, &*want.value,
+                "{label} rewrote the payload at {path}"
+            );
+        }
+    }
+}
+
+/// The questions asked of every backend above, behind one name.
 ///
 /// `Dataset<InMemoryStorage>` and `Dataset<SqliteStorage>` are different types,
-/// so a loop over the pair needs one.
-trait ReportsNodes {
+/// so a loop over them needs one.
+trait AnyBackend {
     fn element_counts(&self) -> Vec<usize>;
     fn hits_for(&self, query: &str) -> Vec<(String, String, String)>;
     fn node_at(&self, path: &str) -> Vec<DocumentNode>;
+    /// Every payload the dataset holds, by the path of the node carrying it, in
+    /// document order.
+    fn payloads(&self) -> Vec<(String, ClassPayload)>;
 }
 
-impl<S: words_to_data::storage::Storage> ReportsNodes for Dataset<S> {
+fn payloads_of(node: &DocumentNode, into: &mut Vec<(String, ClassPayload)>) {
+    if let Some(payload) = &node.data.payload {
+        into.push((node.data.path.to_string(), payload.clone()));
+    }
+    for child in &node.children {
+        payloads_of(child, into);
+    }
+}
+
+impl<S: words_to_data::storage::Storage> AnyBackend for Dataset<S> {
     fn element_counts(&self) -> Vec<usize> {
         inspect::expressions(self, None)
             .expect("list expressions")
@@ -262,5 +324,19 @@ impl<S: words_to_data::storage::Storage> ReportsNodes for Dataset<S> {
             .into_iter()
             .map(|(_, node)| node)
             .collect()
+    }
+
+    fn payloads(&self) -> Vec<(String, ClassPayload)> {
+        let mut found = Vec::new();
+        for work in self.works().expect("list works") {
+            for info in self.expressions(&work).expect("list expressions") {
+                let expression = self
+                    .get_expression(&info.id)
+                    .expect("read the expression")
+                    .expect("the expression should be there");
+                payloads_of(&expression.root, &mut found);
+            }
+        }
+        found
     }
 }
