@@ -203,3 +203,29 @@ fn should_put_the_unplaced_statements_first_when_it_reports_a_bill() {
         assert_eq!(row.reason, None);
     }
 }
+
+#[test]
+fn should_report_every_statement_as_unplaced_when_the_dataset_holds_no_window() {
+    // The organic order: a bill enters a dataset before the release points it
+    // amends. There is nothing to check a statement against, so nothing can be
+    // placed — and the report must say so, rather than say nothing.
+    let dataset = dataset_holding_the_bill();
+
+    let report =
+        inspect::redesignation_report(&dataset, None).expect("the report should read the dataset");
+
+    assert_eq!(report.totals.statements, 57);
+    assert_eq!(report.totals.links, 0);
+    assert_eq!(report.totals.unplaced, 57);
+    assert_eq!(report.rows.len(), 57);
+    assert!(report.rows.iter().all(|row| !row.placed));
+
+    // One reason, and it names what is missing: the windows, not the words.
+    assert_eq!(
+        report.totals.reasons,
+        std::collections::BTreeMap::from([(
+            "the dataset holds no window to check the statement against".to_string(),
+            57
+        )])
+    );
+}

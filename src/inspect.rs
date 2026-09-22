@@ -1380,12 +1380,19 @@ impl RedesignationRows {
 
         // A statement resolves in the one work that holds its section and fails
         // in every other, so the reports are folded rather than concatenated.
-        let mut per_work = Vec::new();
-        for (from, to) in windows {
-            let (earlier, later) = crate::storage::memory::require_same_work(dataset, from, to)?;
-            per_work.push(redesignation::resolve(&stated, &earlier.root, &later.root));
-        }
-        let folded = RedesignationReport::across_works(per_work);
+        // With no window at all there is nothing to fold, and every statement
+        // is unplaced for want of one.
+        let folded = if windows.is_empty() {
+            RedesignationReport::without_a_window(&stated)
+        } else {
+            let mut per_work = Vec::new();
+            for (from, to) in windows {
+                let (earlier, later) =
+                    crate::storage::memory::require_same_work(dataset, from, to)?;
+                per_work.push(redesignation::resolve(&stated, &earlier.root, &later.root));
+            }
+            RedesignationReport::across_works(per_work)
+        };
 
         self.totals.statements += folded.statements();
         self.totals.links += folded.links();

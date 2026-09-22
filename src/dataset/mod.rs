@@ -304,8 +304,18 @@ impl<S: Storage> Dataset<S> {
             return Ok(RedesignationReport::default());
         }
 
+        // A bill loaded before the release points it amends has no window to be
+        // checked against. Every statement it makes is unplaced, and saying
+        // nothing would read as a bill that renumbered nothing (#153).
+        let windows = adjacent_expressions(&self.storage)?;
+        if windows.is_empty() {
+            let report = RedesignationReport::without_a_window(&stated);
+            report.warn(bill_id);
+            return Ok(report);
+        }
+
         let mut per_work = Vec::new();
-        for (from, to) in adjacent_expressions(&self.storage)? {
+        for (from, to) in windows {
             per_work.push(self.record_redesignations(bill_id, &stated, &from, &to)?);
         }
         let report = RedesignationReport::across_works(per_work);

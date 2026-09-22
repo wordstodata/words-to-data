@@ -156,6 +156,14 @@ pub enum Reason {
     /// The dataset does not hold the section under amendment, so nothing here
     /// can be checked against law that is really there.
     SectionNotHeld(String),
+    /// The dataset holds no pair of neighbouring expressions at all, so there
+    /// is no window in which a renumbering could have happened.
+    ///
+    /// The organic order: a bill is loaded before the release points it amends.
+    /// Every statement it makes is unplaced, and the report must say so rather
+    /// than say nothing — a silent report would read as a bill that renumbered
+    /// nothing.
+    NoWindowHeld,
     /// The container the clause sits in is not in the document at that path.
     ContainerNotHeld(String),
     /// One path names more than one provision here, so which one was renumbered
@@ -206,6 +214,10 @@ impl fmt::Display for Reason {
                 write!(f, "nothing says which title holds section {section}")
             }
             Self::SectionNotHeld(id) => write!(f, "the dataset does not hold {id}"),
+            Self::NoWindowHeld => write!(
+                f,
+                "the dataset holds no window to check the statement against"
+            ),
             Self::ContainerNotHeld(path) => write!(f, "no provision at {path}"),
             Self::ContainerIsAmbiguous(path) => write!(f, "{path} names more than one provision"),
             Self::ProvisionNotHeld(path) => write!(f, "no provision at {path} before the bill"),
@@ -493,6 +505,28 @@ impl RedesignationReport {
         eprintln!("{}", self.summary(label));
         for unplaced in &self.unplaced {
             eprintln!("{unplaced}");
+        }
+    }
+
+    /// Every statement, unplaced, because the dataset holds no window.
+    ///
+    /// A bill loaded before the release points it amends has nothing to be
+    /// checked against. Folding no reports at all gives an empty report, which
+    /// says a bill renumbered nothing — the one thing this must never say
+    /// (`CONTEXT.md`, Unplaced statement).
+    pub fn without_a_window(stated: &[StatedRedesignation]) -> Self {
+        Self {
+            resolved: Vec::new(),
+            unplaced: stated
+                .iter()
+                .map(|statement| UnplacedStatement {
+                    amendment_id: statement.amendment_id.clone(),
+                    text: statement.text.clone(),
+                    path: statement.path.clone(),
+                    reason: Reason::NoWindowHeld,
+                    reader: Reader::Rule,
+                })
+                .collect(),
         }
     }
 
