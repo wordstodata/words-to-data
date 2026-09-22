@@ -16,10 +16,14 @@ _Avoid_: Diffing, legal diff, change detection
 
 **Dataset**:
 A collection of legal documents and the statements that connect them (see Link, below). It has no fixed size: one title, or all of federal and state law.
-_Avoid_: Corpus, database, collection
+_Avoid_: Corpus, collection
+
+**Database**:
+Where a Dataset is kept between runs and changed in place.
+_Avoid_: Store, backend, working copy
 
 **W2D file**:
-One portable file that carries a Dataset to another party.
+A Dataset serialized to one file, to carry it to another party. A serialization, and not a place a Dataset lives (`docs/adr/0011-a-dataset-lives-in-a-database-json-is-serialization.md`).
 _Avoid_: Export, dump, archive
 
 **Scope**:
