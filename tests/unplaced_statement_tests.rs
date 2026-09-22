@@ -12,13 +12,23 @@
 use std::collections::HashMap;
 
 use words_to_data::congress::BillDownload;
-use words_to_data::dataset::{Dataset, DatasetMetadata};
+use words_to_data::dataset::{
+    Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
+};
+use words_to_data::legislature::redesignation::Reader;
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
+use words_to_data::uslm::parser::parse;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
 const BILL_ID: &str = "119-hr-1";
+
+/// Title 26 before and after `119-hr-1` reached the Code.
+const TITLE_26_BEFORE: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
+const TITLE_26_AFTER: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
+const BEFORE: &str = "2025-07-18";
+const AFTER: &str = "2025-07-30";
 
 /// The bill as the Congress client would hand it over, read from the committed
 /// cache, so a test exercises the path a build really takes.
@@ -64,6 +74,65 @@ fn should_name_the_path_in_the_bill_when_a_statement_is_read_from_the_stored_bil
             .path
             .as_deref()
             .expect("a statement read from the stored bill knows where it sat");
+        assert!(
+            bill.root.find(path).is_some(),
+            "the bill should hold a node at {path}"
+        );
+    }
+}
+
+/// Title 26 at both release points, and then the bill, which is the order a
+/// build takes: the windows exist before a bill is swept against them.
+fn dataset_holding_title_26_and_the_bill() -> Dataset<InMemoryStorage> {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    for (path, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
+        let parsed = parse(path, date).expect("title 26 should parse");
+        for root in work_roots(parsed) {
+            let work = WorkId::new(root.data.path.to_string());
+            dataset
+                .add_expression(Expression {
+                    id: ExpressionId::new(work, date),
+                    label: None,
+                    root,
+                })
+                .expect("the expression should store");
+        }
+    }
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the committed bill should load");
+    dataset
+}
+
+#[test]
+fn should_name_the_reader_and_the_path_when_a_statement_cannot_be_placed() {
+    let mut dataset = dataset_holding_title_26_and_the_bill();
+    let bill = dataset
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+
+    let report = dataset
+        .record_redesignations_stated_in(BILL_ID, &bill.root)
+        .expect("the sweep should run");
+
+    assert!(
+        !report.unplaced.is_empty(),
+        "119-hr-1 states more than title 26 alone can place"
+    );
+    for statement in &report.unplaced {
+        // The rule reader is the only one that reads today. The model reader
+        // comes with #154 (ADR 0010).
+        assert_eq!(statement.reader, Reader::Rule);
+
+        // The words, and where they sit in the bill, so a reviewer can open
+        // them. Eleven of the thirteen the full corpus leaves unplaced have no
+        // US Code path at all, so this is the only path they carry.
+        assert!(!statement.text.is_empty());
+        let path = statement
+            .path
+            .as_deref()
+            .expect("an unplaced statement says where its words sit");
         assert!(
             bill.root.find(path).is_some(),
             "the bill should hold a node at {path}"
