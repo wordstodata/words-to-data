@@ -15,9 +15,12 @@ use serde::Serialize;
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{Party, PartyOnDate, VotePosition};
-use crate::dataset::{DatasetError, ExpressionId, Scope, SearchResult, WorkId};
+use crate::dataset::{
+    DatasetError, ExpressionId, Scope, SearchResult, WorkId, adjacent_expressions, bill_document,
+};
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
+use crate::legislature::redesignation::{self, Reader, RedesignationReport};
 use crate::link::{ProvisionHistory, RedesignationStep, VerificationState};
 use crate::storage::{LegislatureReader, Storage};
 
@@ -1238,6 +1241,241 @@ pub fn coverage<S: Storage>(
         unannotated_paths,
         coverage,
     })
+}
+
+/// One claim about a renumbering, placed or not.
+///
+/// A placed statement gives one row for each renumbering it placed, because
+/// each is a separate claim with its own two paths and its own figure, and a
+/// reviewer checks them one at a time. A statement no reader placed gives one
+/// row, because there is nothing to check it against. So the rows are never a
+/// count of statements; [`RedesignationTotals`] carries that (#166).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RedesignationRow {
+    /// The bill that made the statement, as the dataset names it: `119-hr-1`.
+    pub bill_id: String,
+    /// Where in the bill the words sit, as a structural path.
+    ///
+    /// `None` only for a bill whose document this dataset does not hold, which
+    /// is every dataset built before #196.
+    pub bill_path: Option<String>,
+    /// The amendment the words were read out of, by its content hash.
+    pub amendment_id: String,
+    /// The clause, as the bill wrote it.
+    pub clause: String,
+    /// The reader that placed it, or failed to.
+    pub reader: Reader,
+    pub placed: bool,
+    /// Why no reader could place it. `None` when it was placed.
+    pub reason: Option<String>,
+    /// Where the provision was before the bill. `None` when it was not placed.
+    pub from_path: Option<String>,
+    /// Where the bill put it. `None` when it was not placed.
+    pub to_path: Option<String>,
+    /// How far the words at the two ends agree (#151).
+    ///
+    /// `None` when nothing was placed, and so nothing was compared. It is not
+    /// zero: a figure of zero says two provisions share no words, which is a
+    /// measurement, and no measurement was made here.
+    pub corroboration: Option<f32>,
+}
+
+/// What a whole redesignation report counts.
+///
+/// Four numbers that measure four different things, so a reader must read them
+/// all and add none of them (#166). One clause can state fourteen renumberings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct RedesignationTotals {
+    /// Bills whose document this dataset holds and this report read.
+    pub bills: usize,
+    /// Statements those bills made, placed or not, each counted once.
+    pub statements: usize,
+    /// Renumberings that became links.
+    pub links: usize,
+    /// Statements no reader could place, each counted once.
+    pub unplaced: usize,
+    /// How many statements each reason accounts for, so an agent can see which
+    /// hole is worth closing first.
+    pub reasons: BTreeMap<String, usize>,
+}
+
+/// Every claim a dataset's bills make about renumbering, weakest first.
+///
+/// The queue `docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`
+/// asks for, with the statements no reader placed in front of it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct RedesignationRows {
+    pub totals: RedesignationTotals,
+    pub rows: Vec<RedesignationRow>,
+}
+
+/// Report every redesignation a dataset's bills state, and what became of each.
+///
+/// `bill_id` names one bill, or `None` reports every bill the dataset holds.
+///
+/// **It reads the dataset and nothing else.** No XML, and no model call. The
+/// dataset holds the bill as a document (ADR 0009, #196), so the words and the
+/// path are read back out of it, and resolving them against the windows the
+/// dataset holds gives the rest. A party holding the same file gets the same
+/// rows.
+///
+/// That is why nothing here is stored beside the links. The same bill leaves 31
+/// statements unplaced against title 26 alone and 13 against the whole corpus,
+/// so a row written when the bill was loaded becomes false as soon as
+/// `add-release-points` grows the dataset (#180). A derivation cannot go stale
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+///
+/// A bill whose document the dataset does not hold is skipped rather than
+/// reported empty: it is a dataset built before #196, and it holds nothing to
+/// read.
+pub fn redesignation_report<S: Storage + LegislatureReader>(
+    dataset: &S,
+    bill_id: Option<&str>,
+) -> Result<RedesignationRows, DatasetError> {
+    let wanted = match bill_id {
+        Some(id) => vec![id.to_string()],
+        None => dataset.list_bill_ids()?,
+    };
+    let windows = adjacent_expressions(dataset)?;
+
+    let mut report = RedesignationRows::default();
+    for bill in wanted {
+        let Some(document) = bill_document(dataset, &bill)? else {
+            continue;
+        };
+        report.add_bill(dataset, &bill, &document.root, &windows)?;
+    }
+    report.sort_weakest_first();
+    Ok(report)
+}
+
+impl RedesignationRows {
+    /// Read one bill, resolve it against every window, and add its rows.
+    fn add_bill<S: Storage>(
+        &mut self,
+        dataset: &S,
+        bill_id: &str,
+        bill: &DocumentNode,
+        windows: &[crate::dataset::ExpressionPair],
+    ) -> Result<(), DatasetError> {
+        let stated = crate::uslm::bill_redesignation::redesignations_stated_in(bill_id, bill);
+        if stated.is_empty() {
+            return Ok(());
+        }
+        self.totals.bills += 1;
+
+        // Where each statement's words sit in the bill. A resolved statement is
+        // named by its amendment and its words, which is the same pair
+        // `across_works` folds by, so the path is looked up under it.
+        let bill_path: BTreeMap<(&str, &str), &str> = stated
+            .iter()
+            .filter_map(|statement| {
+                let path = statement.path.as_deref()?;
+                Some((
+                    (statement.amendment_id.as_str(), statement.text.as_str()),
+                    path,
+                ))
+            })
+            .collect();
+
+        // A statement resolves in the one work that holds its section and fails
+        // in every other, so the reports are folded rather than concatenated.
+        let mut per_work = Vec::new();
+        for (from, to) in windows {
+            let (earlier, later) = crate::storage::memory::require_same_work(dataset, from, to)?;
+            per_work.push(redesignation::resolve(&stated, &earlier.root, &later.root));
+        }
+        let folded = RedesignationReport::across_works(per_work);
+
+        self.totals.statements += folded.statements();
+        self.totals.links += folded.links();
+        self.totals.unplaced += folded.statements_unplaced();
+
+        let path_of = |amendment_id: &str, text: &str| {
+            bill_path
+                .get(&(amendment_id, text))
+                .map(|path| path.to_string())
+        };
+
+        for statement in &folded.unplaced {
+            *self
+                .totals
+                .reasons
+                .entry(statement.reason.to_string())
+                .or_default() += 1;
+            self.rows.push(RedesignationRow {
+                bill_id: bill_id.to_string(),
+                bill_path: statement
+                    .path
+                    .clone()
+                    .or_else(|| path_of(&statement.amendment_id, &statement.text)),
+                amendment_id: statement.amendment_id.clone(),
+                clause: statement.text.clone(),
+                reader: statement.reader,
+                placed: false,
+                reason: Some(statement.reason.to_string()),
+                from_path: None,
+                to_path: None,
+                corroboration: None,
+            });
+        }
+
+        for placed in &folded.resolved {
+            self.rows.push(RedesignationRow {
+                bill_id: bill_id.to_string(),
+                bill_path: path_of(&placed.amendment_id, &placed.text),
+                amendment_id: placed.amendment_id.clone(),
+                clause: placed.text.clone(),
+                // One resolver makes every path, and the rules are what reached
+                // it (ADR 0010). The model reader names itself when #154 builds
+                // it.
+                reader: Reader::Rule,
+                placed: true,
+                reason: None,
+                from_path: Some(placed.from_path.clone()),
+                to_path: Some(placed.to_path.clone()),
+                corroboration: Some(placed.corroboration.score),
+            });
+        }
+        Ok(())
+    }
+
+    /// Put the weakest claims first, in an order that does not move between
+    /// runs.
+    ///
+    /// A statement nothing placed comes before anything placed: no path was
+    /// made at all, which is weaker than a path whose words disagree. Then the
+    /// placed rows run from the least corroborated upwards, which is the queue
+    /// ADR 0010 asks for.
+    ///
+    /// The rest of the key is there only to make the order stable. An agent
+    /// reads these rows, so two runs over one dataset must give one answer, and
+    /// figures tie often.
+    fn sort_weakest_first(&mut self) {
+        self.rows.sort_by(|left, right| {
+            left.placed
+                .cmp(&right.placed)
+                .then_with(|| weakest_first(left.corroboration, right.corroboration))
+                .then_with(|| left.bill_id.cmp(&right.bill_id))
+                .then_with(|| left.amendment_id.cmp(&right.amendment_id))
+                .then_with(|| left.from_path.cmp(&right.from_path))
+                .then_with(|| left.to_path.cmp(&right.to_path))
+                .then_with(|| left.clause.cmp(&right.clause))
+        });
+    }
+}
+
+/// Order two corroboration figures, the weaker one first.
+///
+/// `f32` has no total order, because of NaN, so `total_cmp` is what sorts it. A
+/// row with no figure comes first, which is where an unplaced row belongs.
+fn weakest_first(left: Option<f32>, right: Option<f32>) -> std::cmp::Ordering {
+    match (left, right) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (Some(left), Some(right)) => left.total_cmp(&right),
+    }
 }
 
 /// Full-text search across every expression, returning each field match.

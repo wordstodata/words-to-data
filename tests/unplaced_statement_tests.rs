@@ -15,6 +15,7 @@ use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
 };
+use words_to_data::inspect;
 use words_to_data::legislature::redesignation::Reader;
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
@@ -137,5 +138,68 @@ fn should_name_the_reader_and_the_path_when_a_statement_cannot_be_placed() {
             bill.root.find(path).is_some(),
             "the bill should hold a node at {path}"
         );
+    }
+}
+
+#[test]
+fn should_put_the_unplaced_statements_first_when_it_reports_a_bill() {
+    let dataset = dataset_holding_title_26_and_the_bill();
+
+    // The whole report, from the dataset alone: no XML, and no model call.
+    let report =
+        inspect::redesignation_report(&dataset, None).expect("the report should read the dataset");
+
+    // One row for each link, and one row for each statement no reader placed.
+    // The two counts measure different things and are never added (#166).
+    assert!(report.totals.statements > 0);
+    assert!(report.totals.links > 0);
+    assert!(report.totals.unplaced > 0);
+    assert_eq!(
+        report.rows.len(),
+        report.totals.links + report.totals.unplaced
+    );
+
+    // Weakest first: nothing placed at all comes before anything placed.
+    let first_placed = report
+        .rows
+        .iter()
+        .position(|row| row.placed)
+        .expect("title 26 places some of what the bill states");
+    assert!(
+        report.rows[..first_placed].iter().all(|row| !row.placed),
+        "every unplaced row comes before the first placed one"
+    );
+    assert_eq!(first_placed, report.totals.unplaced);
+
+    // Then the placed rows run from the least corroborated upwards, so a
+    // reviewer reads the doubtful handful first (ADR 0010).
+    let figures: Vec<f32> = report.rows[first_placed..]
+        .iter()
+        .map(|row| row.corroboration.expect("a placed row carries a figure"))
+        .collect();
+    assert!(
+        figures.windows(2).all(|pair| pair[0] <= pair[1]),
+        "placed rows run from the weakest figure upwards: {figures:?}"
+    );
+
+    // Each unplaced row says which bill, where in it, which amendment, the
+    // words, which reader failed, and why.
+    for row in &report.rows[..first_placed] {
+        assert_eq!(row.bill_id, BILL_ID);
+        assert!(row.bill_path.is_some());
+        assert!(!row.amendment_id.is_empty());
+        assert!(!row.clause.is_empty());
+        assert_eq!(row.reader, Reader::Rule);
+        assert!(row.reason.is_some());
+        assert_eq!(row.from_path, None);
+        assert_eq!(row.to_path, None);
+    }
+
+    // Each placed row names the two paths the provision moved between, and
+    // states no reason, because nothing failed.
+    for row in &report.rows[first_placed..] {
+        assert!(row.from_path.is_some());
+        assert!(row.to_path.is_some());
+        assert_eq!(row.reason, None);
     }
 }

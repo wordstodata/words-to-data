@@ -11,7 +11,7 @@ pub use error::DatasetError;
 pub use scope::{Coverage, DateRange, Declaration, Exclusion, Scope, WorkCoverage};
 pub use work::{
     Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
-    adjacent_expressions, work_roots, works_between,
+    adjacent_expressions, bill_document, work_roots, works_between,
 };
 
 use serde::{Deserialize, Serialize};
@@ -462,35 +462,7 @@ impl<S: Storage + LegislatureReader> Dataset<S> {
     /// reading every title of the Code to find one bill would cost the whole
     /// corpus. The node type below is what says the class; the path is a filter.
     pub fn bill_document(&self, bill_id: &str) -> Result<Option<Expression>, DatasetError> {
-        let Some(bill) = self.get_bill(bill_id)? else {
-            return Ok(None);
-        };
-
-        let opens_a_public_law = format!(
-            "{}_",
-            crate::uslm::ElementType::PublicLawDocument.path_segment_name()
-        );
-        for work in self.works()? {
-            if !work.as_str().starts_with(&opens_a_public_law) {
-                continue;
-            }
-            let Some(latest) = self.expressions(&work)?.pop() else {
-                continue;
-            };
-            let Some(expression) = self.get_expression(&latest.id)? else {
-                continue;
-            };
-            if expression.root.data.node_type.namespace() != crate::document::NodeType::BILL {
-                continue;
-            }
-            let states_this_bill = crate::uslm::bill_parser::amendment_paths(&expression.root)
-                .keys()
-                .any(|amendment| bill.amendments.contains_key(amendment));
-            if states_this_bill {
-                return Ok(Some(expression));
-            }
-        }
-        Ok(None)
+        bill_document(&self.storage, bill_id)
     }
 
     /// List the IDs of every bill in the dataset.

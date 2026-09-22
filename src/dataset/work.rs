@@ -207,6 +207,64 @@ pub fn adjacent_expressions<R: crate::storage::DocumentReader + ?Sized>(
     Ok(pairs)
 }
 
+/// One bill's own document, as a dataset holds it.
+///
+/// A bill is a work like any other, stored under the number its publisher gave
+/// it — `publiclawdocument_119-21` — while the dataset knows the bill by the id
+/// it was downloaded under, `119-hr-1`. The two are joined by what the bill says
+/// rather than by a second name written down twice: every instruction in the
+/// stored document carries the content hash minted under the dataset's id, so
+/// the document that states this bill's amendments is this bill's document
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+///
+/// `None` means this dataset holds no document for that bill. A dataset built
+/// before #196 holds the bill's amendments and no document, which is the same
+/// answer: there is nothing here to read.
+///
+/// Only works whose path opens with a public law's are opened, because reading
+/// every title of the Code to find one bill would cost the whole corpus. The
+/// node type below is what says the class; the path is a filter.
+///
+/// A free function rather than a method, so a read-only report over any backend
+/// can ask for a bill without holding a [`crate::dataset::Dataset`].
+pub fn bill_document<S>(
+    storage: &S,
+    bill_id: &str,
+) -> Result<Option<crate::dataset::Expression>, crate::dataset::DatasetError>
+where
+    S: crate::storage::DocumentReader + crate::storage::LegislatureReader + ?Sized,
+{
+    let Some(bill) = storage.get_bill(bill_id)? else {
+        return Ok(None);
+    };
+
+    let opens_a_public_law = format!(
+        "{}_",
+        crate::uslm::ElementType::PublicLawDocument.path_segment_name()
+    );
+    for work in storage.works()? {
+        if !work.as_str().starts_with(&opens_a_public_law) {
+            continue;
+        }
+        let Some(latest) = storage.expressions(&work)?.pop() else {
+            continue;
+        };
+        let Some(expression) = storage.get_expression(&latest.id)? else {
+            continue;
+        };
+        if expression.root.data.node_type.namespace() != crate::document::NodeType::BILL {
+            continue;
+        }
+        let states_this_bill = crate::uslm::bill_parser::amendment_paths(&expression.root)
+            .keys()
+            .any(|amendment| bill.amendments.contains_key(amendment));
+        if states_this_bill {
+            return Ok(Some(expression));
+        }
+    }
+    Ok(None)
+}
+
 /// Split a parsed tree into the works it holds.
 ///
 /// A root that names a work, such as `uscode/title_9`, is one work and is
