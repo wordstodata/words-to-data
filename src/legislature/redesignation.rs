@@ -227,6 +227,19 @@ pub struct StatedRedesignation {
     pub amendment_id: String,
     /// The clause as the bill wrote it, so a reviewer can read the words.
     pub text: String,
+    /// Where in the bill the words sit, as a structural path.
+    ///
+    /// `CONTEXT.md` requires it of an Unplaced statement: a reviewer must be
+    /// able to open the words that defeated the reader. Eleven of the thirteen
+    /// statements `119-hr-1` leaves unplaced carry no US Code path at all, so
+    /// the path into the bill is the only one they have.
+    ///
+    /// `None` when the statement was read out of a bill's markup rather than out
+    /// of the bill a dataset holds. A path is generated when the bill becomes a
+    /// document, and markup alone has none to give
+    /// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     /// The section under amendment, as a USLM identifier: `/us/usc/t26/s898`.
     ///
     /// `None` when the bill named no section this reader could find, which is
