@@ -383,7 +383,7 @@ impl UnplacedStatement {
     /// For a caller that lays the report out its own way. Anything printing the
     /// whole of `text` will bury every other line it writes.
     pub fn clause_start(&self) -> String {
-        first_words(&self.text)
+        clause_start(&self.text)
     }
 }
 
@@ -408,7 +408,11 @@ impl fmt::Display for UnplacedStatement {
 ///
 /// The reason is never shortened. It is the part a maintainer acts on, and it is
 /// one short phrase.
-fn first_words(text: &str) -> String {
+///
+/// Public, so that every report shortens a clause by one rule. Two rules would
+/// give two lengths for one clause, and a reviewer comparing two reports would
+/// read that as two clauses.
+pub fn clause_start(text: &str) -> String {
     const SHOWN: usize = 140;
     match text.char_indices().nth(SHOWN) {
         Some((end, _)) => format!("{}…", &text[..end]),

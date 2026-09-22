@@ -10,10 +10,12 @@
 //! committed release points.
 
 use std::collections::HashMap;
+use std::process::Command;
+use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
-    Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
+    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
 };
 use words_to_data::inspect;
 use words_to_data::legislature::redesignation::Reader;
@@ -228,4 +230,87 @@ fn should_report_every_statement_as_unplaced_when_the_dataset_holds_no_window() 
             57
         )])
     );
+}
+
+/// A dataset file holding the bill, written once for the CLI tests below.
+fn bill_dataset_file() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/unplaced_bill.json", env!("CARGO_TARGET_TMPDIR"));
+        let _ = std::fs::remove_file(&path);
+        dataset_holding_the_bill()
+            .save(&path, Format::Compact)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+/// Run the CLI as a subprocess, the way an agent or a shell would.
+fn run(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(args)
+        .output()
+        .expect("the binary should run")
+}
+
+#[test]
+fn should_emit_one_row_for_each_statement_when_the_report_command_runs_with_json() {
+    let output = run(&["redesignation-report", bill_dataset_file(), "--json"]);
+
+    assert!(
+        output.status.success(),
+        "the report should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the report should emit json");
+
+    assert_eq!(report["totals"]["bills"], 1);
+    assert_eq!(report["totals"]["statements"], 57);
+    assert_eq!(report["totals"]["links"], 0);
+    assert_eq!(report["totals"]["unplaced"], 57);
+
+    let rows = report["rows"].as_array().expect("the report carries rows");
+    assert_eq!(rows.len(), 57);
+
+    // Every field an agent reads to decide what to work on next.
+    assert_eq!(rows[0]["bill_id"], BILL_ID);
+    assert_eq!(rows[0]["reader"], "rule");
+    assert_eq!(rows[0]["placed"], false);
+    assert!(rows[0]["bill_path"].is_string());
+    assert!(rows[0]["amendment_id"].is_string());
+    assert!(rows[0]["clause"].is_string());
+    assert!(rows[0]["reason"].is_string());
+}
+
+#[test]
+fn should_read_one_bill_when_the_report_command_is_given_a_bill_id() {
+    let output = run(&[
+        "redesignation-report",
+        bill_dataset_file(),
+        "--bill-id",
+        BILL_ID,
+        "--json",
+    ]);
+
+    assert!(output.status.success());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the report should emit json");
+    assert_eq!(report["totals"]["bills"], 1);
+
+    // A bill this dataset does not hold reports nothing, rather than failing.
+    // An empty answer is the truthful one: there is no document to read.
+    let missing = run(&[
+        "redesignation-report",
+        bill_dataset_file(),
+        "--bill-id",
+        "119-hr-999",
+        "--json",
+    ]);
+    assert!(missing.status.success());
+    let report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("the report should emit json");
+    assert_eq!(report["totals"]["bills"], 0);
+    assert_eq!(report["rows"].as_array().map(Vec::len), Some(0));
 }
