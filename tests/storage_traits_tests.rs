@@ -380,14 +380,8 @@ fn citation_link() -> Link {
     }
 }
 
-/// The compiling witness for #127: a full `Storage` backend that says nothing
-/// about bills.
-///
-/// The assertions matter less than the fact that this file builds. `Dataset<S>`
-/// and the generic `inspect` readers both bind to `Storage`, so the test also
-/// proves that a legislature-free backend can be handed to them.
-#[test]
-fn should_implement_storage_without_the_legislature_extension() {
+/// One title and one citation, held by a backend that has no legislature.
+fn documents_and_links_dataset() -> Dataset<DocumentsAndLinks> {
     let mut storage = InMemoryStorage::new(DatasetMetadata {
         name: "Documents and links".to_string(),
         description: "One title and one citation, no bills".to_string(),
@@ -405,6 +399,37 @@ fn should_implement_storage_without_the_legislature_extension() {
     dataset
         .add_link(citation_link())
         .expect("the citation should be added");
+    dataset
+}
+
+/// `info` reports a backend that does not implement the legislature extension,
+/// and says so rather than answering zero (#133).
+///
+/// The bound is the point: `inspect::info` asks for `Storage` alone, so this
+/// call compiles. It then asks `Storage::legislature`, which is the one
+/// capability query, and reports what it answers.
+#[test]
+fn should_report_an_absent_legislature_when_info_runs_on_a_backend_without_the_extension() {
+    let dataset = documents_and_links_dataset();
+
+    let info = words_to_data::inspect::info(&dataset).expect("info should run");
+
+    assert_eq!(info.work_count, 1, "the document counts still report");
+    assert!(
+        info.legislature.is_none(),
+        "legislature is not a concept in this backend, so no count is reported"
+    );
+}
+
+/// The compiling witness for #127: a full `Storage` backend that says nothing
+/// about bills.
+///
+/// The assertions matter less than the fact that this file builds. `Dataset<S>`
+/// and the generic `inspect` readers both bind to `Storage`, so the test also
+/// proves that a legislature-free backend can be handed to them.
+#[test]
+fn should_implement_storage_without_the_legislature_extension() {
+    let dataset = documents_and_links_dataset();
 
     // The core readers answer, through the generic code that used to demand the
     // legislature extension as well.
