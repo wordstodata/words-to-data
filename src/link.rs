@@ -262,6 +262,20 @@ impl From<&AmendmentSimilarity> for Corroboration {
 /// And nothing a reader needs in order to *report* a link may live here: a
 /// reader that cannot open the payload must still be able to say what the link
 /// is, who said it, and how far it can be trusted.
+///
+/// # Review checklist: before you add a field here
+///
+/// Work the checklist on [`ClassPayload`], with a link's questions in place of
+/// a node's. A link is reported from [`Link::kind`], [`Link::subject`],
+/// [`Link::object`] and [`Link::provenance`], so a field that says what the
+/// link is, what it connects, who said it, or how far it can be trusted belongs
+/// in one of those and not here.
+///
+/// A timestamp is the exception that proves the rule: every statement has a
+/// when, so it is [`Provenance::timestamp`] and not a payload fact that only
+/// one extension can open.
+///
+/// [`ClassPayload`]: crate::document::ClassPayload
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KindPayload {
     /// The namespace that owns these facts, such as `legislature`.
