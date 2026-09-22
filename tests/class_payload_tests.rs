@@ -44,9 +44,14 @@ use words_to_data::uslm::parser::parse;
 const UNKNOWN_NAMESPACE: &str = "no_such_class";
 
 const EARLY: &str = "2025-07-18";
+const LATER: &str = "2025-07-30";
 
 /// Title 9. Small, and it reads the same at both release points.
 const TITLE_9: &str = "usc09.xml";
+
+/// Title 7. It really changed between the two release points, so a diff over it
+/// has something to say.
+const TITLE_7: &str = "usc07.xml";
 
 /// A section of title 9 that carries both a heading and USLM facts.
 const SECTION_2: &str = "uscode/title_9/chapter_1/section_2";
@@ -187,6 +192,44 @@ fn should_report_and_search_nodes_whose_payload_is_in_an_unknown_namespace() {
             .as_ref()
             .unwrap_or_else(|| panic!("{label} dropped the payload of {SECTION_2}"));
         assert_eq!(&*payload.namespace, UNKNOWN_NAMESPACE, "{label} namespace");
+    }
+}
+
+#[test]
+fn should_diff_two_expressions_whose_payloads_are_in_an_unknown_namespace() {
+    let (known, unknown) = known_and_unknown(TITLE_7, &[EARLY, LATER]);
+    let (_dir, sqlite) = to_sqlite(&unknown);
+
+    let work = WorkId::new("uscode/title_7");
+    let from = ExpressionId::new(work.clone(), EARLY);
+    let to = ExpressionId::new(work, LATER);
+
+    let expected = inspect::diff(&known, &from, &to).expect("diff the known");
+    assert!(
+        !expected.changed_paths.is_empty(),
+        "the two release points should differ"
+    );
+
+    for (label, summary) in [
+        ("memory", inspect::diff(&unknown, &from, &to)),
+        ("sqlite", inspect::diff(&sqlite, &from, &to)),
+    ] {
+        // The diff pairs nodes on their path and their type and compares the
+        // five text fields. A payload it cannot open changes none of that, so
+        // the answer must be the one a reader of the class gets.
+        let summary = summary.unwrap_or_else(|e| panic!("{label} should diff: {e}"));
+        assert_eq!(
+            summary.changed_paths, expected.changed_paths,
+            "{label} changed paths"
+        );
+        assert_eq!(
+            summary.added_paths, expected.added_paths,
+            "{label} added paths"
+        );
+        assert_eq!(
+            summary.removed_paths, expected.removed_paths,
+            "{label} removed paths"
+        );
     }
 }
 
