@@ -349,7 +349,10 @@ fn should_report_metadata_and_counts_when_info_runs_on_a_dataset() {
     assert_eq!(info["name"], "CLI Test Fixture");
     assert_eq!(info["work_count"], 1, "two releases of one title, one work");
     assert_eq!(info["expression_count"], 2);
-    assert_eq!(info["bill_count"], 0);
+    assert!(
+        info.get("legislature").is_none(),
+        "this fixture holds no legislature, so the counts are absent"
+    );
 
     // Scope answers "why did my query find nothing". Without it, an agent
     // reading this output cannot tell an absent provision from an absent title.
@@ -396,11 +399,11 @@ fn should_carry_the_link_and_legislature_counts_when_info_emits_json() {
     // `--json` is what an agent reads, so it carries the same counts.
     assert_eq!(info["link_count"], 1);
     assert_eq!(info["link_counts_by_kind"]["legislature.amended_by"], 1);
-    assert_eq!(info["member_count"], 432);
-    assert_eq!(info["member_vote_count"], 432);
-    assert_eq!(info["roll_call_count"], 1);
-    assert_eq!(info["sponsor_count"], 1);
-    assert_eq!(info["bill_count"], 1);
+    assert_eq!(info["legislature"]["members"], 432);
+    assert_eq!(info["legislature"]["member_votes"], 432);
+    assert_eq!(info["legislature"]["roll_calls"], 1);
+    assert_eq!(info["legislature"]["sponsors"], 1);
+    assert_eq!(info["legislature"]["bills"], 1);
     assert!(
         info.get("reply_count").is_none(),
         "a count of zero is left out"
@@ -412,10 +415,13 @@ fn should_omit_a_count_of_zero_when_info_runs_on_a_dataset_without_legislature()
     let output = run(&["info", amended_fixture()]);
     let text = String::from_utf8_lossy(&output.stdout);
 
-    // A dataset with no legislature extension must not grow a wall of zeroes.
+    // A dataset that holds no links and no evidence must not grow a wall of
+    // zeroes. It does not speak legislature either, so every legislature line
+    // is absent rather than zero (#133).
     for label in [
         "Links:",
         "Replies:",
+        "Bills:",
         "Members:",
         "Sponsors:",
         "Roll calls:",
@@ -423,12 +429,11 @@ fn should_omit_a_count_of_zero_when_info_runs_on_a_dataset_without_legislature()
     ] {
         assert!(
             !text.contains(label),
-            "{label} is zero here and must not be printed, got:\n{text}"
+            "{label} has nothing to report here and must not be printed, got:\n{text}"
         );
     }
     // The counts reported before this rule are still reported.
     assert!(text.contains("Works:       1"), "got:\n{text}");
-    assert!(text.contains("Bills:       0"), "got:\n{text}");
 }
 
 /// Run `diff` over a fixture and return its parsed JSON summary.

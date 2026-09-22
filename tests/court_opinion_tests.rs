@@ -371,7 +371,10 @@ fn should_report_the_opinion_through_search_expressions_and_info() {
     let info = inspect::info(&dataset).expect("info should run");
     assert_eq!(info.work_count, 1);
     assert_eq!(info.expression_count, 1);
-    assert_eq!(info.bill_count, 0, "a judicial dataset holds no bills");
+    assert!(
+        info.legislature.is_none(),
+        "a judicial dataset does not speak legislature, so it reports no counts"
+    );
 }
 
 /// ADR 0002's rule for links, applied to nodes: a reader that does not know a
