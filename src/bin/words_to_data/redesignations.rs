@@ -39,19 +39,25 @@ pub struct Args {
     #[command(flatten)]
     pub span: Span,
 
-    /// Where to write the dataset (defaults to overwriting the input)
+    /// Where to write a compact JSON dataset. Required for compact JSON, which
+    /// is never written back over its input. Ignored for SQLite, which is
+    /// changed in place.
     #[arg(long)]
     pub output: Option<String>,
 }
 
 pub fn run(args: Args) {
     // Where the result goes: `None` is a database, which is changed in place.
-    // A W2D file is read into memory, so the result has to be written out
-    // again.
+    // A W2D file is written whole, so it must be told where to write and is
+    // never written back over its input (#186).
     let output = if crate::load::is_sqlite(&args.dataset) {
         None
     } else {
-        Some(args.output.as_deref().unwrap_or(&args.dataset))
+        Some(crate::load::output_or_refuse(
+            &args.dataset,
+            args.output.as_deref(),
+            "redesignations",
+        ))
     };
 
     match output {
