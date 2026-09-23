@@ -68,6 +68,21 @@ pub fn run(args: Args) {
         }
     }
 
+    // One line, and no detail. A reader must be able to see that the corpus
+    // said something this build could not place, because otherwise the tool's
+    // silence reads as the corpus's silence (#153). The rows live in
+    // `redesignation-report`.
+    //
+    // The three numbers measure three different things and are never added
+    // (#166): one clause can state fourteen renumberings.
+    let renumbering = &info.redesignations;
+    if !renumbering.is_silent() {
+        println!(
+            "Renumbering: {} statement(s), {} link(s), {} not placed",
+            renumbering.statements, renumbering.links, renumbering.unplaced
+        );
+    }
+
     // Scope is the answer to "why did my query find nothing". Print it, so a
     // reader of this dataset knows what it does not hold. Each work carries its
     // own dates, because a dataset need not hold every work on every date.

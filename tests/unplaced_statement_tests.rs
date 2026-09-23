@@ -314,3 +314,23 @@ fn should_read_one_bill_when_the_report_command_is_given_a_bill_id() {
     assert_eq!(report["totals"]["bills"], 0);
     assert_eq!(report["rows"].as_array().map(Vec::len), Some(0));
 }
+
+#[test]
+fn should_carry_one_line_of_renumbering_counts_when_info_runs() {
+    // `info` says how much is unplaced; the report says which and why. Without
+    // the line, a reader has no sign that the detail is worth asking for.
+    let text = run(&["info", bill_dataset_file()]);
+    assert!(text.status.success());
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        text.contains("Renumbering: 57 statement(s), 0 link(s), 57 not placed"),
+        "info should carry one line of counts, got:\n{text}"
+    );
+
+    let output = run(&["info", bill_dataset_file(), "--json"]);
+    let info: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("info --json should emit json");
+    assert_eq!(info["redesignations"]["statements"], 57);
+    assert_eq!(info["redesignations"]["links"], 0);
+    assert_eq!(info["redesignations"]["unplaced"], 57);
+}

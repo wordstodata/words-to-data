@@ -70,6 +70,22 @@ pub struct DatasetInfo {
     /// Number of member votes held, summed over every roll call.
     #[serde(skip_serializing_if = "is_zero")]
     pub member_vote_count: usize,
+    /// What this dataset's bills say about renumbering, and how much of it this
+    /// build could place.
+    ///
+    /// One line of counts, and no detail: a reader must be able to see that the
+    /// corpus said something the tool could not place, because otherwise the
+    /// tool's silence reads as the corpus's silence (#153). `--json` carries
+    /// the same numbers, and `redesignation-report` carries the rows.
+    ///
+    /// Derived rather than stored, so it cannot go stale: the same bill leaves
+    /// 31 statements unplaced against title 26 alone and 13 against the whole
+    /// corpus (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+    ///
+    /// Left out of the JSON when the dataset holds no bill that renumbers
+    /// anything, on the same rule as the counts above.
+    #[serde(skip_serializing_if = "RedesignationTotals::is_silent")]
+    pub redesignations: RedesignationTotals,
     /// What this dataset covers, so a caller can tell "absent from the law"
     /// from "absent from this dataset".
     pub scope: Scope,
@@ -1299,6 +1315,17 @@ pub struct RedesignationTotals {
     pub reasons: BTreeMap<String, usize>,
 }
 
+impl RedesignationTotals {
+    /// Whether this dataset holds no bill that states a renumbering.
+    ///
+    /// "No statements" is the one case with nothing to say. A dataset that
+    /// states renumberings and places none of them reports four numbers, three
+    /// of them zero, because that is the case this report exists for.
+    pub fn is_silent(&self) -> bool {
+        self.statements == 0
+    }
+}
+
 /// Every claim a dataset's bills make about renumbering, weakest first.
 ///
 /// The queue `docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`
@@ -1681,6 +1708,11 @@ pub fn info<S: Storage + LegislatureReader>(dataset: &S) -> Result<DatasetInfo, 
         sponsor_count: legislature.sponsors,
         roll_call_count: legislature.roll_calls,
         member_vote_count: legislature.member_votes,
+        // Derived, not counted. It resolves every statement against every
+        // window, which is the only way to answer honestly, and it costs about
+        // a tenth of a second for each window. A dataset with no bills answers
+        // at once, because there is nothing to read.
+        redesignations: redesignation_report(dataset, None)?.totals,
         scope,
     })
 }
