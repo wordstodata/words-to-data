@@ -145,12 +145,22 @@ the same default cutoff of 0.4.
 ### Step 4 — `match-amendments` (calls a model)
 
 ```bash
-words_to_data match-amendments dataset.json --between 2025-07-18 2025-07-30
+# A SQLite dataset is changed in place.
+words_to_data match-amendments dataset.sqlite --between 2025-07-18 2025-07-30
+
+# A compact JSON dataset must be told where to write.
+words_to_data match-amendments dataset.json --between 2025-07-18 2025-07-30 \
+  --output dataset-matched.json
 ```
 
 This step asks the model which change each amendment caused, and writes each
 answer into the dataset as a `legislature.amended_by` link. It takes the same
 span flags as step 3, and the same model flags as step 2.
+
+It takes either form the dataset comes in. A SQLite dataset is changed in place,
+under a transaction. A compact JSON dataset is written whole, so it is never
+written back over its input, and a run without `--output` refuses before it
+sends its first request (#186).
 
 It sends a request for each amendment that has candidates and that no cached
 reply answers. A cold run over the committed corpus sends approximately **656**
@@ -180,6 +190,14 @@ that reuses the cached replies writes the same links each time.
 The command writes `candidates.json` beside the dataset. That file records the
 question for a reader, and no command reads it.
 
+**"Beside the dataset" means the directory, not the name.** Both files take a
+fixed name in the directory the dataset sits in, so a `dataset.json` and the
+`dataset.sqlite` it converts to share one cache and one `candidates.json`. For
+the cache that is what you want, because a reply is keyed on the candidates and
+the prompt rather than on the file they came from: convert the dataset and the
+replies you already bought still answer. For `candidates.json` it means the
+later run overwrites the earlier one's report.
+
 ### Step 5 — `redesignations` (for a re-run only)
 
 Step 1 records the redesignations already, so the ordinary path does not include
@@ -187,10 +205,19 @@ this command. Use it to record the redesignations again without a rebuild — fo
 example after a change to the reader, or to see the report for one named bill.
 
 ```bash
-words_to_data redesignations dataset.json \
+# A SQLite dataset is changed in place.
+words_to_data redesignations dataset.sqlite \
   --bill-id 119-hr-1 \
   --between 2025-07-18 2025-07-30
+
+# A compact JSON dataset must be told where to write.
+words_to_data redesignations dataset.json \
+  --bill-id 119-hr-1 \
+  --between 2025-07-18 2025-07-30 \
+  --output dataset-redesignated.json
 ```
+
+This step takes either form as well, under the same rule as step 4.
 
 `--bill-id` names which bill in the dataset to read. The command reads that
 bill's own document, which step 1 stored, so nothing opens the Congress cache a
@@ -219,10 +246,11 @@ words_to_data convert-dataset dataset.json dataset.sqlite
 The output argument is positional and optional. Without it, the command swaps the
 extension of the input. The direction comes from the two extensions.
 
-**Convert last.** Steps 2, 4 and 5 write back into the dataset. Each of them
-refuses a SQLite file and tells you to convert it first. Step 1 always writes
-compact JSON, whatever the output name. Only step 3 reads either form. So keep
-compact JSON for the whole pipeline, and convert at the end.
+**Step 2 is the one that still needs compact JSON.** `extract-changes` refuses a
+SQLite file and tells you to convert it first (#199). Step 1 always writes
+compact JSON, whatever the output name. Steps 3, 4 and 5 read or write either
+form, and a dataset they change is changed in place. So convert as soon as step
+2 is done, and let the rest of the pipeline work on the database.
 
 ### What the finished dataset holds
 
