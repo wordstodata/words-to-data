@@ -263,6 +263,41 @@ gives two kinds:
 A count of zero for `legislature.redesignated_as` says that step 1 did not record
 them. A count of zero for `legislature.amended_by` says that step 4 did not run.
 
+`info` also carries one line of renumbering counts, in this shape:
+
+```text
+Renumbering: 57 statement(s), 80 link(s), 17 not placed
+```
+
+Three numbers that measure three different things, and a reader adds none of
+them: one clause can state fourteen renumberings. The last one is what the
+corpus said and this build could not turn into two paths. The figures above are
+`119-hr-1` measured over the seven titles it renumbers provisions in.
+
+### What this build could not place — `redesignation-report`
+
+```bash
+words_to_data redesignation-report dataset.json
+words_to_data redesignation-report dataset.json --bill-id 119-hr-1 --json
+```
+
+Read-only, and it takes either form. One row for each link, and one row for each
+statement no reader placed. The weakest come first: the statements nothing
+placed at all, then the placed ones from the least corroborated upwards, so a
+reviewer reads the doubtful handful first.
+
+Each row says which bill, where in the bill the words sit, which amendment, the
+clause, which reader read it, whether it was placed, the reason when it was not,
+the two paths when it was, and the corroboration figure. `--json` is what an
+agent reads, and the rows are stable, so two runs over one dataset give one
+answer.
+
+**It reads the dataset and nothing else** — no XML, and no model call. Nothing
+about an unplaced statement is stored beside the links, because the words and
+the path are already in the bill's own document and a stored row would go stale:
+the same bill leaves 31 statements unplaced against title 26 alone and 17
+against the whole Code.
+
 ### Growing a dataset — `add-release-points`
 
 A dataset does not have to be built again when one more release point comes out.
