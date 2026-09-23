@@ -15,10 +15,11 @@ use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
-    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
+    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, adjacent_expressions,
+    work_roots,
 };
 use words_to_data::inspect;
-use words_to_data::legislature::redesignation::Reader;
+use words_to_data::legislature::redesignation::{Reader, RedesignationReport};
 use words_to_data::link::LinkKind;
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
@@ -85,8 +86,36 @@ fn should_name_the_path_in_the_bill_when_a_statement_is_read_from_the_stored_bil
     }
 }
 
-/// Title 26 at both release points, and then the bill, which is the order a
-/// build takes: the windows exist before a bill is swept against them.
+/// Read the bill out of the dataset and record what it renumbered, over every
+/// window the dataset holds.
+///
+/// The explicit step (#181), as `build-dataset` runs it after it has loaded
+/// everything. Loading the bill records nothing.
+fn record_over_every_window(dataset: &mut Dataset<InMemoryStorage>) -> RedesignationReport {
+    let bill = dataset
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+    let windows = adjacent_expressions(dataset).expect("the windows should list");
+    dataset
+        .record_redesignations_over(BILL_ID, &bill.root, &windows)
+        .expect("the step should run")
+}
+
+/// Title 26 at both release points, then the bill, then the step that records
+/// what the bill renumbered.
+///
+/// The order and the work a build does (#181): the windows exist before the
+/// step runs over them, and the step is run because loading a bill records
+/// nothing. The report is what a build prints.
+fn dataset_built_over_title_26() -> (Dataset<InMemoryStorage>, RedesignationReport) {
+    let mut dataset = dataset_holding_title_26_and_the_bill();
+    let report = record_over_every_window(&mut dataset);
+    (dataset, report)
+}
+
+/// Title 26 at both release points, and then the bill, with no step run over
+/// them.
 fn dataset_holding_title_26_and_the_bill() -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (path, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
@@ -110,15 +139,11 @@ fn dataset_holding_title_26_and_the_bill() -> Dataset<InMemoryStorage> {
 
 #[test]
 fn should_name_the_reader_and_the_path_when_a_statement_cannot_be_placed() {
-    let mut dataset = dataset_holding_title_26_and_the_bill();
+    let (dataset, report) = dataset_built_over_title_26();
     let bill = dataset
         .bill_document(BILL_ID)
         .expect("the dataset should answer for the bill")
         .expect("the dataset should hold the bill as a document");
-
-    let report = dataset
-        .record_redesignations_stated_in(BILL_ID, &bill.root)
-        .expect("the sweep should run");
 
     assert!(
         !report.unplaced.is_empty(),
@@ -146,7 +171,7 @@ fn should_name_the_reader_and_the_path_when_a_statement_cannot_be_placed() {
 
 #[test]
 fn should_put_the_unplaced_statements_first_when_it_reports_a_bill() {
-    let dataset = dataset_holding_title_26_and_the_bill();
+    let (dataset, _) = dataset_built_over_title_26();
 
     // The whole report, from the dataset alone: no XML, and no model call.
     let report =
@@ -374,6 +399,10 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
     dataset
         .load_bill_download(&committed_bill_download())
         .expect("the committed bill should load");
+    // What `build-dataset` does after it has loaded everything (#181). The
+    // count below is the count this corpus gave when loading recorded the links
+    // itself, so it says the explicit step loses nothing.
+    record_over_every_window(&mut dataset);
 
     let report =
         inspect::redesignation_report(&dataset, None).expect("the report should read the dataset");

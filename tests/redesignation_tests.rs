@@ -4,11 +4,13 @@
 //! `119-hr-1`: "Section 898(c) is amended by striking paragraph (2) and
 //! redesignating paragraph (3) as paragraph (2)."
 
+use std::collections::BTreeSet;
 use std::process::Command;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
-    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
+    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, adjacent_expressions,
+    work_roots,
 };
 use words_to_data::diff::{Redesignations, TreeDiff};
 use words_to_data::legislature::redesignation::{
@@ -358,6 +360,19 @@ fn find_section(diff: &TreeDiff, segment: &str) -> String {
 
 /// Title 26 at both release points, in a dataset, with `119-hr-1`'s
 /// redesignations recorded as links.
+/// Put title 26, as it read on one date, into the dataset.
+fn add_title_26_at(dataset: &mut Dataset<InMemoryStorage>, path: &str, date: &str, work: &WorkId) {
+    let parsed = parse(path, date).expect("title 26 should parse");
+    let root = work_roots(parsed).pop().expect("the file holds one title");
+    dataset
+        .add_expression(Expression {
+            id: ExpressionId::new(work.clone(), date),
+            label: None,
+            root,
+        })
+        .expect("the expression should store");
+}
+
 /// Title 26 at both release points, and the pair of expressions they name.
 ///
 /// The law as it read before and after `119-hr-1`, with no links recorded yet.
@@ -365,15 +380,7 @@ fn dataset_holding_title_26() -> (Dataset<InMemoryStorage>, ExpressionId, Expres
     let work = WorkId::new("uscode/title_26");
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (path, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
-        let parsed = parse(path, date).expect("title 26 should parse");
-        let root = work_roots(parsed).pop().expect("the file holds one title");
-        dataset
-            .add_expression(Expression {
-                id: ExpressionId::new(work.clone(), date),
-                label: None,
-                root,
-            })
-            .expect("the expression should store");
+        add_title_26_at(&mut dataset, path, date, &work);
     }
     let from = ExpressionId::new(work.clone(), BEFORE);
     let to = ExpressionId::new(work, AFTER);
@@ -822,11 +829,13 @@ fn should_report_every_redesignation_the_corpus_states() {
 }
 
 #[test]
-fn should_record_the_redesignations_a_bill_states_when_the_bill_is_loaded() {
-    // #150. Loading the bill is what records them, so no caller can build a
-    // dataset that silently holds none. The maintainer rebuilt the corpus after
-    // #93 merged and got 889 `legislature.amended_by` links and zero
-    // redesignations, because the only sign of the gap was an absence.
+fn should_record_no_links_when_a_bill_is_loaded() {
+    // #181. Loading a bill loads a bill. At load time nobody knows which window
+    // matters, and half the time the window is not held yet, so the sweep that
+    // ran here tried every neighbouring pair in the dataset (#172). The
+    // guarantee it bought held for one build order only: a dataset grown
+    // instead of rebuilt kept no link at all, and `validate` called it fine
+    // (#180).
     let (mut dataset, _, _) = dataset_holding_title_26();
 
     dataset
@@ -834,12 +843,115 @@ fn should_record_the_redesignations_a_bill_states_when_the_bill_is_loaded() {
         .expect("the bill should load");
 
     let links = dataset
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("links should read");
+    assert!(
+        links.is_empty(),
+        "loading a bill records no redesignation link, got {}",
+        links.len()
+    );
+
+    // The bill is loaded, which is the whole of this method's work: the step
+    // that records the links reads the bill back out of the dataset.
+    assert!(
+        dataset
+            .bill_document(BILL_ID)
+            .expect("the dataset should answer for the bill")
+            .is_some(),
+        "the bill itself is stored"
+    );
+}
+
+/// Every renumbering a dataset holds, as the two paths it names.
+///
+/// A set rather than a list, so two datasets are compared by what they say and
+/// not by the order the links happened to be written in
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+fn renumberings_held(dataset: &Dataset<InMemoryStorage>) -> BTreeSet<(String, String)> {
+    dataset
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("links should read")
+        .iter()
+        .filter_map(|link| match (&link.subject, &link.object) {
+            (Target::Change { path: from, .. }, Target::Change { path: to, .. }) => {
+                Some((from.clone(), to.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Read the bill out of the dataset and record what it renumbered, over every
+/// window the dataset holds.
+///
+/// The explicit step (#181), as `build-dataset` runs it: the bill comes from the
+/// dataset, and the windows are named by the caller.
+fn record_over_every_window(dataset: &mut Dataset<InMemoryStorage>) {
+    let bill = dataset
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+    let windows = adjacent_expressions(dataset).expect("the windows should list");
+    dataset
+        .record_redesignations_over(BILL_ID, &bill.root, &windows)
+        .expect("the step should run");
+}
+
+#[test]
+fn should_hold_the_same_links_as_a_rebuild_when_a_grown_dataset_is_given_the_step() {
+    // #180 measured the fault: a dataset grown in the order release point,
+    // bill, release point held 0 links where the rebuild held 48, because
+    // nothing re-swept a bill that was already loaded. The step repairs it,
+    // whatever order the dataset was built in.
+    let work = WorkId::new("uscode/title_26");
+    let mut grown = Dataset::new(DatasetMetadata::default());
+    add_title_26_at(&mut grown, TITLE_26_BEFORE, BEFORE, &work);
+    grown
+        .load_bill_download(&committed_bill_download())
+        .expect("the bill should load");
+    add_title_26_at(&mut grown, TITLE_26_AFTER, AFTER, &work);
+    record_over_every_window(&mut grown);
+
+    // The same inputs, in the order a rebuild takes them: both release points
+    // first, then the bill, then the same step.
+    let (mut rebuilt, _, _) = dataset_holding_title_26();
+    rebuilt
+        .load_bill_download(&committed_bill_download())
+        .expect("the bill should load");
+    record_over_every_window(&mut rebuilt);
+
+    let held = renumberings_held(&grown);
+    assert!(
+        !held.is_empty(),
+        "title 26 holds renumberings this build can place"
+    );
+    assert_eq!(
+        held,
+        renumberings_held(&rebuilt),
+        "the order a dataset was built in does not change what it holds"
+    );
+}
+
+#[test]
+fn should_record_the_redesignations_a_bill_states_when_the_step_runs() {
+    // #150 asked that no build hold a bill and lack the links it states, and
+    // #155 answered it at load time. The step answers it now: a build loads
+    // everything and then runs this, which is the same link and a window it
+    // names (#181).
+    let (mut dataset, _, _) = dataset_holding_title_26();
+
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the bill should load");
+    record_over_every_window(&mut dataset);
+
+    let links = dataset
         .links_for_path(&format!("{SUBSECTION_898_C}/paragraph_3"))
         .expect("links should read");
     let redesignation = links
         .iter()
         .find(|link| link.kind.0 == LinkKind::REDESIGNATED_AS)
-        .expect("loading the bill records that § 898(c)(3) became (2)");
+        .expect("the step records that § 898(c)(3) became (2)");
 
     assert_eq!(
         redesignation.object,

@@ -3,7 +3,8 @@
 
 use clap::Args as ClapArgs;
 use words_to_data::congress::CongressClient;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, Format};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, Format, adjacent_expressions};
+use words_to_data::storage::{DocumentReader, LegislatureReader, Storage};
 
 use crate::release_points::{self, DEFAULT_MIRROR_INDEX, Missing, ReleaseSource};
 
@@ -77,6 +78,7 @@ pub fn run(args: Args) {
         "Error adding release points",
     );
 
+    let mut loaded = Vec::new();
     if !args.bills.is_empty() {
         let api_key = std::env::var("CONGRESS_API_KEY").expect(
             "Including bills requires CONGRESS_API_KEY. Get it here: https://api.congress.gov/sign-up/",
@@ -87,14 +89,59 @@ pub fn run(args: Args) {
             let download = client
                 .download_bill(bill)
                 .unwrap_or_else(|e| panic!("Error downloading bill {bill}: {e}"));
-            dataset
+            let bill_id = dataset
                 .load_bill_download(&download)
                 .unwrap_or_else(|e| panic!("Error loading bill {bill}: {e}"));
+            loaded.push(bill_id);
         }
     }
+
+    record_redesignations(&mut dataset, &loaded);
 
     dataset
         .save(&args.output, Format::Compact)
         .expect("Error saving dataset");
     println!("Wrote {}", args.output);
+}
+
+/// Record what each bill renumbered, after everything is loaded.
+///
+/// **The step runs here and not at load time (#181).** Loading a bill loads a
+/// bill; at that moment this command holds only the bills it has loaded so far,
+/// and a bill named before a release point had no window to be checked against.
+/// Here it holds every release point and every bill, which is the knowledge the
+/// load-time call did not have.
+///
+/// The windows are every window the dataset holds. This command made them all,
+/// so it names them all. #172 decides which of them a bill may be tried
+/// against, and it changes this list — the choice of window is made here, once,
+/// rather than inside the dataset.
+///
+/// Every statement the run cannot place reaches stderr, because the tool's
+/// silence must not read as the corpus's silence (#110).
+fn record_redesignations<S: Storage + LegislatureReader>(
+    dataset: &mut Dataset<S>,
+    bills: &[String],
+) {
+    if bills.is_empty() {
+        return;
+    }
+    let windows = crate::fail::or_exit(
+        adjacent_expressions(dataset as &dyn DocumentReader),
+        "Error listing the dataset's windows",
+    );
+
+    for bill in bills {
+        let Some(document) = crate::fail::or_exit(
+            dataset.bill_document(bill),
+            "Error reading the dataset's bills",
+        ) else {
+            continue;
+        };
+        let report = crate::fail::or_exit(
+            dataset.record_redesignations_over(bill, &document.root, &windows),
+            "Error recording redesignations",
+        );
+        report.warn(bill);
+    }
 }
