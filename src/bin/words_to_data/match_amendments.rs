@@ -3,7 +3,12 @@
 //! For each amendment we gather candidate diffs (via pre-computed similarity
 //! scores + section-mention scans), ask an LLM which candidate(s) the amendment
 //! actually caused, and record the answer as a `ChangeAnnotation` written back
-//! into the dataset in place.
+//! into the dataset.
+//!
+//! **It takes either form the dataset comes in.** A database is changed where it
+//! sits, under a transaction. A W2D file is read into memory and written whole,
+//! so it must be told where to write and is never written back over its input
+//! (#186, #195).
 
 use std::collections::HashMap;
 use std::fs;
@@ -30,7 +35,8 @@ use words_to_data::llm::{ChatOptions, LlmAnnotation, LlmClient};
 
 #[derive(ClapArgs)]
 pub struct Args {
-    /// Path to a dataset (compact JSON) that already has amendment changes + expressions
+    /// Path to a dataset (compact JSON or SQLite) that already has amendment
+    /// changes + expressions
     pub dataset: String,
 
     #[command(flatten)]
