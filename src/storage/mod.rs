@@ -31,6 +31,8 @@ pub use sqlite::SqliteStorage;
 
 use std::collections::BTreeMap;
 
+use serde::Serialize;
+
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
 use crate::dataset::{
@@ -306,7 +308,7 @@ pub trait LegislatureReader {
 ///
 /// Counts only. A reader deciding whether a file is worth opening needs the
 /// sizes, not the records, and the records are large.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct LegislatureCounts {
     pub bills: usize,
     pub members: usize,

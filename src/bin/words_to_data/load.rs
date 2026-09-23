@@ -20,7 +20,11 @@ pub fn is_sqlite(path: &str) -> bool {
 
 /// Stop, with an explanation, when a compact-JSON-only command is handed SQLite.
 ///
-/// A command that writes back into the dataset cannot yet take a SQLite file.
+/// One command is left that cannot yet take a SQLite file: `extract-changes`.
+/// Two of its methods reach into the in-memory store itself, so porting it is a
+/// design decision rather than a widening (#199). Every other command that
+/// writes back into a dataset takes either form (#180, #195).
+///
 /// Without this check the path is read as JSON and the reader sees "stream did
 /// not contain valid UTF-8", which says nothing about what to do next.
 pub fn refuse_sqlite(path: &str, command: &str) {

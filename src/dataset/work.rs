@@ -227,14 +227,20 @@ pub fn adjacent_expressions<R: crate::storage::DocumentReader + ?Sized>(
 ///
 /// A free function rather than a method, so a read-only report over any backend
 /// can ask for a bill without holding a [`crate::dataset::Dataset`].
-pub fn bill_document<S>(
-    storage: &S,
+///
+/// The documents and the legislature arrive as two arguments, because a
+/// dataset says at run time whether it speaks legislature at all
+/// ([`crate::storage::Storage::legislature`], #133). A caller that knows it
+/// holds both passes the same store twice.
+pub fn bill_document<R>(
+    reader: &R,
+    legislature: &dyn crate::storage::LegislatureReader,
     bill_id: &str,
 ) -> Result<Option<crate::dataset::Expression>, crate::dataset::DatasetError>
 where
-    S: crate::storage::DocumentReader + crate::storage::LegislatureReader + ?Sized,
+    R: crate::storage::DocumentReader + ?Sized,
 {
-    let Some(bill) = storage.get_bill(bill_id)? else {
+    let Some(bill) = legislature.get_bill(bill_id)? else {
         return Ok(None);
     };
 
@@ -242,14 +248,14 @@ where
         "{}_",
         crate::uslm::ElementType::PublicLawDocument.path_segment_name()
     );
-    for work in storage.works()? {
+    for work in reader.works()? {
         if !work.as_str().starts_with(&opens_a_public_law) {
             continue;
         }
-        let Some(latest) = storage.expressions(&work)?.pop() else {
+        let Some(latest) = reader.expressions(&work)?.pop() else {
             continue;
         };
-        let Some(expression) = storage.get_expression(&latest.id)? else {
+        let Some(expression) = reader.get_expression(&latest.id)? else {
             continue;
         };
         if expression.root.data.node_type.namespace() != crate::document::NodeType::BILL {

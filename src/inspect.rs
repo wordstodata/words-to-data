@@ -22,7 +22,7 @@ use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
 use crate::link::{ProvisionHistory, RedesignationStep, VerificationState};
-use crate::storage::{LegislatureReader, Storage};
+use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
 #[derive(Debug, Clone, Serialize)]
@@ -37,8 +37,22 @@ pub struct DatasetInfo {
     pub work_count: usize,
     /// Number of expressions (work-and-date pairs) held.
     pub expression_count: usize,
-    /// Number of bills recorded in the dataset.
-    pub bill_count: usize,
+    /// How much legislative material this dataset holds, and `None` when it
+    /// holds no legislature at all.
+    ///
+    /// Three readings, and a reader needs all three (#133). Counts above zero:
+    /// this dataset speaks legislature and holds that much. Counts of zero: it
+    /// speaks legislature and holds none. Absent: legislature is not a concept
+    /// here, which is what a dataset of court opinions answers. Five plain
+    /// numbers could state the first two readings and never the third.
+    ///
+    /// The answer comes from [`Storage::legislature`], which is the one
+    /// capability query. Deciding it again here would be a second answer to a
+    /// settled question.
+    ///
+    /// [`Storage::legislature`]: crate::storage::Storage::legislature
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legislature: Option<LegislatureCounts>,
     /// Number of links held, over every kind.
     ///
     /// Links are what this project produces; the document text is the input. A
@@ -58,18 +72,6 @@ pub struct DatasetInfo {
     /// Number of verbatim model replies held as evidence (#58).
     #[serde(skip_serializing_if = "is_zero")]
     pub reply_count: usize,
-    /// Number of legislature members held.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub member_count: usize,
-    /// Number of sponsor records held, which is one per bill.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub sponsor_count: usize,
-    /// Number of roll calls held.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub roll_call_count: usize,
-    /// Number of member votes held, summed over every roll call.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub member_vote_count: usize,
     /// What this dataset's bills say about renumbering, and how much of it this
     /// build could place.
     ///
@@ -93,11 +95,13 @@ pub struct DatasetInfo {
 
 /// Whether a count is zero, and so left out of the JSON.
 ///
-/// A dataset with no legislature extension holds none of these things. Emitting
-/// a zero for each would grow a wall of them, and a wall of zeroes reads as
-/// "this tool measured nothing" rather than "this dataset holds nothing".
-/// `work_count`, `expression_count`, and `bill_count` are always emitted: they
-/// were there before this rule, and an agent already reads them.
+/// A dataset that holds no links and no evidence holds none of these things.
+/// Emitting a zero for each would grow a wall of them, and a wall of zeroes
+/// reads as "this tool measured nothing" rather than "this dataset holds
+/// nothing". `work_count` and `expression_count` are always emitted: they were
+/// there before this rule, and an agent already reads them. The legislature
+/// counts are not decided here at all, because zero and absent are two
+/// different answers there.
 fn is_zero(count: &usize) -> bool {
     *count == 0
 }
@@ -1354,20 +1358,24 @@ pub struct RedesignationRows {
 ///
 /// A bill whose document the dataset does not hold is skipped rather than
 /// reported empty: it is a dataset built before #196, and it holds nothing to
-/// read.
-pub fn redesignation_report<S: Storage + LegislatureReader>(
+/// read. A dataset that speaks no legislature reports nothing at all, and is
+/// asked at run time rather than at compile time (#133).
+pub fn redesignation_report<S: Storage>(
     dataset: &S,
     bill_id: Option<&str>,
 ) -> Result<RedesignationRows, DatasetError> {
+    let mut report = RedesignationRows::default();
+    let Some(legislature) = dataset.legislature() else {
+        return Ok(report);
+    };
     let wanted = match bill_id {
         Some(id) => vec![id.to_string()],
-        None => dataset.list_bill_ids()?,
+        None => legislature.list_bill_ids()?,
     };
     let windows = adjacent_expressions(dataset)?;
 
-    let mut report = RedesignationRows::default();
     for bill in wanted {
-        let Some(document) = bill_document(dataset, &bill)? else {
+        let Some(document) = bill_document(dataset, legislature, &bill)? else {
             continue;
         };
         report.add_bill(dataset, &bill, &document.root, &windows)?;
@@ -1611,14 +1619,15 @@ fn changed_path(target: &crate::link::Target) -> Option<String> {
 /// The reasons are left empty on purpose. A reason needs the resolver, and the
 /// resolver needs every window; that is what the report command is for, and
 /// `info` must stay a command a reader runs without waiting.
-pub fn redesignation_counts<S: Storage + LegislatureReader>(
-    dataset: &S,
-) -> Result<RedesignationTotals, DatasetError> {
+pub fn redesignation_counts<S: Storage>(dataset: &S) -> Result<RedesignationTotals, DatasetError> {
+    let mut totals = RedesignationTotals::default();
+    let Some(legislature) = dataset.legislature() else {
+        return Ok(totals);
+    };
     let links = dataset.links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
 
-    let mut totals = RedesignationTotals::default();
-    for bill_id in dataset.list_bill_ids()? {
-        let Some(document) = bill_document(dataset, &bill_id)? else {
+    for bill_id in legislature.list_bill_ids()? {
+        let Some(document) = bill_document(dataset, legislature, &bill_id)? else {
             continue;
         };
         let stated =
@@ -1832,17 +1841,23 @@ pub fn votes<S: Storage + LegislatureReader>(
 
 /// Summarize a dataset's metadata and contents.
 ///
-/// [`LegislatureReader`] is required because [`DatasetInfo`] reports the bill,
-/// member, sponsor and vote counts as plain numbers, and a plain number cannot
-/// say "not a concept here". Reporting a documents-only dataset needs those
-/// fields to carry the difference, which is a wider change than #127 made.
-pub fn info<S: Storage + LegislatureReader>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
+/// Any [`Storage`] backend answers, legislature or not. Whether this dataset
+/// holds a legislature is asked at run time, through
+/// [`Storage::legislature`], and the answer reaches the reader:
+/// [`DatasetInfo::legislature`] is absent for a dataset that does not speak
+/// legislature and zero for one that speaks it and holds none (#133).
+///
+/// [`Storage::legislature`]: crate::storage::Storage::legislature
+pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
     let meta = dataset.metadata();
     let scope = Scope::derive(dataset)?;
     // Counted, never loaded: a count query costs the same on a 2 GB dataset as
     // on a small one, and building the records to count them does not.
     let links = dataset.count_links_by_kind()?;
-    let legislature = dataset.legislature_counts()?;
+    let legislature = dataset
+        .legislature()
+        .map(|legislature| legislature.legislature_counts())
+        .transpose()?;
     Ok(DatasetInfo {
         name: meta.name.clone(),
         description: meta.description.clone(),
@@ -1852,14 +1867,10 @@ pub fn info<S: Storage + LegislatureReader>(dataset: &S) -> Result<DatasetInfo, 
         source_urls: meta.source_urls.clone(),
         work_count: scope.held.len(),
         expression_count: scope.held.iter().map(|held| held.dates.len()).sum(),
-        bill_count: legislature.bills,
+        legislature,
         link_count: links.values().sum(),
         link_counts_by_kind: links,
         reply_count: dataset.count_replies()?,
-        member_count: legislature.members,
-        sponsor_count: legislature.sponsors,
-        roll_call_count: legislature.roll_calls,
-        member_vote_count: legislature.member_votes,
         // Derived, and still cheap: a statement is placed when the dataset
         // holds a link for it, so this reads the bills' own trees and the
         // redesignation links, and no release point at all. The reasons need

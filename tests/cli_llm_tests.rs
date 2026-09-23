@@ -26,7 +26,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
-use words_to_data::storage::EvidenceReader;
+use words_to_data::link::LinkKind;
+use words_to_data::storage::{EvidenceReader, LinkReader};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 /// A real public law from the test corpus: HR 1 of the 119th Congress.
@@ -209,6 +210,29 @@ fn dataset_with_amendments(name: &str, count: usize) -> String {
 /// rather than invented words. It decides which candidates appear, not what the
 /// command does with a reply, which is what the test is about.
 fn dataset_for_matching(name: &str) -> String {
+    let (dataset, directory) = matching_fixture(name);
+    let path = format!("{directory}/dataset.json");
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+    path
+}
+
+/// The same fixture as a database, which is the form the pipeline is meant to
+/// work against (#195).
+fn sqlite_dataset_for_matching(name: &str) -> String {
+    let (dataset, directory) = matching_fixture(name);
+    let path = format!("{directory}/dataset.sqlite");
+    // A database left by an earlier run would already hold this run's links.
+    let _ = std::fs::remove_file(&path);
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+    path
+}
+
+/// Build the fixture in memory, in its own directory, and hand back both.
+fn matching_fixture(name: &str) -> (Dataset<words_to_data::storage::InMemoryStorage>, String) {
     let directory = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&directory).expect("the fixture directory should exist");
     // A cache left by an earlier run of this test would answer for the server.
@@ -238,11 +262,7 @@ fn dataset_for_matching(name: &str) -> String {
     }
     dataset.add_bill(bill).expect("the bill should be added");
 
-    let path = format!("{directory}/dataset.json");
-    dataset
-        .save(&path, Format::Compact)
-        .expect("the fixture should save");
-    path
+    (dataset, directory)
 }
 
 #[test]
@@ -568,21 +588,7 @@ fn should_name_the_lost_amendment_when_match_amendments_cannot_parse_a_reply() {
     let dataset_path = dataset_for_matching("llm_match_failure");
     let base_url = start_stub_server(truncated_real_reply("match-amendments"));
 
-    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
-        .args([
-            "match-amendments",
-            &dataset_path,
-            "--from",
-            &format!("{TITLE_26}@{EARLY}"),
-            "--to",
-            &format!("{TITLE_26}@{LATE}"),
-            "--base-url",
-            &base_url,
-            "--threads",
-            "1",
-        ])
-        .output()
-        .expect("the binary should run");
+    let output = run_match_amendments(&dataset_path, &base_url, &[]);
 
     assert!(
         output.status.success(),
@@ -638,6 +644,17 @@ fn should_exit_zero_when_some_amendments_fail() {
     );
 }
 
+/// Where a run over a W2D file puts its result, beside the input rather than
+/// over it (#186). A database is changed where it sits and names nowhere.
+fn output_beside(dataset_path: &str) -> Option<String> {
+    (!dataset_path.ends_with(".sqlite")).then(|| {
+        std::path::Path::new(dataset_path)
+            .with_file_name("annotated.json")
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
 /// Run `match-amendments` over the pair of release points the fixture holds.
 fn run_match_amendments(
     dataset_path: &str,
@@ -646,22 +663,93 @@ fn run_match_amendments(
 ) -> std::process::Output {
     let from = format!("{TITLE_26}@{EARLY}");
     let to = format!("{TITLE_26}@{LATE}");
-    Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_words_to_data"));
+    command.args([
+        "match-amendments",
+        dataset_path,
+        "--from",
+        &from,
+        "--to",
+        &to,
+        "--base-url",
+        base_url,
+        "--threads",
+        "1",
+    ]);
+    if let Some(output) = output_beside(dataset_path) {
+        command.args(["--output", &output]);
+    }
+    command.args(extra).output().expect("the binary should run")
+}
+
+/// A W2D file is written whole, so a run that wrote back over its input would
+/// destroy the dataset if it stopped part way (#186). A match run holds
+/// hundreds of model calls that cost money to make again, so it asks where the
+/// result goes before it spends the first one (#195).
+#[test]
+fn should_refuse_to_write_over_its_input_when_a_w2d_file_names_no_output() {
+    let dataset_path = dataset_for_matching("llm_match_no_output");
+    let (base_url, calls) = counting_stub_server(real_reply("match-amendments"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "match-amendments",
-            dataset_path,
+            &dataset_path,
             "--from",
-            &from,
+            &format!("{TITLE_26}@{EARLY}"),
             "--to",
-            &to,
+            &format!("{TITLE_26}@{LATE}"),
             "--base-url",
-            base_url,
+            &base_url,
             "--threads",
             "1",
         ])
-        .args(extra)
         .output()
-        .expect("the binary should run")
+        .expect("the binary should run");
+
+    assert!(
+        !output.status.success(),
+        "the command should refuse to write back over a W2D file"
+    );
+
+    let complaint = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        complaint.contains("will not write back over"),
+        "it should say it will not write over the input, got: {complaint}"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "a run with nowhere to put its result should buy no reply"
+    );
+}
+
+/// A database is changed where it sits, so the run needs nowhere to write it
+/// (#195). `match-amendments` used to refuse a SQLite dataset and say to
+/// convert it to JSON first, which is the form that cannot give the run a
+/// transaction.
+#[test]
+fn should_change_the_database_in_place_when_match_amendments_is_given_sqlite() {
+    let dataset_path = sqlite_dataset_for_matching("llm_match_sqlite");
+    let base_url = start_stub_server(real_reply("match-amendments"));
+
+    // No --output: the database is where the result belongs.
+    let output = run_match_amendments(&dataset_path, &base_url, &[]);
+
+    assert!(
+        output.status.success(),
+        "the command should accept a database, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let changed = Dataset::open_sqlite(&dataset_path).expect("the database should open");
+    let links = changed
+        .links_by_kind(LinkKind::AMENDED_BY)
+        .expect("reading the links should work");
+    assert!(
+        !links.is_empty(),
+        "the run should leave its links in the database it was given"
+    );
 }
 
 /// Every call `match-amendments` makes is bought, so a second run over an
@@ -822,6 +910,7 @@ fn should_query_the_model_again_when_no_cache_is_given() {
 fn spawn_match_amendments(dataset_path: &str, base_url: &str) -> std::process::Child {
     let from = format!("{TITLE_26}@{EARLY}");
     let to = format!("{TITLE_26}@{LATE}");
+    let output = output_beside(dataset_path).expect("a W2D fixture names an output");
     Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "match-amendments",
@@ -834,6 +923,8 @@ fn spawn_match_amendments(dataset_path: &str, base_url: &str) -> std::process::C
             base_url,
             "--threads",
             "1",
+            "--output",
+            &output,
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

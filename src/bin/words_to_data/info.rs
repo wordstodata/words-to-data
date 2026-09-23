@@ -40,7 +40,22 @@ pub fn run(args: Args) {
     }
     println!("Works:       {}", info.work_count);
     println!("Expressions: {}", info.expression_count);
-    println!("Bills:       {}", info.bill_count);
+
+    // The legislature block prints whole or not at all. Zeroes here say "this
+    // dataset speaks legislature and holds none of it", and no block at all
+    // says "legislature is not a concept here", which is what a dataset of
+    // court opinions holds. A printed zero could never say the second (#133).
+    if let Some(counts) = &info.legislature {
+        for (label, count) in [
+            ("Bills:", counts.bills),
+            ("Members:", counts.members),
+            ("Sponsors:", counts.sponsors),
+            ("Roll calls:", counts.roll_calls),
+            ("Votes:", counts.member_votes),
+        ] {
+            println!("{label:<13}{count}");
+        }
+    }
 
     // Links are what this project produces; the document text is the input. The
     // breakdown names each kind in full, namespace included, because a reader
@@ -53,19 +68,11 @@ pub fn run(args: Args) {
         }
     }
 
-    // Printed only where there is something to report. A dataset with no
-    // legislature extension holds none of these, and a wall of zeroes reads as
-    // a tool that measured nothing rather than a dataset that holds nothing.
-    for (label, count) in [
-        ("Replies:", info.reply_count),
-        ("Members:", info.member_count),
-        ("Sponsors:", info.sponsor_count),
-        ("Roll calls:", info.roll_call_count),
-        ("Votes:", info.member_vote_count),
-    ] {
-        if count > 0 {
-            println!("{label:<13}{count}");
-        }
+    // Printed only where there is something to report. A dataset that recorded
+    // no model replies holds none, and a zero there reads as a tool that
+    // measured nothing rather than a dataset that holds nothing.
+    if info.reply_count > 0 {
+        println!("Replies:     {}", info.reply_count);
     }
 
     // One line, and no detail. A reader must be able to see that the corpus

@@ -11,9 +11,9 @@ use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
 use words_to_data::congress::CongressClient;
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, ExpressionId, Format, WorkId};
 use words_to_data::legislature::AmendingAction;
-use words_to_data::link::Link;
+use words_to_data::link::{Link, LinkKind};
 
 /// The two US Code release points held in `tests/test_data`.
 const EARLY: &str = "2025-07-18";
@@ -77,6 +77,45 @@ fn build_fixture(title: &str) -> String {
 fn amended_fixture() -> &'static str {
     static FIXTURE: OnceLock<String> = OnceLock::new();
     FIXTURE.get_or_init(|| build_fixture(AMENDED_TITLE))
+}
+
+/// A dataset that says it carries legislature and holds none of it.
+///
+/// The declaration is the statement, so this dataset speaks legislature
+/// whatever its contents (`Storage::legislature`). It holds one real title and
+/// no bill, which is the middle of the three readings `info` must keep apart.
+fn declared_legislature_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!(
+            "{}/cli_declared_legislature.sqlite",
+            env!("CARGO_TARGET_TMPDIR")
+        );
+        let _ = std::fs::remove_file(&path);
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Declared Legislature".to_string(),
+            description: "One title, a declared legislature namespace, no bills".to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+            declaration: Some(Declaration {
+                intends: vec![UNCHANGED_WORK.to_string()],
+                namespaces: vec![LinkKind::LEGISLATURE.to_string()],
+                ..Default::default()
+            }),
+        });
+        let xml = format!("tests/test_data/usc/{EARLY}/{UNCHANGED_TITLE}.xml");
+        dataset
+            .add_uslm_xml(&xml, EARLY, None)
+            .expect("the corpus should parse and load");
+
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
 }
 
 /// A dataset over a title that did not change. Built once per test binary.
@@ -349,7 +388,10 @@ fn should_report_metadata_and_counts_when_info_runs_on_a_dataset() {
     assert_eq!(info["name"], "CLI Test Fixture");
     assert_eq!(info["work_count"], 1, "two releases of one title, one work");
     assert_eq!(info["expression_count"], 2);
-    assert_eq!(info["bill_count"], 0);
+    assert!(
+        info.get("legislature").is_none(),
+        "this fixture holds no legislature, so the counts are absent"
+    );
 
     // Scope answers "why did my query find nothing". Without it, an agent
     // reading this output cannot tell an absent provision from an absent title.
@@ -396,11 +438,11 @@ fn should_carry_the_link_and_legislature_counts_when_info_emits_json() {
     // `--json` is what an agent reads, so it carries the same counts.
     assert_eq!(info["link_count"], 1);
     assert_eq!(info["link_counts_by_kind"]["legislature.amended_by"], 1);
-    assert_eq!(info["member_count"], 432);
-    assert_eq!(info["member_vote_count"], 432);
-    assert_eq!(info["roll_call_count"], 1);
-    assert_eq!(info["sponsor_count"], 1);
-    assert_eq!(info["bill_count"], 1);
+    assert_eq!(info["legislature"]["members"], 432);
+    assert_eq!(info["legislature"]["member_votes"], 432);
+    assert_eq!(info["legislature"]["roll_calls"], 1);
+    assert_eq!(info["legislature"]["sponsors"], 1);
+    assert_eq!(info["legislature"]["bills"], 1);
     assert!(
         info.get("reply_count").is_none(),
         "a count of zero is left out"
@@ -412,10 +454,13 @@ fn should_omit_a_count_of_zero_when_info_runs_on_a_dataset_without_legislature()
     let output = run(&["info", amended_fixture()]);
     let text = String::from_utf8_lossy(&output.stdout);
 
-    // A dataset with no legislature extension must not grow a wall of zeroes.
+    // A dataset that holds no links and no evidence must not grow a wall of
+    // zeroes. It does not speak legislature either, so every legislature line
+    // is absent rather than zero (#133).
     for label in [
         "Links:",
         "Replies:",
+        "Bills:",
         "Members:",
         "Sponsors:",
         "Roll calls:",
@@ -423,12 +468,57 @@ fn should_omit_a_count_of_zero_when_info_runs_on_a_dataset_without_legislature()
     ] {
         assert!(
             !text.contains(label),
-            "{label} is zero here and must not be printed, got:\n{text}"
+            "{label} has nothing to report here and must not be printed, got:\n{text}"
         );
     }
     // The counts reported before this rule are still reported.
     assert!(text.contains("Works:       1"), "got:\n{text}");
-    assert!(text.contains("Bills:       0"), "got:\n{text}");
+}
+
+#[test]
+fn should_print_zero_counts_when_info_runs_on_a_declared_legislature_holding_none() {
+    let declared = run(&["info", declared_legislature_fixture()]);
+    let declared_text = String::from_utf8_lossy(&declared.stdout);
+    let silent = run(&["info", amended_fixture()]);
+    let silent_text = String::from_utf8_lossy(&silent.stdout);
+
+    // This dataset says it carries legislature, so every count is reported, and
+    // each one is zero. A zero is a fact about a dataset that holds none.
+    for line in [
+        "Bills:       0",
+        "Members:     0",
+        "Sponsors:    0",
+        "Roll calls:  0",
+        "Votes:       0",
+    ] {
+        assert!(
+            declared_text.contains(line),
+            "a declared legislature reports {line}, got:\n{declared_text}"
+        );
+    }
+
+    // The other dataset says nothing about legislature and holds none, so it
+    // reports no count at all. The two readings must not print the same (#133).
+    assert!(
+        !silent_text.contains("Bills:"),
+        "a dataset that does not speak legislature prints no bills line, got:\n{silent_text}"
+    );
+    assert_ne!(declared_text, silent_text);
+}
+
+#[test]
+fn should_carry_a_zero_legislature_block_when_info_emits_json_for_a_declared_legislature() {
+    let output = run(&["info", declared_legislature_fixture(), "--json"]);
+    let info: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("info --json should emit json");
+
+    // `--json` is what an agent reads, and it must keep the same three readings
+    // apart: the block is here, and every count in it is zero.
+    assert_eq!(info["legislature"]["bills"], 0);
+    assert_eq!(info["legislature"]["members"], 0);
+    assert_eq!(info["legislature"]["sponsors"], 0);
+    assert_eq!(info["legislature"]["roll_calls"], 0);
+    assert_eq!(info["legislature"]["member_votes"], 0);
 }
 
 /// Run `diff` over a fixture and return its parsed JSON summary.
@@ -1154,45 +1244,34 @@ fn should_score_amendments_when_the_dataset_is_sqlite() {
 
 #[test]
 fn should_explain_the_conversion_when_a_writing_command_is_given_sqlite() {
-    // These two write back into the dataset, which SQLite does not yet support.
+    // `extract-changes` is the last command that cannot take a database. Two of
+    // its methods reach into the in-memory store itself, and porting them is a
+    // design decision rather than a widening (#199). `redesignations` and
+    // `match-amendments` take either form now (#195).
+    //
     // Refusing is fine; refusing without saying what to do next is not.
-    let from = expression(AMENDED_WORK, EARLY);
-    let to = expression(AMENDED_WORK, LATE);
-    let invocations: [Vec<&str>; 2] = [
-        vec![
-            "match-amendments",
-            amended_fixture(),
-            "--from",
-            &from,
-            "--to",
-            &to,
-        ],
-        vec!["extract-changes", amended_fixture()],
-    ];
+    let args = vec!["extract-changes", amended_fixture()];
+    let command = args[0];
+    let output = run(&args);
 
-    for args in invocations {
-        let command = args[0];
-        let output = run(&args);
+    assert!(
+        !output.status.success(),
+        "{command} should refuse a SQLite dataset"
+    );
 
-        assert!(
-            !output.status.success(),
-            "{command} should refuse a SQLite dataset"
-        );
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("SQLite database"),
-            "{command} should say the file is a SQLite database, got: {stderr}"
-        );
-        assert!(
-            stderr.contains("convert-dataset"),
-            "{command} should name the command that converts it, got: {stderr}"
-        );
-        assert!(
-            !stderr.contains("valid UTF-8"),
-            "{command} should not leak the raw decoding error, got: {stderr}"
-        );
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("SQLite database"),
+        "{command} should say the file is a SQLite database, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("convert-dataset"),
+        "{command} should name the command that converts it, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("valid UTF-8"),
+        "{command} should not leak the raw decoding error, got: {stderr}"
+    );
 }
 
 /// Forge the element index an older build wrote, at a chosen path.

@@ -455,6 +455,10 @@ pub struct RefPair {
 /// provenance, which is everything it takes to search, diff and quote a
 /// provision. What it loses is the publisher's own naming of it.
 ///
+/// Before you add a field here, work the [review checklist on
+/// `ClassPayload`](crate::document::ClassPayload#review-checklist-before-you-add-a-field-to-a-payload-type):
+/// anything a reader needs in order to report the node belongs in the core.
+///
 /// # Examples
 ///
 /// ```

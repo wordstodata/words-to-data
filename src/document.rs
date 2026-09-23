@@ -144,6 +144,46 @@ pub mod text_method {
 /// byte, while a value tree reorders an object's keys on the way through; and a
 /// corpus holds millions of nodes, where a map per node costs far more memory
 /// than one string. The core never looks inside either way.
+///
+/// # Review checklist: before you add a field to a payload type
+///
+/// A payload type is `crate::uslm::UslmFacts`, `crate::judicial::OpinionFacts`,
+/// or whatever a new class writes in here. Read this before you add a field to
+/// one of them.
+///
+/// Whether a field is needed in order to *report* a node is a judgement, and no
+/// test can make it (#149). `UslmFacts` went from 10 fields to 19 and
+/// `OpinionFacts` grew five fields in one afternoon, and nothing asked either
+/// time whether a field belonged in the core instead. So the question is asked
+/// here, in review, and the answer is written down.
+///
+/// Answer these three. **A "yes" to any one of them means the field does not
+/// belong in a payload.**
+///
+/// 1. Does it say *where* the node is, *what kind* of thing it is, *what it
+///    says*, or *how its text was obtained*? Those four are what it takes to
+///    report a node, and [`NodeData`] already holds all four: the path, the
+///    [`NodeType`], the five text fields, and the [`Provenance`]. Put it there.
+/// 2. Would a reader use it to decide how far to trust the node? Then it is
+///    provenance and not a class fact. `extracted_by_ocr` looked like a
+///    judicial fact and became a [`text_method`]; a timestamp looked like a
+///    legislature fact and is `Provenance::timestamp`.
+/// 3. Does anything outside the class that owns the namespace read it? Then the
+///    core is reading a payload, and the first rule is already broken. A
+///    class's own reader may read its own payload — `SectionPaths` reads a USLM
+///    identifier out of the `uscode` payload — while the diff, the search index
+///    and the path generator may not.
+///
+/// Three "no" answers, and the field belongs here. Write the reason in the
+/// field's own doc comment, as `OpinionFacts::download_url` does, so the next
+/// reviewer reads a judgement instead of making it again.
+///
+/// `tests/class_payload_tests.rs` holds the part that *is* testable: the core
+/// never reads a payload, and hands it back byte for byte on both backends and
+/// through a W2D file. Nothing enforces the rest
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+///
+/// [`Provenance`]: crate::link::Provenance
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassPayload {
     /// The namespace that owns these facts, such as `uscode` or `judicial`.

@@ -472,7 +472,7 @@ impl<S: Storage + LegislatureReader> Dataset<S> {
     /// reading every title of the Code to find one bill would cost the whole
     /// corpus. The node type below is what says the class; the path is a filter.
     pub fn bill_document(&self, bill_id: &str) -> Result<Option<Expression>, DatasetError> {
-        bill_document(&self.storage, bill_id)
+        bill_document(&self.storage, &self.storage, bill_id)
     }
 
     /// List the IDs of every bill in the dataset.

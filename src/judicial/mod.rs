@@ -40,6 +40,10 @@ use crate::document::{ClassPayload, NodeData, NodeType};
 /// [`text_method`], where a reader deciding whether to trust a passage finds it
 /// without opening a payload.
 ///
+/// Before you add a field here, work the [review checklist on
+/// `ClassPayload`](crate::document::ClassPayload#review-checklist-before-you-add-a-field-to-a-payload-type):
+/// anything a reader needs in order to report the node belongs in the core.
+///
 /// [`Provenance`]: crate::link::Provenance
 /// [`text_method`]: crate::document::text_method
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

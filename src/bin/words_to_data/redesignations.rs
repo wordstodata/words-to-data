@@ -12,6 +12,9 @@
 //! not, so this command took the bill's XML and read the same file a second
 //! time.
 //!
+//! **It takes either form the dataset comes in.** A database is changed where it
+//! sits; a W2D file is read into memory and written out again (#195).
+//!
 //! **Every statement it cannot place is printed.** A run that resolved nothing
 //! and said nothing would read as a corpus with no redesignations in it, and the
 //! corpus is full of them.
@@ -19,14 +22,14 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::redesignation::RedesignationReport;
-use words_to_data::storage::DocumentReader;
+use words_to_data::storage::{LegislatureReader, Storage};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
 
 use crate::span::Span;
 
 #[derive(ClapArgs)]
 pub struct Args {
-    /// Path to a dataset (compact JSON) holding the works the bill amends
+    /// Path to a dataset (compact JSON or SQLite) holding the works the bill amends
     pub dataset: String,
 
     /// Which bill to read, as the dataset names it, such as `119-hr-1`
@@ -36,18 +39,52 @@ pub struct Args {
     #[command(flatten)]
     pub span: Span,
 
-    /// Where to write the dataset (defaults to overwriting the input)
+    /// Where to write a compact JSON dataset. Required for compact JSON, which
+    /// is never written back over its input. Ignored for SQLite, which is
+    /// changed in place.
     #[arg(long)]
     pub output: Option<String>,
 }
 
 pub fn run(args: Args) {
-    crate::load::refuse_sqlite(&args.dataset, "redesignations");
-    let mut dataset = crate::fail::or_exit(
-        Dataset::load(&args.dataset, Format::Compact),
-        "Error loading dataset",
-    );
+    // Where the result goes: `None` is a database, which is changed in place.
+    // A W2D file is written whole, so it must be told where to write and is
+    // never written back over its input (#186).
+    let output = if crate::load::is_sqlite(&args.dataset) {
+        None
+    } else {
+        Some(crate::load::output_or_refuse(
+            &args.dataset,
+            args.output.as_deref(),
+            "redesignations",
+        ))
+    };
 
+    match output {
+        None => {
+            let mut dataset =
+                crate::fail::or_exit(Dataset::open_sqlite(&args.dataset), "Error opening dataset");
+            record(&mut dataset, &args);
+            println!("\nWrote {}", args.dataset);
+        }
+        Some(output) => {
+            let mut dataset = crate::fail::or_exit(
+                Dataset::load(&args.dataset, Format::Compact),
+                "Error loading dataset",
+            );
+            record(&mut dataset, &args);
+            crate::fail::or_exit(
+                dataset.save(output, Format::Compact),
+                "Error saving dataset",
+            );
+            println!("\nWrote {output}");
+        }
+    }
+}
+
+/// Read what the bill renumbered, and write a link for each statement it can
+/// place.
+fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args) {
     let bill = crate::fail::or_exit(
         dataset.bill_document(&args.bill_id),
         "Error reading the dataset's bills",
@@ -67,7 +104,7 @@ pub fn run(args: Args) {
     // One report per work. A statement resolves in the work that holds its
     // section and fails in every other, so the reports are folded rather than
     // concatenated (`RedesignationReport::across_works`).
-    let pairs = args.span.resolve(&dataset as &dyn DocumentReader);
+    let pairs = args.span.resolve(&*dataset);
     let mut per_work = Vec::new();
     for (from, to) in &pairs {
         let report = crate::fail::or_exit(
@@ -98,11 +135,4 @@ pub fn run(args: Args) {
             println!("    {}", unplaced.clause_start());
         }
     }
-
-    let output = args.output.as_deref().unwrap_or(&args.dataset);
-    crate::fail::or_exit(
-        dataset.save(output, Format::Compact),
-        "Error saving dataset",
-    );
-    println!("\nWrote {output}");
 }
