@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format, WorkId};
 use words_to_data::link::LinkKind;
 use words_to_data::storage::{EvidenceReader, LinkReader};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
@@ -749,6 +749,50 @@ fn should_change_the_database_in_place_when_match_amendments_is_given_sqlite() {
     assert!(
         !links.is_empty(),
         "the run should leave its links in the database it was given"
+    );
+}
+
+/// The matching method was chosen arbitrarily and may be replaced, so a link it
+/// made must say which method made it and which version that method was at
+/// (#182, #179 decision 10). Without the version, a replacement is a silent
+/// change of meaning across a dataset that reads the same.
+///
+/// The run is recorded beside the links, so the dataset can say that this
+/// reasoning was applied to this window (decision 11).
+#[test]
+fn should_name_the_matching_method_and_its_version_when_match_amendments_writes_links() {
+    let dataset_path = sqlite_dataset_for_matching("llm_match_method");
+    let base_url = start_stub_server(real_reply("match-amendments"));
+
+    let output = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        output.status.success(),
+        "the run should finish, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let changed = Dataset::open_sqlite(&dataset_path).expect("the database should open");
+    let links = changed
+        .links_by_kind(LinkKind::AMENDED_BY)
+        .expect("reading the links should work");
+    assert!(!links.is_empty(), "the run should leave links behind");
+
+    let expected = words_to_data::matching::matching_method();
+    for link in &links {
+        assert_eq!(
+            link.provenance.method.as_ref(),
+            Some(&expected),
+            "a matched link should name the method that made it"
+        );
+    }
+
+    let runs = changed.method_runs();
+    assert_eq!(runs.len(), 1, "one method ran over one window, got {runs:?}");
+    assert_eq!(runs[0].method, expected);
+    assert!(
+        runs[0].covers(&WorkId::new(TITLE_26), EARLY, LATE),
+        "the record should name the window the run covered, got {:?}",
+        runs[0]
     );
 }
 

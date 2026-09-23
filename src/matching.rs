@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use crate::dataset::Dataset;
 use crate::diff::{AmendmentSimilarity, MentionMatch, TreeDiff};
 use crate::legislature::AmendingAction;
+use crate::method::Method;
 use crate::storage::{LegislatureReader, Storage};
 
 /// A candidate US Code diff that an amendment might have caused.
@@ -59,6 +60,21 @@ fn document_order_index(diff: &TreeDiff) -> HashMap<&str, usize> {
 /// The same value `score-amendments` uses, so the two commands agree on what
 /// counts as a plausible explanation.
 pub const DEFAULT_SIMILARITY_CUTOFF: f32 = 0.4;
+
+/// The reasoning `match-amendments` applies, at the version it is at now.
+///
+/// The name says what the reasoning is, not which command runs it: a model
+/// chooses among the scored candidates this module gathers. **This method was
+/// chosen arbitrarily and may be replaced.** A replacement is a different
+/// reasoning, so it takes a **new name** and a version of its own; nothing here
+/// assumes that this one is the only one a dataset can hold (#179).
+///
+/// Raise the version when this reasoning's answers change — a new prompt, a
+/// different cutoff, a different candidate rule. Tidying the code that gathers
+/// the same candidates is not such a change (`crate::method::Method`).
+pub fn matching_method() -> Method {
+    Method::new("llm choice among scored candidates", 1)
+}
 
 /// Gather, for every amendment across every bill, the candidate diffs it may explain.
 ///

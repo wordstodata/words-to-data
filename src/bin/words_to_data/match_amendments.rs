@@ -26,7 +26,7 @@ use words_to_data::document::TextContentField;
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::{Evidence, Link};
 use words_to_data::matching::{
-    AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches,
+    AmendmentMatch, Candidate, DEFAULT_SIMILARITY_CUTOFF, build_matches, matching_method,
 };
 use words_to_data::storage::{LegislatureReader, Storage};
 
@@ -305,6 +305,12 @@ impl Matching<'_> {
                     // handing an annotation to a convenience that fans out. One
                     // annotation is one link per path it names.
                     for mut link in Link::from_annotation(&annotation, &from, &to) {
+                        // `from_annotation` names no method, because an
+                        // annotation does not say what produced it. This run
+                        // does: a model chose among scored candidates, and the
+                        // version says which edition of that reasoning answered
+                        // (#182).
+                        link.provenance.method = Some(matching_method());
                         link.provenance.evidence = Some(Evidence {
                             reasoning: annotation.metadata.reasoning.clone(),
                             reply: Some(reply_id.clone()),
@@ -316,6 +322,16 @@ impl Matching<'_> {
                     applied += 1;
                 }
             }
+
+            // The reasoning was applied to this window, whatever it found.
+            // Recorded per window rather than per link, because a window the
+            // model answered "no match" for has still been worked on, and a
+            // reader that could not tell that apart from an untouched window
+            // would run the step again for nothing.
+            crate::fail::or_exit(
+                dataset.record_method_run(matching_method(), &from, &to),
+                "Error recording what ran",
+            );
 
             annotated_paths += dataset.annotated_paths(&from, &to).len();
             candidates_by_work.push(CandidatesOfWork {
