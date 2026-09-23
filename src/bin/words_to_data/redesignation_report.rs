@@ -11,7 +11,7 @@
 //! dataset holds the bill as a document (#196), so the words and the path come
 //! back out of it, and resolving them against the windows the dataset holds
 //! gives the rest. Nothing is stored beside the links: the same bill leaves 31
-//! statements unplaced against title 26 alone and 13 against the whole corpus,
+//! statements unplaced against title 26 alone and 17 against the whole corpus,
 //! so a stored row would go stale as soon as `add-release-points` ran (#180).
 //!
 //! **It is read-only.** `redesignations` writes the links; this reports them.

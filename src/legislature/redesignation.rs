@@ -253,9 +253,9 @@ pub struct StatedRedesignation {
     /// Where in the bill the words sit, as a structural path.
     ///
     /// `CONTEXT.md` requires it of an Unplaced statement: a reviewer must be
-    /// able to open the words that defeated the reader. Eleven of the thirteen
-    /// statements `119-hr-1` leaves unplaced carry no US Code path at all, so
-    /// the path into the bill is the only one they have.
+    /// able to open the words that defeated the reader. Most of what
+    /// `119-hr-1` leaves unplaced carries no US Code path at all — that is why
+    /// it is unplaced — so the path into the bill is the only one it has.
     ///
     /// `None` when the statement was read out of a bill's markup rather than out
     /// of the bill a dataset holds. A path is generated when the bill becomes a
@@ -386,7 +386,7 @@ impl fmt::Display for Reader {
 /// same windows. Storing it would restate what the file already holds, which
 /// `docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`
 /// refuses for a rule reading, and it would go stale: the same bill leaves 31
-/// statements unplaced against title 26 alone and 13 against the whole corpus,
+/// statements unplaced against title 26 alone and 17 against the whole corpus,
 /// so a row written when the bill was loaded becomes false as soon as the
 /// dataset grows (#180).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

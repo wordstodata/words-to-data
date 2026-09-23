@@ -130,8 +130,8 @@ fn should_name_the_reader_and_the_path_when_a_statement_cannot_be_placed() {
         assert_eq!(statement.reader, Reader::Rule);
 
         // The words, and where they sit in the bill, so a reviewer can open
-        // them. Eleven of the thirteen the full corpus leaves unplaced have no
-        // US Code path at all, so this is the only path they carry.
+        // them. Most of what the corpus leaves unplaced has no US Code path at
+        // all, so this is the only path it carries.
         assert!(!statement.text.is_empty());
         let path = statement
             .path

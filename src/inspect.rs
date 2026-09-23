@@ -79,7 +79,7 @@ pub struct DatasetInfo {
     /// the same numbers, and `redesignation-report` carries the rows.
     ///
     /// Derived rather than stored, so it cannot go stale: the same bill leaves
-    /// 31 statements unplaced against title 26 alone and 13 against the whole
+    /// 31 statements unplaced against title 26 alone and 17 against the whole
     /// corpus (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
     ///
     /// Left out of the JSON when the dataset holds no bill that renumbers
@@ -1347,7 +1347,7 @@ pub struct RedesignationRows {
 /// rows.
 ///
 /// That is why nothing here is stored beside the links. The same bill leaves 31
-/// statements unplaced against title 26 alone and 13 against the whole corpus,
+/// statements unplaced against title 26 alone and 17 against the whole corpus,
 /// so a row written when the bill was loaded becomes false as soon as
 /// `add-release-points` grows the dataset (#180). A derivation cannot go stale
 /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).

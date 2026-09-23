@@ -31,7 +31,7 @@ Four parts follow from it:
 
 **An amendment keeps its content hash as its identity, and gains a path.** ADR 0001 is exactly this distinction: a structural path locates and does not identify. A bill's path also moves when a publisher renumbers a title, while `sha256(bill_id:amending_text)` survives a rebuild — which is what `Link::id` and the 928 existing `legislature.amended_by` links rely on.
 
-**A statement this build cannot place is recorded at the bill's own path.** Of the 13 unplaced statements in `119-hr-1`, only 2 carry a US Code path; the other 11 are unplaced precisely because no Code path could be made. Once the bill is a document, all 13 have a path into the bill, which points at the words that defeated the reader.
+**A statement this build cannot place is recorded at the bill's own path.** Most of the unplaced statements in `119-hr-1` carry no US Code path, precisely because no Code path could be made. Once the bill is a document, every one has a path into the bill, which points at the words that defeated the reader.
 
 ## Consequences
 
@@ -41,11 +41,33 @@ Four parts follow from it:
 
 **A reader that wants the bill's words no longer needs the Congress cache.** Today a dataset is not self-contained for this question: the answer lives in a file beside it.
 
+## Step 5 needed no schema break, and this ADR is why
+
+Triage concluded that storing unplaced statements meant a new SQLite table or an eleventh compact field, and `SCHEMA_VERSION` going up. That rested on a premise this ADR removed: at the time, the dataset did not hold the bill, so the words of an unplaced statement lived only in the XML and had to be put somewhere new.
+
+Once step 4 landed, both halves of the record were already stored. The words and the path are in the bill's own document. What makes a statement **placed** is a `legislature.redesignated_as` link. So an unplaced statement is a statement with no link, and the reason is reproduced by resolving the same statements against the same windows — which `docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md` already required of a rule reading.
+
+Measured over `119-hr-1`, against the same bill each time:
+
+| Dataset | Works | Statements | Not placed |
+| --- | --- | --- | --- |
+| title 26 | 2 | 57 | 31 |
+| + title 7 | 3 | 57 | 26 |
+| + titles 42, 20, 10, 12 | 7 | 57 | 19 |
+
+Seven titles give 17. The count falls while the bill does not change, so an unplaced statement is a fact about the bill **measured against the windows the dataset holds**, and not a fact about the bill. A row written when the bill was loaded becomes false as soon as `add-release-points` runs (#180), and nothing re-sweeps.
+
+The derivation costs about 0.12 s for each window, so about 7 s over the 57 works of the full Code — against a compact file of that corpus that is 982 MB and costs far more than that to open.
+
 ## Considered and rejected
 
 **Add the position to `BillAmendment`.** A section field and a list of container steps, filled in at parse time. It fixes the redesignation case and nothing else: the bill's structure stays unstored, so the next reader with a new question opens the XML again. It also stores a reading of the bill while the bill itself remains unread, which inverts ADR 0007 — the record is what was said, and what the bill said is its words in their structure.
 
 **Let `build-dataset` call `record_redesignations` with the XML it fetched.** This is what #150 proposed, and it is the first step below, because it stops the dataset from silently lacking 90 links. It is not this ADR's answer, because it does not parse once — it keeps two parsers of one file and moves the duplication inside one command, where it is harder to see.
+
+**Store an unplaced statement in the bill node's class payload.** Non-breaking, and wrong: a payload holds what the source said, and this is a fact about our reading of the source measured against a dataset that grows. It would make the bill's own record change because a different work arrived.
+
+**Store unplaced statements in their own table or compact field.** Honest about the shape, and it stores a derivation that goes stale — 31 rows against title 26 alone, 17 against the whole Code, for one unchanging bill. It also costs `SCHEMA_VERSION` for something the file already holds.
 
 **A separate collection for bills.** Keeps the Code's works pure and avoids the `works_between` noise above. Rejected: it would restate the class-neutrality that ADR 0006 already bought, and the noise is a symptom of #148 rather than a reason to duplicate a concept.
 
@@ -59,7 +81,7 @@ Recorded here because the sequence was a decision, and because the middle of it 
 | 2 | Both ends checked, and the words at them recorded as `Corroboration` | to do |
 | 3 | The diff walks into a moved pair, so a rewrite inside it is reported | to do |
 | 4 | A bill becomes a document (#114) — this ADR | built (#196): the bill is a work with an expression, an amendment has a path, and `--bill-xml` is gone |
-| 5 | Unplaced statements stored, and a report an agent can read | to do |
+| 5 | Unplaced statements reported, where an agent can read them | built (#153): a derivation, and no schema break — see below |
 | 6 | The model reader (ADR 0010) | to do |
 
 Step 1 wires `build-dataset` to the XML, and step 4 rewrites that wiring to read the stored bill. The rework is a few lines, and it buys a correct dataset four steps earlier.
