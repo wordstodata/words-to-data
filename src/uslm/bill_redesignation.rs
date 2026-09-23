@@ -235,6 +235,9 @@ fn read_stored_action(
     let mut statement = StatedRedesignation {
         amendment_id: stored_amendment_id(&levels, bill_id),
         text: clause.clone(),
+        // The level that states the clause, which is where a reviewer opens the
+        // bill to read the words that defeated the reader.
+        path: levels.first().map(|node| node.data.path.to_string()),
         section: None,
         container,
         renumberings: Vec::new(),
@@ -503,6 +506,9 @@ fn read_action(bill_id: &str, action: Node, code_of_1986: &[String]) -> StatedRe
     let mut statement = StatedRedesignation {
         amendment_id: amendment_id_around(bill_id, action),
         text: clause.clone(),
+        // Markup carries no structural path. One is generated when the bill
+        // becomes a document, and the reader below gives it.
+        path: None,
         section: None,
         container,
         renumberings: Vec::new(),

@@ -191,7 +191,23 @@ fn should_state_the_same_redesignations_from_the_stored_bill_as_from_its_markup(
     // keep. `119-hr-1` states 57 renumberings, and the stored bill states the
     // same 57, word for word (ADR 0009).
     assert_eq!(from_markup.len(), 57);
-    assert_eq!(from_the_dataset, from_markup);
+
+    // The stored bill gives one thing the markup cannot: where in the bill the
+    // words sit. A path is generated when the bill becomes a document, so the
+    // markup reader has none to give, and the comparison sets it aside.
+    let without_the_path: Vec<_> = from_the_dataset
+        .iter()
+        .cloned()
+        .map(|mut statement| {
+            assert!(
+                statement.path.is_some(),
+                "a statement read from the stored bill knows where it sat"
+            );
+            statement.path = None;
+            statement
+        })
+        .collect();
+    assert_eq!(without_the_path, from_markup);
 }
 
 /// Whether any node of a tree carries this heading.

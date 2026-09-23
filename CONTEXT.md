@@ -235,6 +235,8 @@ Something a source states that a reader read and could not turn into a statement
 It is not an Exclusion. An Exclusion says a Dataset does not hold some material, and here the material is held: the text is in hand, the Amendment is in hand, and what is missing is a Link we could not make. Recording one as an Exclusion would answer "out of scope" for a provision the Dataset holds. It is not a Gap either, because nothing was declared and then missed.
 
 A reason is part of the statement, as it is for an Exclusion: a hole with no reason cannot be told apart from an oversight.
+
+**It is a derivation, not a stored row.** The words and the path are already in the Dataset, because the Dataset holds a Bill as a Document, and the reason is reproduced by resolving the same statements against the same windows. A stored row would go stale: the same bill leaves 31 statements unplaced against title 26 alone and 17 against the whole Code, so a row written when the bill was loaded becomes false as soon as a release point is added. What makes a statement **placed** is a Link — so an unplaced statement is a statement with no Link, and both halves of the fact are read from the Dataset alone (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`, `docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
 _Avoid_: Error, failure, skip, warning
 
 **Extension**:

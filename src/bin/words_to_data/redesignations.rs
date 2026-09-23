@@ -122,17 +122,17 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
         report.links(),
         pairs.len()
     );
-    if report.unresolved.is_empty() {
+    if report.unplaced.is_empty() {
         println!("Every statement was placed.");
     } else {
         println!(
             "\n{} statement(s) could not be placed. Each is a redesignation the \
              corpus states and this build cannot turn into two paths:",
-            report.unplaced()
+            report.statements_unplaced()
         );
-        for unresolved in &report.unresolved {
-            println!("  {}", unresolved.reason);
-            println!("    {}", unresolved.clause_start());
+        for unplaced in &report.unplaced {
+            println!("  {}", unplaced.reason);
+            println!("    {}", unplaced.clause_start());
         }
     }
 }

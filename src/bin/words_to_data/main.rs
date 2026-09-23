@@ -19,6 +19,7 @@ mod info;
 mod load;
 mod match_amendments;
 mod path;
+mod redesignation_report;
 mod redesignations;
 mod release_points;
 mod report;
@@ -63,6 +64,8 @@ enum Command {
     Expressions(expressions::Args),
     /// List every bill the dataset holds
     Bills(bills::Args),
+    /// Report every renumbering the dataset's bills state, weakest first
+    RedesignationReport(redesignation_report::Args),
 
     /// Show a bill's amendments
     ShowBill(show_bill::Args),
@@ -98,6 +101,7 @@ fn main() {
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),
         Command::Bills(args) => bills::run(args),
+        Command::RedesignationReport(args) => redesignation_report::run(args),
         Command::ShowBill(args) => show_bill::run(args),
         Command::Votes(args) => votes::run(args),
         Command::Search(args) => search::run(args),

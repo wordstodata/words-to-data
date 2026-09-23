@@ -32,7 +32,7 @@
 //! checked against law that is really there.
 //!
 //! A redesignation the text states and this module cannot resolve is
-//! **reported**, never dropped: [`RedesignationReport::unresolved`] names each
+//! **reported**, never dropped: [`RedesignationReport::unplaced`] names each
 //! one and says why. Silence is the failure mode here, and it is the rule #110
 //! set for unknown elements.
 //!
@@ -156,6 +156,21 @@ pub enum Reason {
     /// The dataset does not hold the section under amendment, so nothing here
     /// can be checked against law that is really there.
     SectionNotHeld(String),
+    /// The dataset holds no pair of neighbouring expressions at all, so there
+    /// is no window in which a renumbering could have happened.
+    ///
+    /// The organic order: a bill is loaded before the release points it amends.
+    /// Every statement it makes is unplaced, and the report must say so rather
+    /// than say nothing — a silent report would read as a bill that renumbered
+    /// nothing.
+    NoWindowHeld,
+    /// The dataset holds no link for the statement, and this build can place
+    /// it. The step that records the links has not run over this dataset.
+    ///
+    /// Told apart from the reasons around it on purpose. Every other one says
+    /// the statement cannot be placed; this one says it has not been placed
+    /// yet, and the two need different work (#181).
+    NoLinkRecorded,
     /// The container the clause sits in is not in the document at that path.
     ContainerNotHeld(String),
     /// One path names more than one provision here, so which one was renumbered
@@ -206,6 +221,14 @@ impl fmt::Display for Reason {
                 write!(f, "nothing says which title holds section {section}")
             }
             Self::SectionNotHeld(id) => write!(f, "the dataset does not hold {id}"),
+            Self::NoWindowHeld => write!(
+                f,
+                "the dataset holds no window to check the statement against"
+            ),
+            Self::NoLinkRecorded => write!(
+                f,
+                "the dataset holds no link for a statement this build can place"
+            ),
             Self::ContainerNotHeld(path) => write!(f, "no provision at {path}"),
             Self::ContainerIsAmbiguous(path) => write!(f, "{path} names more than one provision"),
             Self::ProvisionNotHeld(path) => write!(f, "no provision at {path} before the bill"),
@@ -227,6 +250,19 @@ pub struct StatedRedesignation {
     pub amendment_id: String,
     /// The clause as the bill wrote it, so a reviewer can read the words.
     pub text: String,
+    /// Where in the bill the words sit, as a structural path.
+    ///
+    /// `CONTEXT.md` requires it of an Unplaced statement: a reviewer must be
+    /// able to open the words that defeated the reader. Most of what
+    /// `119-hr-1` leaves unplaced carries no US Code path at all — that is why
+    /// it is unplaced — so the path into the bill is the only one it has.
+    ///
+    /// `None` when the statement was read out of a bill's markup rather than out
+    /// of the bill a dataset holds. A path is generated when the bill becomes a
+    /// document, and markup alone has none to give
+    /// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     /// The section under amendment, as a USLM identifier: `/us/usc/t26/s898`.
     ///
     /// `None` when the bill named no section this reader could find, which is
@@ -293,34 +329,96 @@ pub struct Redesignation {
     pub corroboration: Corroboration,
 }
 
-/// A redesignation the text states and this build could not resolve.
+/// Which reader read the words.
+///
+/// Two readers hand their reading to one resolver, and the resolver makes every
+/// path in the dataset
+/// (`docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`). An
+/// unplaced statement names the one that failed, because the answer decides what
+/// to do next: a rule the rules cannot read is work for the model, and a clause
+/// the model could not read either is work for a person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reader {
+    /// The rule reader: [`read_clause`] and [`resolve`].
+    Rule,
+    /// The model reader. Nothing writes this yet; #154 builds it.
+    Model,
+}
+
+impl Reader {
+    /// The reader a link's `Provenance::source` names.
+    ///
+    /// A source is written `<reader>:<what it read>`, as in
+    /// `rule:bill_redesignation`. Anything this build does not know as the
+    /// model's is the rules', because the rules are what wrote every link
+    /// before the model reader existed.
+    pub fn of_source(source: &str) -> Self {
+        match source.split(':').next() {
+            Some("model") => Self::Model,
+            _ => Self::Rule,
+        }
+    }
+}
+
+impl fmt::Display for Reader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rule => write!(f, "rule"),
+            Self::Model => write!(f, "model"),
+        }
+    }
+}
+
+/// A redesignation a source states and no reader could turn into two paths.
+///
+/// The concept `CONTEXT.md` calls an **Unplaced statement**. It carries the
+/// words, the reason, the reader that failed, and the path in the source
+/// document where the words sit, so a reviewer can open them.
 ///
 /// Reported rather than dropped. A reader must be able to see that the corpus
 /// said something the tool could not place, because otherwise the tool's silence
 /// reads as the law's silence.
+///
+/// It is not stored beside the links. The words and the path are already in the
+/// dataset, because the dataset holds the bill as a document (ADR 0009, #196),
+/// and the reason is reproduced by resolving the same statements against the
+/// same windows. Storing it would restate what the file already holds, which
+/// `docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`
+/// refuses for a rule reading, and it would go stale: the same bill leaves 31
+/// statements unplaced against title 26 alone and 17 against the whole corpus,
+/// so a row written when the bill was loaded becomes false as soon as the
+/// dataset grows (#180).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Unresolved {
+pub struct UnplacedStatement {
     pub amendment_id: String,
     /// The clause, as the bill wrote it.
     pub text: String,
+    /// Where in the source document the words sit. See
+    /// [`StatedRedesignation::path`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub reason: Reason,
+    /// The reader that could not place it.
+    pub reader: Reader,
 }
 
-impl Unresolved {
+impl UnplacedStatement {
     /// The start of the clause, so one statement stays one line.
     ///
     /// For a caller that lays the report out its own way. Anything printing the
     /// whole of `text` will bury every other line it writes.
     pub fn clause_start(&self) -> String {
-        first_words(&self.text)
+        clause_start(&self.text)
     }
 }
 
-impl fmt::Display for Unresolved {
+impl fmt::Display for UnplacedStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "warning: redesignation not resolved ({}): {}",
+            "warning: redesignation not placed by the {} reader ({}): {}",
+            self.reader,
             self.reason,
             self.clause_start()
         )
@@ -336,7 +434,11 @@ impl fmt::Display for Unresolved {
 ///
 /// The reason is never shortened. It is the part a maintainer acts on, and it is
 /// one short phrase.
-fn first_words(text: &str) -> String {
+///
+/// Public, so that every report shortens a clause by one rule. Two rules would
+/// give two lengths for one clause, and a reviewer comparing two reports would
+/// read that as two clauses.
+pub fn clause_start(text: &str) -> String {
     const SHOWN: usize = 140;
     match text.char_indices().nth(SHOWN) {
         Some((end, _)) => format!("{}…", &text[..end]),
@@ -350,7 +452,7 @@ fn first_words(text: &str) -> String {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RedesignationReport {
     pub resolved: Vec<Redesignation>,
-    pub unresolved: Vec<Unresolved>,
+    pub unplaced: Vec<UnplacedStatement>,
 }
 
 impl RedesignationReport {
@@ -374,7 +476,10 @@ impl RedesignationReport {
     /// Counted by clause, not by row: a clause that states fourteen
     /// renumberings and fails on three of them is one statement this build
     /// could not place.
-    pub fn unplaced(&self) -> usize {
+    ///
+    /// Not named `unplaced`, which is the list beside it. A count and a list of
+    /// rows are different numbers, and one word for both reads as a mistake.
+    pub fn statements_unplaced(&self) -> usize {
         self.unplaced_names().len()
     }
 
@@ -383,7 +488,7 @@ impl RedesignationReport {
     /// A statement is named by the amendment it came from and the words it was
     /// read out of, which is the pair [`Self::across_works`] folds by. Both
     /// lists name the same statement more than once: the resolved list holds one
-    /// row per renumbering, and the unresolved list one row per renumbering it
+    /// row per renumbering, and the unplaced list one row per renumbering it
     /// could not place.
     fn statement_names(&self) -> std::collections::HashSet<(&str, &str)> {
         self.resolved
@@ -395,9 +500,9 @@ impl RedesignationReport {
 
     /// Every statement this build could not place, each named once.
     fn unplaced_names(&self) -> std::collections::HashSet<(&str, &str)> {
-        self.unresolved
+        self.unplaced
             .iter()
-            .map(|unresolved| (unresolved.amendment_id.as_str(), unresolved.text.as_str()))
+            .map(|unplaced| (unplaced.amendment_id.as_str(), unplaced.text.as_str()))
             .collect()
     }
 
@@ -417,33 +522,55 @@ impl RedesignationReport {
             "{label}: {} statement(s), {} link(s) recorded, {} statement(s) not placed",
             self.statements(),
             self.links(),
-            self.unplaced()
+            self.statements_unplaced()
         )
     }
 
-    /// Write the summary and every unresolved statement to stderr, so both reach
+    /// Write the summary and every unplaced statement to stderr, so both reach
     /// the person who ran the command.
     ///
     /// The crate carries no logger and the CLI writes its own warnings with
     /// `eprintln!`, so this does the same (`crate::uslm::parser::ParseReport`).
     pub fn warn(&self, label: &str) {
         eprintln!("{}", self.summary(label));
-        for unresolved in &self.unresolved {
-            eprintln!("{unresolved}");
+        for unplaced in &self.unplaced {
+            eprintln!("{unplaced}");
+        }
+    }
+
+    /// Every statement, unplaced, because the dataset holds no window.
+    ///
+    /// A bill loaded before the release points it amends has nothing to be
+    /// checked against. Folding no reports at all gives an empty report, which
+    /// says a bill renumbered nothing — the one thing this must never say
+    /// (`CONTEXT.md`, Unplaced statement).
+    pub fn without_a_window(stated: &[StatedRedesignation]) -> Self {
+        Self {
+            resolved: Vec::new(),
+            unplaced: stated
+                .iter()
+                .map(|statement| UnplacedStatement {
+                    amendment_id: statement.amendment_id.clone(),
+                    text: statement.text.clone(),
+                    path: statement.path.clone(),
+                    reason: Reason::NoWindowHeld,
+                    reader: Reader::Rule,
+                })
+                .collect(),
         }
     }
 
     /// Fold another sweep's findings into this one.
     pub fn absorb(&mut self, other: RedesignationReport) {
         self.resolved.extend(other.resolved);
-        self.unresolved.extend(other.unresolved);
+        self.unplaced.extend(other.unplaced);
     }
 
     /// One view of a corpus, from one report per work.
     ///
     /// A statement resolves in the one work that holds its section and fails in
     /// every other, so concatenating the reports would say the same statement was
-    /// unresolved fifty times over. A statement that resolved in any work is
+    /// unplaced fifty times over. A statement that resolved in any work is
     /// resolved; only one that resolved nowhere is reported, once.
     ///
     /// The reason kept is the most telling one. Every work but one answers
@@ -465,26 +592,24 @@ impl RedesignationReport {
             .map(|resolved| name_of(&resolved.amendment_id, &resolved.text))
             .collect();
 
-        let mut best: std::collections::BTreeMap<(String, String), Unresolved> =
+        let mut best: std::collections::BTreeMap<(String, String), UnplacedStatement> =
             std::collections::BTreeMap::new();
-        for unresolved in &folded.unresolved {
-            let name = name_of(&unresolved.amendment_id, &unresolved.text);
+        for unplaced in &folded.unplaced {
+            let name = name_of(&unplaced.amendment_id, &unplaced.text);
             if placed.contains(&name) {
                 continue;
             }
             let keep = match best.get(&name) {
                 None => true,
-                Some(held) => {
-                    held.reason.is_another_title() && !unresolved.reason.is_another_title()
-                }
+                Some(held) => held.reason.is_another_title() && !unplaced.reason.is_another_title(),
             };
             if keep {
-                best.insert(name, unresolved.clone());
+                best.insert(name, unplaced.clone());
             }
         }
         Self {
             resolved: folded.resolved,
-            unresolved: best.into_values().collect(),
+            unplaced: best.into_values().collect(),
         }
     }
 }
@@ -979,10 +1104,14 @@ fn resolve_one(
     report: &mut RedesignationReport,
 ) {
     let mut reject = |reason: Reason| {
-        report.unresolved.push(Unresolved {
+        report.unplaced.push(UnplacedStatement {
             amendment_id: statement.amendment_id.clone(),
             text: statement.text.clone(),
+            path: statement.path.clone(),
             reason,
+            // One resolver, and the rules are what reached it here. The model
+            // reader names itself when #154 builds it (ADR 0010).
+            reader: Reader::Rule,
         });
     };
 

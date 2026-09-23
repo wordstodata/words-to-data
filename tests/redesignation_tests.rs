@@ -109,7 +109,7 @@ fn should_report_a_redesignation_when_the_new_path_is_absent_after_the_bill() {
         "a path the later document does not hold is not linked"
     );
     let reported = report
-        .unresolved
+        .unplaced
         .iter()
         .find(|u| {
             u.text
@@ -715,14 +715,14 @@ fn should_resolve_most_of_the_corpus_and_report_the_rest() {
         .filter(|r| r.corroboration.detail.len() == 2)
         .count();
     println!(
-        "stated={} resolved={} unresolved={} with_figure={}",
+        "stated={} resolved={} unplaced={} with_figure={}",
         stated.len(),
         report.resolved.len(),
-        report.unresolved.len(),
+        report.unplaced.len(),
         with_figure
     );
-    for unresolved in &report.unresolved {
-        println!("  {}: {}", unresolved.reason, unresolved.text);
+    for unplaced in &report.unplaced {
+        println!("  {}: {}", unplaced.reason, unplaced.text);
     }
     for resolved in &report.resolved {
         println!(
@@ -747,7 +747,7 @@ fn should_resolve_most_of_the_corpus_and_report_the_rest() {
         .map(|r| (r.amendment_id.as_str(), r.text.as_str()))
         .collect();
     let named: std::collections::HashSet<(&str, &str)> = report
-        .unresolved
+        .unplaced
         .iter()
         .map(|u| (u.amendment_id.as_str(), u.text.as_str()))
         .collect();
@@ -798,7 +798,7 @@ fn should_count_statements_links_and_unplaced_statements_when_it_sweeps_the_corp
         "those statements become 81 renumberings this build can place"
     );
     assert_eq!(
-        report.unplaced(),
+        report.statements_unplaced(),
         17,
         "17 statements stay unplaced, and each one is reported"
     );
@@ -865,7 +865,7 @@ fn should_shorten_the_clause_when_it_reports_a_statement_it_could_not_place() {
     let report = resolve(&stated, &earlier, &later);
 
     let longest = report
-        .unresolved
+        .unplaced
         .iter()
         .max_by_key(|u| u.text.chars().count())
         .expect("the corpus states something this build cannot place");
@@ -909,7 +909,7 @@ fn should_name_the_bill_and_all_three_counts_when_it_summarises_a_sweep() {
         format!(
             "{BILL_ID}: 57 statement(s), {} link(s) recorded, {} statement(s) not placed",
             report.links(),
-            report.unplaced()
+            report.statements_unplaced()
         ),
         "the line names the bill, the statements it read, the links it recorded, \
          and what it could not place"
