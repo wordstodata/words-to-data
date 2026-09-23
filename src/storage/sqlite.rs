@@ -74,7 +74,7 @@ impl ElementRow<'_> {
 /// The name of a target's variant, for the tag column.
 fn target_tag(target: &Target) -> &'static str {
     match target {
-        Target::Provision(_) => "provision",
+        Target::Node(_) => "node",
         Target::Expression(_) => "expression",
         Target::Change { .. } => "change",
         Target::External { .. } => "external",
@@ -111,7 +111,7 @@ const LINK_INSERT: &str = "INSERT OR REPLACE INTO links \
 impl LinkRow {
     fn new(id: &str, link: &Link) -> Result<Self, DatasetError> {
         // Promoted columns, derived from the subject on write. Only a change
-        // and a provision carry a path; only a change carries a pair.
+        // and a node carry a path; only a change carries a pair.
         let (work, path, from_date, to_date) = match &link.subject {
             Target::Change {
                 work,
@@ -124,7 +124,7 @@ impl LinkRow {
                 Some(from_date.clone()),
                 Some(to_date.clone()),
             ),
-            Target::Provision(path) => (None, Some(path.clone()), None, None),
+            Target::Node(path) => (None, Some(path.clone()), None, None),
             _ => (None, None, None, None),
         };
 

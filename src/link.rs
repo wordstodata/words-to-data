@@ -70,12 +70,21 @@ impl LinkKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Target {
-    /// A provision in this dataset, by structural path.
+    /// A node in this dataset, by structural path.
+    ///
+    /// Class-neutral on purpose. It was `Provision` until #147, and
+    /// `CONTEXT.md` defines a Provision as a unit of law that stays the same
+    /// thing across versions. A court opinion is neither — it is a fixed
+    /// document — so every stored opinion link said, in the core's own
+    /// vocabulary, that an opinion is a provision. The shape was right and the
+    /// word was false. `docs/adr/0006-a-document-node-is-class-neutral.md`
+    /// already made a stored node class-neutral; this is the same rule reaching
+    /// the word a link uses for one.
     ///
     /// The path locates rather than identifies, so this moves to a stable
-    /// provision identity when one exists
+    /// identity when one exists
     /// (`docs/adr/0001-structural-paths-locate-not-identify.md`).
-    Provision(String),
+    Node(String),
     /// A work as it read on one date.
     ///
     /// The same [`ExpressionId`] storage keys on, so a link points at a thing

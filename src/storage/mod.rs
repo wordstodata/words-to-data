@@ -59,7 +59,7 @@ use crate::uslm::bill_parser::Bill;
 /// publisher's `identifier` or heading in place of an XML uuid, and holds the
 /// Federal Rules of Evidence, which `<article>` grouped under a name the parser
 /// did not know (#115, #122). No column changes. The number still goes up: a
-/// path is what `element_index` is keyed on and what `Target::Provision` names,
+/// path is what `element_index` is keyed on and what `Target::Node` names,
 /// so a dataset built with uuid paths, read by a build that generates readable
 /// ones, would find nothing and say nothing.
 /// 7 dates a member's party: the whole party history is kept, in place of the

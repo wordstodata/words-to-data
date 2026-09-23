@@ -90,7 +90,7 @@ fn should_link_the_opinion_to_the_provision_when_the_dataset_holds_the_title() {
     assert_eq!(links.len(), 1);
     let link = &links[0];
     assert_eq!(link.kind, LinkKind::new(LinkKind::CITES));
-    assert_eq!(link.object, Target::Provision(SECTION_174.to_string()));
+    assert_eq!(link.object, Target::Node(SECTION_174.to_string()));
     assert_eq!(
         link.subject,
         Target::External {
@@ -143,7 +143,7 @@ fn should_keep_the_subsection_in_the_payload_when_the_citation_names_one() {
     // trusted at that depth -- the published example `981(a)(l)(C)` has a
     // lower-case L where the provision has a paragraph (1) -- so the subsection
     // is recorded as written instead of resolved.
-    assert_eq!(links[0].object, Target::Provision(SECTION_174.to_string()));
+    assert_eq!(links[0].object, Target::Node(SECTION_174.to_string()));
     assert_eq!(
         links[0].payload.as_ref().expect("a payload").value["section"],
         "174(a)"
@@ -168,8 +168,8 @@ fn should_link_every_section_when_one_citation_names_a_list_of_them() {
     assert_eq!(
         objects,
         vec![
-            &Target::Provision("uscode/title_1/chapter_1/section_1".to_string()),
-            &Target::Provision("uscode/title_1/chapter_1/section_2".to_string()),
+            &Target::Node("uscode/title_1/chapter_1/section_1".to_string()),
+            &Target::Node("uscode/title_1/chapter_1/section_2".to_string()),
         ],
         "each provision is its own statement, so each is its own link"
     );
@@ -282,7 +282,7 @@ fn should_carry_a_citation_link_through_storage_when_the_dataset_is_saved() {
     assert_eq!(stored.len(), 1);
     assert_eq!(
         stored[0].object,
-        Target::Provision("uscode/title_1/chapter_1/section_1".to_string())
+        Target::Node("uscode/title_1/chapter_1/section_1".to_string())
     );
     assert_eq!(
         stored[0].provenance.verification,
@@ -320,7 +320,7 @@ fn should_resolve_to_the_published_section_when_prose_writes_the_dash_as_a_hyphe
     assert_eq!(links.len(), 1, "one link, got {links:?}");
     assert_eq!(
         links[0].object,
-        Target::Provision(SECTION_300GG_11.to_string()),
+        Target::Node(SECTION_300GG_11.to_string()),
         "the link names the stored path, which keeps the publisher's en dash"
     );
 }

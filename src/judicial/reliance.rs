@@ -210,7 +210,7 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
 /// about the section means the whole of it, so a link into a subsection counts.
 fn provision_at_or_under(object: &Target, wanted: &str) -> Option<String> {
     match object {
-        Target::Provision(path) if covers_path(wanted, path) => Some(path.clone()),
+        Target::Node(path) if covers_path(wanted, path) => Some(path.clone()),
         _ => None,
     }
 }
@@ -218,7 +218,7 @@ fn provision_at_or_under(object: &Target, wanted: &str) -> Option<String> {
 /// Who the citing opinion is, and whether this dataset holds it.
 fn citing_of<R: DocumentReader + ?Sized>(reader: &R, link: &Link) -> Result<Citing, DatasetError> {
     let path = match &link.subject {
-        Target::Provision(path) => path,
+        Target::Node(path) => path,
         Target::External { reference, display } => {
             return Ok(Citing::NotHeld {
                 reference: reference.clone(),

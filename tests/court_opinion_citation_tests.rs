@@ -659,7 +659,7 @@ fn should_name_a_held_opinion_by_its_path_and_an_unheld_one_as_external() {
 
     assert_eq!(
         held[0].subject,
-        words_to_data::link::Target::Provision("judicial/opinion_109019".to_string()),
+        words_to_data::link::Target::Node("judicial/opinion_109019".to_string()),
         "the dataset holds this opinion, so the link points at the node"
     );
     assert_eq!(
@@ -680,4 +680,40 @@ fn should_name_a_held_opinion_by_its_path_and_an_unheld_one_as_external() {
         words_to_data::storage::LinkReader::links_for_path(&dataset, "judicial/opinion_109019")
             .expect("links should read back");
     assert_eq!(from_the_case.len(), 1);
+}
+
+/// A link from a court opinion must name its subject with a word that is true
+/// of a court opinion (#147).
+///
+/// `CONTEXT.md` defines a Provision as a unit of law that stays the same thing
+/// across versions. A court opinion is not a unit of law and does not change
+/// across versions: it is a fixed document. So `Target::Node`, the core's
+/// only word for "a node in this dataset", said in the core's own vocabulary
+/// that an opinion is a provision. The shape was right — the variant carries a
+/// path, which is what is needed — and the stored word was false, and `Target`
+/// is serialized into every W2D file, so the falsehood travelled.
+#[test]
+fn should_name_a_court_opinion_with_a_word_that_is_true_of_a_court_opinion() {
+    let dataset = dataset_holding_the_ten(&[(TITLE_26_LATER, LATER, "uscode/title_26")]);
+    let links = words_to_data::storage::LinkReader::links_by_kind(
+        &dataset,
+        words_to_data::link::LinkKind::CITES,
+    )
+    .expect("the citation links should read back");
+    assert!(!links.is_empty(), "the ten opinions cite the U.S. Code");
+
+    for link in &links {
+        assert!(
+            matches!(link.subject, words_to_data::link::Target::Node(_)),
+            "a citing opinion is a node in this dataset, got {:?}",
+            link.subject
+        );
+    }
+
+    // The word travels, so the stored spelling is asserted too.
+    let stored = serde_json::to_string(&links[0].subject).expect("a target should serialize");
+    assert!(
+        stored.starts_with("{\"node\":"),
+        "the stored word should be true of an opinion, got {stored}"
+    );
 }

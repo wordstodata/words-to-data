@@ -42,7 +42,7 @@ use usc::UscCitation;
 /// rather than a style choice.
 ///
 /// [`Opinion::held`] is for an opinion this dataset carries, since #53 put court
-/// opinions in datasets. Then the subject is a [`Target::Provision`] naming the
+/// opinions in datasets. Then the subject is a [`Target::Node`] naming the
 /// node, so a reader can follow the link to the text that made the citation, a
 /// backend can index it, and `LinkReader::links_for_path` answers "what does this
 /// case cite".
@@ -53,9 +53,9 @@ use usc::UscCitation;
 /// amendment, and a reader is told plainly that the citing document is not in the
 /// file and the link's subject cannot be checked against it.
 ///
-/// `Target::Provision` is the strain in this. Its name says provision, and an
-/// opinion is not one; it is the core's word for "a node in this dataset, by
-/// path", and the core has no other. See
+/// The word used to be the strain in this. The variant was `Target::Provision`,
+/// and an opinion is not a provision. #147 renamed it to [`Target::Node`],
+/// which is what the variant always meant: a node in this dataset, by path. See
 /// `docs/research/a-court-opinion-in-the-core.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opinion {
@@ -97,7 +97,7 @@ impl Opinion {
 
     fn target(&self) -> Target {
         match &self.held_as {
-            Some(work) => Target::Provision(work.to_string()),
+            Some(work) => Target::Node(work.to_string()),
             None => Target::External {
                 reference: self.reference(),
                 display: self.display.clone(),
@@ -185,7 +185,7 @@ fn cites_link(
             }),
         }),
         kind,
-        object: Target::Provision(path.to_string()),
+        object: Target::Node(path.to_string()),
         provenance,
     }
 }

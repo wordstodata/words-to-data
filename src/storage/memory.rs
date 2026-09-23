@@ -327,7 +327,7 @@ impl LinkReader for InMemoryStorage {
 /// The structural path a link's subject names, when it names one.
 fn subject_path(link: &Link) -> Option<&str> {
     match &link.subject {
-        Target::Change { path, .. } | Target::Provision(path) => Some(path),
+        Target::Change { path, .. } | Target::Node(path) => Some(path),
         _ => None,
     }
 }

@@ -2,9 +2,17 @@
 
 Status: accepted. Implemented, with one term below that describes intent rather than code.
 
+## A note on the word for a node (#147)
+
+The variant this document and `docs/adr/0004` call `Target::Provision` is now **`Target::Node`**. `CONTEXT.md` defines a Provision as a unit of law that stays the same thing across versions, and a court opinion is neither, so every stored opinion link said in the core's own vocabulary that an opinion is a provision. The shape was right — the variant carries a path, which is what is needed — and the stored word was false, and a target is serialized into every W2D file, so the falsehood travelled.
+
+This is a **rename inside the closed set**, not a widening of it. The set below is "ours, so it widens when the core needs to say something new"; nothing new is said here and no variant is added, so this ADR needs this note rather than a new decision. Read `Target::Provision` anywhere below as `Target::Node`. The rename changes `subject_json` and `object_json` on every stored link in both forms, so it rode the schema break of #182 rather than taking one of its own.
+
+A second same-shaped variant for a document was considered and rejected: two variants of one shape invite the wrong one being picked.
+
 ## A note on "a provision identity"
 
-The shape section says the object of a link may be "a provision identity". There is no provision identity in the code. `Target::Provision` carries a **path**, which `docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md` states plainly — "a provision holds a path" — and which `docs/adr/0001-structural-paths-locate-not-identify.md` now flags as unbuilt. Read "provision identity" in this document as the thing a link is meant to point at; read ADR 0004 for what it points at today. #93 closes the difference.
+The shape section says the object of a link may be "a provision identity". There is no provision identity in the code. `Target::Node` carries a **path**, which `docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md` states plainly — "a provision holds a path" — and which `docs/adr/0001-structural-paths-locate-not-identify.md` now flags as unbuilt. Read "provision identity" in this document as the thing a link is meant to point at; read ADR 0004 for what it points at today. #93 closes the difference.
 
 Everything else in this ADR is built: one `Link` type in the core with a namespaced kind, `legislature.amended_by` as the first kind, the open kind string, and a `Declaration` that lists the namespaces a reader should expect (`Scope::declares_namespace`).
 

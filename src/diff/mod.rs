@@ -227,7 +227,7 @@ impl Redesignations {
         let redesignated_as = LinkKind::new(LinkKind::REDESIGNATED_AS);
         let path_of = |target: &Target| match target {
             Target::Change { path, .. } => Some(path.clone()),
-            Target::Provision(path) => Some(path.clone()),
+            Target::Node(path) => Some(path.clone()),
             _ => None,
         };
         Self::from_pairs(
