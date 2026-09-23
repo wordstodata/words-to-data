@@ -18,6 +18,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dataset::WorkId;
+
 /// What made a statement, at the version it was at when it made it.
 ///
 /// A **record**: it says what the maker asserted about their own work, and it
@@ -46,5 +48,50 @@ impl std::fmt::Display for Method {
     /// `name@version`, which is how a report names a method in one column.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}@{}", self.name, self.version)
+    }
+}
+
+/// One method, at one version, applied to one window.
+///
+/// A dataset used to keep no list of what had been done to it, so a missing
+/// step read as a complete file and an agent could not decide what to do next
+/// (#179, decision 11).
+///
+/// It records which **method** ran, not which step. "`redesignations` has run
+/// here" stays true for ever while the thing it means changes underneath. "This
+/// reasoning was applied to this window" is what an agent can act on.
+///
+/// A **record**, and it passes the test that keeps this honest: "method M at
+/// version V ran over window W" is something that happened, and it stays true
+/// however much the dataset grows. A question whose answer changes as the
+/// dataset grows — how many statements are unplaced, for one — is derived and
+/// must not be stored here (#153,
+/// `docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+///
+/// It carries no clock reading, and none is wanted. A re-run of the same method
+/// at the same version over the same window is the same record, which is what
+/// makes a rebuild idempotent; a timestamp would turn each re-run into a new
+/// row saying the same thing.
+///
+/// The window is one work and two dates rather than two [`crate::dataset::ExpressionId`]s,
+/// for the reason `docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`
+/// gives for `Target::Change`: two copies of one work can disagree, and after an
+/// edit one of them will.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct MethodRun {
+    /// What ran, and which version of it.
+    pub method: Method,
+    /// The work whose two expressions make the window.
+    pub work: WorkId,
+    /// The earlier expression's date.
+    pub from_date: String,
+    /// The later expression's date.
+    pub to_date: String,
+}
+
+impl MethodRun {
+    /// Whether this run covers the window between two dates of one work.
+    pub fn covers(&self, work: &WorkId, from_date: &str, to_date: &str) -> bool {
+        &self.work == work && self.from_date == from_date && self.to_date == to_date
     }
 }

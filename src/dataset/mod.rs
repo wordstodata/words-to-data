@@ -29,6 +29,7 @@ use crate::document::DocumentNode;
 use crate::legislature::BillDiff;
 use crate::legislature::redesignation::{self, RedesignationReport};
 use crate::link::{Link, ProvisionHistory};
+use crate::method::{Method, MethodRun};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
     LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, SqliteStorage,
@@ -67,6 +68,22 @@ pub struct DatasetMetadata {
     /// from the contents alone.
     #[serde(default)]
     pub declaration: Option<Declaration>,
+    /// Which method, at which version, has run over which window.
+    ///
+    /// The dataset saying what has been done to it, so a missing step no longer
+    /// reads as a complete file (#179, decision 11). It sits beside the
+    /// [`Declaration`] because both are what a producer says about the dataset
+    /// as a whole, and because a metadata field is carried by both stored forms
+    /// without a table of its own.
+    ///
+    /// A **record**: each entry is something that happened and stays true. Add
+    /// nothing here whose answer changes as the dataset grows — that is derived
+    /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+    ///
+    /// Empty means nothing has been recorded, which is every dataset built
+    /// before this existed. It is not a statement that no method ran.
+    #[serde(default)]
+    pub method_runs: Vec<MethodRun>,
 }
 
 /// A search result from text search
@@ -318,6 +335,52 @@ impl<S: Storage> Dataset<S> {
             per_work.push(self.record_redesignations(bill_id, &stated, from, to)?);
         }
         Ok(RedesignationReport::across_works(per_work))
+    }
+
+    /// Record that a method, at a version, ran over a window.
+    ///
+    /// The window is a pair of expressions of **one** work, so a pair naming
+    /// two works is refused rather than recorded, exactly as
+    /// [`Dataset::compute_diff`] refuses one.
+    ///
+    /// Recording the same method, at the same version, over the same window
+    /// twice leaves one record. A run is identified by what it says, like a
+    /// link, which is what keeps a rebuild idempotent.
+    ///
+    /// What is recorded is the **method**, not the step that called it. "This
+    /// reasoning was applied to this window" is a thing an agent can act on;
+    /// "something ran here" is not (#179, decision 11).
+    pub fn record_method_run(
+        &mut self,
+        method: Method,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<(), DatasetError> {
+        crate::storage::memory::require_same_work(&self.storage, from, to)?;
+
+        let run = MethodRun {
+            method,
+            work: from.work.clone(),
+            from_date: from.at.clone(),
+            to_date: to.at.clone(),
+        };
+        if self.storage.metadata().method_runs.contains(&run) {
+            return Ok(());
+        }
+
+        let mut metadata = self.storage.metadata().clone();
+        metadata.method_runs.push(run);
+        self.storage.set_metadata(metadata);
+        Ok(())
+    }
+
+    /// Which method, at which version, has run over which window.
+    ///
+    /// This is how a dataset says what has been done to it. An empty list means
+    /// nothing was recorded, which is every dataset built before the record
+    /// existed; it is not a statement that no method ran.
+    pub fn method_runs(&self) -> &[MethodRun] {
+        &self.storage.metadata().method_runs
     }
 
     /// The renumberings one provision ran through, oldest first.

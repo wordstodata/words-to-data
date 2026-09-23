@@ -19,6 +19,8 @@ use words_to_data::storage::{InMemoryStorage, LinkReader, SqliteStorage};
 
 const RELEASE: &str = "2025-07-30";
 const TITLE_1: &str = "tests/test_data/usc/2025-07-30/usc01.xml";
+const EARLIER_RELEASE: &str = "2025-07-18";
+const TITLE_1_EARLIER: &str = "tests/test_data/usc/2025-07-18/usc01.xml";
 const WORK_1: &str = "uscode/title_1";
 
 /// The rule that reads a U.S.C. citation out of an opinion, as it stands now.
@@ -112,4 +114,93 @@ fn should_name_the_version_of_the_method_that_made_a_link_in_both_stored_forms()
             "{label} should name the method and the version it was at"
         );
     }
+}
+
+/// A dataset could not say what had been done to it, so a missing step read as
+/// a complete file. It now records which method, at which version, ran over
+/// which window (#179, decision 11).
+///
+/// Which **method**, not which step. "`redesignations` has run here" stays true
+/// for ever while the thing it means changes underneath. "This reasoning was
+/// applied to this window" is what an agent can act on.
+///
+/// The record passes the honesty test that kept #153 out of this break: "method
+/// M at version V ran over window W" is a record of something that happened,
+/// and it stays true however much the dataset grows
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+#[test]
+fn should_say_which_method_at_which_version_ran_over_which_window_in_both_stored_forms() {
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "What has run over this dataset".to_string(),
+        ..Default::default()
+    });
+    dataset
+        .add_uslm_xml(TITLE_1_EARLIER, EARLIER_RELEASE, None)
+        .expect("title 1 should parse at the earlier release point");
+    dataset
+        .add_uslm_xml(TITLE_1, RELEASE, None)
+        .expect("title 1 should parse at the later release point");
+
+    let from = ExpressionId::new(WorkId::new(WORK_1), EARLIER_RELEASE);
+    let to = ExpressionId::new(WorkId::new(WORK_1), RELEASE);
+    // A method this build really runs, rather than a name invented here.
+    let method = words_to_data::legislature::redesignation::reading_method();
+    dataset
+        .record_method_run(method.clone(), &from, &to)
+        .expect("the run should record");
+
+    let (_db_dir, sqlite) = through_sqlite(&dataset);
+    let (_file_dir, w2d) = through_w2d(&dataset);
+
+    for (label, runs) in [
+        ("memory", dataset.method_runs().to_vec()),
+        ("sqlite", sqlite.method_runs().to_vec()),
+        ("w2d", w2d.method_runs().to_vec()),
+    ] {
+        assert_eq!(runs.len(), 1, "{label} should hold one run");
+        let run = &runs[0];
+        assert_eq!(run.method, method, "{label} should name the method");
+        assert_eq!(run.method.version, 1, "{label} should name the version");
+        assert_eq!(run.work.as_str(), WORK_1, "{label} should name the work");
+        assert_eq!(run.from_date, EARLIER_RELEASE, "{label}: window start");
+        assert_eq!(run.to_date, RELEASE, "{label}: window end");
+    }
+}
+
+/// Recording the same run twice leaves one record.
+///
+/// A run is identified by what it says — this method, at this version, over
+/// this window — exactly as a link is
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`). A
+/// rebuild that runs a step twice must not grow the file.
+#[test]
+fn should_leave_one_record_when_the_same_run_is_recorded_twice() {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    dataset
+        .add_uslm_xml(TITLE_1_EARLIER, EARLIER_RELEASE, None)
+        .expect("title 1 should parse at the earlier release point");
+    dataset
+        .add_uslm_xml(TITLE_1, RELEASE, None)
+        .expect("title 1 should parse at the later release point");
+
+    let from = ExpressionId::new(WorkId::new(WORK_1), EARLIER_RELEASE);
+    let to = ExpressionId::new(WorkId::new(WORK_1), RELEASE);
+    let method = words_to_data::legislature::redesignation::reading_method();
+
+    dataset
+        .record_method_run(method.clone(), &from, &to)
+        .expect("the first run should record");
+    dataset
+        .record_method_run(method.clone(), &from, &to)
+        .expect("the second run should record");
+
+    assert_eq!(dataset.method_runs().len(), 1);
+
+    // A later version of the same method is a different record, because it is
+    // a different reasoning and a reader has to be able to tell them apart.
+    dataset
+        .record_method_run(Method::new(&method.name, method.version + 1), &from, &to)
+        .expect("the later version should record");
+
+    assert_eq!(dataset.method_runs().len(), 2);
 }
