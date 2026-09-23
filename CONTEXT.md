@@ -239,6 +239,22 @@ A reason is part of the statement, as it is for an Exclusion: a hole with no rea
 **It is a derivation, not a stored row.** The words and the path are already in the Dataset, because the Dataset holds a Bill as a Document, and the reason is reproduced by resolving the same statements against the same windows. A stored row would go stale: the same bill leaves 31 statements unplaced against title 26 alone and 17 against the whole Code, so a row written when the bill was loaded becomes false as soon as a release point is added. What makes a statement **placed** is a Link — so an unplaced statement is a statement with no Link, and both halves of the fact are read from the Dataset alone (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`, `docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
 _Avoid_: Error, failure, skip, warning
 
+**Window**:
+Two neighbouring Expressions of one Work: the law as it read before, and as it read after. It is what a statement about change is checked against, and every step that reads change takes one — `score-amendments`, `match-amendments` and `redesignations` all name it with the same argument.
+
+A window is made by loading a release point and is resolved by a separate step. Loading a Bill records nothing, because at that moment nobody knows which window matters and often the window is not held yet (#181).
+_Avoid_: Version pair, range, period
+
+**Unresolved window**:
+A Bill and a Window where the bill states Redesignations, this build can place them in that window, and the Dataset holds no Link. It is work nobody has run, and it is named as the command that runs it.
+
+It is not an Unplaced statement, and the difference is what makes the report worth reading. An unplaced statement is finished work with a reason: a reader read the words and no reader could turn them into two paths. An unresolved window is a step that has not run, and running it makes links. A report that could not tell the two apart would name the whole corpus and be ignored (#183).
+
+It is a derivation, and nothing stores it. A Redesignation link carries the Work, both dates and the bill, so "has this bill been resolved against this window" is answered by the links the Dataset holds. A stored list of outstanding steps would go stale as soon as a link arrived by another route (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+
+**A Dataset still cannot say which steps have run over it.** This answers the question for one step, by reading its output. Every other step is answered the same way or not at all, and a record of which method at which version ran over which window is #182.
+_Avoid_: Todo, backlog, pending, dirty
+
 **Extension**:
 A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (case name, opinion type). The core data model carries no extension concept, and no document class either. A Link's kind is an open namespaced string, a Document node's type is an open namespaced string, and in both cases the facts only one namespace understands sit in a payload the core stores and never reads (Kind payload, Class payload).
 

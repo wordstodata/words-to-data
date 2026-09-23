@@ -21,9 +21,7 @@
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::{Dataset, Format};
-use words_to_data::legislature::redesignation::RedesignationReport;
 use words_to_data::storage::{LegislatureReader, Storage};
-use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
 
 use crate::span::Span;
 
@@ -98,22 +96,19 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
         std::process::exit(1);
     });
 
-    let stated = redesignations_stated_in(&args.bill_id, &bill.root);
-    println!("{} states {} redesignation(s).", args.bill_id, stated.len());
-
-    // One report per work. A statement resolves in the work that holds its
-    // section and fails in every other, so the reports are folded rather than
-    // concatenated (`RedesignationReport::across_works`).
+    // The windows this run names, and then the step over them. The same step
+    // `build-dataset` runs after it has loaded everything (#181): one
+    // mechanism, and the window named by whoever knows which one matters.
     let pairs = args.span.resolve(&*dataset);
-    let mut per_work = Vec::new();
-    for (from, to) in &pairs {
-        let report = crate::fail::or_exit(
-            dataset.record_redesignations(&args.bill_id, &stated, from, to),
-            "Error recording redesignations",
-        );
-        per_work.push(report);
-    }
-    let report = RedesignationReport::across_works(per_work);
+    let report = crate::fail::or_exit(
+        dataset.record_redesignations_over(&args.bill_id, &bill.root, &pairs),
+        "Error recording redesignations",
+    );
+    println!(
+        "{} states {} redesignation(s).",
+        args.bill_id,
+        report.statements()
+    );
 
     // The report's own counts. One clause states many renumberings, so a count
     // of links is not a count of statements (#166).

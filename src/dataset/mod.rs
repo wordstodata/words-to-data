@@ -273,54 +273,51 @@ impl<S: Storage> Dataset<S> {
         Ok(report)
     }
 
-    /// Record every redesignation a bill's markup states, across the whole
-    /// dataset.
+    /// Record every redesignation a bill states, over the windows named.
     ///
-    /// Called as part of loading a bill, so no build can hold a bill and lack
-    /// the links it states. Before this, recording them was a second command
-    /// nothing in the build path ran, and the only sign was an absence: a
-    /// rebuilt corpus came back with 889 `legislature.amended_by` links and no
-    /// redesignations at all (#150).
+    /// **The explicit step (#181).** Loading a bill records nothing, because at
+    /// load time nobody knows which window matters and often the window is not
+    /// held yet. Whoever knows names the windows here: an operator gives them
+    /// with `--between` or `--from`/`--to`, and `build-dataset` gives every
+    /// window it holds after it has loaded everything. #172 decides which
+    /// windows a bill may be tried against, and it changes the list a caller
+    /// brings rather than this method.
     ///
     /// Takes the bill's own document, not its XML. Which provision a clause is
     /// about comes from where the words sat in the bill, and the stored document
     /// holds that nesting — which is the whole of what the second parse used to
-    /// recover (ADR 0009). A statement resolves in the one work that holds its
-    /// section and fails in every other, so the reports are folded rather than
-    /// concatenated.
+    /// recover (ADR 0009). Read it with [`Dataset::bill_document`]. A statement
+    /// resolves in the one work that holds its section and fails in every
+    /// other, so the reports are folded rather than concatenated.
     ///
-    /// Every statement this build cannot place reaches stderr through
-    /// [`RedesignationReport::warn`]. The tool's silence must not read as the
-    /// corpus's silence.
-    pub fn record_redesignations_stated_in(
+    /// Returns the report, including every statement it could not place. A
+    /// caller that drops the report turns this build's silence into the
+    /// corpus's silence: print it with [`RedesignationReport::warn`].
+    pub fn record_redesignations_over(
         &mut self,
         bill_id: &str,
         bill: &DocumentNode,
+        windows: &[ExpressionPair],
     ) -> Result<RedesignationReport, DatasetError> {
         let stated = crate::uslm::bill_redesignation::redesignations_stated_in(bill_id, bill);
-        // A bill that renumbers nothing is ordinary, and sweeping every work to
+        // A bill that renumbers nothing is ordinary, and reading every window to
         // prove it would cost a section index per work for no statement.
         if stated.is_empty() {
             return Ok(RedesignationReport::default());
         }
 
-        // A bill loaded before the release points it amends has no window to be
-        // checked against. Every statement it makes is unplaced, and saying
-        // nothing would read as a bill that renumbered nothing (#153).
-        let windows = adjacent_expressions(&self.storage)?;
+        // A bill named against no window has nothing to be checked against.
+        // Every statement it makes is unplaced, and saying nothing would read as
+        // a bill that renumbered nothing (#153).
         if windows.is_empty() {
-            let report = RedesignationReport::without_a_window(&stated);
-            report.warn(bill_id);
-            return Ok(report);
+            return Ok(RedesignationReport::without_a_window(&stated));
         }
 
         let mut per_work = Vec::new();
         for (from, to) in windows {
-            per_work.push(self.record_redesignations(bill_id, &stated, &from, &to)?);
+            per_work.push(self.record_redesignations(bill_id, &stated, from, to)?);
         }
-        let report = RedesignationReport::across_works(per_work);
-        report.warn(bill_id);
-        Ok(report)
+        Ok(RedesignationReport::across_works(per_work))
     }
 
     /// The renumberings one provision ran through, oldest first.
@@ -706,12 +703,13 @@ impl Dataset<InMemoryStorage> {
             bill_parser::bill_expression(&markup, &bill_id).map_err(|e| invalid_data(&e))?;
         parse_report.print_to_stderr();
 
-        // The redesignations come out of that document, which is what stops the
-        // bill's XML from being read a second time. Read before the document is
-        // stored rather than after, which saves a copy of the whole bill and
-        // changes nothing: the sweep pairs neighbouring expressions, and a bill
-        // has one, so the bill's own work yields no pair either way.
-        self.record_redesignations_stated_in(&bill_id, &expression.root)?;
+        // No redesignation is recorded here. Loading a bill loads a bill: the
+        // links it states are written by an explicit step over a named window
+        // (`Dataset::record_redesignations_over`, #181). Recording them here
+        // needed a window, nobody at load time knows which one, and often the
+        // window is not held yet — so the step swept every neighbouring pair
+        // the dataset happened to hold (#172) and still held for one build
+        // order only (#180).
         self.add_expression(expression)?;
 
         // Parse sponsor from metadata

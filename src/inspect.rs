@@ -901,12 +901,151 @@ fn root_provision(
 /// The outcome of a dataset integrity check.
 #[derive(Debug, Clone, Serialize)]
 pub struct ValidationReport {
-    /// True when no issues were found.
+    /// True when no issue was found and no step is outstanding.
     pub ok: bool,
     /// Human-readable description of each problem found.
+    ///
+    /// A fault in what the dataset holds. Work that nobody has done yet is in
+    /// [`Self::unresolved_redesignations`] instead.
     pub issues: Vec<String>,
     /// How many annotations were inspected.
     pub checked_annotations: usize,
+    /// Each bill and window the redesignation step has not run over.
+    ///
+    /// A work-list rather than a scolding: every row is a step somebody can
+    /// run, named as the command that runs it. See
+    /// [`UnresolvedWindow`].
+    pub unresolved_redesignations: Vec<UnresolvedWindow>,
+}
+
+/// A bill and a window whose redesignation statements hold no link.
+///
+/// The unit #183 asks for. Not "this bill is unfinished", because a bill is
+/// resolved against one window at a time and the answer differs per window.
+///
+/// **Derived, never stored.** A `legislature.redesignated_as` link carries the
+/// work, both dates and the bill, so "has this bill been resolved against this
+/// window" is answerable from what the dataset holds. A stored to-do list would
+/// go stale the moment a link arrived by another route
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+#[derive(Debug, Clone, Serialize)]
+pub struct UnresolvedWindow {
+    pub bill_id: String,
+    /// The work the window is of, such as `uscode/title_26`.
+    pub work: WorkId,
+    /// The earlier date of the window.
+    pub from: String,
+    /// The later date of the window.
+    pub to: String,
+    /// How many statements this build can place in the window, and no link
+    /// holds.
+    ///
+    /// Counted by statement, not by link: one clause states many renumberings,
+    /// so the two numbers measure different things and are never added (#166).
+    pub statements: usize,
+}
+
+impl std::fmt::Display for UnresolvedWindow {
+    /// The line a reader acts on: the bill, the window, and the command.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} states {} redesignation(s) no step has resolved against {} {} -> {}: \
+             run `words_to_data redesignations <dataset> --bill-id {} --between {} {}`",
+            self.bill_id,
+            self.statements,
+            self.work,
+            self.from,
+            self.to,
+            self.bill_id,
+            self.from,
+            self.to
+        )
+    }
+}
+
+/// How many statements a report placed, each counted once.
+///
+/// A statement is named by the amendment it came from and the words it was read
+/// out of. One clause states many renumberings, so the rows are more than the
+/// statements, and a reader must not add the two (#166).
+fn statements_placeable(report: &RedesignationReport) -> usize {
+    report
+        .resolved
+        .iter()
+        .map(|resolved| (resolved.amendment_id.as_str(), resolved.text.as_str()))
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+}
+
+/// Whether this window holds a redesignation link this bill wrote.
+///
+/// One link is enough to answer. The step writes every link it can place in one
+/// pass, so a window holding one has had the step run over it.
+fn holds_a_redesignation<S: Storage>(
+    dataset: &S,
+    bill_id: &str,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) -> Result<bool, DatasetError> {
+    Ok(dataset.links_for_pair(from, to)?.iter().any(|link| {
+        link.kind.0 == crate::link::LinkKind::REDESIGNATED_AS
+            // Whose link it is, read the one way this module reads it.
+            && placed_row(link, bill_id).is_some()
+    }))
+}
+
+/// Every bill and window the redesignation step has not run over.
+///
+/// The condition is a pair, and it is read out of the dataset rather than
+/// stored: a bill states redesignations, the dataset holds a window, and no
+/// link joins the two.
+fn unresolved_redesignations<S: Storage + LegislatureReader>(
+    dataset: &S,
+) -> Result<Vec<UnresolvedWindow>, DatasetError> {
+    let mut unresolved = Vec::new();
+    let windows = adjacent_expressions(dataset)?;
+
+    for bill_id in dataset.list_bill_ids()? {
+        // A dataset built before #196 holds the bill's amendments and no
+        // document, so there is nothing here to read.
+        let Some(document) = bill_document(dataset, dataset, &bill_id)? else {
+            continue;
+        };
+        let stated =
+            crate::uslm::bill_redesignation::redesignations_stated_in(&bill_id, &document.root);
+        if stated.is_empty() {
+            continue;
+        }
+
+        for (from, to) in &windows {
+            if holds_a_redesignation(dataset, &bill_id, from, to)? {
+                continue;
+            }
+
+            // Nothing stored says which step has run over which window, so the
+            // two cases are told apart by resolving. A statement this build can
+            // place, with no link for it, is a step that has not run
+            // ([`redesignation::Reason::NoLinkRecorded`]). A statement no
+            // reader could place is finished work, and it carries its own
+            // reason — reporting it here would cry wolf (#183).
+            let (earlier, later) = crate::storage::memory::require_same_work(dataset, from, to)?;
+            let report = redesignation::resolve(&stated, &earlier.root, &later.root);
+            let statements = statements_placeable(&report);
+            if statements == 0 {
+                continue;
+            }
+
+            unresolved.push(UnresolvedWindow {
+                bill_id: bill_id.clone(),
+                work: from.work.clone(),
+                from: from.at.clone(),
+                to: to.at.clone(),
+                statements,
+            });
+        }
+    }
+    Ok(unresolved)
 }
 
 /// Check a dataset for internal consistency:
@@ -914,7 +1053,9 @@ pub struct ValidationReport {
 /// - each work's expression dates are strictly ascending and unique,
 /// - every annotation's expression pair actually exists,
 /// - every annotation's `amendment_id` resolves to a real bill amendment,
-/// - every annotation path names an element present in some expression.
+/// - every annotation path names an element present in some expression,
+/// - every bill's redesignation statements have been resolved against the
+///   windows that could hold them (#183).
 pub fn validate<S: Storage + LegislatureReader>(
     dataset: &S,
 ) -> Result<ValidationReport, DatasetError> {
@@ -975,10 +1116,21 @@ pub fn validate<S: Storage + LegislatureReader>(
         }
     }
 
+    // 5. Bills whose redesignation statements no step has resolved against a
+    //    window that could hold them (#183). The completeness #155 tried to
+    //    make impossible is countable instead: recording is an explicit step
+    //    now (#181), so the absence it permits has to be reportable.
+    //
+    //    Kept beside the issues rather than among them. An issue is a fault in
+    //    what the dataset holds; this is work nobody has done yet, and a reader
+    //    acts on the two differently. Both make the answer not `ok`.
+    let unresolved_redesignations = unresolved_redesignations(dataset)?;
+
     Ok(ValidationReport {
-        ok: issues.is_empty(),
+        ok: issues.is_empty() && unresolved_redesignations.is_empty(),
         issues,
         checked_annotations,
+        unresolved_redesignations,
     })
 }
 

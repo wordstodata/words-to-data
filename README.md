@@ -88,11 +88,18 @@ on Linux. Use `--cache-dir` for a different directory. The extracted files of on
 release point use approximately 660 MB of disk. A later build reads the cache and
 downloads nothing.
 
-**This step records redesignations.** The dataset records the renumberings that a
-bill states at the time it loads that bill, so no build can hold a bill and lack
-the links the bill states (#155). Over the two committed release points and five
-bills, `build-dataset` alone writes **80** `legislature.redesignated_as` links.
-Check the number with `words_to_data info dataset.json`.
+**This step records redesignations, after it has loaded everything.** Loading a
+bill loads a bill; the renumberings it states are recorded by an explicit step
+over a named window, and this command runs that step itself once every release
+point and every bill is in (#181). At that point it knows every window it made,
+which is the knowledge it did not have while it was loading. Over the two
+committed release points, `build-dataset` writes **80**
+`legislature.redesignated_as` links. Check the number with
+`words_to_data info dataset.json`.
+
+A dataset that **grew** instead of being built has to be given that step by
+hand, with step 5. `words_to_data validate` names each bill and window that is
+waiting for it.
 
 ### Step 2 — `extract-changes` (calls a model)
 
@@ -198,11 +205,14 @@ the prompt rather than on the file they came from: convert the dataset and the
 replies you already bought still answer. For `candidates.json` it means the
 later run overwrites the earlier one's report.
 
-### Step 5 — `redesignations` (for a re-run only)
+### Step 5 — `redesignations` (for a grown dataset, or a re-run)
 
-Step 1 records the redesignations already, so the ordinary path does not include
-this command. Use it to record the redesignations again without a rebuild — for
-example after a change to the reader, or to see the report for one named bill.
+Step 1 runs this same step over every window it made, so the ordinary build path
+does not include this command. Run it when the dataset **grew**: a release point
+added after a bill makes a window nothing has been resolved against, and
+`words_to_data validate` names each bill and window that is waiting. Run it also
+to record the redesignations again without a rebuild — after a change to the
+reader, for example — or to see the report for one named bill.
 
 ```bash
 # A SQLite dataset is changed in place.
@@ -230,10 +240,10 @@ The command prints each statement that it cannot place. A statement that no
 reader can turn into two paths is recorded, and never dropped.
 
 **Which two release points a redesignation is checked against is an open
-question.** Step 1 tries each statement against every neighbouring pair of
-expressions that the dataset holds. Nothing compares the bill's date with those
-dates. Each work in the corpus holds two release points today, so each work
-offers one pair, and the question does not yet bite. See
+question.** This command is told, with `--between` or `--from`/`--to`. Step 1
+names every window the dataset holds. Nothing compares the bill's date with
+those dates. Each work in the corpus holds two release points today, so each
+work offers one pair, and the question does not yet bite. See
 [#172](https://github.com/wordstodata/words-to-data/issues/172). Do not read this
 document as an answer to it.
 
@@ -327,9 +337,15 @@ from the file.
 
 **Run the window steps again after the dataset grows.** Steps 4 and 5 take a
 `--between` span, and the run names the span to give them. A redesignation is
-recorded against the windows the dataset held when the bill was loaded, so a bill
-loaded before a release point arrived holds no link into the new window until
-step 5 runs over it again (#181).
+recorded by a step over a named window, so a bill in a dataset that grew holds no
+link into the new window until step 5 runs over it (#181).
+
+**`validate` says which of those steps is outstanding, for redesignations.** It
+names each bill and window where the bill states renumberings, the window could
+hold them, and the dataset holds no link — and it prints the command that closes
+the gap. It says nothing about a statement no reader could place, because that is
+finished work with a reason rather than a step nobody has run (#183). The list is
+read out of the links the dataset holds, and nothing is stored.
 
 ## Quick Start
 
