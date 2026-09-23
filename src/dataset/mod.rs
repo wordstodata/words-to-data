@@ -273,6 +273,12 @@ impl<S: Storage> Dataset<S> {
     /// Returns the report, including every statement it could not place. A
     /// caller that drops the report turns this build's silence into the corpus's
     /// silence.
+    ///
+    /// It also records that the reading ran over this window, so the dataset can
+    /// say what has been done to it (`Dataset::record_method_run`). The record
+    /// is made here rather than in the two callers, because a caller that
+    /// forgets it leaves a window that was read looking like a window that was
+    /// not.
     pub fn record_redesignations(
         &mut self,
         bill_id: &str,
@@ -287,6 +293,9 @@ impl<S: Storage> Dataset<S> {
             self.storage
                 .add_link(resolved.link(&from.work, &from.at, &to.at, bill_id))?;
         }
+        // What ran is the reading, not this function. A second bill read over
+        // the same window at the same version is the same record.
+        self.record_method_run(redesignation::reading_method(), from, to)?;
         Ok(report)
     }
 

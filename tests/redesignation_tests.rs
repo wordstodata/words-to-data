@@ -422,6 +422,30 @@ fn dataset_with_redesignations() -> (
     (dataset, from, to, report)
 }
 
+/// Recording redesignations over a window must leave a record that the reading
+/// ran there, so the dataset can say what has been done to it (#182, #179
+/// decision 11).
+///
+/// The record names the **method**, not the command. "`redesignations` has run
+/// here" stays true for ever while the reading behind it changes underneath.
+#[test]
+fn should_record_the_method_that_ran_when_a_bill_is_resolved_against_a_window() {
+    let (dataset, from, to, _) = dataset_with_redesignations();
+
+    let runs = dataset.method_runs();
+    assert_eq!(runs.len(), 1, "one reading ran over one window");
+    assert_eq!(
+        runs[0].method,
+        words_to_data::legislature::redesignation::reading_method(),
+        "the record should name the reading and the version it was at"
+    );
+    assert!(
+        runs[0].covers(&from.work, &from.at, &to.at),
+        "the record should name the window it ran over, got {:?}",
+        runs[0]
+    );
+}
+
 #[test]
 fn should_record_a_link_naming_the_bill_when_a_redesignation_resolves() {
     let (dataset, _, _, _) = dataset_with_redesignations();
