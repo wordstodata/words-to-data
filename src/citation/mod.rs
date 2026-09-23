@@ -32,6 +32,7 @@ use serde_json::json;
 
 use crate::dataset::WorkId;
 use crate::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
+use crate::method::Method;
 use resolve::{CitedSection, Resolution};
 use usc::UscCitation;
 
@@ -105,6 +106,16 @@ impl Opinion {
     }
 }
 
+/// The rule that reads a U.S.C. citation, at the version it is at now.
+///
+/// Raise the version when the rule's answers change — when it starts reading a
+/// citation it used to miss, or stops reading one it used to take. Editing a
+/// comment or renaming a variable is not such a change
+/// (`crate::method::Method`).
+fn citation_rule() -> Method {
+    Method::new("reporters-db laws.json U.S.C. patterns", 1)
+}
+
 /// A link for every provision a citation resolved to, saying the opinion cites
 /// it.
 ///
@@ -142,7 +153,7 @@ fn cites_link(
     let kind = LinkKind::new(LinkKind::CITES);
     let provenance = Provenance {
         source: "rule:usc_citation".to_string(),
-        method: Some("reporters-db laws.json U.S.C. patterns".to_string()),
+        method: Some(citation_rule()),
         verification: VerificationState::MachineSuggested,
         // The matched text, so a reviewer can read what the rule read. A rule
         // has no reasoning beyond the text that satisfied it.

@@ -17,6 +17,17 @@ use words_to_data::dataset::{Dataset, Format};
 use words_to_data::legislature::BillDiff;
 
 use words_to_data::llm::{ChatOptions, LlmClient};
+use words_to_data::method::Method;
+
+/// The reading that pulls word-level changes out of an amendment, at the
+/// version it is at now.
+///
+/// Raise the version when the reading's answers change. A new prompt is such a
+/// change, and so is a different model default; renaming a local variable is
+/// not (`words_to_data::method::Method`).
+fn extraction_method() -> Method {
+    Method::new("extract-changes", 1)
+}
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -211,7 +222,7 @@ pub fn run(args: Args) {
             amendment_id,
             words_to_data::link::Provenance {
                 source: format!("model:{model_name}"),
-                method: Some("extract-changes".to_string()),
+                method: Some(extraction_method()),
                 verification: words_to_data::link::VerificationState::MachineSuggested,
                 evidence,
                 raw_score: None,

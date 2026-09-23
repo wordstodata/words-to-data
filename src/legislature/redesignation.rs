@@ -68,6 +68,7 @@ use crate::link::{
     Corroboration, Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
     amendment_reference,
 };
+use crate::method::Method;
 use crate::uslm::ElementType;
 
 /// One step of a provision's address below a section, as a bill writes it.
@@ -1251,6 +1252,16 @@ fn step_names(step: &Step, path: &str) -> bool {
 const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau, proviso, \
                        content, continuation, joined by one space";
 
+/// The rule that reads a renumbering out of a bill, at the version it is at now.
+///
+/// Raise the version when the reading's answers change — when it starts placing
+/// a clause it used to leave unplaced, or places one somewhere else. Tidying
+/// the code that does the same reading is not such a change
+/// (`crate::method::Method`).
+pub fn reading_method() -> Method {
+    Method::new("amendingAction type=redesignate", 1)
+}
+
 /// How far the words at a redesignation's two ends agree.
 ///
 /// `was` is the provision at the old path in the earlier expression and `became`
@@ -1362,7 +1373,7 @@ impl Redesignation {
             },
             provenance: Provenance {
                 source: "rule:bill_redesignation".to_string(),
-                method: Some("amendingAction type=redesignate".to_string()),
+                method: Some(reading_method()),
                 // A rule read a sentence a source wrote. The bill asserts the
                 // renumbering; the reading of it is a machine's, and no person
                 // has confirmed it.

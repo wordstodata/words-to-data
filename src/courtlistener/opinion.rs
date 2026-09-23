@@ -14,6 +14,7 @@ use serde_json::Value;
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
+use crate::method::Method;
 use crate::judicial::OpinionFacts;
 use crate::link::{Provenance, VerificationState};
 
@@ -344,7 +345,7 @@ pub fn opinion_expression(
         // The publisher, the record, and the field, so a reader can go and look
         // at the same text we read.
         source: format!("courtlistener:opinion/{}:{}", opinion.id, source.field),
-        method: Some(source.method.to_string()),
+        method: Some(Method::new(source.method, text_method::VERSION)),
         verification: source.verification,
         evidence: None,
         raw_score: None,

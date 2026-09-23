@@ -17,7 +17,10 @@
     },
     "provenance": {
       "source": "westlaw:import",
-      "method": "third-party enrichment",
+      "method": {
+        "name": "third-party enrichment",
+        "version": 1
+      },
       "verification": "asserted",
       "evidence": null,
       "raw_score": null,
@@ -60,7 +63,10 @@
     },
     "provenance": {
       "source": "westlaw:import",
-      "method": "third-party enrichment",
+      "method": {
+        "name": "third-party enrichment",
+        "version": 1
+      },
       "verification": "asserted",
       "evidence": null,
       "raw_score": null,

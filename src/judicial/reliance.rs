@@ -33,6 +33,7 @@ use crate::dataset::{Coverage, DatasetError, ExpressionId, Scope, WorkId};
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::link::{Link, LinkKind, Target, VerificationState};
+use crate::method::Method;
 use crate::storage::{DocumentReader, LinkReader};
 use crate::uslm::path::covers_path;
 
@@ -48,7 +49,10 @@ pub enum Citing {
         /// the field it was taken from, how it was obtained, and how far it can
         /// be trusted. `None` means the producer recorded nothing.
         text_source: Option<String>,
-        text_method: Option<String>,
+        /// How it was obtained, and which version of that reading. The version
+        /// tells a reader whether this build would read the same words again
+        /// (`crate::method::Method`).
+        text_method: Option<Method>,
         text_verification: Option<VerificationState>,
     },
     /// The link names an opinion outside the dataset. The citation is still

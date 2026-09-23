@@ -34,6 +34,7 @@ use words_to_data::dataset::{Coverage, ExpressionId, WorkId};
 use words_to_data::document::NodeType;
 use words_to_data::judicial::reliance::{self, ChangeWindow, Citing, CitingCase};
 use words_to_data::link::{LinkKind, Target, amendment_reference_parts};
+use words_to_data::method::Method;
 use words_to_data::storage::Storage;
 
 use crate::load::with_dataset;
@@ -185,7 +186,9 @@ fn report_cases(cases: &[CitingCase]) {
             } => println!(
                 "    opinion text: {} / {} / {}",
                 text_source.as_deref().unwrap_or("unrecorded"),
-                text_method.as_deref().unwrap_or("unrecorded"),
+                text_method
+                    .as_ref()
+                    .map_or_else(|| "unrecorded".to_string(), Method::to_string),
                 match text_verification {
                     Some(state) => format!("{state:?}"),
                     None => "unrecorded".to_string(),
