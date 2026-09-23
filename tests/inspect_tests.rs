@@ -10,12 +10,12 @@ use words_to_data::annotation::{
     AnnotationMetadata, AnnotationStatus, BillReference, ChangeAnnotation,
 };
 use words_to_data::congress::CongressClient;
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, ExpressionId, WorkId};
 use words_to_data::inspect;
 use words_to_data::inspect::{AnnotationQuery, PathMatch};
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::LinkKind;
-use words_to_data::storage::{InMemoryStorage, SqliteStorage};
+use words_to_data::storage::{InMemoryStorage, LegislatureCounts, SqliteStorage};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 const ANNOTATED_PATH: &str = "uscode/title_9/chapter_1/section_1";
@@ -198,7 +198,7 @@ fn should_report_metadata_and_counts_when_given_in_memory_dataset() {
     assert_eq!(info.license, "Public Domain");
     assert_eq!(info.work_count, 1, "two releases of one title are one work");
     assert_eq!(info.expression_count, 2);
-    assert_eq!(info.bill_count, 1);
+    assert_eq!(legislature_of(&info).bills, 1);
 }
 
 #[test]
@@ -218,41 +218,33 @@ fn should_count_links_replies_members_sponsors_and_votes_when_the_dataset_holds_
         "the kind is named in full, namespace included"
     );
     assert_eq!(info.reply_count, 5, "the recorded fixture holds five");
-    assert_eq!(info.member_count, 432);
-    assert_eq!(info.sponsor_count, 1, "one bill, one sponsor record");
-    assert_eq!(info.roll_call_count, 1);
-    assert_eq!(info.member_vote_count, 432);
+    let legislature = legislature_of(&info);
+    assert_eq!(legislature.members, 432);
+    assert_eq!(legislature.sponsors, 1, "one bill, one sponsor record");
+    assert_eq!(legislature.roll_calls, 1);
+    assert_eq!(legislature.member_votes, 432);
 }
 
 #[test]
 fn should_omit_a_zero_count_from_json_when_the_dataset_holds_none_of_it() {
-    // Two release points of one title and nothing else: no legislature
-    // extension, no links, no evidence.
-    let mut dataset = Dataset::new(DatasetMetadata {
-        name: "Documents only".to_string(),
-        ..Default::default()
-    });
-    dataset
-        .add_uslm_xml(USC09_18, "2025-07-18", None)
-        .expect("add first version");
+    // One release point of one title and nothing else: no legislature, no
+    // links, no evidence.
+    let dataset = documents_only(false);
 
     let info = inspect::info(&dataset).expect("info");
     let json = serde_json::to_value(&info).expect("info should serialize");
 
     // A wall of zeroes reads as "this tool measured nothing". Absence is the
-    // answer, and it is the same answer for every one of the new counts.
+    // answer, and it is the same answer for every one of these counts.
     for key in [
         "link_count",
         "link_counts_by_kind",
         "reply_count",
-        "member_count",
-        "sponsor_count",
-        "roll_call_count",
-        "member_vote_count",
+        "legislature",
     ] {
         assert!(
             json.get(key).is_none(),
-            "{key} is zero here and must be left out"
+            "{key} is empty here and must be left out"
         );
     }
 
@@ -260,7 +252,54 @@ fn should_omit_a_zero_count_from_json_when_the_dataset_holds_none_of_it() {
     // agent reading them keeps its fields.
     assert_eq!(json["work_count"], 1);
     assert_eq!(json["expression_count"], 1);
-    assert_eq!(json["bill_count"], 0);
+}
+
+/// The legislature counts of a dataset that holds a legislature.
+///
+/// Absent counts are a separate case with its own tests, so a fixture built to
+/// hold bills must not read as one that does not speak legislature at all.
+fn legislature_of(info: &inspect::DatasetInfo) -> LegislatureCounts {
+    info.legislature
+        .expect("this fixture holds legislative material")
+}
+
+/// One real release point of title 9 and no bills, either declaring the
+/// legislature namespace or declaring nothing at all.
+fn documents_only(declares_legislature: bool) -> Dataset<InMemoryStorage> {
+    let declaration = declares_legislature.then(|| Declaration {
+        intends: vec![TITLE_9.to_string()],
+        namespaces: vec![LinkKind::LEGISLATURE.to_string()],
+        ..Default::default()
+    });
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "Documents only".to_string(),
+        declaration,
+        ..Default::default()
+    });
+    dataset
+        .add_uslm_xml(USC09_18, "2025-07-18", None)
+        .expect("add first version");
+    dataset
+}
+
+#[test]
+fn should_report_an_absent_legislature_differently_from_an_empty_one_when_info_runs() {
+    // Both datasets hold the same real release point and no bills. The first
+    // declares the legislature namespace, so it speaks legislature and holds
+    // none of it. The second declares nothing, so legislature is not a concept
+    // here at all, and the report must not answer with a number.
+    let speaks = inspect::info(&documents_only(true)).expect("info");
+    let silent = inspect::info(&documents_only(false)).expect("info");
+
+    assert_eq!(
+        speaks.legislature,
+        Some(LegislatureCounts::default()),
+        "a declared legislature holding nothing counts zero, and a zero is a fact"
+    );
+    assert_eq!(
+        silent.legislature, None,
+        "a dataset that does not speak legislature reports no counts at all"
+    );
 }
 
 #[test]
@@ -274,12 +313,9 @@ fn should_report_identical_counts_for_both_backends() {
     assert_eq!(actual.link_count, expected.link_count);
     assert_eq!(actual.link_counts_by_kind, expected.link_counts_by_kind);
     assert_eq!(actual.reply_count, expected.reply_count);
-    assert_eq!(actual.member_count, expected.member_count);
-    assert_eq!(actual.sponsor_count, expected.sponsor_count);
-    assert_eq!(actual.roll_call_count, expected.roll_call_count);
-    assert_eq!(actual.member_vote_count, expected.member_vote_count);
+    assert_eq!(actual.legislature, expected.legislature);
     // Same numbers, and the numbers the dataset really holds.
-    assert_eq!(actual.member_vote_count, 432);
+    assert_eq!(legislature_of(&actual).member_votes, 432);
 }
 
 #[test]
@@ -934,7 +970,7 @@ fn should_report_identical_info_for_sqlite_backend() {
     assert_eq!(actual.name, expected.name);
     assert_eq!(actual.work_count, expected.work_count);
     assert_eq!(actual.expression_count, expected.expression_count);
-    assert_eq!(actual.bill_count, expected.bill_count);
+    assert_eq!(actual.legislature, expected.legislature);
     // The scope pairs each work with its own dates, and both backends must
     // derive the same pairing.
     assert_eq!(actual.scope.held, expected.scope.held);
