@@ -9,7 +9,7 @@
 //! Every case here is read out of the committed public law, `119-hr-1`, and the
 //! committed release points.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -406,9 +406,34 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
         report.totals.reasons.values().sum::<usize>(),
         report.totals.unplaced
     );
-    for reason in report.totals.reasons.keys() {
-        assert!(!reason.is_empty());
+
+    // The reasons a live sweep of `119-hr-1` gives, grouped as the issue lists
+    // them. Each one names something a reader can act on; "could not parse"
+    // alone would tell a maintainer nothing about which bills to look at.
+    let mut grouped: BTreeMap<&str, usize> = BTreeMap::new();
+    for (reason, count) in &report.totals.reasons {
+        let group = if reason.starts_with("no provision at") {
+            "no provision at <path> before/after the bill"
+        } else if reason.starts_with("nothing says which title") {
+            "nothing says which title holds section 4 / 101"
+        } else if reason.ends_with("names more than one provision") {
+            "names more than one provision"
+        } else {
+            reason.as_str()
+        };
+        *grouped.entry(group).or_default() += count;
     }
+    assert_eq!(
+        grouped,
+        BTreeMap::from([
+            ("no section under amendment was named", 3),
+            ("nothing says which title holds section 4 / 101", 4),
+            ("a table of sections, not a provision", 3),
+            ("no provision at <path> before/after the bill", 5),
+            ("the numbers of a paragraph do not run in a known series", 1),
+            ("names more than one provision", 1),
+        ])
+    );
 
     // Each unplaced row leads back to the words in the bill that defeated the
     // reader. That is the whole point of the path.
