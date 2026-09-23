@@ -1390,10 +1390,12 @@ impl RedesignationRows {
             return Ok(());
         }
         self.totals.bills += 1;
+        self.totals.statements += stated.len();
 
-        // Where each statement's words sit in the bill. A resolved statement is
-        // named by its amendment and its words, which is the same pair
-        // `across_works` folds by, so the path is looked up under it.
+        // Where each statement's words sit in the bill. A statement is named by
+        // the amendment it came from and the words it was read out of, which is
+        // the same pair `RedesignationReport::across_works` folds by, so both
+        // halves below are keyed on it.
         let bill_path: BTreeMap<(&str, &str), &str> = stated
             .iter()
             .filter_map(|statement| {
@@ -1405,70 +1407,113 @@ impl RedesignationRows {
             })
             .collect();
 
+        // The placed half is the links the dataset holds, and not the
+        // statements resolved again. The report says what this dataset says: a
+        // dataset whose bill was loaded before its release points holds no link
+        // at all, and a report that resolved afresh would claim 49 links the
+        // file does not carry.
+        let mut placed: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        for link in dataset.links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)? {
+            let Some(mut row) = placed_row(&link, bill_id) else {
+                continue;
+            };
+            row.bill_path = bill_path
+                .get(&(row.amendment_id.as_str(), row.clause.as_str()))
+                .map(|path| path.to_string());
+            placed.insert((row.amendment_id.clone(), row.clause.clone()));
+            self.rows.push(row);
+            self.totals.links += 1;
+        }
+
+        // Every statement with no link is unplaced, whatever the reason.
+        let unplaced: Vec<&redesignation::StatedRedesignation> = stated
+            .iter()
+            .filter(|statement| {
+                !placed.contains(&(statement.amendment_id.clone(), statement.text.clone()))
+            })
+            .collect();
+        self.totals.unplaced += unplaced.len();
+
+        if !unplaced.is_empty() {
+            self.add_reasons(dataset, bill_id, &unplaced, windows)?;
+        }
+        Ok(())
+    }
+
+    /// One row for each statement the dataset holds no link for, with the
+    /// reason the resolver gives.
+    ///
+    /// Only these are resolved. The placed half is already recorded, so
+    /// resolving it again would recompute what the file states.
+    fn add_reasons<S: Storage>(
+        &mut self,
+        dataset: &S,
+        bill_id: &str,
+        unplaced: &[&redesignation::StatedRedesignation],
+        windows: &[crate::dataset::ExpressionPair],
+    ) -> Result<(), DatasetError> {
+        let statements: Vec<redesignation::StatedRedesignation> = unplaced
+            .iter()
+            .map(|&statement| statement.clone())
+            .collect();
+
         // A statement resolves in the one work that holds its section and fails
         // in every other, so the reports are folded rather than concatenated.
         // With no window at all there is nothing to fold, and every statement
         // is unplaced for want of one.
         let folded = if windows.is_empty() {
-            RedesignationReport::without_a_window(&stated)
+            RedesignationReport::without_a_window(&statements)
         } else {
             let mut per_work = Vec::new();
             for (from, to) in windows {
                 let (earlier, later) =
                     crate::storage::memory::require_same_work(dataset, from, to)?;
-                per_work.push(redesignation::resolve(&stated, &earlier.root, &later.root));
+                per_work.push(redesignation::resolve(
+                    &statements,
+                    &earlier.root,
+                    &later.root,
+                ));
             }
             RedesignationReport::across_works(per_work)
         };
 
-        self.totals.statements += folded.statements();
-        self.totals.links += folded.links();
-        self.totals.unplaced += folded.statements_unplaced();
+        // `across_works` keeps only the statements no work could place, so a
+        // statement missing from it is one the resolver *can* place and the
+        // dataset holds no link for. That is a step that has not run, not a
+        // clause no reader can read, and the two need different work (#181).
+        let why: BTreeMap<(&str, &str), &redesignation::UnplacedStatement> = folded
+            .unplaced
+            .iter()
+            .map(|statement| {
+                (
+                    (statement.amendment_id.as_str(), statement.text.as_str()),
+                    statement,
+                )
+            })
+            .collect();
 
-        let path_of = |amendment_id: &str, text: &str| {
-            bill_path
-                .get(&(amendment_id, text))
-                .map(|path| path.to_string())
-        };
-
-        for statement in &folded.unplaced {
-            *self
-                .totals
-                .reasons
-                .entry(statement.reason.to_string())
-                .or_default() += 1;
+        for statement in unplaced {
+            let name = (statement.amendment_id.as_str(), statement.text.as_str());
+            let (reason, reader) = match why.get(&name) {
+                Some(found) => (found.reason.to_string(), found.reader),
+                None => (
+                    redesignation::Reason::NoLinkRecorded.to_string(),
+                    Reader::Rule,
+                ),
+            };
+            *self.totals.reasons.entry(reason.clone()).or_default() += 1;
             self.rows.push(RedesignationRow {
                 bill_id: bill_id.to_string(),
-                bill_path: statement
-                    .path
-                    .clone()
-                    .or_else(|| path_of(&statement.amendment_id, &statement.text)),
+                bill_path: statement.path.clone(),
                 amendment_id: statement.amendment_id.clone(),
                 clause: statement.text.clone(),
-                reader: statement.reader,
+                reader,
                 placed: false,
-                reason: Some(statement.reason.to_string()),
+                reason: Some(reason),
                 from_path: None,
                 to_path: None,
                 corroboration: None,
-            });
-        }
-
-        for placed in &folded.resolved {
-            self.rows.push(RedesignationRow {
-                bill_id: bill_id.to_string(),
-                bill_path: path_of(&placed.amendment_id, &placed.text),
-                amendment_id: placed.amendment_id.clone(),
-                clause: placed.text.clone(),
-                // One resolver makes every path, and the rules are what reached
-                // it (ADR 0010). The model reader names itself when #154 builds
-                // it.
-                reader: Reader::Rule,
-                placed: true,
-                reason: None,
-                from_path: Some(placed.from_path.clone()),
-                to_path: Some(placed.to_path.clone()),
-                corroboration: Some(placed.corroboration.score),
             });
         }
         Ok(())
@@ -1497,6 +1542,113 @@ impl RedesignationRows {
                 .then_with(|| left.clause.cmp(&right.clause))
         });
     }
+}
+
+/// One placed row, read out of a stored redesignation link.
+///
+/// `None` when the link says nothing about this bill: another bill's link, or a
+/// link of this kind written by something that names no bill. A reader that
+/// cannot tell whose link it is must not guess.
+///
+/// Everything a row needs is already in the link. The two paths are its two
+/// ends, the amendment and the bill are in its kind payload, the clause is the
+/// evidence the reading was made from, and the figure is its corroboration.
+/// Nothing here resolves anything again.
+fn placed_row(link: &crate::link::Link, bill_id: &str) -> Option<RedesignationRow> {
+    let payload = link.payload.as_ref()?;
+    if payload.value.get("bill_id").and_then(|id| id.as_str()) != Some(bill_id) {
+        return None;
+    }
+    Some(RedesignationRow {
+        bill_id: bill_id.to_string(),
+        bill_path: None,
+        amendment_id: payload
+            .value
+            .get("amendment_id")
+            .and_then(|id| id.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        clause: link
+            .provenance
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.reasoning.clone())
+            .unwrap_or_default(),
+        reader: Reader::of_source(&link.provenance.source),
+        placed: true,
+        reason: None,
+        from_path: changed_path(&link.subject),
+        to_path: changed_path(&link.object),
+        corroboration: link
+            .provenance
+            .corroboration
+            .as_ref()
+            .map(|figure| figure.score),
+    })
+}
+
+/// The structural path one end of a redesignation link names.
+///
+/// Both ends are a [`crate::link::Target::Change`], because a bare provision
+/// could not say *when* the renumbering happened. Any other target is not a
+/// renumbering this report can read, and is answered `None` rather than guessed
+/// at.
+fn changed_path(target: &crate::link::Target) -> Option<String> {
+    match target {
+        crate::link::Target::Change { path, .. } => Some(path.clone()),
+        _ => None,
+    }
+}
+
+/// How much the dataset's bills say about renumbering, counted without
+/// resolving anything.
+///
+/// The same four numbers [`redesignation_report`] gives, and by the same rule:
+/// a statement is **placed** when the dataset holds a link for it. So the two
+/// agree, and this one costs a bill's own tree plus the redesignation links —
+/// no release point is read at all.
+///
+/// The reasons are left empty on purpose. A reason needs the resolver, and the
+/// resolver needs every window; that is what the report command is for, and
+/// `info` must stay a command a reader runs without waiting.
+pub fn redesignation_counts<S: Storage + LegislatureReader>(
+    dataset: &S,
+) -> Result<RedesignationTotals, DatasetError> {
+    let links = dataset.links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
+
+    let mut totals = RedesignationTotals::default();
+    for bill_id in dataset.list_bill_ids()? {
+        let Some(document) = bill_document(dataset, &bill_id)? else {
+            continue;
+        };
+        let stated =
+            crate::uslm::bill_redesignation::redesignations_stated_in(&bill_id, &document.root);
+        if stated.is_empty() {
+            continue;
+        }
+        totals.bills += 1;
+        totals.statements += stated.len();
+
+        let placed: std::collections::HashSet<(String, String)> = links
+            .iter()
+            .filter_map(|link| placed_row(link, &bill_id))
+            .map(|row| (row.amendment_id, row.clause))
+            .collect();
+
+        // One clause states many renumberings, so the links are counted as
+        // links and the statements they account for as statements (#166).
+        totals.links += links
+            .iter()
+            .filter(|link| placed_row(link, &bill_id).is_some())
+            .count();
+        totals.unplaced += stated
+            .iter()
+            .filter(|statement| {
+                !placed.contains(&(statement.amendment_id.clone(), statement.text.clone()))
+            })
+            .count();
+    }
+    Ok(totals)
 }
 
 /// Order two corroboration figures, the weaker one first.
@@ -1708,11 +1860,11 @@ pub fn info<S: Storage + LegislatureReader>(dataset: &S) -> Result<DatasetInfo, 
         sponsor_count: legislature.sponsors,
         roll_call_count: legislature.roll_calls,
         member_vote_count: legislature.member_votes,
-        // Derived, not counted. It resolves every statement against every
-        // window, which is the only way to answer honestly, and it costs about
-        // a tenth of a second for each window. A dataset with no bills answers
-        // at once, because there is nothing to read.
-        redesignations: redesignation_report(dataset, None)?.totals,
+        // Derived, and still cheap: a statement is placed when the dataset
+        // holds a link for it, so this reads the bills' own trees and the
+        // redesignation links, and no release point at all. The reasons need
+        // the resolver, and they live in `redesignation-report`.
+        redesignations: redesignation_counts(dataset)?,
         scope,
     })
 }

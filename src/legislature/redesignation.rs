@@ -164,6 +164,13 @@ pub enum Reason {
     /// than say nothing — a silent report would read as a bill that renumbered
     /// nothing.
     NoWindowHeld,
+    /// The dataset holds no link for the statement, and this build can place
+    /// it. The step that records the links has not run over this dataset.
+    ///
+    /// Told apart from the reasons around it on purpose. Every other one says
+    /// the statement cannot be placed; this one says it has not been placed
+    /// yet, and the two need different work (#181).
+    NoLinkRecorded,
     /// The container the clause sits in is not in the document at that path.
     ContainerNotHeld(String),
     /// One path names more than one provision here, so which one was renumbered
@@ -217,6 +224,10 @@ impl fmt::Display for Reason {
             Self::NoWindowHeld => write!(
                 f,
                 "the dataset holds no window to check the statement against"
+            ),
+            Self::NoLinkRecorded => write!(
+                f,
+                "the dataset holds no link for a statement this build can place"
             ),
             Self::ContainerNotHeld(path) => write!(f, "no provision at {path}"),
             Self::ContainerIsAmbiguous(path) => write!(f, "{path} names more than one provision"),
@@ -333,6 +344,21 @@ pub enum Reader {
     Rule,
     /// The model reader. Nothing writes this yet; #154 builds it.
     Model,
+}
+
+impl Reader {
+    /// The reader a link's `Provenance::source` names.
+    ///
+    /// A source is written `<reader>:<what it read>`, as in
+    /// `rule:bill_redesignation`. Anything this build does not know as the
+    /// model's is the rules', because the rules are what wrote every link
+    /// before the model reader existed.
+    pub fn of_source(source: &str) -> Self {
+        match source.split(':').next() {
+            Some("model") => Self::Model,
+            _ => Self::Rule,
+        }
+    }
 }
 
 impl fmt::Display for Reader {

@@ -19,7 +19,8 @@ use words_to_data::dataset::{
 };
 use words_to_data::inspect;
 use words_to_data::legislature::redesignation::Reader;
-use words_to_data::storage::InMemoryStorage;
+use words_to_data::link::LinkKind;
+use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
 use words_to_data::uslm::parser::parse;
 
@@ -339,7 +340,7 @@ fn should_carry_one_line_of_renumbering_counts_when_info_runs() {
 ///
 /// The same seven `redesignation_tests` sweeps, so the two tests measure one
 /// corpus. The whole Code gives 89 links and 13 unplaced statements; these
-/// seven give 81 and 17, because six of the sections under amendment sit in
+/// seven give 80 and 17, because six of the sections under amendment sit in
 /// titles nobody put in this list.
 const TITLES_NAMED: [&str; 7] = [
     "usc05.xml",
@@ -377,16 +378,26 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
     let report =
         inspect::redesignation_report(&dataset, None).expect("the report should read the dataset");
 
-    // The three numbers `redesignation_tests` fixes for this same corpus, read
-    // back out of the dataset rather than out of the bill's XML.
+    // The numbers `redesignation_tests` fixes for this same corpus, read back
+    // out of the dataset rather than out of the bill's XML.
     assert_eq!(report.totals.bills, 1);
     assert_eq!(report.totals.statements, 57);
-    assert_eq!(report.totals.links, 81);
     assert_eq!(report.totals.unplaced, 17);
 
-    // Not one statement is dropped. 81 placed renumberings and 17 statements
+    // 80 links, where the resolver made 81 renumberings. A link is identified
+    // by what it says, so two statements that renumber one provision the same
+    // way between the same two dates are one link
+    // (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    // The report counts what the dataset holds, so it says 80.
+    let held = dataset
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read");
+    assert_eq!(held.len(), 80);
+    assert_eq!(report.totals.links, 80);
+
+    // Not one statement is dropped. 80 placed renumberings and 17 statements
     // nothing placed, each of them a row an agent can act on.
-    assert_eq!(report.rows.len(), 98);
+    assert_eq!(report.rows.len(), 97);
     assert_eq!(report.rows.iter().filter(|row| !row.placed).count(), 17);
 
     // Every reason is a phrase that says what to do next, and the counts add up
@@ -412,4 +423,49 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
             .expect("an unplaced row has a path");
         assert!(bill.root.find(path).is_some(), "the bill holds {path}");
     }
+}
+
+#[test]
+fn should_call_a_statement_unplaced_when_the_dataset_holds_no_link_for_it() {
+    // The organic order the other way round: the bill arrives first, and the
+    // release points it amends arrive after it. Nothing re-sweeps, so the
+    // dataset holds windows and no link at all.
+    let mut dataset = dataset_holding_the_bill();
+    for (path, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
+        let parsed = parse(path, date).expect("title 26 should parse");
+        for root in work_roots(parsed) {
+            let work = WorkId::new(root.data.path.to_string());
+            dataset
+                .add_expression(Expression {
+                    id: ExpressionId::new(work, date),
+                    label: None,
+                    root,
+                })
+                .expect("the expression should store");
+        }
+    }
+
+    let report =
+        inspect::redesignation_report(&dataset, None).expect("the report should read the dataset");
+
+    // The report says what the dataset holds. It holds no link, so nothing is
+    // placed — a report that resolved the statements afresh would claim 49
+    // links this dataset does not have.
+    assert_eq!(report.totals.statements, 57);
+    assert_eq!(report.totals.links, 0);
+    assert_eq!(report.totals.unplaced, 57);
+    assert!(report.rows.iter().all(|row| !row.placed));
+
+    // And the reason tells the two cases apart. A statement this build can
+    // place is waiting for a step that has not run; the rest cannot be placed
+    // at all, and say why.
+    // 26 of the 57 are statements title 26 can place. The other 31 cannot be
+    // placed against title 26 alone, and keep their own reasons.
+    let waiting = "the dataset holds no link for a statement this build can place";
+    assert_eq!(report.totals.reasons.get(waiting), Some(&26));
+    assert!(
+        report.totals.reasons.len() > 1,
+        "the statements title 26 cannot place keep their own reasons: {:?}",
+        report.totals.reasons
+    );
 }
