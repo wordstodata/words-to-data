@@ -90,6 +90,21 @@ pub fn run(args: Args) {
         );
     }
 
+    // What has been done to this dataset, so a missing step does not read as a
+    // complete file (#182). The method is named, not the command: a command
+    // keeps its name while the reasoning under it changes. Printed only where
+    // there is something to report, on the same rule as the counts above — an
+    // empty list means nothing was recorded, not that nothing ran.
+    if !info.method_runs.is_empty() {
+        println!("Methods run:");
+        for run in &info.method_runs {
+            println!(
+                "  {}  {} {} -> {}",
+                run.method, run.work, run.from_date, run.to_date
+            );
+        }
+    }
+
     // Scope is the answer to "why did my query find nothing". Print it, so a
     // reader of this dataset knows what it does not hold. Each work carries its
     // own dates, because a dataset need not hold every work on every date.

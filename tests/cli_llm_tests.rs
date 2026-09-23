@@ -787,7 +787,11 @@ fn should_name_the_matching_method_and_its_version_when_match_amendments_writes_
     }
 
     let runs = changed.method_runs();
-    assert_eq!(runs.len(), 1, "one method ran over one window, got {runs:?}");
+    assert_eq!(
+        runs.len(),
+        1,
+        "one method ran over one window, got {runs:?}"
+    );
     assert_eq!(runs[0].method, expected);
     assert!(
         runs[0].covers(&WorkId::new(TITLE_26), EARLY, LATE),

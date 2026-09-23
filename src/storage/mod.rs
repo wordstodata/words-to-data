@@ -49,6 +49,17 @@ use crate::uslm::bill_parser::Bill;
 /// break. Both on-disk forms carry this number and refuse a file that does not
 /// match, because a break that is not loud reads as an empty dataset.
 ///
+/// 10 gives a method an identity of a name and a version, records which method
+/// at which version ran over which window, and renames `Target::Provision` to
+/// `Target::Node` (#182, #147, `docs/adr/0002`, `docs/adr/0004`). Three shapes
+/// change: `Provenance.method` is a struct where it was a free string, so every
+/// link and every node provenance in both forms reads differently;
+/// `DatasetMetadata` carries the record of what has run; and every stored link's
+/// `subject_json`, `object_json` and tag columns say `node` where they said
+/// `provision`. One break carries all three, which is what the
+/// `breaking-changes` label is for. `Corroboration.method` is deliberately
+/// unchanged: it names an arithmetic a receiver repeats, so a change to the
+/// arithmetic takes a new name rather than a later version.
 /// 9 makes a stored node class-neutral. Its type is an open namespaced string —
 /// `uscode.section`, `judicial.opinion` — in place of a closed USLM enum and a
 /// closed `DocumentType`, and the facts only one document class understands move
@@ -91,7 +102,7 @@ use crate::uslm::bill_parser::Bill;
 /// as overstating the problem. The issue still carries `breaking-changes`,
 /// because a serialized type changed shape and the JSON `words_to_data inspect`
 /// gives an agent now says `delete` where it said `strike`.
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 10;
 
 /// Reading the documents a dataset holds.
 ///

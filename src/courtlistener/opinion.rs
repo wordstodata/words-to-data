@@ -14,9 +14,9 @@ use serde_json::Value;
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
-use crate::method::Method;
 use crate::judicial::OpinionFacts;
 use crate::link::{Provenance, VerificationState};
+use crate::method::Method;
 
 /// The work an opinion is the single expression of: `judicial/opinion_2812209`.
 ///

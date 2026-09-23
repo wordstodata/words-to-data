@@ -65,7 +65,9 @@ fn citation_link(dataset: &Dataset<InMemoryStorage>, paths: &SectionPaths) -> Li
 ///
 /// The caller must keep the returned directory in scope: dropping it removes
 /// the database.
-fn through_sqlite(dataset: &Dataset<InMemoryStorage>) -> (tempfile::TempDir, Dataset<SqliteStorage>) {
+fn through_sqlite(
+    dataset: &Dataset<InMemoryStorage>,
+) -> (tempfile::TempDir, Dataset<SqliteStorage>) {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let file = dir.path().join("dataset.sqlite");
     dataset.save_to_sqlite(&file).expect("save to sqlite");
@@ -74,7 +76,9 @@ fn through_sqlite(dataset: &Dataset<InMemoryStorage>) -> (tempfile::TempDir, Dat
 }
 
 /// Round-trip a dataset through a W2D file.
-fn through_w2d(dataset: &Dataset<InMemoryStorage>) -> (tempfile::TempDir, Dataset<InMemoryStorage>) {
+fn through_w2d(
+    dataset: &Dataset<InMemoryStorage>,
+) -> (tempfile::TempDir, Dataset<InMemoryStorage>) {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let file = dir.path().join("dataset.w2d");
     let file = file.to_str().expect("a temporary path is UTF-8");

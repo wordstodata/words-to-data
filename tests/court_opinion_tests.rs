@@ -14,10 +14,10 @@
 use serde_json::Value;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId};
 use words_to_data::document::{ClassPayload, DocumentNode, NodeData, NodeType, text_method};
-use words_to_data::method::Method;
 use words_to_data::inspect;
 use words_to_data::judicial::OpinionFacts;
 use words_to_data::link::{Provenance, VerificationState};
+use words_to_data::method::Method;
 use words_to_data::uslm::UslmFacts;
 
 const OPINION_JSON: &str = "tests/test_data/courtlistener/opinion_2812209.json";

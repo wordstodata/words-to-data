@@ -225,6 +225,24 @@ fn should_count_links_replies_members_sponsors_and_votes_when_the_dataset_holds_
     assert_eq!(legislature.member_votes, 432);
 }
 
+/// A dataset must be able to say what has been done to it, and a reader asking
+/// it is an agent running `info` (#182, #179 decision 11).
+#[test]
+fn should_report_which_method_at_which_version_ran_over_which_window_when_info_runs() {
+    let mut dataset = make_fixture();
+    let (from, to) = pair();
+    let method = words_to_data::method::Method::new("a reading of this window", 3);
+    dataset
+        .record_method_run(method.clone(), &from, &to)
+        .expect("the run should record");
+
+    let info = inspect::info(&dataset).expect("info");
+
+    assert_eq!(info.method_runs.len(), 1);
+    assert_eq!(info.method_runs[0].method, method);
+    assert!(info.method_runs[0].covers(&from.work, &from.at, &to.at));
+}
+
 #[test]
 fn should_omit_a_zero_count_from_json_when_the_dataset_holds_none_of_it() {
     // One release point of one title and nothing else: no legislature, no
