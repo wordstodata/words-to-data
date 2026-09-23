@@ -1244,45 +1244,34 @@ fn should_score_amendments_when_the_dataset_is_sqlite() {
 
 #[test]
 fn should_explain_the_conversion_when_a_writing_command_is_given_sqlite() {
-    // These two write back into the dataset, which SQLite does not yet support.
+    // `extract-changes` is the last command that cannot take a database. Two of
+    // its methods reach into the in-memory store itself, and porting them is a
+    // design decision rather than a widening (#199). `redesignations` and
+    // `match-amendments` take either form now (#195).
+    //
     // Refusing is fine; refusing without saying what to do next is not.
-    let from = expression(AMENDED_WORK, EARLY);
-    let to = expression(AMENDED_WORK, LATE);
-    let invocations: [Vec<&str>; 2] = [
-        vec![
-            "match-amendments",
-            amended_fixture(),
-            "--from",
-            &from,
-            "--to",
-            &to,
-        ],
-        vec!["extract-changes", amended_fixture()],
-    ];
+    let args = vec!["extract-changes", amended_fixture()];
+    let command = args[0];
+    let output = run(&args);
 
-    for args in invocations {
-        let command = args[0];
-        let output = run(&args);
+    assert!(
+        !output.status.success(),
+        "{command} should refuse a SQLite dataset"
+    );
 
-        assert!(
-            !output.status.success(),
-            "{command} should refuse a SQLite dataset"
-        );
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("SQLite database"),
-            "{command} should say the file is a SQLite database, got: {stderr}"
-        );
-        assert!(
-            stderr.contains("convert-dataset"),
-            "{command} should name the command that converts it, got: {stderr}"
-        );
-        assert!(
-            !stderr.contains("valid UTF-8"),
-            "{command} should not leak the raw decoding error, got: {stderr}"
-        );
-    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("SQLite database"),
+        "{command} should say the file is a SQLite database, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("convert-dataset"),
+        "{command} should name the command that converts it, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("valid UTF-8"),
+        "{command} should not leak the raw decoding error, got: {stderr}"
+    );
 }
 
 /// Forge the element index an older build wrote, at a chosen path.

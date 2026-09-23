@@ -37,6 +37,10 @@ const AFTER: &str = "2025-07-30";
 const TITLE_7_BEFORE: &str = "tests/test_data/usc/2025-07-18/usc07.xml";
 const TITLE_7_AFTER: &str = "tests/test_data/usc/2025-07-30/usc07.xml";
 
+/// The smallest title the corpus holds, for a case that stops before it reads
+/// the dataset at all.
+const TITLE_9: &str = "tests/test_data/usc/2025-07-18/usc09.xml";
+
 /// § 898(c), the provision the diff reported wrongly before this existed.
 const SUBSECTION_898_C: &str =
     "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_II/subpart_D/section_898/subsection_c";
@@ -555,6 +559,106 @@ fn should_print_the_statements_it_could_not_place_when_the_command_runs() {
     assert!(
         said.contains("a table of sections, not a provision"),
         "and why, in words: {said}"
+    );
+}
+
+/// A database is changed where it sits, so the run needs nowhere to write it
+/// (#195). `redesignations` used to refuse a SQLite dataset and say to convert
+/// it to JSON first, which is the form that cannot give the run a transaction.
+#[test]
+fn should_change_the_database_in_place_when_redesignations_is_given_sqlite() {
+    let path = format!("{}/redesignations.sqlite", env!("CARGO_TARGET_TMPDIR"));
+    let _ = std::fs::remove_file(&path);
+
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
+        dataset
+            .add_uslm_xml(file, date, None)
+            .expect("title 26 should load");
+    }
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the bill should load");
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+
+    // No --output: the database is where the result belongs.
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "redesignations",
+            &path,
+            "--bill-id",
+            BILL_ID,
+            "--between",
+            BEFORE,
+            AFTER,
+        ])
+        .output()
+        .expect("the binary should run");
+
+    assert!(
+        output.status.success(),
+        "the command should accept a database, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let changed = Dataset::open_sqlite(&path).expect("the database should open");
+    let links = changed
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("reading the links should work");
+    assert!(
+        !links.is_empty(),
+        "the run should leave its links in the database it was given"
+    );
+}
+
+/// A W2D file is written whole, so a run that wrote back over its input would
+/// destroy the dataset if it stopped part way (#186). The commands that grow a
+/// dataset already refuse that, and this one does too (#195). A database needs
+/// no `--output`, because it is changed where it sits.
+#[test]
+fn should_refuse_to_write_over_its_input_when_a_w2d_file_names_no_output() {
+    // The refusal comes before the dataset is read, so the smallest committed
+    // title makes the point as well as title 26 and costs a fraction of it.
+    let path = format!(
+        "{}/redesignations_no_output.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    dataset
+        .add_uslm_xml(TITLE_9, BEFORE, None)
+        .expect("title 9 should load");
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "redesignations",
+            &path,
+            "--bill-id",
+            BILL_ID,
+            "--between",
+            BEFORE,
+            AFTER,
+        ])
+        .output()
+        .expect("the binary should run");
+
+    assert!(
+        !output.status.success(),
+        "the command should refuse to write back over a W2D file"
+    );
+
+    let complaint = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        complaint.contains("will not write back over"),
+        "it should say it will not write over the input, got: {complaint}"
+    );
+    assert!(
+        complaint.contains("--output"),
+        "it should name where the result can go, got: {complaint}"
     );
 }
 
