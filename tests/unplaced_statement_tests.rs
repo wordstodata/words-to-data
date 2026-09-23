@@ -334,3 +334,82 @@ fn should_carry_one_line_of_renumbering_counts_when_info_runs() {
     assert_eq!(info["redesignations"]["links"], 0);
     assert_eq!(info["redesignations"]["unplaced"], 57);
 }
+
+/// The seven titles `119-hr-1` renumbers provisions in.
+///
+/// The same seven `redesignation_tests` sweeps, so the two tests measure one
+/// corpus. The whole Code gives 89 links and 13 unplaced statements; these
+/// seven give 81 and 17, because six of the sections under amendment sit in
+/// titles nobody put in this list.
+const TITLES_NAMED: [&str; 7] = [
+    "usc05.xml",
+    "usc07.xml",
+    "usc10.xml",
+    "usc15.xml",
+    "usc20.xml",
+    "usc26.xml",
+    "usc42.xml",
+];
+
+#[test]
+fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    for file in TITLES_NAMED {
+        for date in [BEFORE, AFTER] {
+            let parsed = parse(&format!("tests/test_data/usc/{date}/{file}"), date)
+                .expect("it should parse");
+            for root in work_roots(parsed) {
+                let work = WorkId::new(root.data.path.to_string());
+                dataset
+                    .add_expression(Expression {
+                        id: ExpressionId::new(work, date),
+                        label: None,
+                        root,
+                    })
+                    .expect("the expression should store");
+            }
+        }
+    }
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the committed bill should load");
+
+    let report =
+        inspect::redesignation_report(&dataset, None).expect("the report should read the dataset");
+
+    // The three numbers `redesignation_tests` fixes for this same corpus, read
+    // back out of the dataset rather than out of the bill's XML.
+    assert_eq!(report.totals.bills, 1);
+    assert_eq!(report.totals.statements, 57);
+    assert_eq!(report.totals.links, 81);
+    assert_eq!(report.totals.unplaced, 17);
+
+    // Not one statement is dropped. 81 placed renumberings and 17 statements
+    // nothing placed, each of them a row an agent can act on.
+    assert_eq!(report.rows.len(), 98);
+    assert_eq!(report.rows.iter().filter(|row| !row.placed).count(), 17);
+
+    // Every reason is a phrase that says what to do next, and the counts add up
+    // to the statements nothing placed.
+    assert_eq!(
+        report.totals.reasons.values().sum::<usize>(),
+        report.totals.unplaced
+    );
+    for reason in report.totals.reasons.keys() {
+        assert!(!reason.is_empty());
+    }
+
+    // Each unplaced row leads back to the words in the bill that defeated the
+    // reader. That is the whole point of the path.
+    let bill = dataset
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill");
+    for row in report.rows.iter().filter(|row| !row.placed) {
+        let path = row
+            .bill_path
+            .as_deref()
+            .expect("an unplaced row has a path");
+        assert!(bill.root.find(path).is_some(), "the bill holds {path}");
+    }
+}
