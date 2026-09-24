@@ -569,9 +569,18 @@ pub fn parse_bill_amendments_with_report(
 
 /// Compute a content-based amendment ID
 ///
-/// The ID is a SHA256 hash of "{bill_id}:{amending_text}", providing a stable,
-/// deterministic identifier that works regardless of the source format (USLM XML,
-/// plaintext, etc.).
+/// The ID is a SHA256 hash of "{bill_id}:{amending_text}".
+///
+/// **It is stable against the layout of a file, and not against every printing
+/// of a law.** [`node_text`] folds quotes and collapses whitespace, so the same
+/// document re-indented mints the same ids. Two different printings of one act
+/// still do not agree: they differ in dashes, and one carries its marginal notes
+/// inside the instruction's text. Measured on `119-hr-1`, the two printings held
+/// in this corpus share none of their 603 ids.
+///
+/// So an id names an amendment *as one source prints it*. A dataset built from a
+/// second printing holds different ids for the same law, and a link minted
+/// against the first will not resolve in it.
 pub(crate) fn compute_amendment_id(bill_id: &str, amending_text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}:{}", bill_id, amending_text));
@@ -678,11 +687,25 @@ fn instruction_location(node: &Node, bill_id: &str) -> String {
         .unwrap_or_else(|| compute_amendment_id(bill_id, &node_text(node)))
 }
 
+/// The words under a node, as one line.
+///
+/// **Whitespace is collapsed, and that is part of the identity.** An amendment
+/// id is `sha256("{bill_id}:{amending_text}")`, and this is what fills
+/// `amending_text`. A publisher that lays its XML out over several lines puts
+/// that indentation into these text nodes, so the same law saved with different
+/// line breaks would mint different ids, and every `legislature.amended_by` link
+/// pointing at an old one would stop resolving. The layout of a file is not a
+/// fact about the law.
+///
+/// Quotes are folded here for the same reason ([`normalize_quotes`]), and the
+/// Code's dashes are folded elsewhere for a third
+/// ([`fold_dashes`](crate::citation::usc::fold_dashes), #141).
 pub(crate) fn node_text(node: &Node) -> String {
     let raw: String = node
         .descendants()
         .filter(|n| n.is_text())
         .map(|n| n.text().unwrap_or(""))
         .collect();
-    normalize_quotes(&raw)
+    let folded = normalize_quotes(&raw);
+    folded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
