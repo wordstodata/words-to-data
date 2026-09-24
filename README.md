@@ -50,7 +50,10 @@ The file now records **which method, at which version, ran over which window**,
 for the two steps that write statements into a window — step 4 and step 5
 (#182). It records the method and not the command: "`redesignations` has run
 here" stays true for ever while the reading behind it changes underneath. `info`
-prints it under **Methods run**, and `info --json` carries it as `method_runs`.
+prints it under **Methods run**, one line for each method and window, with the
+number of works that line covers. A run is recorded once per work, so the record
+holds one entry per work: `info --json` carries every one of them as
+`method_runs`, and a reader that wants the works by name reads them there.
 
 It is not yet a list of every step. `extract-changes` runs over bills and not
 over a window, and `score-amendments` writes a file beside the dataset rather

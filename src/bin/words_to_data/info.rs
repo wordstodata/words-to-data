@@ -1,7 +1,11 @@
 //! `words_to_data info` — print a dataset's metadata and headline counts.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use clap::Args as ClapArgs;
+use words_to_data::dataset::WorkId;
 use words_to_data::inspect;
+use words_to_data::method::{Method, MethodRun};
 
 use crate::load::{self, with_dataset};
 
@@ -16,6 +20,34 @@ pub struct Args {
     /// Emit JSON instead of human-readable text
     #[arg(long)]
     pub json: bool,
+}
+
+/// One method, at one version, over one window: what a `Methods run` line
+/// names, as `(method, from_date, to_date)`.
+type MethodWindow<'a> = (&'a Method, &'a str, &'a str);
+
+/// The works each method covered, by the method and the window it ran over.
+///
+/// The window is part of the key: a method that ran over two windows did two
+/// different things, and one line naming one of them would count the works of
+/// both.
+fn works_by_method_and_window(runs: &[MethodRun]) -> BTreeMap<MethodWindow<'_>, BTreeSet<&WorkId>> {
+    let mut grouped: BTreeMap<MethodWindow<'_>, BTreeSet<&WorkId>> = BTreeMap::new();
+    for run in runs {
+        grouped
+            .entry((&run.method, &run.from_date, &run.to_date))
+            .or_default()
+            .insert(&run.work);
+    }
+    grouped
+}
+
+/// How much of the dataset a method covered, as `58 works` or `1 work`.
+fn works_covered(count: usize) -> String {
+    match count {
+        1 => "1 work".to_string(),
+        _ => format!("{count} works"),
+    }
 }
 
 pub fn run(args: Args) {
@@ -95,12 +127,26 @@ pub fn run(args: Args) {
     // keeps its name while the reasoning under it changes. Printed only where
     // there is something to report, on the same rule as the counts above — an
     // empty list means nothing was recorded, not that nothing ran.
+    //
+    // One line for each method, and not one for each run. A run is recorded
+    // once per work, so two methods over 58 works filled 116 of the 141 lines
+    // this command printed, and buried every other count under them (#209).
+    // Nothing recorded changes: `--json` carries every run, because a machine
+    // reader makes the summary it wants out of the full record
+    // (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
     if !info.method_runs.is_empty() {
         println!("Methods run:");
-        for run in &info.method_runs {
+        let grouped = works_by_method_and_window(&info.method_runs);
+        let width = grouped
+            .keys()
+            .map(|(method, ..)| method.to_string().len())
+            .max()
+            .unwrap_or(0);
+        for ((method, from_date, to_date), works) in &grouped {
+            let named = method.to_string();
             println!(
-                "  {}  {} {} -> {}",
-                run.method, run.work, run.from_date, run.to_date
+                "  {named:<width$}  {from_date} -> {to_date}  ({})",
+                works_covered(works.len())
             );
         }
     }
