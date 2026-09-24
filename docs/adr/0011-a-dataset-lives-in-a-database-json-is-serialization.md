@@ -32,7 +32,7 @@ Stated as it is today. Where a row is a gap rather than a property, it names the
 | schema version checked, mismatch refused | yes | yes (`docs/adr/0003`) |
 | survives an interrupted write | **no** — written whole (#186) | yes, under a transaction (#187) |
 | grows in place | no — an append must name an `--output` (#180) | yes |
-| the whole pipeline can run against it | yes | **not yet** — see below |
+| the whole pipeline can run against it | yes | yes (#180, #195, #199) |
 | one file you can hand to somebody | yes | yes |
 
 **"Portable" does not separate them.** A SQLite file is one file and can be handed over
@@ -45,26 +45,35 @@ portable format cannot have — an obligation on readers we have not yet given a
 enough to implement. This ADR does not claim the W2D file is an open format. It is the
 form we hand over. Writing the specification, or softening the claim, is open work.
 
-## The pipeline cannot reach the database, and that is plumbing
+## The pipeline reaches the database now, and that was plumbing
 
-Three commands refuse a SQLite file: `extract-changes`, `match-amendments` and
-`redesignations` — the three that write back into a Dataset. `load::refuse_sqlite` says
-they "cannot **yet** take a SQLite file", and the "yet" is accurate.
+**This is done.** Every command takes either form, and `load::refuse_sqlite` is gone with
+its last caller. What follows is what the work was, because the reasoning is what makes
+the next such gap recognisable.
 
-Inspection found no deeper reason. Almost everything those commands call is already
+Three commands refused a SQLite file: `extract-changes`, `match-amendments` and
+`redesignations` — the three that write back into a Dataset. `load::refuse_sqlite` said
+they "cannot **yet** take a SQLite file", and the "yet" was accurate.
+
+Inspection found no deeper reason. Almost everything those commands call was already
 generic over the storage: `add_reply`, `add_link`, `record_redesignations`,
 `compute_diff`, `annotated_paths`, `bill_document`, `list_bill_ids`. Exactly two methods
-are stranded on `impl Dataset<InMemoryStorage>` — `add_changes_to_amendment` and
-`set_amendment_provenance` — and all three commands hard-code `Dataset::load(…,
+were stranded on `impl Dataset<InMemoryStorage>` — `add_changes_to_amendment` and
+`set_amendment_provenance` — and all three commands hard-coded `Dataset::load(…,
 Format::Compact)` followed by a whole-file `save`.
 
-That is the same fault #180 met: `add_uslm_xml`, `add_uslm_folder` and `add_works_of`
+That was the same fault #180 met: `add_uslm_xml`, `add_uslm_folder` and `add_works_of`
 were stranded the same way, and widening them to `impl<S: Storage>` is what let a Dataset
 grow at all.
 
-So the commands that most need a transaction are confined to the form that cannot give
-them one. The fix is to finish the plumbing, and the commands should then accept
-**either** form, as every inspect command already does through `load::open`.
+#195 widened `match-amendments` and `redesignations`. #199 did `extract-changes`, and
+that one was not a widening: the two stranded methods changed one amendment at a time
+through a map only the in-memory store has, and the trait's only rung between `get_bill`
+and `add_bill` would have rewritten a whole bill for each change. `119-hr-1` holds 603
+amendments in one bill. `LegislatureWriter::update_amendments` takes the whole reading in
+one call instead, so a backend writes each bill once and a database writes under one
+transaction. Measured on that bill: **45 ms for 603 amendments, against 27 s** for the
+whole-bill rewrite per change.
 
 **With one consequence that must be said plainly: accepting both forms does not close
 the durability gap.** A W2D input still loads into memory and is written whole. The gap

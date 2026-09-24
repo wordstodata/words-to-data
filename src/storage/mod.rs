@@ -408,6 +408,38 @@ pub trait LegislatureWriter {
 
     /// Add bill votes
     fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError>;
+
+    /// Record what a reading found about amendments the dataset already holds.
+    ///
+    /// The whole reading arrives in one call, and a backend writes it as one
+    /// piece of work. That is what this exists for. The only rung the trait
+    /// offered was [`get_bill`] and [`add_bill`], so recording one change meant
+    /// reading a whole bill and writing it back, and `119-hr-1` holds 603
+    /// amendments in one bill. #187 measured what per-row writes outside one
+    /// transaction cost here (#199).
+    ///
+    /// Two obligations on an implementation:
+    ///
+    /// * **One write for each bill**, however many of its amendments the
+    ///   reading touched — not one for each change.
+    /// * **One transaction for the whole call**, for a backend that has them.
+    ///
+    /// Changes are appended to what the amendment already holds, and a
+    /// provenance replaces what it held. Nothing here writes an amendment's id
+    /// or its amending text, so an amendment's content hash cannot move
+    /// (`docs/adr/0009`).
+    ///
+    /// Returns how many amendments were written. An amendment this dataset does
+    /// not hold is skipped rather than created: a reading is about an amendment
+    /// a bill parse already made, and a cache can name one from another dataset.
+    /// The count is what tells a caller the difference.
+    ///
+    /// [`get_bill`]: LegislatureReader::get_bill
+    /// [`add_bill`]: LegislatureWriter::add_bill
+    fn update_amendments(
+        &mut self,
+        readings: &[crate::legislature::AmendmentChanges],
+    ) -> Result<usize, DatasetError>;
 }
 
 /// Everything a backend must answer, whatever document class it holds.

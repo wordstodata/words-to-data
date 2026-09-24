@@ -3,6 +3,11 @@
 //! `.sqlite`/`.db` open lazily as a SQLite-backed dataset; anything else loads
 //! as a compact-JSON dataset. Inspect commands then run over either backend via
 //! the [`with_dataset!`] macro, which expands the same body for both variants.
+//!
+//! **Every command takes either form now.** There was a `refuse_sqlite` here
+//! that stopped a command which could only write into a compact JSON file. Its
+//! last caller was `extract-changes`, and it went when that command learned to
+//! write into a database (#180, #195, #199).
 
 use words_to_data::dataset::{Dataset, DatasetError, Format};
 use words_to_data::storage::{InMemoryStorage, SqliteStorage};
@@ -16,26 +21,6 @@ pub enum OpenDataset {
 /// True when the path names a SQLite database rather than a JSON dataset.
 pub fn is_sqlite(path: &str) -> bool {
     path.ends_with(".sqlite") || path.ends_with(".db")
-}
-
-/// Stop, with an explanation, when a compact-JSON-only command is handed SQLite.
-///
-/// One command is left that cannot yet take a SQLite file: `extract-changes`.
-/// Two of its methods reach into the in-memory store itself, so porting it is a
-/// design decision rather than a widening (#199). Every other command that
-/// writes back into a dataset takes either form (#180, #195).
-///
-/// Without this check the path is read as JSON and the reader sees "stream did
-/// not contain valid UTF-8", which says nothing about what to do next.
-pub fn refuse_sqlite(path: &str, command: &str) {
-    if is_sqlite(path) {
-        eprintln!(
-            "{command} writes back into the dataset and needs a compact JSON file, \
-             but {path} is a SQLite database.\n\
-             Convert it first:\n    words_to_data convert-dataset {path}"
-        );
-        std::process::exit(1);
-    }
 }
 
 /// Where a command that grows a compact JSON dataset writes its result, or a
