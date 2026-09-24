@@ -21,10 +21,10 @@ pub struct BillSelection {
 }
 
 impl BillSelection {
-    /// Is the run narrowed to fewer bills than the dataset holds?
+    /// Was this run told which bills to cover?
     ///
-    /// A command whose result is written beside the dataset must know this: a
-    /// file that names the whole corpus must not be written from a part of it.
+    /// A command that writes its result beside the dataset must know: a file
+    /// that speaks for the whole corpus must not be written from a part of it.
     pub fn narrows(&self) -> bool {
         !self.bills.is_empty()
     }
@@ -33,7 +33,7 @@ impl BillSelection {
     ///
     /// Refuses a name the dataset does not hold, and names it. A skipped name
     /// would leave a run that covered one bill of the two it was told, said
-    /// nothing, and exited zero — which reads as having done the whole job.
+    /// nothing, and exited zero, which reads as having done the whole job.
     /// [`crate::span::Span::resolve`] reports what it could not cover for the
     /// same reason.
     pub fn resolve<R: LegislatureReader + ?Sized>(&self, reader: &R) -> Vec<String> {
@@ -52,7 +52,8 @@ impl BillSelection {
             .collect();
         if !missing.is_empty() {
             crate::fail::refuse(&format!(
-                "The dataset holds no bill named {}. Nothing is left to run over.\n\
+                "The dataset holds no bill named {}.\n\
+                 The run stops, because it cannot cover a bill that is not there.\n\
                  Run `words_to_data bills <dataset>` to see which bills it holds.",
                 missing.join(", ")
             ));
