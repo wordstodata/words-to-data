@@ -76,7 +76,12 @@ pub fn matching_method() -> Method {
     Method::new("llm choice among scored candidates", 1)
 }
 
-/// Gather, for every amendment across every bill, the candidate diffs it may explain.
+/// Gather, for every amendment of the given bills, the candidate diffs it may explain.
+///
+/// `bill_ids` says which bills to work over. Every bill the dataset holds is
+/// the usual answer; a caller that names fewer buys fewer model calls. Each id
+/// must be one the dataset holds, which is what
+/// `words_to_data`'s bill selection promises before it calls here.
 ///
 /// `similarity_cutoff` drops weak scores before they become candidates. Scoring
 /// returns every amendment above zero at a path, a far larger set than the one
@@ -86,21 +91,24 @@ pub fn build_matches(
     dataset: &Dataset<impl Storage + LegislatureReader>,
     diff: &TreeDiff,
     similarity_cutoff: f32,
+    bill_ids: &[String],
 ) -> Vec<AmendmentMatch> {
     let mut matches = Vec::new();
     let path_order = document_order_index(diff);
 
     // Bills and amendments are both held in hash maps, so neither arrives in a
     // usable order. Their ids are stable (an amendment id is a hash of its own
-    // text), so ordering by id gives the same match list on every run.
-    let mut bill_ids = dataset.list_bill_ids().expect("Error listing bills");
+    // text), so ordering by id gives the same match list on every run. The sort
+    // is done here and not at the caller, so a narrowed run and a full run give
+    // the bills they share in the same order.
+    let mut bill_ids = bill_ids.to_vec();
     bill_ids.sort();
 
     for bill_id in bill_ids {
         let bill = dataset
             .get_bill(&bill_id)
             .expect("Error reading bill")
-            .expect("bill id from list_bill_ids should exist");
+            .expect("a bill named for matching should be one the dataset holds");
 
         // Similarity scores keyed by tree-diff path; mentions keyed by amendment id.
         let similarities = diff.calculate_amendment_similarities(&bill);
