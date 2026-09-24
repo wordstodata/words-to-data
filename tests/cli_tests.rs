@@ -14,6 +14,7 @@ use words_to_data::congress::CongressClient;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, ExpressionId, Format, WorkId};
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::{Link, LinkKind};
+use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 /// The two US Code release points held in `tests/test_data`.
 const EARLY: &str = "2025-07-18";
@@ -1240,6 +1241,258 @@ fn should_score_amendments_when_the_dataset_is_sqlite() {
         output.status.success(),
         "score-amendments should accept a SQLite dataset, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+// --- Choosing which bills a run covers (#208) ---
+//
+// A run that covers every bill the dataset holds is a bill of unknown size.
+// `score-amendments` is the half of the pair that calls no model, so it is
+// where the shared `--bills` argument is pinned.
+
+/// Title 26, which the one act in the corpus amends.
+const BILL_TITLE: &str = "usc26";
+const BILL_WORK: &str = "uscode/title_26";
+
+/// The one act the corpus holds, published twice: by Congress.gov, and by
+/// govinfo. Each goes in under one of the two names the act is published by, so
+/// the dataset holds two bills to choose between. Both files are real and both
+/// are in `tests/test_data`; only the name each goes in under is chosen here.
+const PL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
+const PL_ID: &str = "119-21";
+const GOVINFO_PL_XML: &str = "tests/test_data/bills/hr-119-21.xml";
+const BILL_ID: &str = "119-hr-1";
+
+/// One real extraction result, lifted verbatim from a production
+/// `changes_cache.json`, as `cli_llm_tests` lifts it.
+const REAL_EXTRACTION: &str =
+    r#"[{"added":["of—\"(A)"],"removed":["of"]},{"added":[";"],"removed":["."]}]"#;
+
+/// A dataset holding two bills: title 26 at both release points, and the act
+/// under both of its published names.
+///
+/// The amendments carry one real extraction copied across the bill, because
+/// word-level changes come from an LLM and the corpus holds no per-amendment
+/// result. `cli_llm_tests` and `matching_tests` make the same compromise with
+/// the same real output. It decides which scores appear, not which bill they
+/// belong to, which is what these tests are about.
+fn two_bills_json_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/cli_two_bills.json", env!("CARGO_TARGET_TMPDIR"));
+
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Two Bills".to_string(),
+            description: "Title 26 at both release points, and one act under both its names"
+                .to_string(),
+            author: "words_to_data tests".to_string(),
+            source_urls: vec![],
+            license: "MIT".to_string(),
+            version: "1.0.0".to_string(),
+            ..Default::default()
+        });
+        for date in [EARLY, LATE] {
+            let xml = format!("tests/test_data/usc/{date}/{BILL_TITLE}.xml");
+            dataset
+                .add_uslm_xml(&xml, date, None)
+                .expect("the corpus should parse and load");
+        }
+
+        let changes =
+            words_to_data::llm::parse_changes(&format!("<response>{REAL_EXTRACTION}</response>"))
+                .expect("the real extraction should parse");
+        for (id, xml) in [(PL_ID, PL_XML), (BILL_ID, GOVINFO_PL_XML)] {
+            let mut bill = parse_bill_amendments(id, xml).expect("the public law should parse");
+            for amendment in bill.amendments.values_mut() {
+                amendment.changes = changes.clone();
+            }
+            dataset.add_bill(bill).expect("the bill should be added");
+        }
+
+        dataset
+            .save(&path, Format::Compact)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+/// Every amendment id one bill holds, read from the file the bill is parsed
+/// from. An amendment id is a hash of its bill id and its text, so the two
+/// bills share none.
+fn amendment_ids_of(bill_id: &str, xml: &str) -> Vec<String> {
+    parse_bill_amendments(bill_id, xml)
+        .expect("the public law should parse")
+        .amendments
+        .keys()
+        .cloned()
+        .collect()
+}
+
+/// The amendment ids in a scores file, in the order it lists them.
+fn scored_amendment_ids(scores: &serde_json::Value) -> Vec<String> {
+    scores
+        .as_array()
+        .expect("an array of scored works")
+        .iter()
+        .flat_map(|work| {
+            work["scores"]
+                .as_array()
+                .expect("an array of scores")
+                .iter()
+                .map(|score| {
+                    score["amendment_id"]
+                        .as_str()
+                        .expect("a score names its amendment")
+                        .to_string()
+                })
+        })
+        .collect()
+}
+
+/// What `run` takes: the same arguments, borrowed.
+fn borrow(args: &[String]) -> Vec<&str> {
+    args.iter().map(String::as_str).collect()
+}
+
+/// The pair the fixture is scored over, with every score kept: the default
+/// cutoff drops them all, and a filter cannot be seen in an empty file.
+fn every_score_over_title_26() -> Vec<String> {
+    vec![
+        "--from".to_string(),
+        expression(BILL_WORK, EARLY),
+        "--to".to_string(),
+        expression(BILL_WORK, LATE),
+        "--similarity-cutoff".to_string(),
+        "0".to_string(),
+    ]
+}
+
+#[test]
+fn should_score_only_the_named_bill_when_score_amendments_is_given_one_bill_of_two() {
+    let mut narrowed_args: Vec<String> = every_score_over_title_26();
+    narrowed_args.push("--bills".to_string());
+    narrowed_args.push(BILL_ID.to_string());
+
+    let (full_output, full) = scored(
+        two_bills_json_fixture(),
+        &borrow(&every_score_over_title_26()),
+        "scores_every_bill.json",
+    );
+    let (narrow_output, narrowed) = scored(
+        two_bills_json_fixture(),
+        &borrow(&narrowed_args),
+        "scores_one_bill.json",
+    );
+
+    assert!(
+        full_output.status.success() && narrow_output.status.success(),
+        "both runs should exit zero, stderr: {} {}",
+        String::from_utf8_lossy(&full_output.stderr),
+        String::from_utf8_lossy(&narrow_output.stderr)
+    );
+
+    let named: std::collections::HashSet<String> = amendment_ids_of(BILL_ID, GOVINFO_PL_XML)
+        .into_iter()
+        .collect();
+    let other: std::collections::HashSet<String> =
+        amendment_ids_of(PL_ID, PL_XML).into_iter().collect();
+
+    let full_ids = scored_amendment_ids(&full);
+    assert!(
+        full_ids.iter().any(|id| named.contains(id))
+            && full_ids.iter().any(|id| other.contains(id)),
+        "a run that names no bill should cover both bills"
+    );
+
+    let narrowed_ids = scored_amendment_ids(&narrowed);
+    assert!(
+        !narrowed_ids.is_empty(),
+        "the named bill should still be scored"
+    );
+    assert!(
+        narrowed_ids.iter().all(|id| named.contains(id)),
+        "a run told one bill should score no other bill"
+    );
+
+    // The two runs must agree about the bill they share, in the same order.
+    let shared: Vec<&String> = full_ids.iter().filter(|id| named.contains(*id)).collect();
+    let got: Vec<&String> = narrowed_ids.iter().collect();
+    assert_eq!(
+        got, shared,
+        "the two runs should give the shared bill's scores in the same order"
+    );
+}
+
+/// A name the dataset does not hold is a typo, not a fact about the data. A
+/// run that skipped it would cover nothing, say nothing, and exit zero, which
+/// reads as having done the job.
+#[test]
+fn should_refuse_a_named_bill_when_the_dataset_does_not_hold_it() {
+    let output = run(&[
+        "score-amendments",
+        annotated_fixture(),
+        "--from",
+        &expression(UNCHANGED_WORK, EARLY),
+        "--to",
+        &expression(UNCHANGED_WORK, LATE),
+        "--bills",
+        "119-hr-999",
+        // A run that names bills says where its scores go, so this one stops
+        // at the name it was given and not at the file it would write.
+        "--output",
+        &format!("{}/scores_no_such_bill.json", env!("CARGO_TARGET_TMPDIR")),
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "a bill the dataset does not hold must not exit zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("119-hr-999"),
+        "the refusal should name the bill, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("words_to_data bills"),
+        "the refusal should say how to see the bills the dataset holds, got: {stderr}"
+    );
+}
+
+/// `similarity_scores.json` beside the dataset is the whole corpus's scores.
+/// A run narrowed to some of the bills holds a part of that, and the file says
+/// nothing of the bills it came from, so a narrowed run must be told where its
+/// scores go rather than write over the whole.
+#[test]
+fn should_refuse_the_default_scores_file_when_the_run_names_bills() {
+    let dataset = annotated_fixture();
+    let beside = std::path::Path::new(dataset).with_file_name("similarity_scores.json");
+    let whole_corpus = "the scores of every bill";
+    std::fs::write(&beside, whole_corpus).expect("the sentinel should be writable");
+
+    let output = run(&[
+        "score-amendments",
+        dataset,
+        "--from",
+        &expression(UNCHANGED_WORK, EARLY),
+        "--to",
+        &expression(UNCHANGED_WORK, LATE),
+        "--bills",
+        "119-hr-1",
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "a narrowed run must not write the whole corpus's file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&beside).expect("the file should still be there"),
+        whole_corpus,
+        "the whole corpus's scores should be left as they were"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--output"),
+        "the refusal should name the argument that says where to write, got: {stderr}"
     );
 }
 

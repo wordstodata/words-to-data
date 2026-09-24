@@ -34,6 +34,13 @@ use words_to_data::uslm::bill_parser::parse_bill_amendments;
 const BILL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 const BILL_ID: &str = "119-21";
 
+/// The same act, as govinfo publishes it: a second real file, of the one law
+/// the corpus holds. It goes in under the act's bill number, so a dataset can
+/// hold two bills to choose between. Both files are real and both are in
+/// `tests/test_data`; only the name each goes in under is chosen here.
+const GOVINFO_BILL_XML: &str = "tests/test_data/bills/hr-119-21.xml";
+const GOVINFO_BILL_ID: &str = "119-hr-1";
+
 /// The title HR 1 amends, at the two release points the corpus holds. Title 51
 /// is smaller, but it did not change between them and HR 1 does not mention it,
 /// so it yields no candidates and the model is never called.
@@ -233,6 +240,14 @@ fn sqlite_dataset_for_matching(name: &str) -> String {
 
 /// Build the fixture in memory, in its own directory, and hand back both.
 fn matching_fixture(name: &str) -> (Dataset<words_to_data::storage::InMemoryStorage>, String) {
+    fixture_with_bills(name, &[(BILL_ID, BILL_XML)])
+}
+
+/// The same fixture, holding the named bills instead of the one.
+fn fixture_with_bills(
+    name: &str,
+    bills: &[(&str, &str)],
+) -> (Dataset<words_to_data::storage::InMemoryStorage>, String) {
     let directory = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&directory).expect("the fixture directory should exist");
     // A cache left by an earlier run of this test would answer for the server.
@@ -256,11 +271,13 @@ fn matching_fixture(name: &str) -> (Dataset<words_to_data::storage::InMemoryStor
     let changes =
         words_to_data::llm::parse_changes(&format!("<response>{REAL_EXTRACTION}</response>"))
             .expect("the real extraction should parse");
-    let mut bill = parse_bill_amendments(BILL_ID, BILL_XML).expect("the public law should parse");
-    for amendment in bill.amendments.values_mut() {
-        amendment.changes = changes.clone();
+    for (bill_id, xml) in bills {
+        let mut bill = parse_bill_amendments(bill_id, xml).expect("the public law should parse");
+        for amendment in bill.amendments.values_mut() {
+            amendment.changes = changes.clone();
+        }
+        dataset.add_bill(bill).expect("the bill should be added");
     }
-    dataset.add_bill(bill).expect("the bill should be added");
 
     (dataset, directory)
 }
@@ -1055,5 +1072,110 @@ fn should_resume_from_the_cache_when_a_run_is_interrupted() {
         calls.load(Ordering::SeqCst) - bought,
         total - kept,
         "the second run should buy what is left, and nothing more"
+    );
+}
+
+/// A dataset holding two bills, as a W2D file.
+fn two_bill_dataset_for_matching(name: &str) -> String {
+    let (dataset, directory) = fixture_with_bills(
+        name,
+        &[(BILL_ID, BILL_XML), (GOVINFO_BILL_ID, GOVINFO_BILL_XML)],
+    );
+    let path = format!("{directory}/dataset.json");
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+    path
+}
+
+/// The bills a run asked the model about, read from the candidate view it wrote.
+fn bills_asked_about(dataset_path: &str) -> Vec<String> {
+    let path = std::path::Path::new(dataset_path).with_file_name("candidates.json");
+    let text = std::fs::read_to_string(path).expect("a run should write its candidates");
+    let works: serde_json::Value = text.parse().expect("the candidates should parse");
+    let mut bills: Vec<String> = works
+        .as_array()
+        .expect("an array of works")
+        .iter()
+        .flat_map(|work| {
+            work["amendments"]
+                .as_array()
+                .expect("an array of amendments")
+                .iter()
+                .map(|amendment| {
+                    amendment["bill_id"]
+                        .as_str()
+                        .expect("an amendment names its bill")
+                        .to_string()
+                })
+        })
+        .collect();
+    bills.sort();
+    bills.dedup();
+    bills
+}
+
+/// Every question the cache holds an answer to.
+fn cached_questions(dataset_path: &str) -> Vec<String> {
+    let text = std::fs::read_to_string(matches_cache_path(dataset_path))
+        .expect("a run should write a cache");
+    let cache: serde_json::Value = text.parse().expect("the cache should parse");
+    let mut keys: Vec<String> = cache
+        .as_object()
+        .expect("the cache should be an object of cached replies")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// `match-amendments` is one of the two steps that spend money, and it asks
+/// about every amendment it is given. Told which bills to cover, it must ask
+/// about those and no others.
+///
+/// The cache is keyed by the question and not by the run, so a narrowed run
+/// must leave the replies bought for the bills it does not cover where they
+/// are. If it dropped them, filtering would cost more than not filtering.
+#[test]
+fn should_ask_the_model_about_only_the_named_bill_when_match_amendments_names_one_of_two() {
+    let dataset_path = two_bill_dataset_for_matching("llm_match_bills");
+    let (base_url, calls) = counting_stub_server(real_reply("match-amendments"));
+
+    let every = run_match_amendments(&dataset_path, &base_url, &[]);
+    assert!(
+        every.status.success(),
+        "a run over every bill should exit zero, stderr: {}",
+        String::from_utf8_lossy(&every.stderr)
+    );
+    let bought = calls.load(Ordering::SeqCst);
+    assert!(bought > 0, "the first run should call the model");
+    assert_eq!(
+        bills_asked_about(&dataset_path),
+        vec![BILL_ID.to_string(), GOVINFO_BILL_ID.to_string()],
+        "a run that names no bill should cover both bills"
+    );
+    let answered = cached_questions(&dataset_path);
+
+    let narrowed = run_match_amendments(&dataset_path, &base_url, &["--bills", GOVINFO_BILL_ID]);
+    assert!(
+        narrowed.status.success(),
+        "a narrowed run should exit zero, stderr: {}",
+        String::from_utf8_lossy(&narrowed.stderr)
+    );
+    assert_eq!(
+        bills_asked_about(&dataset_path),
+        vec![GOVINFO_BILL_ID.to_string()],
+        "a run told one bill should ask about no other bill"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        bought,
+        "the narrowed run should buy nothing it already has an answer to"
+    );
+    assert_eq!(
+        cached_questions(&dataset_path),
+        answered,
+        "a narrowed run should leave every cached reply where it is"
     );
 }

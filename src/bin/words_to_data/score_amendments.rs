@@ -14,6 +14,7 @@ use words_to_data::dataset::Dataset;
 use words_to_data::diff::AmendmentSimilarity;
 use words_to_data::storage::{LegislatureReader, Storage};
 
+use crate::bill_selection::BillSelection;
 use crate::load::{self, with_dataset};
 use crate::span::Span;
 
@@ -25,11 +26,17 @@ pub struct Args {
     #[command(flatten)]
     pub span: Span,
 
+    #[command(flatten)]
+    pub bills: BillSelection,
+
     /// Only keep similarity scores strictly above this cutoff
     #[arg(long, default_value_t = 0.4)]
     pub similarity_cutoff: f32,
 
     /// Where to write the scores JSON (defaults to `similarity_scores.json` beside the dataset)
+    ///
+    /// Required with `--bills`: the file beside the dataset holds the scores of
+    /// every bill, so a run over some of them is told where to write.
     #[arg(long)]
     pub output: Option<String>,
 }
@@ -48,15 +55,15 @@ struct ScoredWork {
 }
 
 pub fn run(args: Args) {
+    // Asked before the scoring, so a run that has nowhere to put its result
+    // does not do the work first, as `match-amendments` asks before it buys a
+    // reply.
+    let scores_path = scores_path(&args);
+
     // Scoring only reads the dataset, so it runs over either backend.
     let opened = crate::fail::or_exit(load::open(&args.dataset), "Error loading dataset");
     let (scored, total) = with_dataset!(opened, dataset => score(&args, &dataset));
 
-    let scores_path = args
-        .output
-        .as_deref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| sibling(&args.dataset, "similarity_scores.json"));
     crate::fail::or_exit(
         fs::write(
             &scores_path,
@@ -72,17 +79,38 @@ pub fn run(args: Args) {
     println!("Wrote {}", scores_path.display());
 }
 
+/// The file the scores of this run go in.
+///
+/// `similarity_scores.json` beside the dataset is the scores of every bill the
+/// dataset holds. A run told which bills to score holds a part of that, and the
+/// file says which pair each entry came from but not which bills, so a reader
+/// of the written file could not tell a whole corpus from a part of one. Such a
+/// run is told where to write instead of writing over the whole.
+fn scores_path(args: &Args) -> PathBuf {
+    match args.output.as_deref() {
+        Some(path) => PathBuf::from(path),
+        None if args.bills.narrows() => crate::fail::refuse(
+            "A run that names bills does not write `similarity_scores.json` beside the dataset.\n\
+             That file holds the scores of every bill, and this run scores some of them.\n\
+             Give `--output <path>` to say where the scores of this run go.",
+        ),
+        None => sibling(&args.dataset, "similarity_scores.json"),
+    }
+}
+
 /// Score every expression pair the span resolves to, returning the per-work
 /// scores and the total kept above the cutoff.
 fn score(
     args: &Args,
     dataset: &Dataset<impl Storage + LegislatureReader>,
 ) -> (Vec<ScoredWork>, usize) {
-    let bills: Vec<_> = crate::fail::or_exit(dataset.list_bill_ids(), "Error listing bills")
+    let bills: Vec<_> = args
+        .bills
+        .resolve(dataset)
         .into_iter()
         .map(|id| {
             crate::fail::or_exit(dataset.get_bill(&id), "Error reading bill")
-                .expect("bill id from list_bill_ids should exist")
+                .expect("a selected bill should be one the dataset holds")
         })
         .collect();
 

@@ -151,6 +151,17 @@ Use `--between FROM TO` for every work that both dates hold, or `--from` and
 `--to` together for one named pair, such as
 `--from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30`.
 
+Use `--bills` to score only some of the bills, as `--bills 119-hr-1,119-hr-42`.
+A run that names no bill covers every bill the dataset holds, as it always did.
+A name the dataset does not hold stops the run and is named, because a run that
+covered nothing and said nothing would read as a run that did the job. Run
+`words_to_data bills <dataset>` to see the names the dataset holds.
+
+**A run with `--bills` must be told where to write, with `--output`.**
+`similarity_scores.json` beside the dataset holds the scores of every bill, and
+an entry says which pair it came from but not which bill, so a reader could not
+tell a part from the whole. Such a run refuses before it does the work.
+
 The scores go to `similarity_scores.json` beside the dataset, or to the path in
 `--output`. **That file is a report, and no command reads it.** Step 4 calculates
 the same scores again from the dataset. So step 3 writes nothing into the
@@ -171,7 +182,14 @@ words_to_data match-amendments dataset.json --between 2025-07-18 2025-07-30 \
 
 This step asks the model which change each amendment caused, and writes each
 answer into the dataset as a `legislature.amended_by` link. It takes the same
-span flags as step 3, and the same model flags as step 2.
+span flags as step 3, the same `--bills` flag, and the same model flags as step
+2.
+
+**`--bills` is what holds the cost down.** The command sends a request for each
+amendment it covers, so a bill you do not name costs nothing. The cache holds a
+reply under the question it answers and not under the run that bought it, so a
+run with `--bills` leaves the replies bought for the other bills where they are,
+and a later run over every bill reuses them.
 
 It takes either form the dataset comes in. A SQLite dataset is changed in place,
 under a transaction. A compact JSON dataset is written whole, so it is never

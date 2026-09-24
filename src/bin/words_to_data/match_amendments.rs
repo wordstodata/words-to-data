@@ -30,6 +30,7 @@ use words_to_data::matching::{
 };
 use words_to_data::storage::{LegislatureReader, Storage};
 
+use crate::bill_selection::BillSelection;
 use crate::span::Span;
 use words_to_data::llm::{ChatOptions, LlmAnnotation, LlmClient};
 
@@ -41,6 +42,9 @@ pub struct Args {
 
     #[command(flatten)]
     pub span: Span,
+
+    #[command(flatten)]
+    pub bills: BillSelection,
 
     /// Base URL of an OpenAI-compatible chat-completions server
     #[arg(long, default_value = "http://localhost:8080")]
@@ -194,11 +198,12 @@ pub fn run(args: Args) {
 }
 
 impl Matching<'_> {
-    /// Ask the model about every amendment in the span, and write what it
-    /// answers into the dataset.
+    /// Ask the model about each amendment of the chosen bills, over every pair
+    /// in the span, and write what it answers into the dataset.
     fn apply<S: Storage + LegislatureReader>(&self, dataset: &mut Dataset<S>) {
         let args = self.args;
         let pairs = args.span.resolve(&*dataset);
+        let bills = args.bills.resolve(&*dataset);
         let mut candidates_by_work = Vec::new();
         let mut applied = 0;
         let mut annotated_paths = 0;
@@ -212,7 +217,7 @@ impl Matching<'_> {
             let diff =
                 crate::fail::or_exit(dataset.compute_diff(&from, &to), "Error computing diff");
 
-            let matches = build_matches(&*dataset, &diff, args.similarity_cutoff);
+            let matches = build_matches(&*dataset, &diff, args.similarity_cutoff, &bills);
             println!("\n{from} -> {to}");
             print_stats(&matches);
 

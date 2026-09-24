@@ -12,6 +12,15 @@ use std::fmt::Display;
 /// which means the arguments were wrong before any work started.
 const FAILED: i32 = 1;
 
+/// Print why the run stops, and exit non-zero.
+///
+/// For a fault the arguments carry, which no `Result` holds: the command was
+/// understood and cannot do what it was told.
+pub fn refuse(message: &str) -> ! {
+    eprintln!("{message}");
+    std::process::exit(FAILED)
+}
+
 /// Unwrap, or print `context: <message>` to stderr and exit non-zero.
 pub fn or_exit<T, E: Display>(result: Result<T, E>, context: &str) -> T {
     match result {

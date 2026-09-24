@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 mod add_opinions;
 mod add_release_points;
 mod annotations;
+mod bill_selection;
 mod bills;
 mod build_dataset;
 mod cases_citing;
