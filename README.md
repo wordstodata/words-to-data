@@ -116,13 +116,29 @@ waiting for it.
 ### Step 2 — `extract-changes` (calls a model)
 
 ```bash
-words_to_data extract-changes dataset.json --threads 8
+# A SQLite dataset is changed in place.
+words_to_data extract-changes dataset.sqlite --threads 8
+
+# A compact JSON dataset must be told where to write.
+words_to_data extract-changes dataset.json --threads 8 \
+  --output dataset-extracted.json
 ```
 
 This step reads the word-level changes out of each amendment, and writes them
 into the dataset. It sends one request for each amendment that carries no changes
 yet. The five committed bills hold **606** amendments, so a cold run sends
 approximately 606 requests.
+
+It takes either form the dataset comes in. A SQLite dataset is changed in place,
+under one transaction. A compact JSON dataset is written whole, so it is never
+written back over its input, and a run without `--output` refuses before it
+sends its first request (#186, #199).
+
+**The whole reading is written in one call.** Each amendment's changes and
+provenance are gathered first and given to the store together, so a database
+writes each bill once and not once for each change. One bill holds 603
+amendments, and a write for each of them costs 27 seconds where one call costs
+45 milliseconds.
 
 The command speaks to an OpenAI-compatible chat-completions server. The default
 is a local server at `http://localhost:8080`. For a hosted endpoint, give
@@ -286,11 +302,10 @@ words_to_data convert-dataset dataset.json dataset.sqlite
 The output argument is positional and optional. Without it, the command swaps the
 extension of the input. The direction comes from the two extensions.
 
-**Step 2 is the one that still needs compact JSON.** `extract-changes` refuses a
-SQLite file and tells you to convert it first (#199). Step 1 always writes
-compact JSON, whatever the output name. Steps 3, 4 and 5 read or write either
+**Every step takes either form now** (#180, #195, #199). Step 1 always writes
+compact JSON, whatever the output name. Steps 2, 3, 4 and 5 read or write either
 form, and a dataset they change is changed in place. So convert as soon as step
-2 is done, and let the rest of the pipeline work on the database.
+1 is done, and let the rest of the pipeline work on the database.
 
 ### What the finished dataset holds
 

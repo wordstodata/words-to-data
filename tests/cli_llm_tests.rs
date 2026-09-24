@@ -176,6 +176,32 @@ fn dataset_with_one_amendment(name: &str) -> String {
 /// The bill carries 603, so a caller can ask for more than the summary will
 /// name and still be working from real amendments.
 fn dataset_with_amendments(name: &str, count: usize) -> String {
+    let (dataset, directory) = extraction_fixture(name, count);
+    let path = format!("{directory}/dataset.json");
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+    path
+}
+
+/// The same fixture as a database, which is the form the pipeline is meant to
+/// work against (#199).
+fn sqlite_dataset_with_one_amendment(name: &str) -> String {
+    let (dataset, directory) = extraction_fixture(name, 1);
+    let path = format!("{directory}/dataset.sqlite");
+    // A database left by an earlier run would already hold this run's changes.
+    let _ = std::fs::remove_file(&path);
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+    path
+}
+
+/// Build the fixture in memory, in its own directory, and hand back both.
+fn extraction_fixture(
+    name: &str,
+    count: usize,
+) -> (Dataset<words_to_data::storage::InMemoryStorage>, String) {
     let directory = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(&directory).expect("the fixture directory should exist");
     // A stale sibling cache would let the command skip the server entirely.
@@ -200,11 +226,7 @@ fn dataset_with_amendments(name: &str, count: usize) -> String {
     });
     dataset.add_bill(bill).expect("the bill should be added");
 
-    let path = format!("{directory}/dataset.json");
-    dataset
-        .save(&path, Format::Compact)
-        .expect("the fixture should save");
-    path
+    (dataset, directory)
 }
 
 /// A dataset `match-amendments` can work on: title 26 at both release points,
@@ -282,9 +304,19 @@ fn fixture_with_bills(
     (dataset, directory)
 }
 
+/// The database form, changed where it sits. It was the last command that
+/// refused one (#199).
+/// Where a compact JSON run writes its result.
+///
+/// A W2D file is written whole and is never written back over its input, so
+/// every run of a command that grows one names an output (#186, #199).
+fn result_beside(dataset_path: &str) -> String {
+    dataset_path.replace("dataset.json", "extracted.json")
+}
+
 #[test]
-fn should_write_the_extracted_changes_into_the_dataset_when_extract_changes_runs() {
-    let dataset_path = dataset_with_one_amendment("llm_extract");
+fn should_write_the_extracted_changes_into_a_database_when_extract_changes_runs() {
+    let dataset_path = sqlite_dataset_with_one_amendment("llm_extract_sqlite");
     let base_url = start_stub_server(format!("<response>{REAL_EXTRACTION}</response>"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
@@ -302,11 +334,65 @@ fn should_write_the_extracted_changes_into_the_dataset_when_extract_changes_runs
 
     assert!(
         output.status.success(),
+        "extract-changes should take a database, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let dataset = Dataset::open_sqlite(&dataset_path).expect("the result should open");
+    let bill = dataset
+        .get_bill(BILL_ID)
+        .expect("reading the bill should work")
+        .expect("the bill should still be there");
+    let amendment = bill
+        .amendments
+        .values()
+        .next()
+        .expect("the amendment should still be there");
+
+    assert_eq!(
+        amendment.changes.len(),
+        2,
+        "both changes in the reply should be written into the database"
+    );
+    assert_eq!(
+        amendment
+            .provenance
+            .as_ref()
+            .map(|p| p.source.as_str())
+            .unwrap_or_default(),
+        "model:local",
+        "the database should also hold where the changes came from"
+    );
+}
+
+#[test]
+fn should_write_the_extracted_changes_into_the_dataset_when_extract_changes_runs() {
+    let dataset_path = dataset_with_one_amendment("llm_extract");
+    let result = result_beside(&dataset_path);
+    let base_url = start_stub_server(format!("<response>{REAL_EXTRACTION}</response>"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "extract-changes",
+            &dataset_path,
+            "--output",
+            &result,
+            "--base-url",
+            &base_url,
+            "--threads",
+            "1",
+            "--no-cache",
+        ])
+        .output()
+        .expect("the binary should run");
+
+    assert!(
+        output.status.success(),
         "extract-changes should exit zero, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let dataset = Dataset::load(&dataset_path, Format::Compact).expect("the result should load");
+    let dataset = Dataset::load(&result, Format::Compact).expect("the result should load");
     let bill = dataset
         .get_bill(BILL_ID)
         .expect("reading the bill should work")
@@ -334,12 +420,15 @@ fn should_write_the_extracted_changes_into_the_dataset_when_extract_changes_runs
 #[test]
 fn should_write_nothing_when_the_model_finds_no_changes() {
     let dataset_path = dataset_with_one_amendment("llm_empty");
+    let result = result_beside(&dataset_path);
     let base_url = start_stub_server("<response>[]</response>".to_string());
 
     let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &base_url,
             "--threads",
@@ -355,7 +444,7 @@ fn should_write_nothing_when_the_model_finds_no_changes() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let dataset = Dataset::load(&dataset_path, Format::Compact).expect("the result should load");
+    let dataset = Dataset::load(&result, Format::Compact).expect("the result should load");
     let bill = dataset
         .get_bill(BILL_ID)
         .expect("reading the bill should work")
@@ -378,6 +467,7 @@ fn should_write_nothing_when_the_model_finds_no_changes() {
 #[test]
 fn should_name_the_lost_amendment_when_a_reply_cannot_be_parsed() {
     let dataset_path = dataset_with_one_amendment("llm_unparseable");
+    let result = result_beside(&dataset_path);
     let amendment_id = only_amendment_id(&dataset_path);
     let base_url = start_stub_server(truncated_real_reply("extract-changes"));
 
@@ -385,6 +475,8 @@ fn should_name_the_lost_amendment_when_a_reply_cannot_be_parsed() {
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &base_url,
             "--threads",
@@ -411,12 +503,15 @@ fn should_name_the_lost_amendment_when_a_reply_cannot_be_parsed() {
 #[test]
 fn should_not_count_a_failure_as_an_extraction_in_the_progress_line() {
     let dataset_path = dataset_with_one_amendment("llm_progress");
+    let result = result_beside(&dataset_path);
     let base_url = start_stub_server(truncated_real_reply("extract-changes"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &base_url,
             "--threads",
@@ -444,12 +539,15 @@ fn should_not_count_a_failure_as_an_extraction_in_the_progress_line() {
 #[test]
 fn should_cap_the_named_ids_when_more_amendments_fail_than_fit() {
     let dataset_path = dataset_with_amendments("llm_many_failures", 12);
+    let result = result_beside(&dataset_path);
     let base_url = start_stub_server(truncated_real_reply("extract-changes"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &base_url,
             "--threads",
@@ -488,12 +586,15 @@ fn should_cap_the_named_ids_when_more_amendments_fail_than_fit() {
 #[test]
 fn should_store_no_evidence_when_a_reply_cannot_be_parsed() {
     let dataset_path = dataset_with_one_amendment("llm_no_evidence");
+    let result = result_beside(&dataset_path);
     let base_url = start_stub_server(truncated_real_reply("extract-changes"));
 
     Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &base_url,
             "--threads",
@@ -503,7 +604,7 @@ fn should_store_no_evidence_when_a_reply_cannot_be_parsed() {
         .output()
         .expect("the binary should run");
 
-    let dataset = Dataset::load(&dataset_path, Format::Compact).expect("the result should load");
+    let dataset = Dataset::load(&result, Format::Compact).expect("the result should load");
 
     assert!(
         dataset
@@ -539,12 +640,15 @@ fn should_store_no_evidence_when_a_reply_cannot_be_parsed() {
 #[test]
 fn should_retry_a_failed_amendment_on_the_next_run_without_a_flag() {
     let dataset_path = dataset_with_one_amendment("llm_retry");
+    let result = result_beside(&dataset_path);
     let failing = start_stub_server(truncated_real_reply("extract-changes"));
 
     let first = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &failing,
             "--threads",
@@ -563,6 +667,8 @@ fn should_retry_a_failed_amendment_on_the_next_run_without_a_flag() {
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &working,
             "--threads",
@@ -581,7 +687,7 @@ fn should_retry_a_failed_amendment_on_the_next_run_without_a_flag() {
         "the retry should succeed, got:\n{stdout}"
     );
 
-    let dataset = Dataset::load(&dataset_path, Format::Compact).expect("the result should load");
+    let dataset = Dataset::load(&result, Format::Compact).expect("the result should load");
     let bill = dataset
         .get_bill(BILL_ID)
         .expect("reading the bill should work")
@@ -639,12 +745,15 @@ fn should_name_the_lost_amendment_when_match_amendments_cannot_parse_a_reply() {
 #[test]
 fn should_exit_zero_when_some_amendments_fail() {
     let dataset_path = dataset_with_one_amendment("llm_exit_code");
+    let result = result_beside(&dataset_path);
     let base_url = start_stub_server(truncated_real_reply("extract-changes"));
 
     let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args([
             "extract-changes",
             &dataset_path,
+            "--output",
+            &result,
             "--base-url",
             &base_url,
             "--threads",
@@ -720,6 +829,43 @@ fn should_refuse_to_write_over_its_input_when_a_w2d_file_names_no_output() {
             &base_url,
             "--threads",
             "1",
+        ])
+        .output()
+        .expect("the binary should run");
+
+    assert!(
+        !output.status.success(),
+        "the command should refuse to write back over a W2D file"
+    );
+
+    let complaint = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        complaint.contains("will not write back over"),
+        "it should say it will not write over the input, got: {complaint}"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "a run with nowhere to put its result should buy no reply"
+    );
+}
+
+/// The same rule for `extract-changes`, which used to default to writing back
+/// over its input (#199).
+#[test]
+fn should_refuse_to_write_over_its_input_when_extract_changes_names_no_output() {
+    let dataset_path = dataset_with_one_amendment("llm_extract_no_output");
+    let (base_url, calls) = counting_stub_server(format!("<response>{REAL_EXTRACTION}</response>"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "extract-changes",
+            &dataset_path,
+            "--base-url",
+            &base_url,
+            "--threads",
+            "1",
+            "--no-cache",
         ])
         .output()
         .expect("the binary should run");

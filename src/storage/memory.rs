@@ -12,6 +12,7 @@ use crate::dataset::{
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::intern::StringInterner;
+use crate::legislature::AmendmentChanges;
 use crate::link::{Link, Target};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, LegislatureCounts,
@@ -471,6 +472,23 @@ impl LegislatureWriter for InMemoryStorage {
     fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
         self.bill_votes.insert(votes.bill_id.clone(), votes);
         Ok(())
+    }
+
+    /// The map already holds the amendment, so each reading is one `get_mut`.
+    ///
+    /// Nothing is rewritten and nothing is grouped: this store has no rows to
+    /// write and no transaction to open.
+    fn update_amendments(&mut self, readings: &[AmendmentChanges]) -> Result<usize, DatasetError> {
+        let mut written = 0;
+        for reading in readings {
+            if let Some(bill) = self.bills.get_mut(&reading.bill_id)
+                && let Some(amendment) = bill.amendments.get_mut(&reading.amendment_id)
+            {
+                amendment.record(reading);
+                written += 1;
+            }
+        }
+        Ok(written)
     }
 }
 

@@ -227,7 +227,48 @@ pub struct BillAmendment {
     pub provenance: Option<crate::link::Provenance>,
 }
 
+/// What one reading found about one amendment, ready to be written.
+///
+/// A reading is a model's answer about an amendment, so it says which
+/// amendment, what word-level changes it found, and where the answer came
+/// from. It is not stored under this name: a store unpacks it onto the
+/// [`BillAmendment`] it names, so nothing serialized changes shape (#199).
+///
+/// It names the bill as well as the amendment. An amendment id is a content
+/// hash and carries no bill in it, so a store given only the id would have to
+/// read every bill it holds to place one change.
+///
+/// `provenance` is optional, and `None` leaves whatever the amendment already
+/// carries. That keeps "record these changes" and "record where they came
+/// from" one call rather than two, without making a caller invent a source it
+/// does not have.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmendmentChanges {
+    /// The bill that holds the amendment, as the dataset names it.
+    pub bill_id: String,
+    /// The amendment's content-hash id.
+    pub amendment_id: String,
+    /// The word-level changes the reading found, appended to what is held.
+    pub changes: Vec<BillDiff>,
+    /// Where the changes came from, or `None` to leave what is held.
+    pub provenance: Option<crate::link::Provenance>,
+}
+
 impl BillAmendment {
+    /// Write what a reading found onto this amendment.
+    ///
+    /// The id and the amending text are untouched, which is what keeps the
+    /// content hash the same: the id is `sha256("{bill_id}:{amending_text}")`
+    /// and neither part of it is written here. A `legislature.amended_by` link
+    /// names the amendment by that id, so a recording that moved it would break
+    /// every such link (`docs/adr/0009`).
+    pub fn record(&mut self, reading: &AmendmentChanges) {
+        self.changes.extend(reading.changes.iter().cloned());
+        if let Some(provenance) = &reading.provenance {
+            self.provenance = Some(provenance.clone());
+        }
+    }
+
     pub fn update_changes(&self, changes: &[BillDiff]) -> Self {
         BillAmendment {
             id: self.id.clone(),

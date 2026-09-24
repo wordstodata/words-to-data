@@ -26,7 +26,6 @@ use crate::congress::{
 };
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
-use crate::legislature::BillDiff;
 use crate::legislature::redesignation::{self, RedesignationReport};
 use crate::link::{Link, ProvisionHistory};
 use crate::method::{Method, MethodRun};
@@ -593,6 +592,18 @@ impl<S: Storage + LegislatureWriter> Dataset<S> {
     pub fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
         self.storage.add_bill_votes(votes)
     }
+
+    /// Record what a reading found about amendments this dataset holds.
+    ///
+    /// The whole reading goes in one call, whichever form the dataset is in.
+    /// See [`LegislatureWriter::update_amendments`] for what a backend owes:
+    /// one write for each bill, and one transaction for the call.
+    pub fn update_amendments(
+        &mut self,
+        readings: &[crate::legislature::AmendmentChanges],
+    ) -> Result<usize, DatasetError> {
+        self.storage.update_amendments(readings)
+    }
 }
 
 // --- Reading USLM into any backend ---
@@ -664,34 +675,6 @@ impl Dataset<InMemoryStorage> {
     /// Create a new in-memory dataset with the given metadata
     pub fn new(metadata: DatasetMetadata) -> Self {
         Self::with_storage(InMemoryStorage::new(metadata))
-    }
-
-    /// Add changes to an amendment in any bill
-    pub fn add_changes_to_amendment(&mut self, amendment_id: &str, bill_diff: &BillDiff) {
-        for bill in self.storage.bills.values_mut() {
-            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
-                amendment.changes.push(bill_diff.clone());
-                return;
-            }
-        }
-    }
-
-    /// Record where an amendment's word-level changes came from.
-    ///
-    /// The amending text is parsed from the bill and is a fact from a source.
-    /// The changes are a model's reading of it, and until this existed nothing
-    /// said so (#58).
-    pub fn set_amendment_provenance(
-        &mut self,
-        amendment_id: &str,
-        provenance: crate::link::Provenance,
-    ) {
-        for bill in self.storage.bills.values_mut() {
-            if let Some(amendment) = bill.amendments.get_mut(amendment_id) {
-                amendment.provenance = Some(provenance);
-                return;
-            }
-        }
     }
 
     /// Save to file in specified format
@@ -1036,6 +1019,13 @@ impl<S: Storage + LegislatureWriter> LegislatureWriter for Dataset<S> {
 
     fn add_bill_votes(&mut self, votes: BillVotes) -> Result<(), DatasetError> {
         self.storage.add_bill_votes(votes)
+    }
+
+    fn update_amendments(
+        &mut self,
+        readings: &[crate::legislature::AmendmentChanges],
+    ) -> Result<usize, DatasetError> {
+        self.storage.update_amendments(readings)
     }
 }
 

@@ -13,6 +13,7 @@
 //! produced 1,237 replies behind 893 links.
 
 use words_to_data::dataset::{Dataset, DatasetMetadata, WorkId};
+use words_to_data::legislature::AmendmentChanges;
 use words_to_data::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
 use words_to_data::method::Method;
 use words_to_data::storage::{EvidenceReader, InMemoryStorage, LinkReader};
@@ -242,23 +243,27 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
     );
 
     let reply_id = dataset.add_reply(&recorded_reply()).expect("stored");
-    dataset.set_amendment_provenance(
-        &amendment_id,
-        Provenance {
-            source: "model:local".to_string(),
-            method: Some(Method::new("extract-changes", 1)),
-            verification: VerificationState::MachineSuggested,
-            evidence: Some(Evidence {
-                reasoning: None,
-                reply: Some(reply_id),
-                model: Some("local".to_string()),
-                prompt_hash: Some("beef".to_string()),
+    dataset
+        .update_amendments(&[AmendmentChanges {
+            bill_id: "119-21".to_string(),
+            amendment_id: amendment_id.clone(),
+            changes: vec![],
+            provenance: Some(Provenance {
+                source: "model:local".to_string(),
+                method: Some(Method::new("extract-changes", 1)),
+                verification: VerificationState::MachineSuggested,
+                evidence: Some(Evidence {
+                    reasoning: None,
+                    reply: Some(reply_id),
+                    model: Some("local".to_string()),
+                    prompt_hash: Some("beef".to_string()),
+                }),
+                raw_score: None,
+                timestamp: None,
+                corroboration: None,
             }),
-            raw_score: None,
-            timestamp: None,
-            corroboration: None,
-        },
-    );
+        }])
+        .expect("the provenance should be recorded");
 
     let dir = tempfile::tempdir().expect("a temporary directory");
     let file = dir.path().join("amendment_provenance.sqlite");

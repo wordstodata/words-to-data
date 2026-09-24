@@ -14,6 +14,7 @@ use crate::dataset::{
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::intern::StringInterner;
+use crate::legislature::AmendmentChanges;
 use crate::link::{Link, LinkKind, Provenance, Target};
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
@@ -1294,18 +1295,7 @@ impl EvidenceWriter for SqliteStorage {
 
 impl LegislatureReader for SqliteStorage {
     fn get_bill(&self, id: &str) -> Result<Option<Bill>, DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT data_json FROM bills WHERE bill_id = ?1")?;
-        let mut rows = stmt.query(params![id])?;
-
-        if let Some(row) = rows.next()? {
-            let data_json: String = row.get(0)?;
-            let bill: Bill = serde_json::from_str(&data_json)?;
-            Ok(Some(bill))
-        } else {
-            Ok(None)
-        }
+        read_bill(&self.conn, id)
     }
 
     fn list_bill_ids(&self) -> Result<Vec<String>, DatasetError> {
@@ -1568,6 +1558,63 @@ impl LegislatureWriter for SqliteStorage {
             }
         }
         Ok(())
+    }
+
+    /// One bill is one row, so the readings are grouped by bill and each bill
+    /// is read once and written once. The whole call is one transaction.
+    ///
+    /// The naive shape — read the bill, change one amendment, write the bill —
+    /// costs one rewrite of a 603-amendment row for every change, each in its
+    /// own implicit transaction. #187 is what that costs.
+    fn update_amendments(&mut self, readings: &[AmendmentChanges]) -> Result<usize, DatasetError> {
+        let mut by_bill: BTreeMap<&str, Vec<&AmendmentChanges>> = BTreeMap::new();
+        for reading in readings {
+            by_bill
+                .entry(reading.bill_id.as_str())
+                .or_default()
+                .push(reading);
+        }
+
+        let tx = self.conn.transaction()?;
+        let mut written = 0;
+        for (bill_id, readings) in by_bill {
+            let Some(mut bill) = read_bill(&tx, bill_id)? else {
+                continue;
+            };
+            let mut touched = false;
+            for reading in readings {
+                if let Some(amendment) = bill.amendments.get_mut(&reading.amendment_id) {
+                    amendment.record(reading);
+                    touched = true;
+                    written += 1;
+                }
+            }
+            if touched {
+                tx.execute(
+                    "INSERT OR REPLACE INTO bills (bill_id, data_json) VALUES (?1, ?2)",
+                    params![bill_id, serde_json::to_string(&bill)?],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(written)
+    }
+}
+
+/// One bill, read through whatever connection the caller holds.
+///
+/// A free function rather than a method, because `update_amendments` reads a
+/// bill while it holds an open transaction and cannot also borrow the store.
+/// [`LegislatureReader::get_bill`] is this, over the plain connection.
+fn read_bill(conn: &Connection, bill_id: &str) -> Result<Option<Bill>, DatasetError> {
+    let mut stmt = conn.prepare("SELECT data_json FROM bills WHERE bill_id = ?1")?;
+    let mut rows = stmt.query(params![bill_id])?;
+    match rows.next()? {
+        Some(row) => {
+            let data_json: String = row.get(0)?;
+            Ok(Some(serde_json::from_str(&data_json)?))
+        }
+        None => Ok(None),
     }
 }
 

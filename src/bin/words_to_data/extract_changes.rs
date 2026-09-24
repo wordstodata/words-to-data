@@ -4,6 +4,16 @@
 //! This is the nondeterministic, LLM-bound half of the pipeline. It runs over
 //! all bills in one pass; scoring against a US Code diff happens separately and
 //! deterministically in `score-amendments`.
+//!
+//! **It takes either form the dataset comes in.** A database is changed where it
+//! sits, under a transaction. A W2D file is read into memory and written whole,
+//! so it must be told where to write and is never written back over its input
+//! (#186, #199).
+//!
+//! **The whole reading is written in one call.** Each amendment's changes and
+//! provenance are gathered first and handed to the store together, so a
+//! database writes each bill once and not once for each change. One bill holds
+//! 603 amendments.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -14,7 +24,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use clap::Args as ClapArgs;
 use serde::{Deserialize, Serialize};
 use words_to_data::dataset::{Dataset, Format};
-use words_to_data::legislature::BillDiff;
+use words_to_data::legislature::{AmendmentChanges, BillDiff};
+use words_to_data::storage::{LegislatureReader, LegislatureWriter, Storage};
 
 use words_to_data::llm::{ChatOptions, LlmClient};
 use words_to_data::method::Method;
@@ -31,7 +42,8 @@ fn extraction_method() -> Method {
 
 #[derive(ClapArgs)]
 pub struct Args {
-    /// Dataset (compact JSON) containing the bills to extract changes from
+    /// Path to a dataset (compact JSON or SQLite) holding the bills to extract
+    /// changes from
     pub dataset: String,
 
     /// Base URL of an OpenAI-compatible chat-completions server
@@ -76,7 +88,9 @@ pub struct Args {
     #[arg(long)]
     pub no_cache: bool,
 
-    /// Where to write the enriched dataset (defaults to overwriting the input)
+    /// Where to write a compact JSON dataset. Required for compact JSON, which
+    /// is never written back over its input. Ignored for SQLite, which is
+    /// changed in place.
     #[arg(long)]
     pub output: Option<String>,
 }
@@ -115,15 +129,56 @@ struct Task {
 }
 
 pub fn run(args: Args) {
-    crate::load::refuse_sqlite(&args.dataset, "extract-changes");
-    let mut dataset = crate::fail::or_exit(
-        Dataset::load(&args.dataset, Format::Compact),
-        "Error loading dataset",
-    );
+    // Where the result goes: `None` is a database, which is changed in place.
+    // A W2D file is written whole, so it must be told where to write and is
+    // never written back over its input (#186). It is asked here rather than at
+    // the save, so a run that has nowhere to put its result buys no reply.
+    let output = if crate::load::is_sqlite(&args.dataset) {
+        None
+    } else {
+        Some(crate::load::output_or_refuse(
+            &args.dataset,
+            args.output.as_deref(),
+            "extract-changes",
+        ))
+    };
 
+    match output {
+        None => {
+            let mut dataset =
+                crate::fail::or_exit(Dataset::open_sqlite(&args.dataset), "Error opening dataset");
+            extract(&mut dataset, &args);
+            println!("Wrote {}", args.dataset);
+        }
+        Some(output) => {
+            let mut dataset = crate::fail::or_exit(
+                Dataset::load(&args.dataset, Format::Compact),
+                "Error loading dataset",
+            );
+            extract(&mut dataset, &args);
+            crate::fail::or_exit(
+                dataset.save(output, Format::Compact),
+                "Error saving dataset",
+            );
+            println!("Wrote {output}");
+        }
+    }
+}
+
+/// Ask the model about every amendment that carries no changes yet, and write
+/// what it answers into the dataset.
+fn extract<S: Storage + LegislatureReader + LegislatureWriter>(
+    dataset: &mut Dataset<S>,
+    args: &Args,
+) {
     // Amendments that already carry changes are done — don't re-extract or
     // re-apply them (applying twice would duplicate changes in the dataset).
+    //
+    // The bill each amendment belongs to is kept as the scan meets it. An
+    // amendment id is a content hash and names no bill, so a store handed the
+    // id alone would have to read every bill it holds to place one change.
     let mut done: HashSet<String> = HashSet::new();
+    let mut bill_of: HashMap<String, String> = HashMap::new();
     let mut amendments: Vec<Task> = Vec::new();
     for bill_id in dataset.list_bill_ids().expect("Error listing bills") {
         let bill = dataset
@@ -131,6 +186,7 @@ pub fn run(args: Args) {
             .expect("Error reading bill")
             .expect("bill id from list_bill_ids should exist");
         for amendment in bill.amendments.values() {
+            bill_of.insert(amendment.id.clone(), bill_id.clone());
             if amendment.changes.is_empty() {
                 amendments.push(Task {
                     amendment_id: amendment.id.clone(),
@@ -184,19 +240,24 @@ pub fn run(args: Args) {
         cache = shared.into_inner().unwrap();
     }
 
-    // Apply cached changes for every amendment not already populated.
+    // Gather the reading for every amendment not already populated, then write
+    // it in one call. Writing it one change at a time would rewrite the whole
+    // bill for each change, and a bill holds hundreds of amendments (#199).
     let model_name = if args.model.is_empty() {
         "local".to_string()
     } else {
         args.model.clone()
     };
+    let mut readings: Vec<AmendmentChanges> = Vec::new();
     for (amendment_id, cached) in &cache {
         if done.contains(amendment_id) {
             continue;
         }
-        for change in cached.changes() {
-            dataset.add_changes_to_amendment(amendment_id, change);
-        }
+        let Some(bill_id) = bill_of.get(amendment_id) else {
+            // A cache is kept beside a directory, not a dataset, so it can name
+            // an amendment this dataset never held.
+            continue;
+        };
 
         // The amending text is a fact from the bill; these word-level changes
         // are a model's reading of it. Recording the evidence without the
@@ -218,9 +279,11 @@ pub fn run(args: Args) {
             }
             Cached::ChangesOnly(_) => None,
         };
-        dataset.set_amendment_provenance(
-            amendment_id,
-            words_to_data::link::Provenance {
+        readings.push(AmendmentChanges {
+            bill_id: bill_id.clone(),
+            amendment_id: amendment_id.clone(),
+            changes: cached.changes().to_vec(),
+            provenance: Some(words_to_data::link::Provenance {
                 source: format!("model:{model_name}"),
                 method: Some(extraction_method()),
                 verification: words_to_data::link::VerificationState::MachineSuggested,
@@ -228,17 +291,17 @@ pub fn run(args: Args) {
                 raw_score: None,
                 timestamp: Some(time::OffsetDateTime::now_utc()),
                 corroboration: None,
-            },
-        );
+            }),
+        });
     }
 
-    let output = args.output.as_deref().unwrap_or(&args.dataset);
-    dataset
-        .save(output, Format::Compact)
-        .expect("Error saving dataset");
+    let written = crate::fail::or_exit(
+        dataset.update_amendments(&readings),
+        "Error recording the extracted changes",
+    );
+    println!("Recorded changes on {written} amendment(s).");
 
     crate::report::failed_amendments(&failed);
-    println!("Wrote {output}");
 }
 
 /// Run LLM extraction over every task, using `threads` OS worker threads.
