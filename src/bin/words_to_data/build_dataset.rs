@@ -67,6 +67,9 @@ pub fn run(args: Args) {
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
         declaration: read_declaration(args.declaration.as_ref()),
+        // Nothing has run over a dataset that is being created. Each step
+        // records itself as it runs.
+        method_runs: Vec::new(),
     });
 
     // The same path `add-release-points` takes, so a dataset that grew holds

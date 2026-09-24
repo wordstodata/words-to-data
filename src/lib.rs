@@ -19,6 +19,7 @@ pub mod legislature;
 pub mod link;
 pub mod llm;
 pub mod matching;
+pub mod method;
 pub mod storage;
 #[cfg(feature = "download")]
 pub mod uscode;

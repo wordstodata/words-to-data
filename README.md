@@ -42,11 +42,20 @@ order:
 build-dataset → extract-changes → score-amendments → match-amendments → [redesignations] → convert-dataset
 ```
 
-A dataset that missed a step looks complete. The file keeps no list of the steps
-that ran, so a missing step shows only as an absence. One rebuild wrote 889
+A dataset that missed a step used to look complete. One rebuild wrote 889
 `legislature.amended_by` links and no redesignation links at all, and nothing
-reported it (#150). Read the counts that each command prints, and compare them
-with the counts in this section.
+reported it (#150).
+
+The file now records **which method, at which version, ran over which window**,
+for the two steps that write statements into a window — step 4 and step 5
+(#182). It records the method and not the command: "`redesignations` has run
+here" stays true for ever while the reading behind it changes underneath. `info`
+prints it under **Methods run**, and `info --json` carries it as `method_runs`.
+
+It is not yet a list of every step. `extract-changes` runs over bills and not
+over a window, and `score-amendments` writes a file beside the dataset rather
+than into it, so neither leaves a record. Read the counts that each command
+prints, and compare them with the counts in this section.
 
 Build the CLI first:
 
@@ -331,9 +340,10 @@ the same rule.
 The command reads the same mirror and the same cache as step 1, and `--offline`
 reads only the cache. It adds release points and runs no step over them, so it
 ends by naming each window it made and what that window holds. A window holding
-no link has had no step run over it, **or** had one that found nothing — a
-dataset records no list of the steps that ran, so nobody can tell the two apart
-from the file.
+no link has had no step run over it, **or** had one that found nothing. The two
+are now told apart by the record of what ran: a window that a method covered
+holds a `method_runs` entry naming that method and its version, whether or not
+the method found anything to write (#182).
 
 **Run the window steps again after the dataset grows.** Steps 4 and 5 take a
 `--between` span, and the run names the span to give them. A redesignation is

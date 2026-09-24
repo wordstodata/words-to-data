@@ -6,9 +6,15 @@ Status: accepted
 
 We therefore store links directly. `annotations` and `annotation_paths` go, and `ChangeAnnotation` becomes a projection *out of* links rather than the thing they are projected from. This ADR records how a stored link is shaped and named, which are the parts that are expensive to change later.
 
+## A note on the word for a node (#147)
+
+Where this document says a target holds "a provision", the variant is now **`Target::Node`** and its tag column holds `node` where it held `provision`. A Provision is a unit of law that stays the same thing across versions, and a court opinion is neither, so the stored word was false of every opinion link. The shape did not change: the variant carries a path, exactly as described below. `docs/adr/0002-links-live-in-the-core.md` carries the same note, and records why this is a rename inside the closed set rather than a widening of it.
+
+It changes `subject_json`, `object_json` and both tag columns on **every stored link**, in both forms, so it rode the schema break of #182 rather than taking one of its own. Datasets are rebuilt, never migrated.
+
 ## A target is a tag and a JSON value, with the queried parts promoted
 
-`Target` variants no longer hold one value each: a provision holds a path, an expression holds a work and a date, an external reference holds a reference and a display string, and a change holds a work, a path, and two dates. A column per part does not fit a set that grows, so a target is stored as its variant tag beside the whole value as JSON.
+`Target` variants no longer hold one value each: a node holds a path, an expression holds a work and a date, an external reference holds a reference and a display string, and a change holds a work, a path, and two dates. A column per part does not fit a set that grows, so a target is stored as its variant tag beside the whole value as JSON.
 
 JSON cannot be indexed into, and every query `LinkReader` answers reads into a target: by path, by expression pair, the distinct pair list, by kind, by namespace. Those parts are therefore promoted to their own indexed columns beside the JSON. The promoted columns are a denormalised index of the value, which is two places holding one fact, and ADR 0002 warns against exactly that. It is deliberate here and it is one-directional: the JSON is the record, the columns are derived from it on write, and nothing reads a promoted column as the truth.
 

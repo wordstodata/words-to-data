@@ -39,6 +39,7 @@ fn metadata() -> DatasetMetadata {
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
         declaration: None,
+        method_runs: Vec::new(),
     }
 }
 

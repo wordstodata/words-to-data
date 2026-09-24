@@ -105,6 +105,7 @@ fn declared_legislature_fixture() -> &'static str {
                 namespaces: vec![LinkKind::LEGISLATURE.to_string()],
                 ..Default::default()
             }),
+            method_runs: Vec::new(),
         });
         let xml = format!("tests/test_data/usc/{EARLY}/{UNCHANGED_TITLE}.xml");
         dataset

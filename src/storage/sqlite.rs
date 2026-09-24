@@ -74,7 +74,7 @@ impl ElementRow<'_> {
 /// The name of a target's variant, for the tag column.
 fn target_tag(target: &Target) -> &'static str {
     match target {
-        Target::Provision(_) => "provision",
+        Target::Node(_) => "node",
         Target::Expression(_) => "expression",
         Target::Change { .. } => "change",
         Target::External { .. } => "external",
@@ -111,7 +111,7 @@ const LINK_INSERT: &str = "INSERT OR REPLACE INTO links \
 impl LinkRow {
     fn new(id: &str, link: &Link) -> Result<Self, DatasetError> {
         // Promoted columns, derived from the subject on write. Only a change
-        // and a provision carry a path; only a change carries a pair.
+        // and a node carry a path; only a change carries a pair.
         let (work, path, from_date, to_date) = match &link.subject {
             Target::Change {
                 work,
@@ -124,7 +124,7 @@ impl LinkRow {
                 Some(from_date.clone()),
                 Some(to_date.clone()),
             ),
-            Target::Provision(path) => (None, Some(path.clone()), None, None),
+            Target::Node(path) => (None, Some(path.clone()), None, None),
             _ => (None, None, None, None),
         };
 
@@ -175,6 +175,37 @@ impl LinkRow {
         let mut stmt = conn.prepare(LINK_INSERT)?;
         self.bind(&mut stmt)
     }
+}
+
+/// Write a dataset's metadata into the `metadata` table.
+///
+/// One function for the two writers — a single write and the bulk save —
+/// because a field added to one and forgotten in the other is a database that
+/// disagrees with the W2D file written from the same dataset. Both stored forms
+/// must carry the same record.
+fn write_metadata(conn: &Connection, metadata: &DatasetMetadata) -> Result<(), DatasetError> {
+    let mut stmt = conn.prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)")?;
+    stmt.execute(params!["name", &metadata.name])?;
+    stmt.execute(params!["description", &metadata.description])?;
+    stmt.execute(params!["author", &metadata.author])?;
+    stmt.execute(params![
+        "source_urls",
+        serde_json::to_string(&metadata.source_urls)?
+    ])?;
+    stmt.execute(params!["license", &metadata.license])?;
+    stmt.execute(params!["version", &metadata.version])?;
+    // Only written when there is one, so "declared nothing" and "declared an
+    // empty scope" stay distinguishable on disk.
+    if let Some(declaration) = &metadata.declaration {
+        stmt.execute(params!["declaration", serde_json::to_string(declaration)?])?;
+    }
+    // Always written, empty or not. `INSERT OR REPLACE` never removes a row, so
+    // a key left out would keep whatever an earlier write put there.
+    stmt.execute(params![
+        "method_runs",
+        serde_json::to_string(&metadata.method_runs)?
+    ])?;
+    Ok(())
 }
 
 /// Refuse a dataset this build cannot read.
@@ -289,24 +320,7 @@ impl SqliteStorage {
     }
 
     fn save_metadata(&self) -> Result<(), DatasetError> {
-        let mut stmt = self
-            .conn
-            .prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)")?;
-        stmt.execute(params!["name", &self.metadata.name])?;
-        stmt.execute(params!["description", &self.metadata.description])?;
-        stmt.execute(params!["author", &self.metadata.author])?;
-        stmt.execute(params![
-            "source_urls",
-            serde_json::to_string(&self.metadata.source_urls)?
-        ])?;
-        stmt.execute(params!["license", &self.metadata.license])?;
-        stmt.execute(params!["version", &self.metadata.version])?;
-        // Only written when there is one, so "declared nothing" and "declared
-        // an empty scope" stay distinguishable on disk.
-        if let Some(declaration) = &self.metadata.declaration {
-            stmt.execute(params!["declaration", serde_json::to_string(declaration)?])?;
-        }
-        Ok(())
+        write_metadata(&self.conn, &self.metadata)
     }
 
     fn init_schema(&self) -> Result<(), DatasetError> {
@@ -457,23 +471,7 @@ impl SqliteStorage {
     pub fn save_from_memory(&mut self, storage: &InMemoryStorage) -> Result<(), DatasetError> {
         let tx = self.conn.transaction()?;
 
-        // Save metadata
-        {
-            let mut stmt =
-                tx.prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)")?;
-            stmt.execute(params!["name", &storage.metadata.name])?;
-            stmt.execute(params!["description", &storage.metadata.description])?;
-            stmt.execute(params!["author", &storage.metadata.author])?;
-            stmt.execute(params![
-                "source_urls",
-                serde_json::to_string(&storage.metadata.source_urls)?
-            ])?;
-            stmt.execute(params!["license", &storage.metadata.license])?;
-            stmt.execute(params!["version", &storage.metadata.version])?;
-            if let Some(declaration) = &storage.metadata.declaration {
-                stmt.execute(params!["declaration", serde_json::to_string(declaration)?])?;
-            }
-        }
+        write_metadata(&tx, &storage.metadata)?;
 
         // Save expressions
         {
@@ -706,6 +704,7 @@ impl SqliteStorage {
         let mut license = String::new();
         let mut version = String::new();
         let mut declaration = None;
+        let mut method_runs = Vec::new();
 
         while let Some(row) = rows.next()? {
             let key: String = row.get(0)?;
@@ -718,6 +717,7 @@ impl SqliteStorage {
                 "license" => license = value,
                 "version" => version = value,
                 "declaration" => declaration = Some(serde_json::from_str(&value)?),
+                "method_runs" => method_runs = serde_json::from_str(&value)?,
                 _ => {}
             }
         }
@@ -730,6 +730,7 @@ impl SqliteStorage {
             license,
             version,
             declaration,
+            method_runs,
         })
     }
 

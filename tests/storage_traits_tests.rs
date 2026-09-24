@@ -361,7 +361,7 @@ impl Storage for DocumentsAndLinks {
 /// stores and does not interpret.
 fn citation_link() -> Link {
     Link {
-        subject: Target::Provision("uscode/title_9/chapter_1/section_3".to_string()),
+        subject: Target::Node("uscode/title_9/chapter_1/section_3".to_string()),
         kind: LinkKind::new(LinkKind::CITES),
         object: Target::External {
             reference: "judicial.opinion:us/570/1".to_string(),

@@ -16,6 +16,7 @@ use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
 use crate::judicial::OpinionFacts;
 use crate::link::{Provenance, VerificationState};
+use crate::method::Method;
 
 /// The work an opinion is the single expression of: `judicial/opinion_2812209`.
 ///
@@ -344,7 +345,7 @@ pub fn opinion_expression(
         // The publisher, the record, and the field, so a reader can go and look
         // at the same text we read.
         source: format!("courtlistener:opinion/{}:{}", opinion.id, source.field),
-        method: Some(source.method.to_string()),
+        method: Some(Method::new(source.method, text_method::VERSION)),
         verification: source.verification,
         evidence: None,
         raw_score: None,

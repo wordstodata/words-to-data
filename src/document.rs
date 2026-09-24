@@ -131,6 +131,15 @@ pub mod text_method {
 
     /// Read from the publisher's own structured markup, such as USLM XML.
     pub const MARKUP: &str = "markup";
+
+    /// Which version these three readings are at now.
+    ///
+    /// One number for the three, because one code path picks between them and
+    /// does the reading. Raise it when the text a reading produces changes —
+    /// a different field chosen, markup stripped differently, a new OCR source
+    /// — and never for a change that leaves the words alone
+    /// (`crate::method::Method`).
+    pub const VERSION: u32 = 1;
 }
 
 /// Facts about a node that only the class defining its type understands.

@@ -4,7 +4,7 @@ Status: accepted. **The identity this ADR recommends was not built, and will not
 
 ## Implementation status
 
-The paragraph below says "we therefore give each provision a stable identity", in the settled tense. **We have not, and #93 decided not to.** No provision identity is minted or carried anywhere in the code, and none is planned. `Target::Provision` names a provision by path, and `WorkId` holds a structural path for the same reason (`docs/adr/0003-storage-is-keyed-by-work.md` records that debt too).
+The paragraph below says "we therefore give each provision a stable identity", in the settled tense. **We have not, and #93 decided not to.** No provision identity is minted or carried anywhere in the code, and none is planned. `Target::Node` names a node by path — the variant was `Target::Provision` until #147 — and `WorkId` holds a structural path for the same reason (`docs/adr/0003-storage-is-keyed-by-work.md` records that debt too).
 
 **Do not build the identity this ADR recommends.** A provision has nothing stable to hash. Its text changes, which is the point of tracking it, and its location changes, which is why identity was wanted. A minted id would move whenever a newly added bill revealed an earlier redesignation, which is the exact defect `docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md` rejected UUIDs for: "it changes on every rebuild, so nothing outside the file can point at a link."
 

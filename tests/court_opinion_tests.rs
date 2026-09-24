@@ -17,6 +17,7 @@ use words_to_data::document::{ClassPayload, DocumentNode, NodeData, NodeType, te
 use words_to_data::inspect;
 use words_to_data::judicial::OpinionFacts;
 use words_to_data::link::{Provenance, VerificationState};
+use words_to_data::method::Method;
 use words_to_data::uslm::UslmFacts;
 
 const OPINION_JSON: &str = "tests/test_data/courtlistener/opinion_2812209.json";
@@ -111,13 +112,13 @@ fn obergefell() -> Expression {
         .expect("the record should say whether the text was OCR'd");
     let provenance = Provenance {
         source: "courtlistener".to_string(),
-        method: Some(
+        method: Some(Method::new(
             match extracted_by_ocr {
                 true => text_method::OCR,
                 false => text_method::TEXT_LAYER,
-            }
-            .to_string(),
-        ),
+            },
+            text_method::VERSION,
+        )),
         verification: VerificationState::Asserted,
         evidence: None,
         raw_score: None,
@@ -273,9 +274,10 @@ fn should_reach_how_the_text_was_obtained_without_opening_a_payload() {
 
     assert_eq!(provenance.source, "courtlistener");
     assert_eq!(
-        provenance.method.as_deref(),
-        Some(text_method::TEXT_LAYER),
-        "this record says extracted_by_ocr is false, so the text came from a text layer"
+        provenance.method.as_ref(),
+        Some(&Method::new(text_method::TEXT_LAYER, text_method::VERSION)),
+        "this record says extracted_by_ocr is false, so the text came from a \
+         text layer, and the version says which reading produced it"
     );
     assert_eq!(provenance.verification, VerificationState::Asserted);
 
@@ -346,9 +348,8 @@ fn assert_judicial_facts_survived<S: words_to_data::storage::Storage>(dataset: &
             .data
             .provenance
             .as_ref()
-            .and_then(|p| p.method.clone())
-            .as_deref(),
-        Some(text_method::TEXT_LAYER)
+            .and_then(|p| p.method.clone()),
+        Some(Method::new(text_method::TEXT_LAYER, text_method::VERSION))
     );
     assert_eq!(stored.root.data.node_type.as_str(), "judicial.opinion");
 }

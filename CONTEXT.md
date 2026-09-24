@@ -167,6 +167,16 @@ The record of where one statement came from: its source, the method that produce
 A Document node carries one too, where it has something to say. There the method records **how the text was obtained** — read from the publisher's markup, from a text layer, or by a machine reading a scan. That is core rather than a Class payload fact, because a reader deciding whether to rely on a passage must not have to open a payload to learn that nobody has checked the words against the page. A node carries provenance only where it differs from its neighbours': every node of a US Code release point came from one publisher by one method, and recording that on each would state one fact a million times over.
 _Avoid_: Lineage, history, audit
 
+**Method**:
+What produced a statement, named and given a version: `{name, version}`. The name says which reasoning it was; the version says which edition of that reasoning made this statement.
+
+A person chooses the version, and raises it when the method's answers change. A build never raises it. A hash of the method's parameters was refused, because it moves on a cosmetic edit and a number that moves for no reason is a number everybody ignores (#179, decision 10).
+
+Without the version, a method's name stays the same while its answers change underneath, and a reader cannot tell a statement this build would make again from one it would not. Comparing two methods that disagree is #184; declaring one superseded is #185, and it belongs in the Declaration.
+
+A Corroboration names its method as a plain word, and that is deliberate. A corroboration is an arithmetic a receiver repeats for themselves, and the figure beside it is the check; if the arithmetic changes, the figure means something else and the method takes a new name, not a later version.
+_Avoid_: Algorithm, strategy, technique, model
+
 **Verification state**:
 The trust level of one statement: `Asserted` by a source, `MachineSuggested`, `HumanConfirmed`, `Disputed`, or `Refuted`. `Disputed` means someone objects and it is unsettled; `Refuted` means it was checked and found wrong, which is settled.
 _Avoid_: Confidence, score, accuracy
@@ -252,8 +262,18 @@ It is not an Unplaced statement, and the difference is what makes the report wor
 
 It is a derivation, and nothing stores it. A Redesignation link carries the Work, both dates and the bill, so "has this bill been resolved against this window" is answered by the links the Dataset holds. A stored list of outstanding steps would go stale as soon as a link arrived by another route (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
 
-**A Dataset still cannot say which steps have run over it.** This answers the question for one step, by reading its output. Every other step is answered the same way or not at all, and a record of which method at which version ran over which window is #182.
+**It is not a Method run, and the two answer different questions.** An unresolved window is derived, per bill, from the links the Dataset holds. A method run is recorded, per window, and says which reasoning was applied there. Neither replaces the other: a method run does not say which bills were covered, and an unresolved window does not say which version of the reasoning ran.
 _Avoid_: Todo, backlog, pending, dirty
+
+**Method run**:
+A record that one Method, at one version, ran over one Window. It is how a Dataset says what has been done to it, so that a missing step no longer reads as a complete file (#182, #179 decision 11).
+
+It records the **method**, not the command. "`redesignations` has run here" stays true for ever while the thing it means changes underneath. "This reasoning was applied to this window" is a fact an agent can act on.
+
+It is stored, and it passes the test that decides what may be. "Method M at version V ran over window W" happened, and it stays true however much the Dataset grows. An Unplaced statement has the other shape — its count falls as titles are added — and is derived for that reason (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+
+It carries no clock reading. The same method, at the same version, over the same window is one record, which is what keeps a rebuild idempotent. It sits in the Dataset's metadata, beside the Declaration, so both stored forms carry it without a table of its own.
+_Avoid_: Log, history, audit trail, run id
 
 **Extension**:
 A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (case name, opinion type). The core data model carries no extension concept, and no document class either. A Link's kind is an open namespaced string, a Document node's type is an open namespaced string, and in both cases the facts only one namespace understands sit in a payload the core stores and never reads (Kind payload, Class payload).

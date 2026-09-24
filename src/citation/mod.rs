@@ -32,6 +32,7 @@ use serde_json::json;
 
 use crate::dataset::WorkId;
 use crate::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
+use crate::method::Method;
 use resolve::{CitedSection, Resolution};
 use usc::UscCitation;
 
@@ -41,7 +42,7 @@ use usc::UscCitation;
 /// rather than a style choice.
 ///
 /// [`Opinion::held`] is for an opinion this dataset carries, since #53 put court
-/// opinions in datasets. Then the subject is a [`Target::Provision`] naming the
+/// opinions in datasets. Then the subject is a [`Target::Node`] naming the
 /// node, so a reader can follow the link to the text that made the citation, a
 /// backend can index it, and `LinkReader::links_for_path` answers "what does this
 /// case cite".
@@ -52,9 +53,9 @@ use usc::UscCitation;
 /// amendment, and a reader is told plainly that the citing document is not in the
 /// file and the link's subject cannot be checked against it.
 ///
-/// `Target::Provision` is the strain in this. Its name says provision, and an
-/// opinion is not one; it is the core's word for "a node in this dataset, by
-/// path", and the core has no other. See
+/// The word used to be the strain in this. The variant was `Target::Provision`,
+/// and an opinion is not a provision. #147 renamed it to [`Target::Node`],
+/// which is what the variant always meant: a node in this dataset, by path. See
 /// `docs/research/a-court-opinion-in-the-core.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opinion {
@@ -96,13 +97,23 @@ impl Opinion {
 
     fn target(&self) -> Target {
         match &self.held_as {
-            Some(work) => Target::Provision(work.to_string()),
+            Some(work) => Target::Node(work.to_string()),
             None => Target::External {
                 reference: self.reference(),
                 display: self.display.clone(),
             },
         }
     }
+}
+
+/// The rule that reads a U.S.C. citation, at the version it is at now.
+///
+/// Raise the version when the rule's answers change — when it starts reading a
+/// citation it used to miss, or stops reading one it used to take. Editing a
+/// comment or renaming a variable is not such a change
+/// (`crate::method::Method`).
+fn citation_rule() -> Method {
+    Method::new("reporters-db laws.json U.S.C. patterns", 1)
 }
 
 /// A link for every provision a citation resolved to, saying the opinion cites
@@ -142,7 +153,7 @@ fn cites_link(
     let kind = LinkKind::new(LinkKind::CITES);
     let provenance = Provenance {
         source: "rule:usc_citation".to_string(),
-        method: Some("reporters-db laws.json U.S.C. patterns".to_string()),
+        method: Some(citation_rule()),
         verification: VerificationState::MachineSuggested,
         // The matched text, so a reviewer can read what the rule read. A rule
         // has no reasoning beyond the text that satisfied it.
@@ -174,7 +185,7 @@ fn cites_link(
             }),
         }),
         kind,
-        object: Target::Provision(path.to_string()),
+        object: Target::Node(path.to_string()),
         provenance,
     }
 }

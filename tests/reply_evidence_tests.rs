@@ -14,6 +14,7 @@
 
 use words_to_data::dataset::{Dataset, DatasetMetadata, WorkId};
 use words_to_data::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
+use words_to_data::method::Method;
 use words_to_data::storage::{EvidenceReader, InMemoryStorage, LinkReader};
 
 /// A reply a model really emitted, recorded by a `words_to_data` sweep.
@@ -245,7 +246,7 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
         &amendment_id,
         Provenance {
             source: "model:local".to_string(),
-            method: Some("extract-changes".to_string()),
+            method: Some(Method::new("extract-changes", 1)),
             verification: VerificationState::MachineSuggested,
             evidence: Some(Evidence {
                 reasoning: None,

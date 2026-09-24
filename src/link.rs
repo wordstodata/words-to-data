@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::annotation::{AnnotationStatus, ChangeAnnotation};
 use crate::dataset::{ExpressionId, WorkId};
 use crate::diff::AmendmentSimilarity;
+use crate::method::Method;
 
 /// The kind of a link, namespaced by the extension that defines it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,12 +70,21 @@ impl LinkKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Target {
-    /// A provision in this dataset, by structural path.
+    /// A node in this dataset, by structural path.
+    ///
+    /// Class-neutral on purpose. It was `Provision` until #147, and
+    /// `CONTEXT.md` defines a Provision as a unit of law that stays the same
+    /// thing across versions. A court opinion is neither — it is a fixed
+    /// document — so every stored opinion link said, in the core's own
+    /// vocabulary, that an opinion is a provision. The shape was right and the
+    /// word was false. `docs/adr/0006-a-document-node-is-class-neutral.md`
+    /// already made a stored node class-neutral; this is the same rule reaching
+    /// the word a link uses for one.
     ///
     /// The path locates rather than identifies, so this moves to a stable
-    /// provision identity when one exists
+    /// identity when one exists
     /// (`docs/adr/0001-structural-paths-locate-not-identify.md`).
-    Provision(String),
+    Node(String),
     /// A work as it read on one date.
     ///
     /// The same [`ExpressionId`] storage keys on, so a link points at a thing
@@ -190,8 +200,14 @@ impl Evidence {
 pub struct Provenance {
     /// Who or what made the statement: `model:local`, `human:jesse`.
     pub source: String,
-    /// How it was made, when that is known and worth recording.
-    pub method: Option<String>,
+    /// How it was made, when that is known and worth recording, and which
+    /// version of that method was at work.
+    ///
+    /// The version is what lets a reader tell a statement this build would make
+    /// again from one it would not. Without it the name stays the same while
+    /// the answers change underneath, which is what #184 compares and what #185
+    /// supersedes (`crate::method::Method`).
+    pub method: Option<Method>,
     /// How far the statement can be trusted.
     pub verification: VerificationState,
     /// What the statement was based on.
@@ -222,6 +238,16 @@ pub struct Provenance {
 }
 
 /// A reproducible measurement that supports a statement.
+///
+/// Its method is deliberately **not** a [`Method`] with a version, unlike
+/// [`Provenance::method`]. The two are not the same kind of thing. A
+/// provenance method is reasoning that produced a claim, and a reader needs to
+/// know whether that reasoning has moved on. A corroboration names an
+/// arithmetic a receiver holding the same texts recomputes for themselves, and
+/// the `score` and the `detail` beside it are the check: if the arithmetic
+/// changes, the figure means something else and the method needs a **new name**
+/// rather than a later version. A version here would invite a receiver to
+/// tolerate a mismatch it should report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Corroboration {
     /// What was computed, so a receiver knows how to reproduce it.

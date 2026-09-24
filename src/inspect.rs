@@ -22,6 +22,7 @@ use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
 use crate::link::{ProvisionHistory, RedesignationStep, VerificationState};
+use crate::method::MethodRun;
 use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
@@ -88,6 +89,20 @@ pub struct DatasetInfo {
     /// anything, on the same rule as the counts above.
     #[serde(skip_serializing_if = "RedesignationTotals::is_silent")]
     pub redesignations: RedesignationTotals,
+    /// Which method, at which version, has run over which window.
+    ///
+    /// This is the dataset saying what has been done to it, which is what an
+    /// agent reads before it decides what to do next (#182, #179 decision 11).
+    /// An empty list means nothing was recorded, which is every dataset built
+    /// before the record existed; it is not a statement that no method ran.
+    ///
+    /// Passed through from the metadata rather than derived. It is a record of
+    /// what happened, so nothing here recomputes it.
+    ///
+    /// Left out of the JSON when it is empty, on the same rule as the counts
+    /// above.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub method_runs: Vec<MethodRun>,
     /// What this dataset covers, so a caller can tell "absent from the law"
     /// from "absent from this dataset".
     pub scope: Scope,
@@ -2028,6 +2043,7 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
         // redesignation links, and no release point at all. The reasons need
         // the resolver, and they live in `redesignation-report`.
         redesignations: redesignation_counts(dataset)?,
+        method_runs: meta.method_runs.clone(),
         scope,
     })
 }
