@@ -285,6 +285,14 @@ the decision.
 The command prints each statement that it cannot place. A statement that no
 reader can turn into two paths is recorded, and never dropped.
 
+**The link total it prints is the total the dataset holds.** One bill can state
+one move in two clauses — `119-hr-1` does at 26 U.S.C. 163(j), in § 70341(a) and
+§ 70341(c) — and a link is identified by what it says, so the two statements are
+one link. Where that happens the command says how many renumberings merged, and
+that no write was lost. A count that falls with no word about why reads as a lost
+write, and a merge and a lost write need different work
+([#220](https://github.com/wordstodata/words-to-data/issues/220)).
+
 **Which two release points a redesignation is checked against is an open
 question.** This command is told, with `--between` or `--from`/`--to`. Step 1
 names every window the dataset holds. Nothing compares the bill's date with

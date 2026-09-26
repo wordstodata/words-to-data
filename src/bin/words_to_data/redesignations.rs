@@ -111,12 +111,31 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
     );
 
     // The report's own counts. One clause states many renumberings, so a count
-    // of links is not a count of statements (#166).
+    // of links is not a count of statements (#166), and a count of renumberings
+    // is not a count of links either (#220).
     println!(
         "Recorded {} link(s) across {} work pair(s).",
         report.links(),
         pairs.len()
     );
+
+    // A merge and a lost write look the same in a number, and a reader must act
+    // differently on each one. A count that falls with no word about why reads
+    // as a fault to hunt (#220).
+    if report.merged() > 0 {
+        println!(
+            "The step placed {} renumbering(s), and {} of them merged into a link \
+             another statement already made.",
+            report.renumberings(),
+            report.merged()
+        );
+        println!(
+            "Two statements of one move are one link, because a link is \
+             identified by what it says. No write was lost."
+        );
+        println!("  See docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md");
+    }
+
     if report.unplaced.is_empty() {
         println!("Every statement was placed.");
     } else {
