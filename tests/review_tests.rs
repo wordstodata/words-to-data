@@ -728,6 +728,9 @@ fn should_hold_the_review_at_schema_ten_when_a_database_is_settled_in_place() {
 /// writes therefore pairs two unrelated provisions, and **the words at its two
 /// ends are what shows it.** This is the case a reviewer most needs the evidence
 /// for, which is why it is the one under test.
+/// Section 174, whose subsection (a) the bill narrowed to foreign research.
+const SECTION_174: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174";
+
 const PARAGRAPH_163_J_11: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_11";
 
 /// The redesignation link the reading wrote at one path.
@@ -780,5 +783,93 @@ fn should_show_the_words_at_both_ends_when_a_reviewer_asks_to_see_a_link_without
         std::fs::read(&path).expect("the fixture should still be readable"),
         before,
         "looking at a link must not write to the dataset"
+    );
+}
+
+/// Title 26 at both release points, with the amendment matches a real matching
+/// run produced recorded as links.
+///
+/// The annotations are the committed output of one run over the real corpus, so
+/// the links are the ones a reviewer really meets. No model runs here: the
+/// replies were bought once and committed.
+fn dataset_with_amendment_links() -> Dataset<InMemoryStorage> {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
+        dataset
+            .add_uslm_xml(file, date, None)
+            .expect("title 26 should load");
+    }
+    let json = std::fs::read_to_string("tests/test_data/processed/annotations.json")
+        .expect("the annotations fixture should be readable");
+    let annotations: Vec<words_to_data::annotation::ChangeAnnotation> =
+        serde_json::from_str(&json).expect("the fixture should parse as annotations");
+
+    let work = WorkId::new("uscode/title_26");
+    let from = ExpressionId::new(work.clone(), BEFORE);
+    let to = ExpressionId::new(work, AFTER);
+    for annotation in &annotations {
+        if !annotation
+            .paths
+            .iter()
+            .all(|path| path.starts_with("uscode/title_26"))
+        {
+            continue;
+        }
+        for link in Link::from_annotation(annotation, &from, &to) {
+            dataset.add_link(link).expect("the link should be added");
+        }
+    }
+    dataset
+}
+
+/// A reviewer can read the evidence for an **amendment** link, not only a
+/// renumbering.
+///
+/// An amendment link's object is external — it names an amendment, not a
+/// provision — so an evidence reader that demands two provisions shows nothing
+/// for it. That is the wrong test: the *subject* is a change to a provision, so
+/// the words at that provision across the window are readable, and the object
+/// carries the amending text the bill wrote. Amendment links are the bulk of a
+/// real dataset — 1011 of 1157 in the maintainer's — and they are the ones
+/// waiting to be reviewed.
+#[test]
+fn should_show_the_evidence_for_an_amendment_link_whose_object_is_not_a_provision() {
+    let dataset = dataset_with_amendment_links();
+    let link = dataset
+        .links_for_path(&format!("{SECTION_174}/subsection_a"))
+        .expect("links should read")
+        .into_iter()
+        .find(|link| {
+            link.kind.0 == LinkKind::AMENDED_BY
+                && link.object.name().contains("legislature.amendment:")
+        })
+        .expect("§ 174(a) carries an amendment link");
+    let path = format!(
+        "{}/settle_explain_amended.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+
+    let output = settle(&[&path, "--link", &link.id()[..12], "--explain"]);
+
+    assert!(
+        output.status.success(),
+        "the command should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let said = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        said.contains("specified research or experimental expenditures"),
+        "the words before the amendment should be shown: {said}"
+    );
+    assert!(
+        said.contains("foreign research or experimental expenditures"),
+        "and the words after it: {said}"
+    );
+    assert!(
+        said.contains("Section 174 is amended"),
+        "and what the bill instructed, which is what the object carries: {said}"
     );
 }
