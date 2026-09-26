@@ -743,34 +743,53 @@ pub struct LinkEvidence {
     /// How the fields differ, measured **across** the move, so a renumbering
     /// that changed nothing else reports an empty list rather than a rewrite.
     pub changes: Vec<PathFieldChange>,
+    /// What the object carries in words, where it is external and carries any.
+    ///
+    /// For an amendment link this is the amending text the bill wrote, which is
+    /// half the evidence: the field diff says what changed, and this says what
+    /// was instructed. A reviewer needs both to judge whether the instruction
+    /// caused the change.
+    pub object_text: Option<String>,
 }
 
 /// The words at a link's two ends, or `None` when the link does not name two
 /// provisions this dataset holds.
 ///
-/// `None` rather than an error: a link whose ends are not both changes is a
-/// perfectly good link — an amendment reference is external, and an opinion
-/// citation names a node — and a reader asking for evidence about one has asked
-/// a question with no answer rather than made a mistake.
+/// `None` rather than an error: a link whose **subject** is not a change to a
+/// provision is a perfectly good link — an opinion citation names a node — and a
+/// reader asking for evidence about one has asked a question with no answer
+/// rather than made a mistake.
+///
+/// The object may be anything. Only the subject has to name a provision and a
+/// window, because that is what locates words to read.
 pub fn link_evidence<S: Storage>(
     dataset: &S,
     link: &Link,
 ) -> Result<Option<LinkEvidence>, DatasetError> {
-    let (
-        Target::Change {
-            work,
-            path: from_path,
-            from_date,
-            ..
-        },
-        Target::Change {
-            path: to_path,
-            to_date,
-            ..
-        },
-    ) = (&link.subject, &link.object)
+    let Target::Change {
+        work,
+        path: from_path,
+        from_date,
+        to_date,
+        ..
+    } = &link.subject
     else {
         return Ok(None);
+    };
+
+    // The newer end is where the object says, when the object is a provision.
+    // An amendment link's object names an **amendment** rather than a provision,
+    // so the change it caused sits at the subject's own path: the provision was
+    // rewritten in place rather than renumbered. Demanding two provisions here
+    // showed nothing for every amendment link, which is the bulk of a real
+    // dataset.
+    let to_path = match &link.object {
+        Target::Change { path, .. } => path,
+        _ => from_path,
+    };
+    let object_text = match &link.object {
+        Target::External { display, .. } => Some(display.clone()),
+        _ => None,
     };
     let from_id = ExpressionId::new(work.clone(), from_date.clone());
     let to_id = ExpressionId::new(work.clone(), to_date.clone());
@@ -786,6 +805,7 @@ pub fn link_evidence<S: Storage>(
         from: format!("{from_id} {from_path}"),
         to: format!("{to_id} {to_path}"),
         changes: field_changes(&from, &to),
+        object_text,
     }))
 }
 

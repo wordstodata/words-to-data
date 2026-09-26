@@ -199,9 +199,13 @@ fn describe(reviewed: &Link) {
 
 /// The words at the link's two ends, which are what a verdict rests on.
 ///
-/// An empty change list is said in words rather than left blank. It means
-/// *renumbered and otherwise untouched*, which is evidence **for** the link, and
-/// a reader who saw nothing printed would read it as missing data.
+/// An empty change list is said in words rather than left blank, and it is said
+/// **narrowly**. It means no field differs on this provision itself, which is not
+/// the same as nothing having changed: only the node at the subject's path is
+/// compared, so an amendment that rewrote a child leaves this list empty. A
+/// reader who saw nothing printed would read it as missing data, and one who saw
+/// "untouched" would read it as a guarantee about the subtree that was never
+/// checked.
 fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
     let evidence = crate::fail::or_exit(
         inspect::link_evidence(dataset, reviewed),
@@ -211,11 +215,21 @@ fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
         println!("\n  This dataset does not hold both ends, so there are no words to show.");
         return;
     };
+    // What the bill instructed, where the object carries it. Said before the
+    // diff, because a reviewer reads the instruction and then checks whether the
+    // words moved the way it said.
+    if let Some(instructed) = &evidence.object_text {
+        println!("\nWhat the object says:");
+        for line in instructed.split_whitespace().collect::<Vec<_>>().chunks(14) {
+            println!("  {}", line.join(" "));
+        }
+    }
     println!("\nThe words at its two ends:");
     println!("  {}", evidence.from);
     println!("  {}", evidence.to);
     if evidence.changes.is_empty() {
-        println!("  No field differs across the move: renumbered and otherwise untouched.");
+        println!("  No field differs on this provision itself.");
+        println!("  Only this provision is compared, so a change beneath it is not read here.");
         return;
     }
     for change in &evidence.changes {
