@@ -1504,6 +1504,13 @@ pub struct RedesignationRow {
     /// zero: a figure of zero says two provisions share no words, which is a
     /// measurement, and no measurement was made here.
     pub corroboration: Option<f32>,
+    /// The link this row came from, by the id a report prints, so a reviewer
+    /// reading the queue can name it to `settle`.
+    ///
+    /// `None` for a row nothing placed. No reader made a path, so there is no
+    /// link, and naming a value here would invent one — the same reason
+    /// `corroboration` and `window` below are optional (#227).
+    pub id: Option<String>,
     /// The window the link was made over, as its subject names it.
     ///
     /// `None` when nothing was placed, because then there is no window the row
@@ -1736,6 +1743,7 @@ impl RedesignationRows {
                 reason: Some(reason),
                 from_path: None,
                 to_path: None,
+                id: None,
                 corroboration: None,
                 window: None,
             });
@@ -1804,6 +1812,7 @@ fn placed_row(link: &crate::link::Link, bill_id: &str) -> Option<RedesignationRo
         reason: None,
         from_path: changed_path(&link.subject),
         to_path: changed_path(&link.object),
+        id: Some(crate::review::short_id(&link.id()).to_string()),
         corroboration: link
             .provenance
             .corroboration

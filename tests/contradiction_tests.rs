@@ -704,3 +704,130 @@ fn should_name_the_change_a_link_records_when_its_object_is_an_amendment() {
         }
     }
 }
+
+/// A placed report row names its link by id, and an unplaced row names none.
+///
+/// The id is what a reviewer acts on: `redesignation-report` puts the weakest
+/// claims first, which is the review queue, and until now a reviewer reading
+/// that queue could not say which link was wrong because they could not name one
+/// to `settle` (#227).
+///
+/// An **unplaced** row carries no id, and that is the point of the `Option`. No
+/// reader placed the statement, so no link exists, and naming a value there
+/// would invent one — the same reason `corroboration` and `window` are already
+/// optional on that row.
+#[test]
+fn should_name_a_placed_row_by_its_link_id_and_leave_an_unplaced_row_without_one() {
+    let output = run(&["redesignation-report", two_window_file(), "--json"]);
+    assert!(
+        output.status.success(),
+        "the report should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the command should emit json");
+    let rows = report["rows"].as_array().expect("the report carries rows");
+
+    let placed: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|row| row["placed"] == serde_json::Value::Bool(true))
+        .collect();
+    let unplaced: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|row| row["placed"] == serde_json::Value::Bool(false))
+        .collect();
+    assert!(!placed.is_empty(), "the corpus should place rows");
+    assert!(
+        !unplaced.is_empty(),
+        "the corpus should leave statements unplaced, which is the case the \
+         optional id exists for"
+    );
+
+    for row in &placed {
+        let id = row["id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a placed row should name its link, got:\n{row:#}"));
+        assert_eq!(
+            id.len(),
+            words_to_data::review::ID_PREFIX_LENGTH,
+            "one constant sets the printed length, got `{id}`"
+        );
+        assert!(
+            id.chars().all(|letter| letter.is_ascii_hexdigit()),
+            "an id is hexadecimal, got `{id}`"
+        );
+    }
+    for row in &unplaced {
+        assert_eq!(
+            row["id"],
+            serde_json::Value::Null,
+            "an unplaced row names no link, got:\n{row:#}"
+        );
+    }
+
+    // The id a placed row gives is one `settle` accepts. Over a copy of the
+    // fixture, because the shared build must reach the next test untouched.
+    let id = placed[0]["id"]
+        .as_str()
+        .expect("a placed row names its link");
+    let copy = format!(
+        "{}/redesignation_report_settled.sqlite",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    std::fs::copy(two_window_file(), &copy).expect("the fixture should copy");
+    let settled = run(&[
+        "settle",
+        &copy,
+        "--link",
+        id,
+        "--verdict",
+        "refuted",
+        "--reviewer",
+        "human:jesse",
+        "--reason",
+        "The words at the two ends do not agree.",
+    ]);
+    assert!(
+        settled.status.success(),
+        "`settle` should accept the id the report printed, stderr: {}",
+        String::from_utf8_lossy(&settled.stderr)
+    );
+
+    // And the human output carries it too, so a reviewer at a terminal can copy
+    // it straight across. The printed rows are capped, and the unplaced ones
+    // sort first, so both shapes appear.
+    let text = run(&["redesignation-report", two_window_file()]);
+    assert!(text.status.success());
+    let text = String::from_utf8_lossy(&text.stdout);
+    let named: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("] placed"))
+        .collect();
+    assert!(!named.is_empty(), "a placed row should print, got:\n{text}");
+    for line in &named {
+        let printed = line.split_whitespace().next().unwrap_or_default();
+        assert_eq!(
+            printed.len(),
+            words_to_data::review::ID_PREFIX_LENGTH,
+            "a placed row should lead with its id, got `{line}`"
+        );
+    }
+
+    // An unplaced row must not print an empty id field. Nothing stands before
+    // the reader's name on that line. Matched on `] not placed`, which is a row
+    // and never the summary heading above the list.
+    let unnamed: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("] not placed"))
+        .collect();
+    assert!(
+        !unnamed.is_empty(),
+        "an unplaced row should print, got:\n{text}"
+    );
+    for line in &unnamed {
+        assert!(
+            line.trim_start().starts_with('['),
+            "an unplaced row prints no id field at all, got `{line}`"
+        );
+    }
+}
