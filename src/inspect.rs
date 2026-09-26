@@ -9,7 +9,7 @@
 //! Reports are plain serde structs: the CLI prints them (human-readable or as
 //! `--json`), and tests assert on the data rather than on formatting.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -21,8 +21,8 @@ use crate::dataset::{
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
-use crate::link::{ProvisionHistory, RedesignationStep, VerificationState};
-use crate::method::MethodRun;
+use crate::link::{Link, ProvisionHistory, RedesignationStep, VerificationState, Window};
+use crate::method::{Method, MethodRun};
 use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
@@ -385,8 +385,8 @@ pub fn path_report<S: Storage>(
     let (provisions, unfollowed_redesignations) = match pair {
         Some((from_id, to_id)) => {
             let window = Window {
-                from: &from_id.at,
-                to: &to_id.at,
+                from_date: from_id.at.clone(),
+                to_date: to_id.at.clone(),
             };
             let moves = moves_for(dataset, path, &window)?;
             match (
@@ -421,12 +421,6 @@ pub fn path_report<S: Storage>(
         unfollowed_redesignations,
         annotations,
     })
-}
-
-/// The two dates an expression pair covers.
-struct Window<'a> {
-    from: &'a str,
-    to: &'a str,
 }
 
 /// Where a walk has reached: a path, and the date it holds that path on.
@@ -477,11 +471,7 @@ struct Move {
 ///
 /// Nearest first, because a statement about a deeper container is the more
 /// specific one.
-fn moves_for<S: Storage>(
-    dataset: &S,
-    path: &str,
-    window: &Window<'_>,
-) -> Result<Moves, DatasetError> {
+fn moves_for<S: Storage>(dataset: &S, path: &str, window: &Window) -> Result<Moves, DatasetError> {
     let mut moves = Moves::default();
 
     for container in ancestry(path) {
@@ -515,7 +505,7 @@ fn carried(path: &str, container: &str, moved: Option<Move>) -> Option<Move> {
 
 impl Moves {
     /// Follow the links away from `path` and back to it, inside `window`.
-    fn walk(history: &ProvisionHistory, path: &str, window: &Window<'_>) -> Self {
+    fn walk(history: &ProvisionHistory, path: &str, window: &Window) -> Self {
         let mut unfollowed = Vec::new();
         let out = follow(history, path, window, Forwards, &mut unfollowed);
         let into = follow(history, path, window, Backwards, &mut unfollowed);
@@ -538,7 +528,7 @@ impl Moves {
 fn follow(
     history: &ProvisionHistory,
     path: &str,
-    window: &Window<'_>,
+    window: &Window,
     direction: Direction,
     unfollowed: &mut Vec<UnfollowedRedesignation>,
 ) -> Option<Move> {
@@ -586,29 +576,29 @@ use Direction::{Backwards, Forwards};
 impl Direction {
     /// Where the walk starts: the path asked about, on the date this direction
     /// leaves from.
-    fn start(self, path: &str, window: &Window<'_>) -> Standing {
+    fn start(self, path: &str, window: &Window) -> Standing {
         Standing {
             path: path.to_string(),
             date: match self {
-                Forwards => window.from.to_string(),
-                Backwards => window.to.to_string(),
+                Forwards => window.from_date.clone(),
+                Backwards => window.to_date.clone(),
             },
         }
     }
 
     /// Whether this step carries the walk on from where it stands, without
     /// leaving the window.
-    fn continues(self, step: &RedesignationStep, standing: &Standing, window: &Window<'_>) -> bool {
+    fn continues(self, step: &RedesignationStep, standing: &Standing, window: &Window) -> bool {
         match self {
             Forwards => {
                 step.from_path == standing.path
                     && step.from_date >= standing.date
-                    && step.to_date.as_str() <= window.to
+                    && step.to_date <= window.to_date
             }
             Backwards => {
                 step.to_path == standing.path
                     && step.to_date <= standing.date
-                    && step.from_date.as_str() >= window.from
+                    && step.from_date >= window.from_date
             }
         }
     }
@@ -1465,6 +1455,15 @@ pub struct RedesignationRow {
     /// zero: a figure of zero says two provisions share no words, which is a
     /// measurement, and no measurement was made here.
     pub corroboration: Option<f32>,
+    /// The window the link was made over, as its subject names it.
+    ///
+    /// `None` when nothing was placed, because then there is no window the row
+    /// came from and naming one would invent it.
+    ///
+    /// Without this, a dataset holding two windows gave two rows for one
+    /// statement that were identical but for the score, so a reader could see a
+    /// repeat and could not learn which window made either (#184).
+    pub window: Option<Window>,
 }
 
 /// What a whole redesignation report counts.
@@ -1689,6 +1688,7 @@ impl RedesignationRows {
                 from_path: None,
                 to_path: None,
                 corroboration: None,
+                window: None,
             });
         }
         Ok(())
@@ -1714,6 +1714,7 @@ impl RedesignationRows {
                 .then_with(|| left.amendment_id.cmp(&right.amendment_id))
                 .then_with(|| left.from_path.cmp(&right.from_path))
                 .then_with(|| left.to_path.cmp(&right.to_path))
+                .then_with(|| left.window.cmp(&right.window))
                 .then_with(|| left.clause.cmp(&right.clause))
         });
     }
@@ -1759,6 +1760,7 @@ fn placed_row(link: &crate::link::Link, bill_id: &str) -> Option<RedesignationRo
             .corroboration
             .as_ref()
             .map(|figure| figure.score),
+        window: link.subject.window(),
     })
 }
 
@@ -2046,4 +2048,178 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
         method_runs: meta.method_runs.clone(),
         scope,
     })
+}
+
+// --- Contradictions ---
+//
+// The subjects a dataset holds more than one link about. Decision 12 of #179 is
+// settled: contradicting links coexist, the contradiction is **computed**, and
+// nothing here writes, stamps, prefers or deletes a link. Which link to keep is
+// #172 and is left open on purpose.
+
+/// One link, as a contradiction report names it.
+///
+/// Enough for a reader to tell two links apart and to judge each: the window it
+/// was made over, what it points at, and what made it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ContradictingLink {
+    /// The window the link's subject names, and `None` for a subject that names
+    /// no window.
+    pub window: Option<Window>,
+    /// What the link points at, named without a window.
+    pub object: String,
+    /// The method and version that made it, as `name@version`. `None` for a
+    /// link whose maker recorded no method.
+    pub method: Option<String>,
+    /// Who or what made it: `rule:bill_redesignation`, `model:local`.
+    pub source: String,
+    /// The deterministic figure supporting it, where it has one.
+    ///
+    /// Reported and never ranked on. #218 measured five duplicated pairs out of
+    /// 64 where the *false* link scores higher, worst case 0.22 against 0.71,
+    /// so an order built on this figure would put the wrong link first.
+    pub corroboration: Option<f32>,
+}
+
+impl ContradictingLink {
+    /// Read one link into the shape a report names it in.
+    fn of(link: &Link) -> Self {
+        Self {
+            window: link.subject.window(),
+            object: link.object.name(),
+            method: link.provenance.method.as_ref().map(Method::to_string),
+            source: link.provenance.source.clone(),
+            corroboration: link
+                .provenance
+                .corroboration
+                .as_ref()
+                .map(|figure| figure.score),
+        }
+    }
+}
+
+/// One subject the dataset holds more than one link about.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ContradictionGroup {
+    /// The link kind every link in the group shares.
+    pub kind: String,
+    /// The subject, named without a window.
+    pub subject: String,
+    /// Every link in the group, in an order that says nothing about which is
+    /// right: by window, then by object, then by what made it.
+    pub links: Vec<ContradictingLink>,
+}
+
+/// What a contradiction report counts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ContradictionTotals {
+    /// Links read, over every kind. Reported so that "nothing found" can be
+    /// told apart from "nothing was looked at".
+    pub links_read: usize,
+    /// Duplication groups found.
+    pub duplication: usize,
+    /// Disagreement groups found.
+    pub disagreement: usize,
+}
+
+/// The subjects a dataset holds more than one link about, in two categories.
+///
+/// The two are different facts, so they are never folded into one list.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct Contradictions {
+    pub totals: ContradictionTotals,
+    /// Same subject, same object, links in **more than one window**: one method
+    /// run over two windows, placing one move twice.
+    pub duplication: Vec<ContradictionGroup>,
+    /// Same subject, a **different** object: two links that cannot both be true.
+    pub disagreement: Vec<ContradictionGroup>,
+}
+
+/// Find every subject this dataset holds more than one link about.
+///
+/// **It reads and nothing else.** No link is written, stamped, preferred,
+/// reordered toward an answer, or deleted. The contradiction is computed from
+/// what the dataset already says (#179, decision 12), so two parties holding one
+/// file get one answer and neither file changes.
+///
+/// **Link-kind agnostic.** Every kind the dataset holds is grouped by the same
+/// rule, including a kind this build has never seen, which is the point of the
+/// kind being an open string (ADR 0002). Grouping happens *within* one kind: an
+/// opinion citing a section and a bill renumbering it say different things about
+/// one path, and folding the two together would report that as a disagreement.
+///
+/// A window is the two dates a link's subject names, so it is read out of the
+/// records rather than out of an index (ADR 0007).
+pub fn contradictions<S: Storage>(dataset: &S) -> Result<Contradictions, DatasetError> {
+    let mut report = Contradictions::default();
+    for kind in dataset.count_links_by_kind()?.into_keys() {
+        let links = dataset.links_by_kind(&kind)?;
+        report.totals.links_read += links.len();
+        report.add_kind(&kind, &links);
+    }
+    report.totals.duplication = report.duplication.len();
+    report.totals.disagreement = report.disagreement.len();
+    Ok(report)
+}
+
+impl Contradictions {
+    /// Group one kind's links by subject, and record each group that holds a
+    /// contradiction.
+    ///
+    /// A subject can hold both shapes at once — two links to one object over two
+    /// windows, and a third link to another object — and then it is reported
+    /// twice, once under each. Both facts are true, and dropping either would
+    /// hide one.
+    fn add_kind(&mut self, kind: &str, links: &[Link]) {
+        let mut by_subject: BTreeMap<String, Vec<ContradictingLink>> = BTreeMap::new();
+        for link in links {
+            by_subject
+                .entry(link.subject.name())
+                .or_default()
+                .push(ContradictingLink::of(link));
+        }
+
+        for (subject, mut found) in by_subject {
+            if found.len() < 2 {
+                continue;
+            }
+            // An order that does not move between runs and does not rank: by
+            // window, then by object, then by what made the link.
+            found.sort_by(|left, right| {
+                left.window
+                    .cmp(&right.window)
+                    .then_with(|| left.object.cmp(&right.object))
+                    .then_with(|| left.method.cmp(&right.method))
+                    .then_with(|| left.source.cmp(&right.source))
+            });
+
+            let objects: BTreeSet<&str> = found.iter().map(|link| link.object.as_str()).collect();
+            if objects.len() > 1 {
+                self.disagreement.push(ContradictionGroup {
+                    kind: kind.to_string(),
+                    subject: subject.clone(),
+                    links: found.clone(),
+                });
+            }
+
+            // Duplication is asked per object: one move placed twice, not two
+            // moves that happen to start in one place.
+            for object in objects {
+                let same: Vec<ContradictingLink> = found
+                    .iter()
+                    .filter(|link| link.object == object)
+                    .cloned()
+                    .collect();
+                let windows: BTreeSet<&Option<Window>> =
+                    same.iter().map(|link| &link.window).collect();
+                if windows.len() > 1 {
+                    self.duplication.push(ContradictionGroup {
+                        kind: kind.to_string(),
+                        subject: subject.clone(),
+                        links: same,
+                    });
+                }
+            }
+        }
+    }
 }

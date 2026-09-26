@@ -288,10 +288,11 @@ reader can turn into two paths is recorded, and never dropped.
 **Which two release points a redesignation is checked against is an open
 question.** This command is told, with `--between` or `--from`/`--to`. Step 1
 names every window the dataset holds. Nothing compares the bill's date with
-those dates. Each work in the corpus holds two release points today, so each
-work offers one pair, and the question does not yet bite. See
-[#172](https://github.com/wordstodata/words-to-data/issues/172). Do not read this
-document as an answer to it.
+those dates. Each work in the corpus holds three release points, so each work
+offers two windows, and running the step over both places many of the same moves
+twice. `contradictions` finds those, and it does not choose between them: the
+choice is [#172](https://github.com/wordstodata/words-to-data/issues/172). Do not
+read this document as an answer to it.
 
 ### Step 6 — `convert-dataset`
 
@@ -343,15 +344,57 @@ reviewer reads the doubtful handful first.
 
 Each row says which bill, where in the bill the words sit, which amendment, the
 clause, which reader read it, whether it was placed, the reason when it was not,
-the two paths when it was, and the corroboration figure. `--json` is what an
-agent reads, and the rows are stable, so two runs over one dataset give one
-answer.
+the two paths when it was, the window the link came from, and the corroboration
+figure. `--json` is what an agent reads, and the rows are stable, so two runs
+over one dataset give one answer.
+
+The window matters as soon as a dataset holds more than one. One method run over
+two windows can place one move twice, and without the window the two rows are the
+same row with two scores.
 
 **It reads the dataset and nothing else** — no XML, and no model call. Nothing
 about an unplaced statement is stored beside the links, because the words and
 the path are already in the bill's own document and a stored row would go stale:
 the same bill leaves 31 statements unplaced against title 26 alone and 17
 against the whole Code.
+
+### More than one link about one thing — `contradictions`
+
+```bash
+words_to_data contradictions dataset.sqlite
+words_to_data contradictions dataset.sqlite --json
+```
+
+Read-only. It lists every subject the dataset holds more than one link about, in
+two categories, because they are two different facts:
+
+* **Duplication** — same subject, same object, links in **more than one window**.
+  One method, run over two windows, placed one move twice.
+* **Disagreement** — same subject, a **different** object. Two links that cannot
+  both be true.
+
+```text
+Links read:   111
+Duplication:  47 subject(s)
+Disagreement: 0 subject(s)
+
+Duplication — one subject, one object, links in more than one window:
+  uscode/title_26/…/section_45X/subsection_c/paragraph_6/subparagraph_R [legislature.redesignated_as]
+    2025-07-18 -> 2025-07-30  rule:bill_redesignation [amendingAction type=redesignate@1]  corroboration 1.00
+      -> uscode/title_26/…/section_45X/subsection_c/paragraph_6/subparagraph_S
+    2025-07-30 -> 2025-08-14  rule:bill_redesignation [amendingAction type=redesignate@1]  corroboration 0.48
+      -> uscode/title_26/…/section_45X/subsection_c/paragraph_6/subparagraph_S
+```
+
+Every kind is grouped by the same rule, including a kind this build has never
+seen. Grouping happens within one kind: an opinion citing a section and a bill
+renumbering it say different things about one path.
+
+**It writes nothing.** The contradiction is computed from what the dataset
+already says, the links coexist, and none is stamped, preferred or deleted.
+Which link to keep is a separate and open question, so nothing is ordered by the
+corroboration figure — on a measured corpus the false link scored higher in five
+pairs out of 64, worst case 0.22 against 0.71.
 
 ### Growing a dataset — `add-release-points`
 

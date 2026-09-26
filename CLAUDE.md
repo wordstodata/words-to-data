@@ -10,7 +10,7 @@ Also, do not add tests with #[cfg(test)] to source files. Instead, add them to t
 
 ### The corpus is in an archive. Extract it before you measure anything.
 
-Only four of the release-point files sit loose in git. The rest of the corpus is `tests/test_data/test_files.tar.xz`, and CI extracts it before it runs:
+Only six of the release-point files sit loose in git — `usc07.xml` and `usc26.xml` at each of the three release points. The rest of the corpus is `tests/test_data/test_files.tar.xz`, and CI extracts it before it runs:
 
 ```
 cd tests/test_data && tar xvf test_files.tar.xz

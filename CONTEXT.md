@@ -265,6 +265,18 @@ It is a derivation, and nothing stores it. A Redesignation link carries the Work
 **It is not a Method run, and the two answer different questions.** An unresolved window is derived, per bill, from the links the Dataset holds. A method run is recorded, per window, and says which reasoning was applied there. Neither replaces the other: a method run does not say which bills were covered, and an unresolved window does not say which version of the reasoning ran.
 _Avoid_: Todo, backlog, pending, dirty
 
+**Contradiction**:
+More than one Link about one subject. It is **computed** and never stored: the Links coexist, none is stamped, and none is rewritten (#179 decision 12). Two shapes, and they are kept apart because they are different facts.
+
+A **duplication** is the same subject, the same object, and Links in more than one Window. One Method, run over two windows, placed one move twice. It says nothing is wrong with either link on its own; it says the Dataset holds one fact twice.
+
+A **disagreement** is the same subject and a different object. The two Links cannot both be true.
+
+Which Link to keep is a separate question, and it is open (#172). So nothing orders a contradiction by Corroboration: the figure is evidence for a reviewer, and on a measured corpus the false link scored higher in five pairs out of 64, worst case 0.22 against 0.71. A report that put the highest figure first would present the wrong Link first.
+
+A count of contradictions is a **floor** and not a total, while two statements asserting one move still collapse into one stored Link (#220).
+_Avoid_: Conflict, clash, error, duplicate
+
 **Method run**:
 A record that one Method, at one version, ran over one Window. It is how a Dataset says what has been done to it, so that a missing step no longer reads as a complete file (#182, #179 decision 11).
 
