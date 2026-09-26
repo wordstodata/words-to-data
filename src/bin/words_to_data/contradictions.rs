@@ -1,12 +1,24 @@
 //! `words_to_data contradictions` — the subjects a dataset holds more than one
 //! link about.
 //!
+//! **A contradiction needs two makers.** A maker is a method at a version over a
+//! window, and one maker's whole set of objects for a subject is **one answer**.
+//! A subject with many links from a single maker therefore holds no
+//! contradiction: a provision changed by three amendments of one bill is
+//! ordinary law, and "Sections 1202(b)(2), 1202(g)(2)(A), and 1202(j)(1)(A) are
+//! each amended by striking ..." is one instruction with three targets rather
+//! than three competing claims.
+//!
 //! Two shapes, kept apart because they are different facts:
 //!
-//! * **Duplication** — same subject, same object, links in more than one
-//!   window. One method, run over two windows, placing one move twice.
-//! * **Disagreement** — same subject, a different object. Two links that cannot
-//!   both be true.
+//! * **Duplication** — two makers, and their answers match. One method run over
+//!   two windows, placing one move twice.
+//! * **Disagreement** — two makers, and their answers differ. Two answers that
+//!   cannot both be right.
+//!
+//! Comparing links rather than makers is what this command did first, and it
+//! reported 132 of the 530 annotated paths in the real corpus as disagreements.
+//! None of them was one.
 //!
 //! **It reports, and it never resolves.** Decision 12 of #179 is settled: the
 //! contradiction is computed, contradicting links coexist, and no link is
@@ -95,6 +107,12 @@ fn print_category(heading: &str, groups: &[ContradictionGroup]) {
                 None => println!(),
             }
             println!("      -> {}", link.object);
+            // The change, where the object carries one. An amendment's reference
+            // does not say what the link records, and two links naming one
+            // amendment read as one row repeated without this.
+            if let Some(change) = &link.change {
+                println!("         {change}");
+            }
         }
     }
     if groups.len() > SHOWN {
