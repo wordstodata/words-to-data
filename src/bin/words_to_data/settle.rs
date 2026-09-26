@@ -20,9 +20,12 @@
 
 use clap::{Args as ClapArgs, ValueEnum};
 use words_to_data::dataset::{Dataset, Format};
-use words_to_data::link::Named;
+use words_to_data::inspect;
+use words_to_data::link::{Link, Named};
 use words_to_data::review::{self, Review, Verdict};
 use words_to_data::storage::{LinkReader, Storage};
+
+use crate::load::with_dataset;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -34,17 +37,25 @@ pub struct Args {
     #[arg(long)]
     pub link: String,
 
-    /// What the reviewer found
-    #[arg(long, value_enum)]
-    pub verdict: Said,
+    /// What the reviewer found. Not needed with `--explain`
+    #[arg(long, value_enum, required_unless_present = "explain")]
+    pub verdict: Option<Said>,
 
-    /// Who is reviewing: `human:jesse`, `model:local`
-    #[arg(long)]
-    pub reviewer: String,
+    /// Who is reviewing: `human:jesse`, `model:local`. Not needed with `--explain`
+    #[arg(long, required_unless_present = "explain")]
+    pub reviewer: Option<String>,
 
-    /// Why the reviewer says so, in their own words
+    /// Why the reviewer says so, in their own words. Not needed with `--explain`
+    #[arg(long, required_unless_present = "explain")]
+    pub reason: Option<String>,
+
+    /// Show the link and the words at its two ends, and record nothing
+    ///
+    /// Judging a link needs its evidence, and a reviewer must be able to read
+    /// that before deciding. Looking is not judging, so this writes nothing and
+    /// needs no verdict
     #[arg(long)]
-    pub reason: String,
+    pub explain: bool,
 
     /// Where to write a compact JSON dataset. Required for compact JSON, which
     /// is never written back over its input. Ignored for SQLite, which is
@@ -79,6 +90,14 @@ impl From<Said> for Verdict {
 }
 
 pub fn run(args: Args) {
+    // Looking writes nothing, so it never chooses an output and never refuses
+    // for want of one. A compact dataset can be read where it sits.
+    if args.explain {
+        let ds = crate::fail::or_exit(crate::load::open(&args.dataset), "Error opening dataset");
+        with_dataset!(ds, d => explain(&d, &args));
+        return;
+    }
+
     // Where the result goes: `None` is a database, which is changed in place.
     // A W2D file is written whole, so it must be told where to write and is
     // never written back over its input (#186).
@@ -114,10 +133,36 @@ pub fn run(args: Args) {
     }
 }
 
-/// Find the link, record the review, and say what the dataset now holds about
-/// it.
-fn settle<S: Storage>(dataset: &mut Dataset<S>, args: &Args) {
-    let reviewed = match crate::fail::or_exit(
+/// Show the link and the words at its two ends, and record nothing.
+fn explain<S: Storage>(dataset: &Dataset<S>, args: &Args) {
+    let reviewed = find_link(dataset, args);
+    describe(&reviewed);
+    print_evidence(dataset, &reviewed);
+
+    // What anyone has already said about it. A reviewer about to judge a link
+    // needs to know it has been judged, or they will publish over a verdict
+    // without meaning to.
+    let records = crate::fail::or_exit(
+        dataset.reviews_of(&reviewed.id()),
+        "Error reading the link's reviews",
+    );
+    match review::newest(&records) {
+        None => println!("\nNo reviews yet."),
+        Some(winning) => {
+            println!(
+                "\n{} review record(s). Readers report the newest: {} by {} on {}.",
+                records.len(),
+                winning.verdict,
+                winning.reviewer,
+                winning.at.date()
+            );
+        }
+    }
+}
+
+/// The link a run names, or a refusal that says how to name one.
+fn find_link<S: Storage>(dataset: &Dataset<S>, args: &Args) -> Link {
+    match crate::fail::or_exit(
         dataset.link_by_id_prefix(&args.link),
         "Error reading the dataset's links",
     ) {
@@ -138,24 +183,77 @@ fn settle<S: Storage>(dataset: &mut Dataset<S>, args: &Args) {
             );
             std::process::exit(1);
         }
-    };
+    }
+}
 
-    let reviewed_id = reviewed.id();
-    println!("Link {}", review::short_id(&reviewed_id));
+/// The link itself: its id, what it says, and who said it.
+fn describe(reviewed: &Link) {
+    println!("Link {}", review::short_id(&reviewed.id()));
     println!(
         "  {} said by {}",
         reviewed.kind.0, reviewed.provenance.source
     );
     println!("  {}", reviewed.subject.name());
     println!("  -> {}", reviewed.object.name());
+}
+
+/// The words at the link's two ends, which are what a verdict rests on.
+///
+/// An empty change list is said in words rather than left blank. It means
+/// *renumbered and otherwise untouched*, which is evidence **for** the link, and
+/// a reader who saw nothing printed would read it as missing data.
+fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
+    let evidence = crate::fail::or_exit(
+        inspect::link_evidence(dataset, reviewed),
+        "Error reading the words at the link's ends",
+    );
+    let Some(evidence) = evidence else {
+        println!("\n  This dataset does not hold both ends, so there are no words to show.");
+        return;
+    };
+    println!("\nThe words at its two ends:");
+    println!("  {}", evidence.from);
+    println!("  {}", evidence.to);
+    if evidence.changes.is_empty() {
+        println!("  No field differs across the move: renumbered and otherwise untouched.");
+        return;
+    }
+    for change in &evidence.changes {
+        println!(
+            "  {}: {:?} -> {:?}",
+            change.field, change.old_value, change.new_value
+        );
+    }
+}
+
+/// Find the link, record the review, and say what the dataset now holds about
+/// it.
+fn settle<S: Storage>(dataset: &mut Dataset<S>, args: &Args) {
+    let reviewed = find_link(dataset, args);
+    let reviewed_id = reviewed.id();
+    describe(&reviewed);
+    print_evidence(dataset, &reviewed);
 
     // The run's clock. A reviewer cannot be asked for the time, and newest-wins
     // needs one, so a review with no timestamp is never built here and
     // `review::record` refuses one that arrives by another road.
+    //
+    // `clap` requires all three unless `--explain` was given, and `--explain`
+    // never reaches here, so these cannot be absent.
     let review = Review {
-        verdict: args.verdict.into(),
-        reviewer: args.reviewer.clone(),
-        reasoning: Some(args.reason.clone()),
+        verdict: args
+            .verdict
+            .expect("clap requires a verdict without --explain")
+            .into(),
+        reviewer: args
+            .reviewer
+            .clone()
+            .expect("clap requires a reviewer without --explain"),
+        reasoning: Some(
+            args.reason
+                .clone()
+                .expect("clap requires a reason without --explain"),
+        ),
         at: time::OffsetDateTime::now_utc(),
     };
     crate::fail::or_exit(
@@ -169,7 +267,7 @@ fn settle<S: Storage>(dataset: &mut Dataset<S>, args: &Args) {
         review.reviewer,
         review.at.date()
     );
-    println!("  {}", args.reason);
+    println!("  {}", review.reasoning.as_deref().unwrap_or_default());
 
     // What the dataset now holds about this link, and which record a reader will
     // report. Nothing was replaced: an earlier verdict, from this reviewer or
