@@ -21,7 +21,7 @@ use crate::dataset::{
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
-use crate::link::{Link, ProvisionHistory, RedesignationStep, VerificationState, Window};
+use crate::link::{Link, ProvisionHistory, RedesignationStep, Target, VerificationState, Window};
 use crate::method::{Method, MethodRun};
 use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
@@ -2068,6 +2068,17 @@ pub struct ContradictingLink {
     pub window: Option<Window>,
     /// What the link points at, named without a window.
     pub object: String,
+    /// What the link records, where the object names something outside this
+    /// dataset and carries a description of it.
+    ///
+    /// An amendment can make several changes at one provision, and the store keeps
+    /// those links apart because a link is identified by what it says. The
+    /// amendment's reference alone does not say what a link records, so without
+    /// this two of them read as one row repeated. Measured on a real dataset:
+    /// three links at `section_3839bb-5/subsection_f/paragraph_1`, two of them
+    /// naming one amendment, and with no corroboration to separate them they
+    /// printed identically.
+    pub change: Option<String>,
     /// The method and version that made it, as `name@version`. `None` for a
     /// link whose maker recorded no method.
     pub method: Option<String>,
@@ -2087,6 +2098,10 @@ impl ContradictingLink {
         Self {
             window: link.subject.window(),
             object: link.object.name(),
+            change: match &link.object {
+                Target::External { display, .. } => Some(display.clone()),
+                _ => None,
+            },
             method: link.provenance.method.as_ref().map(Method::to_string),
             source: link.provenance.source.clone(),
             corroboration: link
@@ -2162,14 +2177,49 @@ pub fn contradictions<S: Storage>(dataset: &S) -> Result<Contradictions, Dataset
     Ok(report)
 }
 
+/// Who produced a link: a method, at a version, over a window.
+///
+/// The window belongs here because the same method run over a second window is
+/// answering the question again, and two answers is what a contradiction is made
+/// of. `source` is carried too, so a rule and a model are never one maker even
+/// if they ever share a method name.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Maker {
+    method: Option<String>,
+    source: String,
+    window: Option<Window>,
+}
+
+impl Maker {
+    fn of(link: &ContradictingLink) -> Self {
+        Self {
+            method: link.method.clone(),
+            source: link.source.clone(),
+            window: link.window.clone(),
+        }
+    }
+}
+
 impl Contradictions {
     /// Group one kind's links by subject, and record each group that holds a
     /// contradiction.
     ///
-    /// A subject can hold both shapes at once — two links to one object over two
-    /// windows, and a third link to another object — and then it is reported
-    /// twice, once under each. Both facts are true, and dropping either would
-    /// hide one.
+    /// **A contradiction needs two makers.** A maker is a method at a version
+    /// over a window, and one maker's whole set of objects for a subject is
+    /// **one answer**. So a subject with several links from a single maker holds
+    /// no contradiction, however many links that is: a provision changed by
+    /// three amendments of one bill is ordinary law, and "Sections 1202(b)(2),
+    /// 1202(g)(2)(A), and 1202(j)(1)(A) are each amended by striking ..." is one
+    /// instruction with three targets rather than three competing claims.
+    ///
+    /// Comparing links instead of makers reported 132 of the 530 annotated paths
+    /// in the real corpus as disagreements. None of them was one.
+    ///
+    /// Two makers whose answers match is **duplication** — the same method run
+    /// over two windows, placing one move twice. Two makers whose answers differ
+    /// is **disagreement**. The window is part of the maker, which is what makes
+    /// the duplication case a disagreement between two makers rather than one
+    /// maker repeating itself.
     fn add_kind(&mut self, kind: &str, links: &[Link]) {
         let mut by_subject: BTreeMap<String, Vec<ContradictingLink>> = BTreeMap::new();
         for link in links {
@@ -2193,32 +2243,30 @@ impl Contradictions {
                     .then_with(|| left.source.cmp(&right.source))
             });
 
-            let objects: BTreeSet<&str> = found.iter().map(|link| link.object.as_str()).collect();
-            if objects.len() > 1 {
-                self.disagreement.push(ContradictionGroup {
-                    kind: kind.to_string(),
-                    subject: subject.clone(),
-                    links: found.clone(),
-                });
+            // One maker's objects, gathered. The set is the maker's answer.
+            let mut answers: BTreeMap<Maker, BTreeSet<&str>> = BTreeMap::new();
+            for link in &found {
+                answers
+                    .entry(Maker::of(link))
+                    .or_default()
+                    .insert(link.object.as_str());
             }
 
-            // Duplication is asked per object: one move placed twice, not two
-            // moves that happen to start in one place.
-            for object in objects {
-                let same: Vec<ContradictingLink> = found
-                    .iter()
-                    .filter(|link| link.object == object)
-                    .cloned()
-                    .collect();
-                let windows: BTreeSet<&Option<Window>> =
-                    same.iter().map(|link| &link.window).collect();
-                if windows.len() > 1 {
-                    self.duplication.push(ContradictionGroup {
-                        kind: kind.to_string(),
-                        subject: subject.clone(),
-                        links: same,
-                    });
-                }
+            // One maker cannot disagree with itself.
+            if answers.len() < 2 {
+                continue;
+            }
+
+            let group = ContradictionGroup {
+                kind: kind.to_string(),
+                subject: subject.clone(),
+                links: found.clone(),
+            };
+            let distinct: BTreeSet<&BTreeSet<&str>> = answers.values().collect();
+            if distinct.len() == 1 {
+                self.duplication.push(group);
+            } else {
+                self.disagreement.push(group);
             }
         }
     }

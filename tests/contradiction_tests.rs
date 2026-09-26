@@ -467,3 +467,155 @@ fn should_name_the_window_its_link_came_from_when_a_redesignation_report_row_is_
         "human output should name the window a row came from, got:\n{text}"
     );
 }
+
+/// Real annotations from one matching run over the real corpus.
+///
+/// 530 paths, and **132 of them carry more than one amendment**. Every
+/// annotation names the same annotator, `model:deepseek-v4-pro`, so the whole
+/// fixture is the work of **one maker**.
+const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+
+/// The work most of the fixture's annotations belong to.
+const TITLE_26_WORK: &str = "uscode/title_26";
+
+/// Every fixture annotation whose paths all sit under title 26, stored as links
+/// over one window.
+///
+/// One work, one window, one annotator: whatever this dataset holds, it holds
+/// one maker's single answer.
+fn one_makers_annotations() -> Dataset<InMemoryStorage> {
+    let json = std::fs::read_to_string(REAL_ANNOTATIONS).expect("the fixture should be readable");
+    let annotations: Vec<words_to_data::annotation::ChangeAnnotation> =
+        serde_json::from_str(&json).expect("the fixture should parse as annotations");
+
+    let from = ExpressionId::new(WorkId::new(TITLE_26_WORK), "2025-07-18");
+    let to = ExpressionId::new(WorkId::new(TITLE_26_WORK), "2025-07-30");
+
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "One matching run".to_string(),
+        ..Default::default()
+    });
+    for annotation in &annotations {
+        if annotation.paths.is_empty()
+            || !annotation
+                .paths
+                .iter()
+                .all(|path| path.starts_with(TITLE_26_WORK))
+        {
+            continue;
+        }
+        for link in words_to_data::link::Link::from_annotation(annotation, &from, &to) {
+            dataset.add_link(link).expect("the link should be added");
+        }
+    }
+    dataset
+}
+
+#[test]
+fn should_report_no_disagreement_when_one_maker_names_several_amendments_at_one_provision() {
+    let dataset = one_makers_annotations();
+
+    // Guard, so the assertion below cannot pass on an empty dataset: the
+    // fixture must really hold a provision that two amendments changed.
+    let mut by_subject: HashMap<String, usize> = HashMap::new();
+    for link in dataset
+        .links_by_kind("legislature.amended_by")
+        .expect("links should be readable")
+    {
+        *by_subject.entry(link.subject.name()).or_default() += 1;
+    }
+    let shared = by_subject.values().filter(|count| **count > 1).count();
+    assert!(
+        shared > 0,
+        "the fixture should hold provisions changed by more than one amendment, found none"
+    );
+
+    let report =
+        words_to_data::inspect::contradictions(&dataset).expect("contradictions should be read");
+
+    // A provision changed by several amendments of one bill is ordinary law, not
+    // a contradiction. "Sections 1202(b)(2), 1202(g)(2)(A), and 1202(j)(1)(A)
+    // are each amended by striking ..." is one instruction with three targets.
+    // A contradiction needs two *makers* answering one question differently,
+    // and this dataset holds one.
+    assert_eq!(
+        report.disagreement.len(),
+        0,
+        "one maker cannot disagree with itself: {} provision(s) are shared by \
+         several amendments and none of them is a contradiction",
+        shared
+    );
+}
+
+/// The same real annotations, stored over **both** windows the corpus holds.
+///
+/// One annotator over two windows is two makers, and two makers is what it takes
+/// for a group to be reported at all. Matching a dataset over both of its windows
+/// is an ordinary thing to do with a three-release-point corpus.
+fn two_makers_annotations() -> Dataset<InMemoryStorage> {
+    let json = std::fs::read_to_string(REAL_ANNOTATIONS).expect("the fixture should be readable");
+    let annotations: Vec<words_to_data::annotation::ChangeAnnotation> =
+        serde_json::from_str(&json).expect("the fixture should parse as annotations");
+
+    let mut dataset = Dataset::new(DatasetMetadata {
+        name: "Two matching runs".to_string(),
+        ..Default::default()
+    });
+    for (from_date, to_date) in [(DATES[0], DATES[1]), (DATES[1], DATES[2])] {
+        let from = ExpressionId::new(WorkId::new(TITLE_26_WORK), from_date);
+        let to = ExpressionId::new(WorkId::new(TITLE_26_WORK), to_date);
+        for annotation in &annotations {
+            if annotation.paths.is_empty()
+                || !annotation
+                    .paths
+                    .iter()
+                    .all(|path| path.starts_with(TITLE_26_WORK))
+            {
+                continue;
+            }
+            for link in words_to_data::link::Link::from_annotation(annotation, &from, &to) {
+                dataset.add_link(link).expect("the link should be added");
+            }
+        }
+    }
+    dataset
+}
+
+#[test]
+fn should_name_the_change_a_link_records_when_its_object_is_an_amendment() {
+    let dataset = two_makers_annotations();
+
+    let report =
+        words_to_data::inspect::contradictions(&dataset).expect("contradictions should be read");
+    let groups: Vec<_> = report
+        .duplication
+        .iter()
+        .chain(report.disagreement.iter())
+        .collect();
+    assert!(
+        !groups.is_empty(),
+        "two makers over one subject should report at least one group"
+    );
+
+    // An amendment can make several changes at one provision, and the store keeps
+    // those apart because a link is identified by what it says. The amendment's
+    // reference alone does not say what a link records, so two of them read as one
+    // row repeated. Measured on a real dataset: three links at
+    // `section_3839bb-5/subsection_f/paragraph_1`, two naming one amendment, and
+    // with no corroboration to tell them apart they printed identically.
+    for group in groups {
+        for link in &group.links {
+            if !link.object.starts_with("legislature.amendment:") {
+                continue;
+            }
+            let rendered = serde_json::to_value(link).expect("a link should serialise");
+            let change = rendered.get("change").and_then(|value| value.as_str());
+            assert!(
+                change.is_some_and(|text| !text.is_empty()),
+                "a reported amendment link should name the change it records, \
+                 got {rendered} for {}",
+                group.subject
+            );
+        }
+    }
+}
