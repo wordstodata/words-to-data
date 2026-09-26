@@ -452,8 +452,23 @@ pub fn clause_start(text: &str) -> String {
 /// No `Eq`, because a [`Redesignation`] carries figures.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RedesignationReport {
+    /// One row for each renumbering this build placed.
+    ///
+    /// Written by [`resolve`], which counts the links the rows are as it goes.
+    /// A row pushed here by any other hand leaves that count behind.
     pub resolved: Vec<Redesignation>,
     pub unplaced: Vec<UnplacedStatement>,
+    /// How many links the placed renumberings are, counted window by window.
+    ///
+    /// Kept rather than counted from `resolved`, because a row does not say
+    /// which window placed it, and a window is part of what a link says. The
+    /// count is made where the window is known ([`resolve`]) and added up as
+    /// reports fold ([`Self::absorb`]).
+    ///
+    /// Private, so the only way to a figure is [`Self::links`] and nothing can
+    /// set a total the store does not hold.
+    #[serde(default)]
+    links: usize,
 }
 
 impl RedesignationReport {
@@ -461,15 +476,39 @@ impl RedesignationReport {
     ///
     /// One clause states many renumberings — "redesignating subparagraphs (H)
     /// through (U) as subparagraphs (I) through (V)" is one statement and
-    /// fourteen links — so this is never [`Self::links`], and the two numbers
-    /// must never be added (#166).
+    /// fourteen renumberings — so this is never [`Self::renumberings`], and the
+    /// two numbers must never be added (#166).
     pub fn statements(&self) -> usize {
         self.statement_names().len()
     }
 
-    /// How many renumberings this build placed, each written as one link.
-    pub fn links(&self) -> usize {
+    /// How many renumberings this build placed.
+    ///
+    /// What the step **made**, one row for each renumbering it turned into two
+    /// paths. It is not what the dataset **holds**: see [`Self::links`] (#220).
+    pub fn renumberings(&self) -> usize {
         self.resolved.len()
+    }
+
+    /// How many links those renumberings are, as the dataset holds them.
+    ///
+    /// A link is identified by its subject, its kind and its object, so two
+    /// statements that give one move in one window are one link, and the store
+    /// merges the second into the first
+    /// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    /// This is the figure a command prints: a total the dataset does not hold
+    /// reads as a lost write (#220).
+    pub fn links(&self) -> usize {
+        self.links
+    }
+
+    /// How many placed renumberings were merged into a link already made.
+    ///
+    /// [`Self::renumberings`] less [`Self::links`]. A reader who sees a count
+    /// fall must be told why: a merge and a lost write look the same in a
+    /// number and need different work (#220).
+    pub fn merged(&self) -> usize {
+        self.renumberings().saturating_sub(self.links())
     }
 
     /// How many statements this build could not turn into two paths.
@@ -518,6 +557,10 @@ impl RedesignationReport {
     /// statements the bill made, the links they became, and the statements this
     /// build could not place. They count different things, so a reader must read
     /// all three and add none of them (#166).
+    ///
+    /// The middle number is the links the dataset holds ([`Self::links`]), not
+    /// the renumberings placed. A line that gives a total the store does not
+    /// carry reads as a lost write (#220).
     pub fn summary(&self, label: &str) -> String {
         format!(
             "{label}: {} statement(s), {} link(s) recorded, {} statement(s) not placed",
@@ -548,6 +591,7 @@ impl RedesignationReport {
     pub fn without_a_window(stated: &[StatedRedesignation]) -> Self {
         Self {
             resolved: Vec::new(),
+            links: 0,
             unplaced: stated
                 .iter()
                 .map(|statement| UnplacedStatement {
@@ -562,9 +606,14 @@ impl RedesignationReport {
     }
 
     /// Fold another sweep's findings into this one.
+    ///
+    /// The link totals are added. Two sweeps read either two works or two
+    /// windows, and a link says which work and which window it is about, so no
+    /// link of one sweep is a link of the other.
     pub fn absorb(&mut self, other: RedesignationReport) {
         self.resolved.extend(other.resolved);
         self.unplaced.extend(other.unplaced);
+        self.links += other.links;
     }
 
     /// One view of a corpus, from one report per work.
@@ -611,6 +660,7 @@ impl RedesignationReport {
         Self {
             resolved: folded.resolved,
             unplaced: best.into_values().collect(),
+            links: folded.links,
         }
     }
 }
@@ -1095,7 +1145,22 @@ pub fn resolve(
     for statement in stated {
         resolve_one(statement, &index, later, &mut report);
     }
+    report.links = links_of_one_window(&report.resolved);
     report
+}
+
+/// How many links one window's renumberings are.
+///
+/// One window is one work between two dates, and a link says the work, the two
+/// dates, the kind and the two paths. Everything but the paths is the same for
+/// every renumbering here, so two rows that name one pair of paths are one link
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+fn links_of_one_window(resolved: &[Redesignation]) -> usize {
+    resolved
+        .iter()
+        .map(|resolved| (resolved.from_path.as_str(), resolved.to_path.as_str()))
+        .collect::<std::collections::HashSet<(&str, &str)>>()
+        .len()
 }
 
 fn resolve_one(

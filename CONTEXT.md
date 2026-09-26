@@ -232,6 +232,8 @@ A Redesignation is read from a Bill by either of two readers, and both hand thei
 
 A redesignation a Bill states and no reader can resolve to two paths is an Unplaced statement. It is **recorded**, never dropped. The tool's silence must not read as the corpus's silence.
 
+**Two statements of one move are one Redesignation.** A Bill can say one renumbering twice: `119-hr-1` renumbers paragraph (11) of 26 U.S.C. 163(j) as paragraph (12) in two clauses of one section. A Link is identified by what it says, so the Dataset holds one record and the second statement merges into the first (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`). A count of the renumberings a step placed is therefore not a count of the Links a Dataset holds, and a step reports the count the Dataset holds. A total the Dataset does not carry reads as a lost write, and a merge and a lost write need different work (#220).
+
 A Diff reports a Redesignation's effect as **moved**, and that is the one place the word is ours to use: nothing relocated, the number changed. The publisher has no `move` action to confuse it with — its schema defines twelve amending actions and that is not one of them (`.out-of-scope/amending-action-move.md`). A provision that really is relocated is a different thing, and no reader reads one yet.
 _Avoid_: Rename, alias, transfer
 

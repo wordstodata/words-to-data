@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
@@ -593,6 +594,156 @@ fn should_print_the_statements_it_could_not_place_when_the_command_runs() {
     );
 }
 
+/// One run of `redesignations` over title 26 and the committed bill: what it
+/// said, and the dataset it wrote.
+///
+/// The window is named, because the corpus holds more than one and the case is
+/// in this one: paragraph (11) is the last one title 26 held on 2025-07-18.
+///
+/// Run once for every test that reads it. The fixture parses title 26 at two
+/// release points, and a second run would spend that again to answer one more
+/// question about the same output.
+fn merging_run() -> &'static (String, String) {
+    static RUN: OnceLock<(String, String)> = OnceLock::new();
+    RUN.get_or_init(|| {
+        let path = format!("{}/merged_redesignations.json", env!("CARGO_TARGET_TMPDIR"));
+        let written = format!(
+            "{}/merged_redesignations_linked.json",
+            env!("CARGO_TARGET_TMPDIR")
+        );
+        let mut dataset = Dataset::new(DatasetMetadata::default());
+        for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
+            dataset
+                .add_uslm_xml(file, date, None)
+                .expect("title 26 should load");
+        }
+        dataset
+            .load_bill_download(&committed_bill_download())
+            .expect("the bill should load");
+        dataset
+            .save(&path, Format::Compact)
+            .expect("the fixture should save");
+
+        let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+            .args([
+                "redesignations",
+                &path,
+                "--bill-id",
+                BILL_ID,
+                "--between",
+                BEFORE,
+                AFTER,
+                "--output",
+                &written,
+            ])
+            .output()
+            .expect("the binary should run");
+        assert!(
+            output.status.success(),
+            "the command should succeed, stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (String::from_utf8_lossy(&output.stdout).to_string(), written)
+    })
+}
+
+/// The number the command printed as its link total.
+fn printed_link_total(said: &str) -> usize {
+    let line = said
+        .lines()
+        .find(|line| line.starts_with("Recorded "))
+        .unwrap_or_else(|| panic!("the command should print a link total: {said}"));
+    line.split_whitespace()
+        .nth(1)
+        .and_then(|word| word.parse().ok())
+        .unwrap_or_else(|| panic!("the total should be a number: {line}"))
+}
+
+/// The two numbers the command prints about merges: the renumberings it placed,
+/// and how many of them merged into a link already made.
+fn printed_merge_counts(said: &str) -> (usize, usize) {
+    let line = said
+        .lines()
+        .find(|line| line.contains("merged into a link"))
+        .unwrap_or_else(|| panic!("the command should say what merged: {said}"));
+    let numbers: Vec<usize> = line
+        .split_whitespace()
+        .filter_map(|word| {
+            word.trim_matches(|letter: char| !letter.is_ascii_digit())
+                .parse()
+                .ok()
+        })
+        .collect();
+    assert_eq!(numbers.len(), 2, "the line gives two numbers: {line}");
+    (numbers[0], numbers[1])
+}
+
+/// How many redesignation links a dataset file holds.
+fn links_held(path: &str) -> usize {
+    let dataset = Dataset::load(path, Format::Compact).expect("the result should load");
+    dataset
+        .count_links_by_kind()
+        .expect("counting the links should work")
+        .get(LinkKind::REDESIGNATED_AS)
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Two clauses of one bill can state one move, and one move is one link.
+///
+/// `119-hr-1` says `(11) -> (12)` of 26 U.S.C. 163(j) twice: § 70341(a)
+/// renumbers paragraphs (10) and (11) as (11) and (12), and § 70341(c)
+/// renumbers (11) and (12) as (12) and (13). A link is identified by what it
+/// says, so the second statement makes no second link, and the store merges it
+/// into the first
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+///
+/// The figure the command prints must be the figure the dataset holds. A reader
+/// who reads 67 and counts 66 cannot tell a merge from a lost write, and the two
+/// need different work (#220).
+#[test]
+fn should_print_the_link_total_the_dataset_holds_when_two_clauses_state_one_move() {
+    let (said, written) = merging_run();
+
+    assert_eq!(
+        printed_link_total(said),
+        links_held(written),
+        "the total the command prints is the total the dataset holds: {said}"
+    );
+}
+
+/// A merge and a lost write look the same in a number, and need different work.
+///
+/// A reader who reads 67 and counts 66 must be told which one happened: a merge
+/// is the accepted cost of an idempotent rebuild, and a lost write is a fault to
+/// hunt. So the command names how many renumberings it placed, how many merged,
+/// and why one move can be two statements (#220).
+#[test]
+fn should_say_how_many_renumberings_merged_when_the_command_records_them() {
+    let (said, written) = merging_run();
+
+    let (placed, merged) = printed_merge_counts(said);
+    assert!(
+        merged >= 1,
+        "the fixture holds a move two clauses state, so something merged: {said}"
+    );
+    assert_eq!(
+        placed - merged,
+        links_held(written),
+        "the renumberings less the merges are the links the dataset holds: {said}"
+    );
+
+    // The words, because a number alone cannot say a merge from a lost write.
+    assert!(
+        said.contains("merged into a link another statement already made"),
+        "it says what happened to them: {said}"
+    );
+    assert!(
+        said.contains("No write was lost."),
+        "it says which of the two cases this is: {said}"
+    );
+}
+
 /// A database is changed where it sits, so the run needs nowhere to write it
 /// (#195). `redesignations` used to refuse a SQLite dataset and say to convert
 /// it to JSON first, which is the form that cannot give the run a transaction.
@@ -799,12 +950,15 @@ fn should_resolve_most_of_the_corpus_and_report_the_rest() {
     );
 }
 
-/// The three numbers a person reading the sweep wants (#166).
+/// The numbers a person reading the sweep wants (#166, #220).
 ///
 /// One clause states many renumberings — "redesignating subparagraphs (H)
 /// through (U) as subparagraphs (I) through (V)" is one statement and fourteen
-/// links — so a count of links is not a count of statements, and the sum of the
-/// two counts neither.
+/// renumberings — so a count of renumberings is not a count of statements, and
+/// the sum of the two counts neither.
+///
+/// A count of renumberings is not a count of links either. Two statements of one
+/// move are one link, so the links are the renumberings less what merged (#220).
 #[test]
 fn should_count_statements_links_and_unplaced_statements_when_it_sweeps_the_corpus() {
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
@@ -824,9 +978,21 @@ fn should_count_statements_links_and_unplaced_statements_when_it_sweeps_the_corp
         "the bill states 57 redesignations, and one clause counts once"
     );
     assert_eq!(
-        report.links(),
+        report.renumberings(),
         81,
         "those statements become 81 renumberings this build can place"
+    );
+    assert_eq!(
+        report.links(),
+        80,
+        "the 81 renumberings are 80 links, because two clauses of § 70341 both \
+         move paragraph (11) of 26 U.S.C. 163(j) to paragraph (12) (#220)"
+    );
+    assert_eq!(
+        report.merged(),
+        1,
+        "and the report says how many merged, so a reader can tell a merge from \
+         a lost write"
     );
     assert_eq!(
         report.statements_unplaced(),
