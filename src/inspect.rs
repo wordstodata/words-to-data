@@ -21,8 +21,11 @@ use crate::dataset::{
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
-use crate::link::{Link, ProvisionHistory, RedesignationStep, Target, VerificationState, Window};
+use crate::link::{
+    Link, LinkKind, ProvisionHistory, RedesignationStep, Target, VerificationState, Window,
+};
 use crate::method::{Method, MethodRun};
+use crate::review::{Review, Verdict};
 use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
@@ -280,6 +283,18 @@ pub struct RedesignationLink {
     pub verification: VerificationState,
     /// The bill that stated the renumbering, where the link names one.
     pub bill_id: Option<String>,
+    /// The link's id, shortened to what a report prints, so a reader can name
+    /// the link to `settle`.
+    pub id: String,
+    /// The review a reader reports about this link: the newest of those naming
+    /// it, and `None` when nobody has reviewed it.
+    ///
+    /// Beside the verification state and not instead of it. The state is what
+    /// the link's own maker recorded and this is what a reviewer said
+    /// afterwards, and a reader weighing the claim needs both. Reporting only
+    /// the state is what made a dataset holding a refutation read exactly like
+    /// one holding none (#227).
+    pub review: Option<Review>,
 }
 
 /// Why a report did not follow a redesignation link that names its path.
@@ -288,9 +303,19 @@ pub struct RedesignationLink {
 pub enum NotFollowed {
     /// No expression pair was given, so there is no window to resolve in.
     NoWindow,
-    /// The link was checked and found wrong. Reporting a statement known to be
-    /// false is worse than the string pairing this report replaces.
+    /// The link's own stored state says it was checked and found wrong.
+    ///
+    /// The legacy reading, mapped from `AnnotationStatus::Rejected`. Still live
+    /// and still true, so it is kept beside the review reading rather than
+    /// replaced by it (#227).
     Refuted,
+    /// A reviewer refuted the link, and theirs is the newest review of it.
+    ///
+    /// Kept apart from `Refuted` because this one has a reviewer and a date to
+    /// name, and a reader deciding whether to argue back needs to know who to
+    /// argue with
+    /// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+    ReviewRefuted,
 }
 
 /// A redesignation link the report saw and did not follow.
@@ -543,10 +568,16 @@ fn follow(
         // A refuted link was checked and found wrong. Following it would state
         // something known to be false, which is worse than the string pairing
         // this walk replaces, so the walk stops and says so.
-        if step.verification == VerificationState::Refuted {
+        //
+        // Two readings refuse, and both are live. The stored state is the
+        // legacy one, mapped from `AnnotationStatus::Rejected`. The review is
+        // the newest record naming the link, whoever wrote it: an earlier
+        // refutation a later reviewer confirmed over does not stop the walk,
+        // because precedence is the reading and never the record (#227).
+        if let Some(reason) = refusal(step) {
             unfollowed.push(UnfollowedRedesignation {
                 link: RedesignationLink::from(step),
-                reason: NotFollowed::Refuted,
+                reason,
             });
             break;
         }
@@ -558,6 +589,22 @@ fn follow(
         other: standing.path,
         via,
     })
+}
+
+/// Why a walk must not take this step, and `None` when it may.
+///
+/// The only question either reading asks: **is this link refuted.** A dispute is
+/// not a refusal — someone objects and it is not settled, and a report that
+/// stopped there would hide a link nobody has shown to be wrong.
+fn refusal(step: &RedesignationStep) -> Option<NotFollowed> {
+    if step.verification == VerificationState::Refuted {
+        return Some(NotFollowed::Refuted);
+    }
+    let refuted = step
+        .review
+        .as_ref()
+        .is_some_and(|review| review.verdict == Verdict::Refuted);
+    refuted.then_some(NotFollowed::ReviewRefuted)
 }
 
 /// Which way along the links a walk goes.
@@ -625,6 +672,8 @@ impl From<&RedesignationStep> for RedesignationLink {
             to_date: step.to_date.clone(),
             verification: step.verification,
             bill_id: step.bill_id.clone(),
+            id: crate::review::short_id(&step.link_id).to_string(),
+            review: step.review.clone(),
         }
     }
 }
@@ -1455,6 +1504,13 @@ pub struct RedesignationRow {
     /// zero: a figure of zero says two provisions share no words, which is a
     /// measurement, and no measurement was made here.
     pub corroboration: Option<f32>,
+    /// The link this row came from, by the id a report prints, so a reviewer
+    /// reading the queue can name it to `settle`.
+    ///
+    /// `None` for a row nothing placed. No reader made a path, so there is no
+    /// link, and naming a value here would invent one — the same reason
+    /// `corroboration` and `window` below are optional (#227).
+    pub id: Option<String>,
     /// The window the link was made over, as its subject names it.
     ///
     /// `None` when nothing was placed, because then there is no window the row
@@ -1687,6 +1743,7 @@ impl RedesignationRows {
                 reason: Some(reason),
                 from_path: None,
                 to_path: None,
+                id: None,
                 corroboration: None,
                 window: None,
             });
@@ -1755,6 +1812,7 @@ fn placed_row(link: &crate::link::Link, bill_id: &str) -> Option<RedesignationRo
         reason: None,
         from_path: changed_path(&link.subject),
         to_path: changed_path(&link.object),
+        id: Some(crate::review::short_id(&link.id()).to_string()),
         corroboration: link
             .provenance
             .corroboration
@@ -2063,6 +2121,14 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
 /// was made over, what it points at, and what made it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ContradictingLink {
+    /// The link's id, shortened to what a report prints.
+    ///
+    /// The one thing a reader needs in order to **act** on a contradiction: it
+    /// names the link to `settle`. Nothing printed a link id before this, so a
+    /// reader who found two links that cannot both be right could not say which
+    /// one is wrong (#227). An id is a hash of what the link says, so a prefix
+    /// of it is the same in every build of the dataset (ADR 0004).
+    pub id: String,
     /// The window the link's subject names, and `None` for a subject that names
     /// no window.
     pub window: Option<Window>,
@@ -2096,6 +2162,7 @@ impl ContradictingLink {
     /// Read one link into the shape a report names it in.
     fn of(link: &Link) -> Self {
         Self {
+            id: crate::review::short_id(&link.id()).to_string(),
             window: link.subject.window(),
             object: link.object.name(),
             change: match &link.object {
@@ -2157,19 +2224,38 @@ pub struct Contradictions {
 /// what the dataset already says (#179, decision 12), so two parties holding one
 /// file get one answer and neither file changes.
 ///
-/// **Link-kind agnostic.** Every kind the dataset holds is grouped by the same
-/// rule, including a kind this build has never seen, which is the point of the
-/// kind being an open string (ADR 0002). Grouping happens *within* one kind: an
-/// opinion citing a section and a bill renumbering it say different things about
-/// one path, and folding the two together would report that as a disagreement.
+/// **Link-kind agnostic, with one named exception.** Every kind the dataset
+/// holds is grouped by the same rule, including a kind this build has never
+/// seen, which is the point of the kind being an open string (ADR 0002).
+/// Grouping happens *within* one kind: an opinion citing a section and a bill
+/// renumbering it say different things about one path, and folding the two
+/// together would report that as a disagreement. The exception is the `review`
+/// namespace, and the reason is below.
 ///
 /// A window is the two dates a link's subject names, so it is read out of the
 /// records rather than out of an index (ADR 0007).
+///
+/// **Reviews are read and never grouped.** A review copies the reviewed link's
+/// subject as a locator and carries the reviewer in its object, so two reviewers
+/// of one link are two links with one subject and two objects — the exact shape
+/// of a disagreement. Grouped by this rule, two reviewers *agreeing* would be
+/// reported as two statements that cannot both be true, and a genuine
+/// confirmed-against-refuted pair would not be reported at all, because the
+/// verdict is in the kind and grouping happens within a kind. Reading a pair of
+/// reviews needs a rule of its own, and #179 holds it open. Until then a
+/// contradiction is about **the law**, and a statement about a statement is a
+/// different thing (#227).
+///
+/// They still count toward `links_read`, because that figure says how much was
+/// looked at.
 pub fn contradictions<S: Storage>(dataset: &S) -> Result<Contradictions, DatasetError> {
     let mut report = Contradictions::default();
     for kind in dataset.count_links_by_kind()?.into_keys() {
         let links = dataset.links_by_kind(&kind)?;
         report.totals.links_read += links.len();
+        if LinkKind::new(&kind).namespace() == LinkKind::REVIEW {
+            continue;
+        }
         report.add_kind(&kind, &links);
     }
     report.totals.duplication = report.duplication.len();

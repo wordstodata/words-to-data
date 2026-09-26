@@ -129,14 +129,36 @@ fn stated_by(link: &inspect::RedesignationLink) -> String {
         None => "stated by an unnamed source".to_string(),
     };
     format!(
-        "{bill}, between {} and {} ({})",
+        "{bill}, between {} and {} ({}) [{}]",
         link.from_date,
         link.to_date,
-        trust(link.verification)
+        trust(link),
+        link.id
     )
 }
 
-fn trust(verification: words_to_data::link::VerificationState) -> &'static str {
+/// How far the claim can be trusted: what the link's maker recorded, and what a
+/// reviewer said about it afterwards.
+///
+/// Both, because they are different facts. The state is the maker's own, and
+/// the review is somebody else's verdict on it. Printing only the state is what
+/// made a dataset holding a refutation read exactly like one holding none
+/// (#227), and printing only the review would hide that nobody has reviewed an
+/// unconfirmed link at all.
+fn trust(link: &inspect::RedesignationLink) -> String {
+    let recorded = stored_trust(link.verification);
+    match &link.review {
+        None => recorded.to_string(),
+        Some(review) => format!(
+            "{recorded}, {} by {} on {}",
+            review.verdict,
+            review.reviewer,
+            review.at.date()
+        ),
+    }
+}
+
+fn stored_trust(verification: words_to_data::link::VerificationState) -> &'static str {
     use words_to_data::link::VerificationState as V;
     match verification {
         V::Asserted => "asserted by a source",
@@ -171,6 +193,9 @@ fn print_unfollowed(unfollowed: &[inspect::UnfollowedRedesignation]) {
         let why = match u.reason {
             inspect::NotFollowed::NoWindow => "no expression pair was given",
             inspect::NotFollowed::Refuted => "refuted, so it was checked and found wrong",
+            // Who refuted it and when is on the line beneath, which prints the
+            // winning review of every link it names.
+            inspect::NotFollowed::ReviewRefuted => "a reviewer refuted it",
         };
         println!("  {} -> {} — {why}", u.link.from_path, u.link.to_path);
         println!("      {}", stated_by(&u.link));

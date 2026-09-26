@@ -78,12 +78,23 @@ pub fn run(args: Args) {
 
     println!("\nWeakest first:");
     for row in report.rows.iter().take(SHOWN) {
+        // The id leads a placed row, because this list is the review queue and
+        // the id is the one field a reviewer copies out of it. A row nothing
+        // placed has no link and so prints no id field at all — an empty column
+        // would read as a link whose id is missing (#227).
+        let named = match &row.id {
+            Some(id) => format!("{id}  "),
+            None => String::new(),
+        };
         match (&row.reason, row.corroboration) {
-            (Some(reason), _) => println!("  [{}] not placed — {reason}", row.reader),
+            (Some(reason), _) => println!("  {named}[{}] not placed — {reason}", row.reader),
             (None, Some(figure)) => {
-                println!("  [{}] placed, corroboration {figure:.2}", row.reader)
+                println!(
+                    "  {named}[{}] placed, corroboration {figure:.2}",
+                    row.reader
+                )
             }
-            (None, None) => println!("  [{}] placed", row.reader),
+            (None, None) => println!("  {named}[{}] placed", row.reader),
         }
         println!(
             "    {} {}",

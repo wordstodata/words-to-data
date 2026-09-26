@@ -48,6 +48,25 @@ impl LinkKind {
     /// `crate::legislature::redesignation`).
     pub const REDESIGNATED_AS: &'static str = "legislature.redesignated_as";
 
+    /// The namespace a review lives in. Not an extension of the law: it is this
+    /// repo's own first use of the freedom ADR 0002 gave every party, which is
+    /// to add a link type without permission
+    /// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+    pub const REVIEW: &'static str = "review";
+
+    /// A reviewer says the link they reviewed is right.
+    ///
+    /// The verdict sits in the kind because a kind is hashed, so a reviewer who
+    /// changes their mind leaves **both** records. In a payload it would
+    /// overwrite the earlier one, because a payload is not hashed.
+    pub const REVIEW_CONFIRMED: &'static str = "review.confirmed";
+
+    /// A reviewer says the link they reviewed is wrong.
+    pub const REVIEW_REFUTED: &'static str = "review.refuted";
+
+    /// A reviewer objects to the link they reviewed, and does not settle it.
+    pub const REVIEW_DISPUTED: &'static str = "review.disputed";
+
     pub fn new(kind: impl Into<String>) -> Self {
         Self(kind.into())
     }
@@ -525,6 +544,28 @@ impl Link {
     }
 }
 
+/// What a prefix of a link id named.
+///
+/// Three answers rather than an `Option`, because "no link has an id like that"
+/// and "several do" ask different things of the person who typed it: the first
+/// means they named a link this dataset does not hold, and the second means they
+/// must type more of the id. A single `None` would tell them neither.
+///
+/// The link is carried whole rather than boxed. One of these is made per lookup
+/// and matched at once, so the indirection clippy asks for would buy an
+/// allocation and cost every reader a `Box` to see past.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum Named {
+    /// Exactly one link, which is what a caller asked for.
+    One(Link),
+    /// No link in this dataset has an id starting with the prefix.
+    Unknown,
+    /// More than one did, and how many. The count is what tells the reader how
+    /// much more of the id to type.
+    Ambiguous(usize),
+}
+
 /// Regroup links into the annotations they came from.
 ///
 /// The reverse of [`Link::from_annotation`], and the direction that matters now
@@ -631,6 +672,18 @@ pub struct RedesignationStep {
     pub verification: VerificationState,
     /// The bill that stated the renumbering, where the link names one.
     pub bill_id: Option<String>,
+    /// The id of the link this step was read out of, so a caller can name it,
+    /// print it, or settle it.
+    pub link_id: String,
+    /// The review a reader reports about that link: the newest of those naming
+    /// it. `None` when nobody has reviewed it, which is the ordinary case.
+    ///
+    /// Carried here beside the verification state rather than instead of it.
+    /// The two say different things — the state is what the link's own maker
+    /// recorded, and this is what a reviewer said afterwards — and a caller
+    /// deciding whether to rely on a hop needs both
+    /// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+    pub review: Option<crate::review::Review>,
 }
 
 /// The renumberings one provision ran through, oldest first.
@@ -703,12 +756,12 @@ impl ProvisionHistory {
 ///
 /// A cycle cannot happen in the law, and a misread bill could still write one, so
 /// a path already seen stops the walk instead of looping for ever.
-pub fn history_from_links(path: &str, links: &[Link]) -> ProvisionHistory {
+pub fn history_from_links(path: &str, links: &[Link], reviews: &[Link]) -> ProvisionHistory {
     let redesignated_as = LinkKind::new(LinkKind::REDESIGNATED_AS);
     let steps: Vec<RedesignationStep> = links
         .iter()
         .filter(|link| link.kind == redesignated_as)
-        .filter_map(step_of)
+        .filter_map(|link| step_of(link, reviews))
         .collect();
 
     let mut history = ProvisionHistory {
@@ -742,7 +795,11 @@ pub fn history_from_links(path: &str, links: &[Link]) -> ProvisionHistory {
 }
 
 /// One step, read out of a link whose two ends name changes.
-fn step_of(link: &Link) -> Option<RedesignationStep> {
+///
+/// `reviews` is every review record a dataset holds, and the step keeps the
+/// newest of those naming this link. One list for the whole walk, so a history
+/// costs one query for the reviews however many hops it has.
+fn step_of(link: &Link, reviews: &[Link]) -> Option<RedesignationStep> {
     let (
         Target::Change {
             path: from_path,
@@ -755,6 +812,7 @@ fn step_of(link: &Link) -> Option<RedesignationStep> {
     else {
         return None;
     };
+    let link_id = link.id();
     Some(RedesignationStep {
         from_path: from_path.clone(),
         to_path: to_path.clone(),
@@ -767,6 +825,8 @@ fn step_of(link: &Link) -> Option<RedesignationStep> {
             .and_then(|payload| payload.value.get("bill_id"))
             .and_then(|value| value.as_str())
             .map(str::to_string),
+        review: crate::review::newest_naming(&link_id, reviews),
+        link_id,
     })
 }
 

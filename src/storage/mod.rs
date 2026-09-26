@@ -227,6 +227,53 @@ pub trait LinkReader {
     // These are implemented once here rather than per backend: they are the
     // same regrouping whatever holds the links.
 
+    /// The one link whose id starts with `prefix`, git-style.
+    ///
+    /// A prefix of **any** length is accepted. A link id is a sha256 of what the
+    /// link says, so a prefix of it is reproducible across a rebuild and across
+    /// datasets, and a reviewer can type it rather than paste sixty-four
+    /// characters (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    ///
+    /// Reads every kind the dataset holds, including one this build has never
+    /// seen: a reviewer naming a link cannot be asked to know which extension
+    /// defined it (ADR 0002).
+    ///
+    /// Answered by walking the links rather than by a new index. An id is
+    /// already stored as the primary key, and the prefix query a backend could
+    /// answer would be one more thing for each backend to get right for a lookup
+    /// a person does by hand.
+    fn link_by_id_prefix(&self, prefix: &str) -> Result<crate::link::Named, DatasetError> {
+        let mut found: Option<Link> = None;
+        let mut matched = 0usize;
+        for kind in self.count_links_by_kind()?.into_keys() {
+            for link in self.links_by_kind(&kind)? {
+                if link.id().starts_with(prefix) {
+                    matched += 1;
+                    found = found.or(Some(link));
+                }
+            }
+        }
+        Ok(match (matched, found) {
+            (1, Some(link)) => crate::link::Named::One(link),
+            (0, _) => crate::link::Named::Unknown,
+            (many, _) => crate::link::Named::Ambiguous(many),
+        })
+    }
+
+    /// Every review record naming one link, by the link's full id.
+    ///
+    /// A review names the link it reviews inside its object reference, so this
+    /// is [`links_for_object_prefix`] — an indexed query that already existed —
+    /// and needs no new column. **Every** record comes back, including two
+    /// reviewers who disagree and a reviewer who changed their mind: which one a
+    /// reader reports is a separate question, answered by
+    /// [`crate::review::newest`].
+    ///
+    /// [`links_for_object_prefix`]: LinkReader::links_for_object_prefix
+    fn reviews_of(&self, link_id: &str) -> Result<Vec<Link>, DatasetError> {
+        self.links_for_object_prefix(&crate::review::reference_prefix(link_id))
+    }
+
     /// Annotations recorded for a pair of expressions of one work.
     fn get_annotations(
         &self,
@@ -276,7 +323,11 @@ pub trait LinkReader {
     /// stored shape for nothing.
     fn provision_history(&self, path: &str) -> Result<crate::link::ProvisionHistory, DatasetError> {
         let links = self.links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
-        Ok(crate::link::history_from_links(path, &links))
+        // Every review the dataset holds, so each step can carry the one a
+        // reader reports about it. A dataset holds tens of reviews, and asking
+        // per hop would be one query for each link in the walk.
+        let reviews = self.links_by_namespace(crate::link::LinkKind::REVIEW)?;
+        Ok(crate::link::history_from_links(path, &links, &reviews))
     }
 }
 
