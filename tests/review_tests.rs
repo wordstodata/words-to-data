@@ -719,3 +719,66 @@ fn should_hold_the_review_at_schema_ten_when_a_database_is_settled_in_place() {
         "the review sits beside the link it reviews: {beside:#?}"
     );
 }
+
+/// Paragraph (11) of `26 U.S.C. 163(j)`, the two-stage renumbering of #230.
+///
+/// § 70341(a) of the bill renumbers (10) and (11) as (11) and (12), and
+/// § 70341(c) renumbers (11) and (12) as (12) and (13), so the number this path
+/// carries between the two clauses is never published. The link the reading
+/// writes therefore pairs two unrelated provisions, and **the words at its two
+/// ends are what shows it.** This is the case a reviewer most needs the evidence
+/// for, which is why it is the one under test.
+const PARAGRAPH_163_J_11: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_11";
+
+/// The redesignation link the reading wrote at one path.
+fn redesignation_at(dataset: &Dataset<InMemoryStorage>, path: &str) -> Link {
+    dataset
+        .links_for_path(path)
+        .expect("links should read")
+        .into_iter()
+        .find(|link| link.kind.0 == LinkKind::REDESIGNATED_AS)
+        .unwrap_or_else(|| panic!("{path} carries a redesignation link"))
+}
+
+/// A reviewer can read a link's evidence without settling it.
+///
+/// Settling a link means judging it, and a judgement needs the words at both
+/// ends. Before this, everything a reviewer needed was on screen across two
+/// commands and nothing joined it up: `contradictions` gives an id, and the
+/// evidence came from hand-assembling a `path --from --to` invocation out of the
+/// subject and window printed beside it. For a queue of 47 that is 47
+/// hand-assembled commands.
+///
+/// It writes nothing. Looking at a link is not judging it.
+#[test]
+fn should_show_the_words_at_both_ends_when_a_reviewer_asks_to_see_a_link_without_settling_it() {
+    let dataset = dataset_with_real_links();
+    let link = redesignation_at(&dataset, PARAGRAPH_163_J_11);
+    let path = format!("{}/settle_explain.json", env!("CARGO_TARGET_TMPDIR"));
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+    let before = std::fs::read(&path).expect("the fixture should be readable");
+
+    let output = settle(&[&path, "--link", &link.id()[..12], "--explain"]);
+
+    assert!(
+        output.status.success(),
+        "the command should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let said = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        said.contains("Cross references"),
+        "the words at the older end should be shown: {said}"
+    );
+    assert!(
+        said.contains("Special rule for taxable years beginning in 2019 and 2020"),
+        "and the words at the newer end, which are a different provision: {said}"
+    );
+    assert_eq!(
+        std::fs::read(&path).expect("the fixture should still be readable"),
+        before,
+        "looking at a link must not write to the dataset"
+    );
+}

@@ -728,6 +728,85 @@ fn kin_at<'a>(parent: &'a DocumentNode, path: &str) -> Vec<&'a DocumentNode> {
         .collect()
 }
 
+/// The words at a link's two ends, and how they differ.
+///
+/// The evidence a reviewer judges a link on. A redesignation says one provision
+/// became another, and the only way to check it is to read both provisions: a
+/// renumbering that left the text alone is a different claim from one whose two
+/// ends are unrelated provisions (#230).
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkEvidence {
+    /// The older end, as `work@date` and a path.
+    pub from: String,
+    /// The newer end.
+    pub to: String,
+    /// How the fields differ, measured **across** the move, so a renumbering
+    /// that changed nothing else reports an empty list rather than a rewrite.
+    pub changes: Vec<PathFieldChange>,
+}
+
+/// The words at a link's two ends, or `None` when the link does not name two
+/// provisions this dataset holds.
+///
+/// `None` rather than an error: a link whose ends are not both changes is a
+/// perfectly good link — an amendment reference is external, and an opinion
+/// citation names a node — and a reader asking for evidence about one has asked
+/// a question with no answer rather than made a mistake.
+pub fn link_evidence<S: Storage>(
+    dataset: &S,
+    link: &Link,
+) -> Result<Option<LinkEvidence>, DatasetError> {
+    let (
+        Target::Change {
+            work,
+            path: from_path,
+            from_date,
+            ..
+        },
+        Target::Change {
+            path: to_path,
+            to_date,
+            ..
+        },
+    ) = (&link.subject, &link.object)
+    else {
+        return Ok(None);
+    };
+    let from_id = ExpressionId::new(work.clone(), from_date.clone());
+    let to_id = ExpressionId::new(work.clone(), to_date.clone());
+
+    let Some(from) = node_at(dataset, &from_id, from_path)? else {
+        return Ok(None);
+    };
+    let Some(to) = node_at(dataset, &to_id, to_path)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(LinkEvidence {
+        from: format!("{from_id} {from_path}"),
+        to: format!("{to_id} {to_path}"),
+        changes: field_changes(&from, &to),
+    }))
+}
+
+/// The first provision one expression holds at a path.
+///
+/// A path locates provisions and does not identify one (`docs/adr/0001`), so
+/// this takes the first. Evidence is read to be looked at by a person, and a
+/// path carrying two provisions is rare enough that showing the first beats
+/// refusing to show anything.
+fn node_at<S: Storage>(
+    dataset: &S,
+    expression: &ExpressionId,
+    path: &str,
+) -> Result<Option<DocumentNode>, DatasetError> {
+    Ok(dataset
+        .find_nodes(path)?
+        .into_iter()
+        .find(|(id, _)| id == expression)
+        .map(|(_, node)| node))
+}
+
 /// The field-level changes between two dates of one provision.
 ///
 /// The two nodes need not share a path: a renumbered provision sits at a
