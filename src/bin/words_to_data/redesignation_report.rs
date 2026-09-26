@@ -94,6 +94,12 @@ pub fn run(args: Args) {
             println!("    {from}");
             println!(" -> {to}");
         }
+        // The window the link came from. Two links for one statement are
+        // otherwise two rows that differ only by their score, and a reader
+        // cannot see which window made either (#184).
+        if let Some(window) = &row.window {
+            println!("    in {window}");
+        }
         println!("    {}", clause_start(&row.clause));
     }
     if report.rows.len() > SHOWN {

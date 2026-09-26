@@ -10,6 +10,7 @@ mod bill_selection;
 mod bills;
 mod build_dataset;
 mod cases_citing;
+mod contradictions;
 mod convert_dataset;
 mod coverage;
 mod diff;
@@ -67,6 +68,8 @@ enum Command {
     Bills(bills::Args),
     /// Report every renumbering the dataset's bills state, weakest first
     RedesignationReport(redesignation_report::Args),
+    /// List the subjects the dataset holds more than one link about
+    Contradictions(contradictions::Args),
 
     /// Show a bill's amendments
     ShowBill(show_bill::Args),
@@ -103,6 +106,7 @@ fn main() {
         Command::Expressions(args) => expressions::run(args),
         Command::Bills(args) => bills::run(args),
         Command::RedesignationReport(args) => redesignation_report::run(args),
+        Command::Contradictions(args) => contradictions::run(args),
         Command::ShowBill(args) => show_bill::run(args),
         Command::Votes(args) => votes::run(args),
         Command::Search(args) => search::run(args),

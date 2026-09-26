@@ -111,6 +111,62 @@ pub enum Target {
     External { reference: String, display: String },
 }
 
+/// The two dates a statement was made between.
+///
+/// A window is not part of what a link end *is* — it is when the end was
+/// observed. Keeping the two apart is what lets a reader see one provision
+/// carrying two links recorded over two windows, instead of two provisions
+/// carrying one link each (#184).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Window {
+    pub from_date: String,
+    pub to_date: String,
+}
+
+impl std::fmt::Display for Window {
+    /// `2025-07-18 -> 2025-07-30`, which is how a report names a window in one
+    /// column.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} -> {}", self.from_date, self.to_date)
+    }
+}
+
+impl Target {
+    /// What this end names, with no window in the name.
+    ///
+    /// A structural path already carries its work in its first segments —
+    /// `uscode/title_26/section_174` — so the path alone names the provision
+    /// (`CONTEXT.md`, "Paths").
+    ///
+    /// An external reference rather than its display text, because the
+    /// reference is the stable half: two links naming one amendment must come
+    /// out under one name however each chose to spell it for a human.
+    pub fn name(&self) -> String {
+        match self {
+            Self::Node(path) => path.clone(),
+            Self::Expression(id) => id.to_string(),
+            Self::Change { path, .. } => path.clone(),
+            Self::External { reference, .. } => reference.clone(),
+        }
+    }
+
+    /// The window this end was observed between, when it names one.
+    ///
+    /// Only a change names a window. An expression names one date and a node
+    /// names none, and answering a window for either would invent one.
+    pub fn window(&self) -> Option<Window> {
+        match self {
+            Self::Change {
+                from_date, to_date, ..
+            } => Some(Window {
+                from_date: from_date.clone(),
+                to_date: to_date.clone(),
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// How much trust a statement has earned.
 ///
 /// Not a confidence number. A raw model score is not calibrated, so publishing
