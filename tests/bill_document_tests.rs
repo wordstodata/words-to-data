@@ -253,8 +253,14 @@ fn should_keep_the_words_a_bill_enacts_in_the_payload_when_the_tree_leaves_them_
         1,
         "the instruction quotes one block, so one block is kept"
     );
+    // No space between the two. The number and the heading are separate
+    // elements, and only one of the two printings of this act puts a space
+    // between them: the cached one writes `<heading> <sidenote>` and the
+    // Government Publishing Office writes `<heading><sidenote>`. A text node
+    // that is entirely whitespace is therefore a fact about the file and not
+    // about the law, so it does not reach the text (#219).
     assert!(
-        stated.enacted_text[0].contains("20306. Deadlines."),
+        stated.enacted_text[0].contains("20306.Deadlines."),
         "the words the bill enacts should travel with the node that enacts them"
     );
 

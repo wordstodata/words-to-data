@@ -11,6 +11,7 @@ use roxmltree::Node;
 use sha2::{Digest, Sha256};
 
 use crate::{
+    citation::usc::fold_dashes,
     dataset::{Expression, ExpressionId, WorkId},
     document::DocumentNode,
     io::load_xml_file,
@@ -571,16 +572,19 @@ pub fn parse_bill_amendments_with_report(
 ///
 /// The ID is a SHA256 hash of "{bill_id}:{amending_text}".
 ///
-/// **It is stable against the layout of a file, and not against every printing
-/// of a law.** [`node_text`] folds quotes and collapses whitespace, so the same
-/// document re-indented mints the same ids. Two different printings of one act
-/// still do not agree: they differ in dashes, and one carries its marginal notes
-/// inside the instruction's text. Measured on `119-hr-1`, the two printings held
-/// in this corpus share none of their 603 ids.
+/// **An id is a fact about the words of the amendment, and about nothing else.**
+/// [`node_text`] gathers those words and folds what the file decided rather than
+/// the law: quotes, the layout of the markup, and the spelling of a dash. So the
+/// same law saved with different line breaks, or printed by a publisher who
+/// transliterates its em dashes, mints the same ids.
 ///
-/// So an id names an amendment *as one source prints it*. A dataset built from a
-/// second printing holds different ids for the same law, and a link minted
-/// against the first will not resolve in it.
+/// Measured on the two printings of `119-hr-1` this corpus holds, paired by the
+/// element id both files carry: all 603 ids agree, and all 603 stay distinct
+/// (#219). Nothing has been measured about a printing outside this corpus.
+///
+/// What an id does not survive is a change to the fold itself. Each one rewrote
+/// every id in every dataset, and `extract-changes` keys its cache by
+/// `amendment_id`, so a rebuild buys every model call again.
 pub(crate) fn compute_amendment_id(bill_id: &str, amending_text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}:{}", bill_id, amending_text));
@@ -689,23 +693,61 @@ fn instruction_location(node: &Node, bill_id: &str) -> String {
 
 /// The words under a node, as one line.
 ///
-/// **Whitespace is collapsed, and that is part of the identity.** An amendment
-/// id is `sha256("{bill_id}:{amending_text}")`, and this is what fills
-/// `amending_text`. A publisher that lays its XML out over several lines puts
-/// that indentation into these text nodes, so the same law saved with different
-/// line breaks would mint different ids, and every `legislature.amended_by` link
-/// pointing at an old one would stop resolving. The layout of a file is not a
-/// fact about the law.
+/// **What the file decided is folded, and that is part of the identity.** An
+/// amendment id is `sha256("{bill_id}:{amending_text}")`, and this is what fills
+/// `amending_text`. Two printings of one act say the same thing, so they must
+/// mint the same ids, or a dataset built from the second cannot hold the
+/// `legislature.amended_by` links minted against the first.
+///
+/// Three folds, each for a difference between printings and not in the law:
+///
+/// * A text node that is **entirely whitespace** does not reach the text at all.
+///   The indentation a publisher puts between two elements is a text node, and so
+///   is the space one printing writes inside `<heading> <sidenote>` where the
+///   other writes `<heading><sidenote>`. Collapsing such a node to one space, as
+///   #216 did, leaves the laid-out file one space the compact file never had.
+/// * Whitespace **inside a text node that carries words** still collapses to one
+///   space, because a space between two words is part of what the law says.
+///   `two words` and `twowords` stay two texts.
+/// * A **run of dashes** folds to one hyphen ([`fold_dash_runs`]).
 ///
 /// Quotes are folded here for the same reason ([`normalize_quotes`]), and the
-/// Code's dashes are folded elsewhere for a third
+/// Code's dashes are folded in the citation reader for a related one
 /// ([`fold_dashes`](crate::citation::usc::fold_dashes), #141).
 pub(crate) fn node_text(node: &Node) -> String {
     let raw: String = node
         .descendants()
         .filter(|n| n.is_text())
         .map(|n| n.text().unwrap_or(""))
+        .filter(|text| !text.trim().is_empty())
         .collect();
-    let folded = normalize_quotes(&raw);
+    let folded = fold_dash_runs(&normalize_quotes(&raw));
     folded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Every run of dashes as one hyphen.
+///
+/// One publisher prints an em dash and another transliterates it to ASCII as
+/// `--`, so a fold that writes one dash as one hyphen
+/// ([`fold_dashes`](crate::citation::usc::fold_dashes)) leaves the two spellings
+/// one character apart. The run is what has to fold, because the number of
+/// characters a dash is written with is a fact about the encoding and not about
+/// the law.
+///
+/// What this could cost is two texts that differ only in how long a dash run is.
+/// None do here: all 603 amendments of `119-hr-1` stay distinct under the fold
+/// (#219). Whitespace is not touched, so `two words` and `twowords` stay two
+/// texts either way.
+fn fold_dash_runs(text: &str) -> String {
+    let hyphenated = fold_dashes(text);
+    let mut folded = String::with_capacity(hyphenated.len());
+    let mut after_a_dash = false;
+    for character in hyphenated.chars() {
+        let is_dash = character == '-';
+        if !(is_dash && after_a_dash) {
+            folded.push(character);
+        }
+        after_a_dash = is_dash;
+    }
+    folded
 }
