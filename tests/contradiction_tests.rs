@@ -338,6 +338,91 @@ fn should_find_and_categorise_the_duplicated_pairs_when_the_dataset_holds_two_wi
     );
 }
 
+/// A contradicting link is named by its id, in both output forms.
+///
+/// Nothing printed a link id before this. A reader who found a contradiction
+/// had no way to say which of the two links is wrong, because they could not
+/// name either one to `settle` (#227). The id is a hash of what the link says,
+/// so it is the same in every build of the dataset (ADR 0004).
+#[test]
+fn should_name_each_contradicting_link_by_its_id_when_a_contradiction_is_reported() {
+    let output = run(&["contradictions", two_window_file(), "--json"]);
+    assert!(
+        output.status.success(),
+        "contradictions should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the command should emit json");
+
+    let duplication = report["duplication"]
+        .as_array()
+        .expect("the report carries a duplication list");
+    assert!(
+        !duplication.is_empty(),
+        "the guard is worth nothing unless the command found something"
+    );
+
+    let mut named = Vec::new();
+    for group in duplication {
+        for link in group["links"]
+            .as_array()
+            .expect("a group carries its links")
+        {
+            let id = link["id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("every link should carry its id, got:\n{link:#}"));
+            assert_eq!(
+                id.len(),
+                words_to_data::review::ID_PREFIX_LENGTH,
+                "one constant sets the printed length, got `{id}`"
+            );
+            assert!(
+                id.chars().all(|letter| letter.is_ascii_hexdigit()),
+                "an id is hexadecimal, got `{id}`"
+            );
+            named.push(id.to_string());
+        }
+    }
+
+    // Two links in one group are two records, so two ids. A group that printed
+    // one id twice would name neither link.
+    let distinct: std::collections::BTreeSet<&String> = named.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        named.len(),
+        "each contradicting link has its own id, got {named:?}"
+    );
+
+    // And the human output carries them too, so a reader at a terminal can
+    // settle a link without piping through `--json`.
+    //
+    // The first group's links, because the human output prints a fixed number
+    // of groups per category and `--json` carries them all.
+    let shown: Vec<&str> = duplication[0]["links"]
+        .as_array()
+        .expect("a group carries its links")
+        .iter()
+        .filter_map(|link| link["id"].as_str())
+        .collect();
+    assert!(shown.len() >= 2, "duplication needs two links");
+
+    let text = run(&["contradictions", two_window_file()]);
+    assert!(text.status.success());
+    let text = String::from_utf8_lossy(&text.stdout);
+    for id in &shown {
+        assert!(
+            text.contains(id),
+            "human output should name link {id}, got:\n{text}"
+        );
+    }
+    // And say what the id is for, because an id nobody can act on is noise.
+    assert!(
+        text.contains("words_to_data settle"),
+        "human output should say how to settle a link it named, got:\n{text}"
+    );
+}
+
 #[test]
 fn should_leave_every_link_row_unchanged_when_the_command_runs() {
     // Decision 12 of #179: the contradiction is computed and never stamped. A

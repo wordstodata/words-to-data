@@ -79,6 +79,13 @@ pub fn run(args: Args) {
         // Said once, at the end, because it is the reading a reviewer is most
         // likely to take from a list like this and it is the wrong one.
         println!("\nNothing above says which link is right. That rule is #172.");
+        // A reviewer can now say so themselves, which is what the id is for.
+        println!(
+            "To say which is wrong, settle it by its id:\n    \
+             words_to_data settle {} --link <id> --verdict refuted \\\n      \
+             --reviewer human:<you> --reason \"<why>\"",
+            args.dataset
+        );
     }
 }
 
@@ -101,7 +108,9 @@ fn print_category(heading: &str, groups: &[ContradictionGroup]) {
                 .map(|window| window.to_string())
                 .unwrap_or_else(|| "no window".to_string());
             let method = link.method.as_deref().unwrap_or("no method recorded");
-            print!("    {window}  {} [{}]", link.source, method);
+            // The id first, because it is the one field a reader acts on: it
+            // names the link to `settle`.
+            print!("    {}  {window}  {} [{}]", link.id, link.source, method);
             match link.corroboration {
                 Some(figure) => println!("  corroboration {figure:.2}"),
                 None => println!(),

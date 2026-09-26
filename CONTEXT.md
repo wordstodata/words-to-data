@@ -181,6 +181,14 @@ _Avoid_: Algorithm, strategy, technique, model
 The trust level of one statement: `Asserted` by a source, `MachineSuggested`, `HumanConfirmed`, `Disputed`, or `Refuted`. `Disputed` means someone objects and it is unsettled; `Refuted` means it was checked and found wrong, which is settled.
 _Avoid_: Confidence, score, accuracy
 
+**Review**:
+What a reviewer said about a Link: that it is right, that it is wrong, or that they object and it is not settled. It carries who reviewed, why they say so, and when.
+
+A review is **its own Link**. The link reviewed is never changed, so every review of it survives: several reviewers may argue about one link, and each argument stays a record. That is what makes a poor review safe — it is visible instead of destructive.
+
+Among the reviews of one link, the **newest wins**, and that is the one a reader reports. A reviewer overrides an earlier verdict by publishing over it, and the earlier record is kept. No verdict is reserved to a kind of reviewer, and no reviewer outranks another: how much a reviewer is trusted is a matter of who may write, not a rule in the program.
+_Avoid_: Resolution, correction, override, approval, sign-off
+
 **Evidence**:
 What a statement was based on: the maker's reasoning in their own words, and the verbatim reply that produced it. A machine's claim is only checkable if the party receiving the Dataset can see what the machine actually said, so evidence is what stops a Verification state being a label with nothing behind it.
 _Avoid_: Proof, justification, backing
