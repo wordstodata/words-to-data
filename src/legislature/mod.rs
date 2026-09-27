@@ -10,6 +10,7 @@
 //! needs these types and has no USLM to speak of, and a court opinion needs
 //! none of them at all.
 
+pub mod evidence_matching;
 pub mod redesignation;
 pub mod section_agreement;
 
