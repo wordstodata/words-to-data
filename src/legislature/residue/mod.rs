@@ -27,6 +27,7 @@ use serde::Serialize;
 
 use crate::dataset::{Dataset, DatasetError};
 use crate::legislature::evidence_matching::{Outcome, Residue, is_a_note, match_by_evidence};
+use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
 use crate::query::LinkQuery;
 use crate::storage::{LegislatureReader, LinkReader, Storage};
@@ -82,15 +83,20 @@ pub enum Category {
 }
 
 /// What the dataset does not hold that the amendment changes, if anything.
-fn not_held(olrc: &[Classification]) -> Option<String> {
+fn not_held(address: &AmendmentAddress, olrc: &[Classification]) -> Option<String> {
+    if address.unresolved == Some(Reason::TableOfSections) {
+        return Some(
+            "a table of sections, which the dataset does not hold as a provision".to_string(),
+        );
+    }
     let only_notes = !olrc.is_empty()
         && olrc
             .iter()
             .flat_map(|row| &row.descriptions)
             .all(|description| is_a_note(description));
     only_notes.then(|| {
-        "the OLRC classifies this section of the law only as a note, \
-         and the dataset holds no notes"
+        "the OLRC classifies this section of the law only as a note or as the heading \
+         before a section, and the dataset holds neither"
             .to_string()
     })
 }
@@ -133,7 +139,7 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
             let olrc = place.as_ref().map_or_else(Vec::new, |place| {
                 classifications_of(&classified, &amendment.public_law, place)
             });
-            let not_held = not_held(&olrc);
+            let not_held = not_held(&amendment.address, &olrc);
             unlinked.push(Unlinked {
                 bill_id: amendment.bill_id,
                 public_law: amendment.public_law,

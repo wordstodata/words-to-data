@@ -326,6 +326,23 @@ fn should_report_an_amendment_to_a_note_as_not_held_and_not_as_a_miss() {
     );
     assert_eq!(
         row["not_held"],
-        "the OLRC classifies this section of the law only as a note, and the dataset holds no notes"
+        "the OLRC classifies this section of the law only as a note or as the heading before \
+         a section, and the dataset holds neither"
+    );
+}
+
+#[test]
+fn should_report_an_amendment_to_a_table_of_sections_as_not_held_and_not_as_a_miss() {
+    // Section 70201(g) of the law: "The table of sections for part VII of
+    // subchapter B of chapter 1 is amended by ...". A table of sections is an
+    // index of the law, and the dataset does not hold it as a provision.
+    let rows = residue_rows(linked());
+
+    let row = row_of(&rows, "4010e01c92b0").expect("the amendment is listed");
+    assert_eq!(row["stage"], "address");
+    assert_eq!(row["category"], "not_held");
+    assert_eq!(
+        row["not_held"],
+        "a table of sections, which the dataset does not hold as a provision"
     );
 }
