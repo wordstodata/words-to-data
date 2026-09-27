@@ -16,9 +16,12 @@ use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, ExpressionId, WorkId, adjacent_expressions,
 };
+use words_to_data::citation::resolve::SectionPaths;
 use words_to_data::legislature::evidence_matching::{
-    AmendmentMatch, Outcome, Stage, evidence_method, match_by_evidence,
+    AmendmentMatch, OlrcClassification, Outcome, Stage, evidence_method, match_by_evidence,
+    olrc_classification,
 };
+use words_to_data::olrc::{ClassificationTable, classify};
 use words_to_data::link::{Link, LinkKind, Target, VerificationState, amendment_reference};
 use words_to_data::storage::LinkReader;
 use words_to_data::matching::matching_method;
@@ -284,6 +287,99 @@ fn should_write_every_link_and_record_the_method_over_each_window_when_the_comma
         .filter(|link| link.provenance.method == Some(evidence_method()))
         .count();
     assert_eq!(after_again, expected);
+}
+
+/// The OLRC's classification of the committed table, as `olrc.classified_from`
+/// links against title 7, the way `add-classifications` states them (#247).
+fn olrc_links() -> &'static [Link] {
+    static LINKS: OnceLock<Vec<Link>> = OnceLock::new();
+    LINKS.get_or_init(|| {
+        let html = std::fs::read_to_string("tests/test_data/olrc/classification/tbl119pl_1st.htm")
+            .expect("the committed table should read");
+        let table = ClassificationTable::parse(&html).expect("the committed table should parse");
+        let mut paths = SectionPaths::new();
+        for date in RELEASE_POINTS {
+            let title_7 = dataset()
+                .get_expression(&title_7_at(date))
+                .expect("storage should answer")
+                .expect("title 7 is held");
+            paths.add_work(&title_7.root);
+        }
+        let scope = dataset().scope().expect("the scope should derive");
+        classify(&table.rows, &scope, &paths, "olrc:tbl119pl_1st.htm").links
+    })
+}
+
+#[test]
+fn should_not_count_a_note_as_the_olrc_classifying_a_change_to_a_sections_text() {
+    // Section 10601(f) of the law is classified to 7 U.S.C. 8351 as `nt`: a
+    // note under the section. The dataset holds no notes, and a note says
+    // nothing about the section's own text.
+    let section_8351 = "uscode/title_7/chapter_109A/section_8351";
+    assert_eq!(
+        olrc_classification(olrc_links(), section_8351, "119-21"),
+        OlrcClassification::OnlyNotes(vec!["10601(f)".to_string()])
+    );
+
+    // Two sections of the law amend 7 U.S.C. 2025 itself.
+    let section_2025 = "uscode/title_7/chapter_51/section_2025";
+    assert_eq!(
+        olrc_classification(olrc_links(), section_2025, "119-21"),
+        OlrcClassification::Text(vec!["10101(b)(1)".to_string(), "10106".to_string()])
+    );
+
+    // A section no row of the law names.
+    let section_2 = "uscode/title_7/chapter_1/section_2";
+    assert_eq!(
+        olrc_classification(olrc_links(), section_2, "119-21"),
+        OlrcClassification::Nothing
+    );
+}
+
+#[test]
+fn should_name_the_olrc_classification_in_the_evidence_and_change_no_answer_when_it_is_held() {
+    let mut with_olrc = Dataset::with_storage(dataset().storage().clone());
+    for link in olrc_links() {
+        with_olrc
+            .add_link(link.clone())
+            .expect("the link should add");
+    }
+    let classified = match_by_evidence(&with_olrc)
+        .expect("the matcher should run")
+        .matches;
+
+    // The same answer for every amendment. The OLRC resolves to a section and
+    // no lower, so it cannot choose a change, and the matcher works the same
+    // without it.
+    let paths_of = |found: &AmendmentMatch| match &found.outcome {
+        Outcome::Linked(linked) => linked.paths(),
+        Outcome::Residue(_) => Vec::new(),
+    };
+    assert_eq!(classified.len(), matches().len());
+    for (with, without) in classified.iter().zip(matches()) {
+        assert_eq!(with.amendment_id, without.amendment_id);
+        assert_eq!(paths_of(with), paths_of(without));
+    }
+
+    // Section 16(a) of the Food and Nutrition Act of 2008 (7 U.S.C. 2025(a)),
+    // amended by section 10106 of the law. The table places 10101(b)(1) and
+    // 10106 at 7 U.S.C. 2025, and the evidence says so.
+    let found = classified
+        .iter()
+        .find(|found| found.amendment_id.starts_with("285e9181329c"))
+        .expect("the amendment is stated");
+    let reasoning = found.links()[0]
+        .provenance
+        .evidence
+        .as_ref()
+        .and_then(|evidence| evidence.reasoning.clone())
+        .expect("the link carries its reasoning");
+    assert!(
+        reasoning.contains(
+            "OLRC: the classification table places Pub. L. 119-21 § 10101(b)(1), § 10106 at this section."
+        ),
+        "the evidence names the classification: {reasoning}"
+    );
 }
 
 #[test]

@@ -50,14 +50,17 @@ use crate::link::{
     amendment_reference,
 };
 use crate::method::Method;
-use crate::storage::{LegislatureReader, Storage};
+use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::UslmFacts;
 use crate::uslm::amendment_address::{AmendmentAddress, addresses_in};
 
 use quoted_words::QuotedWords;
 use resolve::{Change, Contender, Resolution, resolve};
 
+mod olrc;
 mod quoted_words;
+
+pub use olrc::{OlrcClassification, olrc_classification};
 mod resolve;
 
 /// What the matcher found for one amendment.
@@ -65,6 +68,8 @@ mod resolve;
 pub struct AmendmentMatch {
     /// The bill, as the dataset names it: `119-hr-1`.
     pub bill_id: String,
+    /// The public law the bill became, by its number: `119-21`.
+    pub public_law: String,
     /// The amendment, by the content hash its bill's node carries.
     pub amendment_id: String,
     /// The amendment's words, as the bill states them.
@@ -103,6 +108,9 @@ pub struct Linked {
     /// something else, or the same change seen twice. It is named so a
     /// reviewer can look (`docs/adr/0013`).
     pub later_windows: Vec<LaterWindow>,
+    /// What the OLRC's classification says about the section. Evidence for a
+    /// reviewer, and never a reason for the link.
+    pub olrc: OlrcClassification,
 }
 
 impl Linked {
@@ -254,6 +262,8 @@ impl AmendmentMatch {
         }
         reasoning.push_str("Change: ");
         reasoning.push_str(&change.why);
+        reasoning.push(' ');
+        reasoning.push_str(&linked.olrc.sentence(&self.public_law));
         reasoning
     }
 }
@@ -278,6 +288,7 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
 ) -> Result<EvidenceMatching, DatasetError> {
     let stated = stated_amendments(dataset)?;
+    let classifications = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
     let mut outcomes: Vec<Option<Outcome>> = vec![None; stated.len()];
     let mut windows = Vec::new();
 
@@ -298,6 +309,7 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
             work,
             &stated,
             members,
+            &classifications,
             &mut outcomes,
         )?);
     }
@@ -307,6 +319,7 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
         .zip(outcomes)
         .map(|(amendment, outcome)| AmendmentMatch {
             bill_id: amendment.bill_id,
+            public_law: amendment.public_law,
             amendment_id: amendment.address.amendment_id.clone(),
             amending_text: amendment.amending_text,
             operation: amendment.operation,
@@ -321,6 +334,8 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
 /// One amendment as its public law states it.
 struct Stated {
     bill_id: String,
+    /// The law's number: `119-21`.
+    public_law: String,
     /// The date of the law's stored expression.
     enacted: String,
     amending_text: String,
@@ -345,6 +360,14 @@ fn stated_amendments<S: Storage + LegislatureReader>(
         let Some(bill) = dataset.get_bill(&bill_id)? else {
             continue;
         };
+        // The law's number is the name of its work: `publiclawdocument_119-21`.
+        let public_law = law
+            .id
+            .work
+            .as_str()
+            .split_once('_')
+            .map_or(law.id.work.as_str(), |(_, number)| number)
+            .to_string();
         for address in addresses_in(&law.root) {
             let evidence = law
                 .root
@@ -356,6 +379,7 @@ fn stated_amendments<S: Storage + LegislatureReader>(
             let amendment = bill.amendments.get(&address.amendment_id);
             stated.push(Stated {
                 bill_id: bill_id.clone(),
+                public_law: public_law.clone(),
                 enacted: law.id.at.clone(),
                 amending_text: amendment
                     .map(|amendment| amendment.amending_text.clone())
@@ -435,6 +459,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
     work: &WorkId,
     stated: &[Stated],
     members: &[usize],
+    classifications: &[Link],
     outcomes: &mut [Option<Outcome>],
 ) -> Result<Vec<(ExpressionId, ExpressionId)>, DatasetError> {
     let earliest_enactment = members
@@ -539,6 +564,11 @@ fn match_in_work<S: Storage + LegislatureReader>(
                             }
                         })
                         .collect(),
+                    olrc: olrc_classification(
+                        classifications,
+                        &placed[at][0].section,
+                        &stated[*at].public_law,
+                    ),
                 }),
                 Resolution::Stopped(reason) => Outcome::Residue(Residue {
                     stage: Stage::Resolve,
