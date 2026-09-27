@@ -25,6 +25,10 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::dataset::DatasetError;
+use crate::storage::DocumentReader;
+use crate::uslm::ElementType;
+
 pub mod client;
 pub mod links;
 
@@ -49,6 +53,22 @@ pub enum OlrcError {
     /// The cache could not be written.
     #[error("the cache could not be written: {0}")]
     Io(#[from] std::io::Error),
+}
+
+/// The number of every public law a dataset holds, such as `119-21`.
+///
+/// A public law is stored as a work named by its number,
+/// `publiclawdocument_119-21` (#196), and that number is the join key into a
+/// classification table. Only work names are read.
+pub fn held_public_laws<R: DocumentReader + ?Sized>(
+    reader: &R,
+) -> Result<Vec<String>, DatasetError> {
+    let prefix = format!("{}_", ElementType::PublicLawDocument.path_segment_name());
+    Ok(reader
+        .works()?
+        .iter()
+        .filter_map(|work| work.as_str().strip_prefix(&prefix).map(str::to_string))
+        .collect())
 }
 
 /// One row of a classification table, as the table writes it.
