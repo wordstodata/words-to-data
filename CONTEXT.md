@@ -245,6 +245,12 @@ A redesignation a Bill states and no reader can resolve to two paths is an Unpla
 A Diff reports a Redesignation's effect as **moved**, and that is the one place the word is ours to use: nothing relocated, the number changed. The publisher has no `move` action to confuse it with — its schema defines twelve amending actions and that is not one of them (`.out-of-scope/amending-action-move.md`). A provision that really is relocated is a different thing, and no reader reads one yet.
 _Avoid_: Rename, alias, transfer
 
+**Classification**:
+The Link of kind `olrc.classified_from`. It says the Office of the Law Revision Counsel classified a section of a public law to a section of the Code: the subject is the Code section, by its Structural path, and the object names the section of the law, `olrc.classification:119-21:71301(a)`. It is `Asserted`, because an authority published it, and its source names the table page. The kind of change — new, note, repealed, blank for amended — travels in the Kind payload in the table's own words (`src/olrc/mod.rs`).
+
+It stops at the section, because the table does. And a law the table does not list is not a law that changed nothing: the OLRC lists only what it classified to the Code.
+_Avoid_: Codification, mapping
+
 **Provision history**:
 The Redesignations one Provision ran through, walked out of the links, oldest first. A projection: nothing stores it, so a Bill added later adds an edge rather than rewriting an identity, and nothing that already points somewhere breaks (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`). An empty history is an answer — the provision has always been where it is — and not a failure.
 _Avoid_: Chain, lineage, ancestry
