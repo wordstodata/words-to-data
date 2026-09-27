@@ -712,10 +712,22 @@ fn should_return_no_annotations_when_the_dataset_has_none() {
 
     assert!(output.status.success(), "annotations should exit zero");
 
-    let annotations: serde_json::Value =
+    let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("annotations --json should emit json");
 
-    assert_eq!(annotations.as_array().expect("an array").len(), 0);
+    // The rows sit under a key beside the total, so a run that showed only some
+    // of them can say how many it left out (#234, item 7). `path` already wrapped
+    // its annotations this way, so the two readers now agree.
+    assert_eq!(
+        json["annotations"].as_array().expect("an array").len(),
+        0,
+        "no annotations should be reported when the dataset holds none"
+    );
+    assert_eq!(
+        json["total"].as_u64(),
+        Some(0),
+        "and the total should say so"
+    );
 }
 
 /// The annotation list of a `path` or `annotations` run, as JSON.
@@ -844,16 +856,32 @@ fn should_say_which_paths_the_filter_matches_when_either_command_is_asked_for_he
     );
 }
 
-/// `annotations` needs one of three filters. Asking for everything is a usage
-/// error, and it exits 2 rather than panicking.
+/// Asking for everything is a question, not a usage error.
+///
+/// **This reverses a contract deliberately** (#234, item 6). The command used to
+/// refuse an unfiltered run and exit 2, back when the query beneath it was a sum
+/// type that had to be told which single filter to use. A query is now a
+/// conjunction of optional filters, so naming none of them is the well-formed
+/// question *"what do you hold"*, and refusing it makes exploring a dataset
+/// hostile for no gain. The filters compose, so narrowing is something a reader
+/// adds rather than something the command demands up front.
 #[test]
-fn should_exit_two_when_annotations_is_given_no_filter() {
-    let output = run(&["annotations", amended_fixture(), "--json"]);
+fn should_list_everything_when_annotations_is_given_no_filter() {
+    // A fixture that really holds annotations. `amended_fixture` holds none by
+    // design — its own test asserts that — so an unfiltered run over it would
+    // pass for the wrong reason.
+    let output = run(&["annotations", matched_statements_fixture(), "--json"]);
 
-    assert_eq!(output.status.code(), Some(2));
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("filter"),
-        "the error should say what is missing"
+        output.status.success(),
+        "an unfiltered run is a question, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("--json should emit json");
+    assert!(
+        json["total"].as_u64().expect("a total") > 0,
+        "the fixture holds annotations, so an unfiltered run should find them"
     );
 }
 

@@ -25,6 +25,8 @@ use crate::link::{
     Link, LinkKind, ProvisionHistory, RedesignationStep, Target, VerificationState, Window,
 };
 use crate::method::{Method, MethodRun};
+pub use crate::query::PathMatch;
+use crate::query::{Answer, LinkQuery, Locator};
 use crate::review::{Review, Verdict};
 use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
@@ -437,7 +439,11 @@ pub fn path_report<S: Storage>(
         ),
     };
 
-    let annotations = annotations(dataset, AnnotationQuery::Path { path, matching })?;
+    let annotations = annotations(
+        dataset,
+        &LinkQuery::new().at(Locator::new().at_path(path, matching)),
+    )?
+    .rows;
 
     Ok(PathReport {
         path: path.to_string(),
@@ -1287,51 +1293,6 @@ pub fn validate<S: Storage + LegislatureReader>(
     })
 }
 
-/// Which paths a path filter accepts.
-///
-/// A bill amends a subsection, paragraph, subparagraph or clause, so that is
-/// where a change annotation lands. A section is the unit a person names. The
-/// two are therefore almost never the same path, and matching them for equality
-/// answers nothing for most of the annotated law.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PathMatch {
-    /// The path given and every path beneath it. The default, because it is
-    /// what naming a section means.
-    #[default]
-    Subtree,
-    /// Only an annotation recorded on exactly the path given.
-    Exact,
-}
-
-impl PathMatch {
-    /// Whether an annotation recorded on `annotated` answers for `asked`.
-    fn accepts(self, asked: &str, annotated: &str) -> bool {
-        match self {
-            // Segment-aware, so `section_16` does not answer for `section_163`.
-            Self::Subtree => crate::uslm::path::covers_path(asked, annotated),
-            Self::Exact => asked == annotated,
-        }
-    }
-}
-
-/// Which annotations to list. The three variants map to the mutually exclusive
-/// filters of the `annotations` subcommand.
-pub enum AnnotationQuery<'a> {
-    /// Annotations recorded for a specific expression pair.
-    Pair {
-        from: &'a ExpressionId,
-        to: &'a ExpressionId,
-    },
-    /// Annotations sourced from a specific bill (across all pairs).
-    Bill(&'a str),
-    /// Annotations touching a specific structural path (across all pairs).
-    Path {
-        path: &'a str,
-        /// Which paths count as touching it.
-        matching: PathMatch,
-    },
-}
-
 /// A flattened annotation for display, tagged with the expression pair it belongs to.
 #[derive(Debug, Clone, Serialize)]
 pub struct AnnotationSummary {
@@ -1376,41 +1337,54 @@ fn summarize(from: &ExpressionId, to: &ExpressionId, ann: &ChangeAnnotation) -> 
     }
 }
 
-/// List annotations matching `query`, each tagged with its expression pair.
+/// List the annotations a query names, each tagged with its expression pair.
 ///
-/// Bill and path filters iterate every pair so the pair is always known
-/// (the underlying `annotations_for_*` queries drop it).
+/// A rendering of a link query, not a query of its own. Links are what a dataset
+/// stores and `ChangeAnnotation` is a projection out of them
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`), so one
+/// vocabulary asks the question and this turns the answer into the shape a
+/// legislature reader wants (#234).
+///
+/// **The limit counts annotations, not links.** One annotation projects into one
+/// link per path it covers, so limiting the links would return a fragment of an
+/// annotation and call it whole. The query's own limit is therefore ignored for
+/// the fetch and applied here, and the total counts annotations too.
 pub fn annotations<S: Storage>(
     dataset: &S,
-    query: AnnotationQuery,
-) -> Result<Vec<AnnotationSummary>, DatasetError> {
+    query: &LinkQuery,
+) -> Result<Answer<AnnotationSummary>, DatasetError> {
+    let mut unlimited = query.clone();
+    unlimited.limit = None;
+    let links = dataset.links_matching(&unlimited)?.rows;
+
+    // Grouped by the window they were made over, because an annotation is
+    // reported with its pair and a link carries the pair in its subject.
+    let mut by_pair: BTreeMap<(String, String, String), Vec<crate::link::Link>> = BTreeMap::new();
+    for link in links {
+        let (Some(work), Some(window)) = (link.subject.work(), link.subject.window()) else {
+            continue;
+        };
+        by_pair
+            .entry((work.to_string(), window.from_date, window.to_date))
+            .or_default()
+            .push(link);
+    }
+
     let mut out = Vec::new();
-    match query {
-        AnnotationQuery::Pair { from, to } => {
-            for ann in dataset.get_annotations(from, to)?.unwrap_or_default() {
-                out.push(summarize(from, to, &ann));
-            }
-        }
-        AnnotationQuery::Bill(bill_id) => {
-            for (from, to) in dataset.annotation_pairs()? {
-                for ann in dataset.get_annotations(&from, &to)?.unwrap_or_default() {
-                    if ann.source_bill.bill_id == bill_id {
-                        out.push(summarize(&from, &to, &ann));
-                    }
-                }
-            }
-        }
-        AnnotationQuery::Path { path, matching } => {
-            for (from, to) in dataset.annotation_pairs()? {
-                for ann in dataset.get_annotations(&from, &to)?.unwrap_or_default() {
-                    if ann.paths.iter().any(|p| matching.accepts(path, p)) {
-                        out.push(summarize(&from, &to, &ann));
-                    }
-                }
-            }
+    for ((work, from_date, to_date), group) in by_pair {
+        let work = crate::dataset::WorkId::new(work);
+        let from = ExpressionId::new(work.clone(), from_date);
+        let to = ExpressionId::new(work, to_date);
+        for ann in crate::link::annotations_from_links(&group) {
+            out.push(summarize(&from, &to, &ann));
         }
     }
-    Ok(out)
+
+    let total = out.len();
+    if let Some(limit) = query.limit {
+        out.truncate(limit);
+    }
+    Ok(Answer { rows: out, total })
 }
 
 /// The paths touched between two expressions of one work, split by kind of change.
