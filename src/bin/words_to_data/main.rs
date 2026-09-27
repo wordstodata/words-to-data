@@ -21,6 +21,7 @@ mod extract_changes;
 mod fail;
 mod info;
 mod link_amendment;
+mod link_by_evidence;
 mod load;
 mod match_amendments;
 mod path;
@@ -57,6 +58,8 @@ enum Command {
     ScoreAmendments(score_amendments::Args),
     /// Match bill amendments to US Code changes via an LLM and annotate the dataset
     MatchAmendments(match_amendments::Args),
+    /// Link each amendment of every public law to its change from address, window and quoted words (no LLM)
+    LinkByEvidence(link_by_evidence::Args),
     /// Record the provisions a bill renumbered, as links (deterministic, no LLM)
     Redesignations(redesignations::Args),
     /// Settle one link: say whether it is right, and record the review as its own link
@@ -113,6 +116,7 @@ fn main() {
         Command::ExtractChanges(args) => extract_changes::run(args),
         Command::ScoreAmendments(args) => score_amendments::run(args),
         Command::MatchAmendments(args) => match_amendments::run(args),
+        Command::LinkByEvidence(args) => link_by_evidence::run(args),
         Command::Redesignations(args) => redesignations::run(args),
         Command::Settle(args) => settle::run(args),
         Command::LinkAmendment(args) => link_amendment::run(args),

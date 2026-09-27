@@ -466,6 +466,42 @@ The tables are fetched from the OLRC and cached. A page the cache holds is never
 fetched again, and `--offline` reads only the cache. What the table says, and how
 each row is read, is in the `words_to_data::olrc` module documentation.
 
+### Matching with no model — `link-by-evidence`
+
+This command links each amendment of every public law the dataset holds to the
+change it made, and calls no model
+(`docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`).
+
+```bash
+words_to_data link-by-evidence dataset.sqlite
+words_to_data link-by-evidence dataset.json --output dataset-linked.json
+```
+
+For each amendment it reads three things the dataset already holds:
+
+1. **The address.** The section, and the provision below it, that the bill's
+   markup names (`amendment-addresses` prints them).
+2. **The window.** The first window after the law's enactment date in which
+   something under the address changed. A later window that changed too is
+   named in the evidence, and is never a second link.
+3. **The words the bill quotes.** A struck string is in a change's before text,
+   an inserted string is in its after text, and an enacted block is the text of
+   an added provision. The changes under one section are given to the
+   amendments addressed there all together, so each change has one cause. A
+   tie that the words cannot break is left alone.
+
+Each change becomes one `legislature.amended_by` link, in the shape
+`match-amendments` writes, with the method `address, window and quoted
+words@1`. Its evidence says the address, the window, the words that placed it,
+and what the OLRC classification (if `add-classifications` has run) says of the
+section. A note in the classification never counts.
+
+An amendment it cannot link is not stored. The stage it stopped at, and why, is
+worked out again whenever it is asked for, because a stored reason goes false
+the moment someone links the amendment. The quoted strings are read from the
+stored bill, so a dataset built before this command existed must be rebuilt to
+carry them.
+
 ## Quick Start
 
 ### Dataset Workflow

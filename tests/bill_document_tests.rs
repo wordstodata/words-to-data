@@ -12,9 +12,9 @@ use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, WorkId};
 use words_to_data::document::DocumentNode;
 use words_to_data::storage::InMemoryStorage;
-use words_to_data::uslm::UslmFacts;
 use words_to_data::uslm::bill_parser::amendment_paths;
 use words_to_data::uslm::bill_redesignation::{redesignations_stated, redesignations_stated_in};
+use words_to_data::uslm::{QuotedText, UslmFacts};
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -209,6 +209,49 @@ fn should_state_the_same_redesignations_from_the_stored_bill_as_from_its_markup(
         })
         .collect();
     assert_eq!(without_the_path, from_markup);
+}
+
+#[test]
+fn should_keep_each_quoted_string_with_the_action_before_it_when_the_bill_is_stored() {
+    let dataset = dataset_holding_the_bill();
+    let bill = dataset
+        .get_bill(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the bill should be there");
+    let root = stored_bill_root(&dataset);
+    let located = amendment_paths(&root);
+
+    // Section 10303 of the law writes, twice: by striking "crop year or" and
+    // inserting "crop year,". The publisher sets each string in a
+    // `<quotedText>` after an `<amendingAction>` (#250).
+    let (id, _) = bill
+        .amendments
+        .iter()
+        .find(|(_, amendment)| amendment.amending_text.contains("crop year or"))
+        .expect("the bill strikes \"crop year or\"");
+    let node = root
+        .find(&located[id])
+        .expect("the amendment should sit at a path in the bill");
+    let stated = UslmFacts::of(&node.data)
+        .and_then(|facts| facts.amendment)
+        .expect("an instruction node states its amendment");
+
+    assert!(
+        stated.quoted_text.contains(&QuotedText {
+            text: "crop year or".to_string(),
+            action: Some("delete".to_string()),
+        }),
+        "the struck string is kept with the action that strikes it: {:?}",
+        stated.quoted_text
+    );
+    assert!(
+        stated.quoted_text.contains(&QuotedText {
+            text: "crop year,".to_string(),
+            action: Some("insert".to_string()),
+        }),
+        "the inserted string is kept with the action that inserts it: {:?}",
+        stated.quoted_text
+    );
 }
 
 /// Whether any node of a tree carries this heading.
