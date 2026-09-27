@@ -444,6 +444,28 @@ the gap. It says nothing about a statement no reader could place, because that i
 finished work with a reason rather than a step nobody has run (#183). The list is
 read out of the links the dataset holds, and nothing is stored.
 
+### What the OLRC classified — `add-classifications`
+
+The Office of the Law Revision Counsel publishes, for each session of Congress,
+which Code section each section of a public law was classified to, and the kind
+of change. This command stores that table for every public law a dataset holds,
+as `olrc.classified_from` links. It calls no model.
+
+```bash
+words_to_data add-classifications dataset.sqlite
+```
+
+Each link says: this Code section (the subject, as its structural path) was
+classified from this section of the law (`olrc.classification:119-21:71301(a)`).
+It is `Asserted`, its source names the table page, and its payload holds the
+table's description (`new`, `nt new`, blank for amended, and the rest). The table
+stops at the section, and a law it does not list is not a law that changed
+nothing. A row the dataset cannot address is printed with its reason.
+
+The tables are fetched from the OLRC and cached. A page the cache holds is never
+fetched again, and `--offline` reads only the cache. What the table says, and how
+each row is read, is in the `words_to_data::olrc` module documentation.
+
 ## Quick Start
 
 ### Dataset Workflow

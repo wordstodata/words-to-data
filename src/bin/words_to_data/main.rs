@@ -3,6 +3,7 @@
 
 use clap::{Parser, Subcommand};
 
+mod add_classifications;
 mod add_opinions;
 mod add_release_points;
 mod amendment_addresses;
@@ -19,6 +20,7 @@ mod expressions;
 mod extract_changes;
 mod fail;
 mod info;
+mod link_amendment;
 mod link_by_evidence;
 mod load;
 mod match_amendments;
@@ -62,10 +64,14 @@ enum Command {
     Redesignations(redesignations::Args),
     /// Settle one link: say whether it is right, and record the review as its own link
     Settle(settle::Args),
+    /// Record an amendment link an agent found, refusing any path that did not change
+    LinkAmendment(link_amendment::Args),
     /// Add court opinions from CourtListener, with their U.S.C. citations as links
     AddOpinions(add_opinions::Args),
     /// Add more US Code release points to a dataset that is already there
     AddReleasePoints(add_release_points::Args),
+    /// Add the OLRC's classification of each public law the dataset holds, as links
+    AddClassifications(add_classifications::Args),
 
     // --- Inspection (read-only) ---
     /// Show a dataset's metadata and headline counts
@@ -113,8 +119,10 @@ fn main() {
         Command::LinkByEvidence(args) => link_by_evidence::run(args),
         Command::Redesignations(args) => redesignations::run(args),
         Command::Settle(args) => settle::run(args),
+        Command::LinkAmendment(args) => link_amendment::run(args),
         Command::AddOpinions(args) => add_opinions::run(args),
         Command::AddReleasePoints(args) => add_release_points::run(args),
+        Command::AddClassifications(args) => add_classifications::run(args),
         Command::CasesCiting(args) => cases_citing::run(args),
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),
