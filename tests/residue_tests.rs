@@ -23,6 +23,7 @@ use words_to_data::dataset::{
 use words_to_data::link::Link;
 use words_to_data::olrc::{ClassificationTable, classify};
 use words_to_data::query::DEFAULT_LIMIT;
+use words_to_data::storage::LinkReader;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -388,6 +389,27 @@ fn should_say_the_batch_has_not_written_its_link_when_the_method_links_an_amendm
         "the changes it would be linked to: {}",
         row["changes"]
     );
+}
+
+#[test]
+fn should_store_nothing_when_it_lists_the_residue() {
+    let dataset = writable_copy("residue_stores_nothing");
+    let links = || {
+        Dataset::open_sqlite(&dataset)
+            .expect("the dataset should open")
+            .count_links_by_kind()
+            .expect("the links should count")
+    };
+    let before = links();
+
+    residue_rows(&dataset);
+    let output = run(
+        "residue",
+        &[dataset.to_str().expect("a UTF-8 path"), "--bill", BILL_ID],
+    );
+    assert!(output.status.success());
+
+    assert_eq!(links(), before, "no link is written or removed");
 }
 
 #[test]
