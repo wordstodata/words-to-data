@@ -26,7 +26,11 @@ fn committed_table() -> ClassificationTable {
 fn should_read_every_row_when_the_page_is_a_real_table() {
     let table = committed_table();
 
-    assert_eq!(table.rows.len(), 3049, "the page lists 3,049 classifications");
+    assert_eq!(
+        table.rows.len(),
+        3049,
+        "the page lists 3,049 classifications"
+    );
 
     let first = &table.rows[0];
     assert_eq!(first.title, "8");
@@ -104,7 +108,11 @@ fn should_read_the_table_from_the_cache_when_the_page_is_held() {
     );
     let table = ClassificationTable::parse(&page.html).expect("the page should parse");
     assert_eq!(table.rows.len(), 3049);
-    assert_eq!(client.fetched(), 0, "a page the cache holds is never fetched");
+    assert_eq!(
+        client.fetched(),
+        0,
+        "a page the cache holds is never fetched"
+    );
 }
 
 /// The table page the committed fixture is, as a link's source names it.
@@ -120,7 +128,11 @@ fn title_26() -> &'static (Scope, SectionPaths) {
             ..Default::default()
         });
         dataset
-            .add_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30", None)
+            .add_uslm_xml(
+                "tests/test_data/usc/2025-07-30/usc26.xml",
+                "2025-07-30",
+                None,
+            )
             .expect("title 26 should parse");
         let expression = dataset
             .get_expression(&ExpressionId::new(
@@ -171,8 +183,38 @@ fn should_store_one_asserted_link_per_law_section_when_the_dataset_holds_the_cod
 
         let payload = link.payload.as_ref().expect("the kind of change");
         assert_eq!(payload.namespace, "olrc");
-        assert_eq!(payload.value["description"], "", "36B is amended");
+        assert_eq!(
+            payload.value["descriptions"],
+            serde_json::json!([""]),
+            "36B is amended"
+        );
     }
+}
+
+#[test]
+fn should_keep_both_descriptions_when_two_rows_state_one_link() {
+    let table = committed_table();
+    // Section 70116(a)(2) of the law both amended section 25B and added a note
+    // to it, and the table gives each its own row.
+    let rows: Vec<ClassificationRow> = table
+        .rows
+        .iter()
+        .filter(|row| {
+            row.public_law == "119-21" && row.section == "25B" && row.law_sections == "70116(a)(2)"
+        })
+        .cloned()
+        .collect();
+    assert_eq!(rows.len(), 2, "the table lists two rows");
+    let (scope, paths) = title_26();
+
+    let classified = classify(&rows, scope, paths, TABLE_SOURCE);
+
+    assert_eq!(classified.links.len(), 1, "two rows, one statement");
+    let payload = classified.links[0].payload.as_ref().expect("a payload");
+    assert_eq!(
+        payload.value["descriptions"],
+        serde_json::json!(["", "nt new"])
+    );
 }
 
 #[test]

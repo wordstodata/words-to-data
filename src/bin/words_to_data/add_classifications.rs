@@ -120,8 +120,7 @@ fn add_classifications<S: Storage>(dataset: &mut Dataset<S>, client: &OlrcClient
     let scope = crate::fail::or_exit(dataset.scope(), "Error reading the dataset's scope");
 
     let mut rows_per_law: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut stated = 0;
-    let mut distinct = BTreeSet::new();
+    let mut stored = 0;
     let mut skipped = Vec::new();
     for page in &pages {
         for row in &page.rows {
@@ -129,8 +128,7 @@ fn add_classifications<S: Storage>(dataset: &mut Dataset<S>, client: &OlrcClient
         }
         let classified = classify(&page.rows, &scope, &paths, &format!("olrc:{}", page.url));
         for link in classified.links {
-            stated += 1;
-            distinct.insert(link.id());
+            stored += 1;
             crate::fail::or_exit(dataset.add_link(link), "Error storing a classification");
         }
         skipped.extend(classified.skipped);
@@ -148,12 +146,13 @@ fn add_classifications<S: Storage>(dataset: &mut Dataset<S>, client: &OlrcClient
 
     let rows: usize = rows_per_law.values().sum();
     println!(
-        "\n{} of {rows} row(s) stated {stated} link(s), which is {} distinct \
-         olrc.classified_from link(s).",
+        "\n{} of {rows} row(s) stated {stored} olrc.classified_from link(s).",
         rows - skipped.len(),
-        distinct.len()
     );
-    println!("  A link is identified by what it says, so a second run stores none twice.");
+    // A link is identified by what it says, so two rows naming one Code section
+    // and one section of the law are one link, and a second run stores nothing
+    // twice (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    println!("  Two rows that state one link are one link, and it keeps both descriptions.");
 
     report_skipped(&skipped);
 }
@@ -250,7 +249,9 @@ fn report_skipped(skipped: &[words_to_data::olrc::Skipped]) {
     for skip in skipped {
         match skip.reason {
             SkipReason::TitleNotHeld => {
-                *not_held_by_title.entry(skip.row.title.as_str()).or_default() += 1
+                *not_held_by_title
+                    .entry(skip.row.title.as_str())
+                    .or_default() += 1
             }
             SkipReason::TitleMissing => {
                 *missing_by_title.entry(skip.row.title.as_str()).or_default() += 1

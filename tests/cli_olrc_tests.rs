@@ -21,12 +21,17 @@ fn public_law_and_title_26(name: &str) -> String {
         ..Default::default()
     });
     dataset
-        .add_uslm_xml("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30", None)
+        .add_uslm_xml(
+            "tests/test_data/usc/2025-07-30/usc26.xml",
+            "2025-07-30",
+            None,
+        )
         .expect("title 26 should parse");
 
-    let xml =
-        std::fs::read_to_string("tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml")
-            .expect("the public law is committed");
+    let xml = std::fs::read_to_string(
+        "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml",
+    )
+    .expect("the public law is committed");
     let document = roxmltree::Document::parse(&xml).expect("the public law is XML");
     let (expression, _) = words_to_data::uslm::bill_parser::bill_expression(&document, "119-hr-1")
         .expect("the public law should parse");
@@ -34,7 +39,9 @@ fn public_law_and_title_26(name: &str) -> String {
         .add_expression(expression)
         .expect("the public law should store");
 
-    dataset.save_to_sqlite(&path).expect("the fixture should save");
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
     path
 }
 
@@ -89,11 +96,15 @@ fn should_store_the_classifications_of_a_public_law_when_the_dataset_holds_it() 
     );
 
     let links = classifications(&dataset);
-    assert!(!links.is_empty(), "title 26 holds sections 119-21 classified");
     assert!(
-        links
-            .iter()
-            .all(|link| link.object.name().starts_with("olrc.classification:119-21:")),
+        !links.is_empty(),
+        "title 26 holds sections 119-21 classified"
+    );
+    assert!(
+        links.iter().all(|link| link
+            .object
+            .name()
+            .starts_with("olrc.classification:119-21:")),
         "every link names a section of Public Law 119-21"
     );
     assert!(

@@ -53,6 +53,14 @@ pub enum SkipReason {
 ///
 /// A row becomes one link for each section of the law it names and each path
 /// its Code section sits at. `source` names the table the rows were read from.
+///
+/// Two rows can state one link. Section 70116(a)(2) of Public Law 119-21 both
+/// amended 26 U.S.C. 25B and added a note to it, and the table gives each its
+/// own row. A link is identified by its subject, kind and object
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`), so
+/// the two are one link, and its payload keeps both descriptions in the order
+/// the table lists them. One description in the payload would keep whichever
+/// row was written last and lose the other.
 pub fn classify(
     rows: &[ClassificationRow],
     scope: &Scope,
@@ -87,12 +95,31 @@ pub fn classify(
 
         for path in held {
             for law_section in row.named_law_sections() {
-                classified.links.push(link(row, path, &law_section, source));
+                let stated = link(row, path, &law_section, source);
+                match classified.links.iter_mut().find(|l| l.id() == stated.id()) {
+                    Some(already) => add_description(already, &row.description),
+                    None => classified.links.push(stated),
+                }
             }
         }
     }
 
     classified
+}
+
+/// Add one more description to a link another row already stated.
+fn add_description(link: &mut Link, description: &str) {
+    let Some(serde_json::Value::Array(descriptions)) = link
+        .payload
+        .as_mut()
+        .and_then(|payload| payload.value.get_mut("descriptions"))
+    else {
+        return;
+    };
+    let description = serde_json::Value::from(description);
+    if !descriptions.contains(&description) {
+        descriptions.push(description);
+    }
 }
 
 /// One link: the Code section at `path`, classified from `law_section`.
@@ -115,7 +142,7 @@ fn link(row: &ClassificationRow, path: &str, law_section: &str, source: &str) ->
         },
         payload: Some(KindPayload {
             namespace: NAMESPACE.to_string(),
-            value: serde_json::json!({ "description": row.description }),
+            value: serde_json::json!({ "descriptions": [row.description] }),
         }),
     }
 }
