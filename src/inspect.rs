@@ -1075,6 +1075,20 @@ pub struct ValidationReport {
     /// run, named as the command that runs it. See
     /// [`UnresolvedWindow`].
     pub unresolved_redesignations: Vec<UnresolvedWindow>,
+    /// Each bill and window no amendment-matching run has covered.
+    ///
+    /// The same work-list one link kind over (#210). See
+    /// [`UncoveredAmendments`].
+    pub uncovered_amendments: Vec<UncoveredAmendments>,
+    /// Every bill that states no amendment at all.
+    ///
+    /// Nothing to cover, so no window of such a bill is a gap, and none of
+    /// them makes the answer not `ok`. Named all the same: a bill absent from
+    /// the work-list above would read exactly like a bill somebody had
+    /// finished, and "no amendments" can mean the bill amends nothing or the
+    /// parse found nothing. Which of the two it is, is not this report's
+    /// question; that the reader must ask it, is (#210).
+    pub bills_without_amendments: Vec<String>,
 }
 
 /// A bill and a window whose redesignation statements hold no link.
@@ -1113,6 +1127,60 @@ impl std::fmt::Display for UnresolvedWindow {
              run `words_to_data redesignations <dataset> --bill-id {} --between {} {}`",
             self.bill_id,
             self.statements,
+            self.work,
+            self.from,
+            self.to,
+            self.bill_id,
+            self.from,
+            self.to
+        )
+    }
+}
+
+/// A bill and a window whose amendments no matching run has covered.
+///
+/// The unit #210 asks for, and the unit #183 already uses one link kind over: a
+/// bill is covered against one window at a time, so a bill covered in the
+/// earlier window and not the later one is one row, not a verdict on the bill.
+///
+/// **Derived, never stored.** A [`MethodRun`] says which method ran over which
+/// window, so "has the matching method run here" is answerable from what the
+/// dataset holds. A stored work-list would go false the moment a release point
+/// arrived and made a window nobody had written down
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+#[derive(Debug, Clone, Serialize)]
+pub struct UncoveredAmendments {
+    pub bill_id: String,
+    /// The work the window is of, such as `uscode/title_26`.
+    pub work: WorkId,
+    /// The earlier date of the window.
+    pub from: String,
+    /// The later date of the window.
+    pub to: String,
+    /// How many amendments the bill states, none of which this window has had
+    /// a matching run for.
+    ///
+    /// Every one of them, because a method that never ran over this window
+    /// covered none of them. It is a count of amendments and never of
+    /// annotations: a window the model answered "no match" for has been worked
+    /// on, and on a real corpus four bills of five gave no annotation while the
+    /// run had covered all of them. Counting annotations would name those four
+    /// as unfinished, which is the crying wolf #183's own warning names.
+    ///
+    /// Whether each amendment's changes are findable in the corpus at all is a
+    /// different question, it needs a diff, and it is #211.
+    pub amendments: usize,
+}
+
+impl std::fmt::Display for UncoveredAmendments {
+    /// The line a reader acts on: the bill, the window, and the command.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} states {} amendment(s) no matching run has covered against {} {} -> {}: \
+             run `words_to_data match-amendments <dataset> --bills {} --between {} {}`",
+            self.bill_id,
+            self.amendments,
             self.work,
             self.from,
             self.to,
@@ -1207,6 +1275,75 @@ fn unresolved_redesignations<S: Storage + LegislatureReader>(
     Ok(unresolved)
 }
 
+/// What the amendment-coverage check found, in one pass over the bills.
+///
+/// Two answers rather than one, because "this window has work waiting" and
+/// "this bill had nothing to do" are different things and a reader acts on them
+/// differently.
+struct AmendmentCoverage {
+    uncovered: Vec<UncoveredAmendments>,
+    without_amendments: Vec<String>,
+}
+
+/// Whether a matching run covers this window.
+///
+/// **This is the whole question.** Not how many annotations the window holds: a
+/// window the model answered "no match" for has been worked on, and a report
+/// that could not tell that from an untouched window would send somebody to run
+/// the step again for nothing.
+///
+/// The method is matched by name and not by version. A window covered at
+/// version 1 was covered — the reasoning ran over it. A version rise says the
+/// reasoning's answers changed, which is a reason to re-run a window and not a
+/// reason to call it untouched, and a list that named every window of a corpus
+/// the day somebody raised a version would be ignored by the second day.
+fn a_matching_run_covers(runs: &[MethodRun], work: &WorkId, from: &str, to: &str) -> bool {
+    let matching = crate::matching::matching_method();
+    runs.iter()
+        .any(|run| run.method.name == matching.name && run.covers(work, from, to))
+}
+
+/// Every bill and window no amendment-matching run has covered.
+///
+/// Takes the amendment counts the caller has already read, because `validate`
+/// opens every bill once already and a second pass over them would be the whole
+/// legislature read twice.
+fn amendment_coverage<S: Storage>(
+    dataset: &S,
+    amendments_per_bill: &[(String, usize)],
+) -> Result<AmendmentCoverage, DatasetError> {
+    // A record, read rather than recomputed. An empty list means nothing was
+    // recorded, and for this question that is the same answer as "no run
+    // covers this window": the report names the step, and running it records
+    // what it did.
+    let runs = &dataset.metadata().method_runs;
+    let windows = adjacent_expressions(dataset)?;
+
+    let mut coverage = AmendmentCoverage {
+        uncovered: Vec::new(),
+        without_amendments: Vec::new(),
+    };
+    for (bill_id, amendments) in amendments_per_bill {
+        if *amendments == 0 {
+            coverage.without_amendments.push(bill_id.clone());
+            continue;
+        }
+        for (from, to) in &windows {
+            if a_matching_run_covers(runs, &from.work, &from.at, &to.at) {
+                continue;
+            }
+            coverage.uncovered.push(UncoveredAmendments {
+                bill_id: bill_id.clone(),
+                work: from.work.clone(),
+                from: from.at.clone(),
+                to: to.at.clone(),
+                amendments: *amendments,
+            });
+        }
+    }
+    Ok(coverage)
+}
+
 /// Check a dataset for internal consistency:
 ///
 /// - each work's expression dates are strictly ascending and unique,
@@ -1214,7 +1351,9 @@ fn unresolved_redesignations<S: Storage + LegislatureReader>(
 /// - every annotation's `amendment_id` resolves to a real bill amendment,
 /// - every annotation path names an element present in some expression,
 /// - every bill's redesignation statements have been resolved against the
-///   windows that could hold them (#183).
+///   windows that could hold them (#183),
+/// - a matching run has covered every window that a bill's amendments could
+///   have reached (#210).
 pub fn validate<S: Storage + LegislatureReader>(
     dataset: &S,
 ) -> Result<ValidationReport, DatasetError> {
@@ -1235,11 +1374,16 @@ pub fn validate<S: Storage + LegislatureReader>(
         }
     }
 
-    // 2. Set of every amendment id across every bill.
+    // 2. Set of every amendment id across every bill, and how many each bill
+    //    states. The count is taken here rather than in step 6, because the
+    //    bills are open already and reading them twice would be the whole
+    //    legislature read twice.
     let mut amendment_ids = std::collections::HashSet::new();
+    let mut amendments_per_bill = Vec::new();
     for bill_id in dataset.list_bill_ids()? {
         if let Some(bill) = dataset.get_bill(&bill_id)? {
             amendment_ids.extend(bill.amendments.keys().cloned());
+            amendments_per_bill.push((bill_id, bill.amendments.len()));
         }
     }
 
@@ -1285,11 +1429,25 @@ pub fn validate<S: Storage + LegislatureReader>(
     //    acts on the two differently. Both make the answer not `ok`.
     let unresolved_redesignations = unresolved_redesignations(dataset)?;
 
+    // 6. Windows no amendment-matching run has covered (#210). The same
+    //    question one link kind over, and answered from the record of what ran
+    //    rather than from the links: a run that found nothing is still a run,
+    //    and a check that could not tell it from an absent run would cry wolf
+    //    over finished work.
+    let coverage = amendment_coverage(dataset, &amendments_per_bill)?;
+
     Ok(ValidationReport {
-        ok: issues.is_empty() && unresolved_redesignations.is_empty(),
+        ok: issues.is_empty()
+            && unresolved_redesignations.is_empty()
+            && coverage.uncovered.is_empty(),
         issues,
         checked_annotations,
         unresolved_redesignations,
+        uncovered_amendments: coverage.uncovered,
+        // A bill with nothing to cover is not work outstanding, so it does not
+        // make the answer not `ok`. It is reported all the same, because
+        // silence about it is the absence this check exists to end.
+        bills_without_amendments: coverage.without_amendments,
     })
 }
 
