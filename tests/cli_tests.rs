@@ -627,9 +627,9 @@ fn should_find_matching_text_across_expressions_when_search_runs() {
 
     assert!(output.status.success(), "search should exit zero");
 
-    let hits: serde_json::Value =
+    let answer: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("search --json should emit json");
-    let hits = hits.as_array().expect("an array of hits");
+    let hits = answer["hits"].as_array().expect("an array of hits");
 
     assert!(!hits.is_empty(), "title 51 should contain the word 'space'");
 
@@ -662,10 +662,16 @@ fn should_find_nothing_when_search_has_no_match() {
 
     assert!(output.status.success(), "an empty search should exit zero");
 
-    let hits: serde_json::Value =
+    let answer: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("search --json should emit json");
 
-    assert_eq!(hits.as_array().expect("an array of hits").len(), 0);
+    assert_eq!(
+        answer["hits"].as_array().expect("an array of hits").len(),
+        0
+    );
+    // And the total says none matched, rather than leaving an empty list to be
+    // read as a truncated one.
+    assert_eq!(answer["total"].as_u64(), Some(0));
 }
 
 /// Nothing in this fixture is annotated, so every changed path is unannotated.
@@ -1025,9 +1031,11 @@ fn should_attribute_search_hits_to_the_right_work_when_two_works_are_held() {
         let output = run(&["search", dataset, query, "--json"]);
         assert!(output.status.success(), "search should exit zero");
 
-        let hits: serde_json::Value =
+        let answer: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("search --json should emit json");
-        let hits = hits.as_array().expect("an array of hits");
+        // The hits sit beside the total, the shape `annotations` already uses, so
+        // a run that showed some of them can say how many it left out (#235).
+        let hits = answer["hits"].as_array().expect("an array of hits");
 
         assert!(!hits.is_empty(), "{expected_work} should contain {query:?}");
         assert!(

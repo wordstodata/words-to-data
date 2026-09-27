@@ -403,6 +403,23 @@ impl<S: Storage> Dataset<S> {
         self.storage.search_text(query)
     }
 
+    /// Search text where a locator says to look, at most `limit` hits.
+    ///
+    /// The bounded form of [`Dataset::search_text`]. See
+    /// [`DocumentReader::search_text_in`]: the locator picks the expressions and
+    /// the provisions read, and the answer's total says how many matched, so a
+    /// caller that showed some of them can say how many it left out.
+    ///
+    /// [`DocumentReader::search_text_in`]: crate::storage::DocumentReader::search_text_in
+    pub fn search_text_in(
+        &self,
+        query: &str,
+        locator: &crate::query::Locator,
+        limit: Option<usize>,
+    ) -> Result<crate::query::Answer<SearchResult>, DatasetError> {
+        self.storage.search_text_in(query, locator, limit)
+    }
+
     pub fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         self.storage.annotations_for_path(path)
     }
@@ -888,8 +905,13 @@ impl<S: Storage> DocumentReader for Dataset<S> {
         self.diff_over_links(from, to)
     }
 
-    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
-        self.storage.search_text(query)
+    fn search_text_in(
+        &self,
+        query: &str,
+        locator: &crate::query::Locator,
+        limit: Option<usize>,
+    ) -> Result<crate::query::Answer<SearchResult>, DatasetError> {
+        self.storage.search_text_in(query, locator, limit)
     }
 
     fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {

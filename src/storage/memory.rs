@@ -14,9 +14,11 @@ use crate::document::DocumentNode;
 use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
 use crate::link::{Link, Target};
+use crate::query::{Answer, Locator};
 use crate::storage::{
-    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, LegislatureCounts,
-    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, Storage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, Hits, LegislatureCounts,
+    LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, Storage, locates_expression,
+    locates_path,
 };
 use crate::uslm::bill_parser::Bill;
 
@@ -119,11 +121,19 @@ impl InMemoryStorage {
         by_date.values().nth(wanted)
     }
 
+    /// Walk one element and its children, keeping the field matches a locator's
+    /// path reaches.
+    ///
+    /// The whole tree is walked whatever the path says. A locator naming a
+    /// section still has to reach the children beneath it, and the paths of a
+    /// parent and its child are not ordered by the tree, so pruning at the first
+    /// path that does not match would stop at the root.
     fn search_element(
         element: &DocumentNode,
         id: &ExpressionId,
         query: &str,
-        results: &mut Vec<SearchResult>,
+        locator: &Locator,
+        hits: &mut Hits,
     ) {
         let fields = [
             ("heading", &element.data.heading),
@@ -133,21 +143,24 @@ impl InMemoryStorage {
             ("continuation", &element.data.continuation),
         ];
 
-        for (field_name, field_value) in fields {
-            if let Some(text) = field_value
-                && text.to_lowercase().contains(query)
-            {
-                results.push(SearchResult {
-                    expression: id.clone(),
-                    path: element.data.path.to_string(),
-                    field: field_name.to_string(),
-                    snippet: text.to_string(),
-                });
+        let path = element.data.path.to_string();
+        if locates_path(locator, &path) {
+            for (field_name, field_value) in fields {
+                if let Some(text) = field_value
+                    && text.to_lowercase().contains(query)
+                {
+                    hits.offer(|| SearchResult {
+                        expression: id.clone(),
+                        path: path.clone(),
+                        field: field_name.to_string(),
+                        snippet: text.to_string(),
+                    });
+                }
             }
         }
 
         for child in &element.children {
-            Self::search_element(child, id, query, results);
+            Self::search_element(child, id, query, locator, hits);
         }
     }
 }
@@ -197,15 +210,29 @@ impl DocumentReader for InMemoryStorage {
         Ok(TreeDiff::from_nodes(&from_e.root, &to_e.root))
     }
 
-    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
+    fn search_text_in(
+        &self,
+        query: &str,
+        locator: &Locator,
+        limit: Option<usize>,
+    ) -> Result<Answer<SearchResult>, DatasetError> {
         let query_lower = query.to_lowercase();
-        let mut results = Vec::new();
+        let mut hits = Hits::with_limit(limit);
 
         for expression in self.all_expressions() {
-            Self::search_element(&expression.root, &expression.id, &query_lower, &mut results);
+            if !locates_expression(locator, &expression.id) {
+                continue;
+            }
+            Self::search_element(
+                &expression.root,
+                &expression.id,
+                &query_lower,
+                locator,
+                &mut hits,
+            );
         }
 
-        Ok(results)
+        Ok(hits.answer())
     }
 
     fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
