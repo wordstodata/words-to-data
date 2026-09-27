@@ -476,3 +476,143 @@ fn should_name_the_new_section_when_an_amendment_inserts_one_after_another() {
     );
     assert_eq!(row.path_section.as_deref(), Some("41"));
 }
+
+// --- Collapsed quotes -----------------------------------------------------
+//
+// The stored words often write a closing quote and the next opening quote as
+// **one** character: `…for 'clause (ii)'."(D) Special rule…`. A reader that
+// pairs quote marks by position loses step there, and every section after the
+// join lands in a stretch it wrongly takes for prose. The count of marks cannot
+// say when this happened: an even count breaks the same way as an odd one.
+//
+// So the section an amendment names is read only from the words **before its
+// first quotation mark**. Amendment language names its target before it starts
+// to quote.
+
+/// § 529A(b)(2)(B), which carries a link to the amendment that adds the new
+/// part on Trump accounts:
+///
+/// > Subchapter F of chapter 1 is amended by adding at the end the following
+/// > new part:"PART IX--… TRUMP ACCOUNTS"Sec. 530A. Trump accounts."SEC. 530A.
+/// > …"(a) General Rule.--… an individual retirement account under section
+/// > 408(a)."(b) …
+///
+/// Nothing before the first quotation mark names a section. § 408 sits inside
+/// the inserted text, after the collapsed marks `"Sec.` and `."(a)`, and a
+/// reader that paired the marks by position took it for prose.
+const SECTION_529A_B_2_B: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529A/subsection_b/paragraph_2/subparagraph_B";
+
+/// A section after the first quotation mark is not a section the amendment
+/// names, even where the marks have collapsed together.
+#[test]
+fn should_not_name_a_section_when_it_comes_only_after_the_first_quotation_mark() {
+    let dataset = amendment_links();
+    let report = section_agreement::section_agreement(&dataset, &LinkQuery::new())
+        .expect("the check should read the dataset");
+
+    let at_529a: Vec<_> = report
+        .rows
+        .iter()
+        .filter(|row| row.path == SECTION_529A_B_2_B)
+        .collect();
+
+    assert!(
+        at_529a
+            .iter()
+            .all(|row| row.named_section.as_deref() != Some("408")),
+        "§ 408 sits inside the inserted part, so no row may name it; found {at_529a:?}"
+    );
+    assert!(
+        at_529a
+            .iter()
+            .any(|row| row.outcome == Outcome::CouldNotBeRead
+                && row
+                    .reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("before its first quotation"))),
+        "the Trump-accounts row should be unread, and say that nothing before \
+         the first quotation names a section; found {at_529a:?}"
+    );
+}
+
+/// The clause the bill writes to add the definitions of prohibited foreign
+/// entities to § 7701(a):
+///
+/// > Section 7701(a) is amended by adding at the end the following new
+/// > paragraphs:
+///
+/// The maintainer's dataset carries two links on these words, `46de57fb0c0f`
+/// and `324e65f1e549`, and both point inside § 48E. The words state their
+/// target plainly, before any quotation, and it is not § 48E: the model matched
+/// the amendment to a provision that only **uses** the new definitions. That is
+/// a real matching error, and the prefix rule must still see it.
+const SECTION_7701_A_CLAUSE: &str =
+    "Section 7701(a) is amended by adding at the end the following new paragraphs";
+
+/// A target stated before the first quotation mark is still named.
+#[test]
+fn should_name_the_section_when_the_amendment_states_it_before_any_quotation() {
+    let words = bill_words_holding(SECTION_7701_A_CLAUSE);
+
+    let naming = section_agreement::section_named_in(&words);
+    assert_eq!(
+        naming.section(),
+        Some("7701"),
+        "the words name § 7701 before they quote anything, and a link inside \
+         § 48E on them must disagree; found {naming:?} in {words:?}"
+    );
+}
+
+// --- Cross-references -----------------------------------------------------
+
+/// The new § 4968(c) the bill writes, as the maintainer's dataset stores it at
+/// link `3a9530032fb5`: one quoted run of the inserted text, with no quotation
+/// mark left in it at all, because the excerpt starts inside the quotation.
+///
+/// > (c) Applicable Educational Institution.—For purposes of this subchapter,
+/// > the term 'applicable educational institution' means an eligible
+/// > educational institution (as defined in section 25A(f)(2))—
+///
+/// That link points at § 4968(c), and the row read `25A` against `4968`. § 25A
+/// is only the place a term is defined. A section after *as defined in*,
+/// *within the meaning of* or *described in* is a cross-reference, never the
+/// section acted on.
+const CROSS_REFERENCE_RUN: &str =
+    "means an eligible educational institution (as defined in section 25A(f)(2))";
+
+/// The one quoted run of the committed bill's words that holds `phrase`,
+/// without its marks — the shape a stored excerpt takes when it starts inside
+/// the inserted text.
+fn quoted_run_holding(phrase: &str) -> String {
+    let words = bill_words_holding(phrase);
+    let runs: Vec<&str> = words
+        .split(['"', '\u{201C}', '\u{201D}'])
+        .filter(|run| run.contains(phrase))
+        .collect();
+    let [run] = runs[..] else {
+        panic!("exactly one quoted run should hold {phrase:?}, found {runs:?}");
+    };
+    run.to_string()
+}
+
+/// A section named only as a cross-reference is not the section acted on.
+#[test]
+fn should_not_name_a_section_when_it_is_only_a_cross_reference() {
+    let words = quoted_run_holding(CROSS_REFERENCE_RUN);
+
+    // Guard. Without it the case could pass on words that name a target too.
+    assert!(
+        words.starts_with("(c) Applicable Educational Institution"),
+        "the run should be the new § 4968(c) alone, found {words:?}"
+    );
+
+    let naming = section_agreement::section_named_in(&words);
+    let Naming::Unread(reason) = &naming else {
+        panic!("§ 25A is only where a term is defined, found {naming:?} in {words:?}");
+    };
+    assert!(
+        reason.contains("25A") && reason.contains("cross-reference"),
+        "the reason should name the section and say it is a cross-reference, \
+         found {reason:?}"
+    );
+}

@@ -14,11 +14,21 @@
 //! quotes the text struck, the text inserted, and the positional anchor an
 //! insertion is placed after, and none of those three is the provision acted on.
 //! Reading one made the check report correct links as suspect — 29 of 40
-//! disagreements sampled on the maintainer's own dataset — so
-//! [`without_quotations`] blanks every quotation before a word is read. A link
-//! whose only section sits inside a quotation is then honestly the third
-//! outcome. The one exception is an insertion that states a whole new section,
-//! where the quoted text **is** the answer ([`new_section_inserted`]).
+//! disagreements sampled on the maintainer's own dataset — so only the words
+//! **before the first quotation mark** are read ([`before_first_quotation`]).
+//! Pairing the marks to skip each quotation is not safe: the stored words often
+//! write a closing and an opening mark as one character, and the pairing then
+//! loses step. A link that names no section before its first quotation is then
+//! honestly the third outcome. A section named only as a cross-reference —
+//! *as defined in*, *within the meaning of*, *described in* — is passed over the
+//! same way ([`is_cross_reference`]). The one exception is an insertion that
+//! states a whole new section, where the quoted text **is** the answer
+//! ([`new_section_inserted`]).
+//!
+//! **The known limit.** An excerpt that starts inside a quotation carries the
+//! inserted text before any mark, so its first words are not the amendment's
+//! own. A section there that is not phrased as a cross-reference is still read,
+//! and can still make a false row.
 //!
 //! **It does not decide.** A disagreement is a reason for a person to look, and
 //! nothing here is stored (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
@@ -368,25 +378,31 @@ pub fn section_named_in(words: &str) -> Naming {
     });
 
     // An insertion names the new section, and the bill states its number inside
-    // the text it inserts. Read before the quotations go, because that is the
-    // one place the quoted text holds the answer rather than a distraction.
+    // the text it inserts. Read before the words are cut at the first quotation
+    // mark, because that is the one place the quoted text holds the answer.
     if let Some(inserted) = new_section_inserted(words) {
         return Naming::Section(inserted);
     }
 
-    // Every quotation is blanked before a word of this is read. A quoted run is
-    // struck text, inserted text, or a positional anchor, and none of the three
-    // is the provision the amendment acts on.
-    let spoken = without_quotations(words);
+    // Only the words before the first quotation mark are read. A bill names
+    // its target before it starts to quote, and past that mark the quoted text
+    // and the prose between two quotations cannot be told apart.
+    let spoken = before_first_quotation(words);
 
-    if let Some(prose) = IN_PROSE.captures(&spoken) {
+    // A cross-reference is passed over: it says where a term is defined, and
+    // not which provision is acted on.
+    let named = IN_PROSE
+        .captures_iter(spoken)
+        .find(|prose| !is_cross_reference(spoken, prose));
+
+    if let Some(prose) = named {
         let whole = prose.get(0).expect("a match always has a whole");
         let section = prose["section"].to_string();
         if !OF_AN_ACT.is_match(&spoken[whole.end()..]) {
             return Naming::Section(section);
         }
         // A section of an Act. Its place in the Code is the citation's to give.
-        return cited_in(&spoken).unwrap_or_else(|| {
+        return cited_in(spoken).unwrap_or_else(|| {
             Naming::Unread(format!(
                 "the amendment names section {section} of an Act, and no U.S.C. \
                  citation beside it gives its place in the Code"
@@ -394,17 +410,46 @@ pub fn section_named_in(words: &str) -> Naming {
         });
     }
 
-    cited_in(&spoken).unwrap_or_else(|| match IN_PROSE.captures(words) {
-        // The words do name a section, and every mention of it is quoted. That
-        // is a different fact from naming none, and folding the two together
-        // would hide how much of this outcome has one cause (#211).
-        Some(quoted) => Naming::Unread(format!(
-            "every section the amendment names sits inside a quotation — \
-             section {} — so none of them is the section it acts on",
-            &quoted["section"]
+    if let Some(referenced) = IN_PROSE.captures(spoken) {
+        return cited_in(spoken).unwrap_or_else(|| {
+            Naming::Unread(format!(
+                "the amendment names section {} only as a cross-reference — \
+                 where a term is defined or described — and names no section \
+                 it acts on",
+                &referenced["section"]
+            ))
+        });
+    }
+
+    cited_in(spoken).unwrap_or_else(|| match IN_PROSE.captures(words) {
+        // The words do name a section, and only after the first quotation mark.
+        // That is a different fact from naming none, and folding the two
+        // together would hide how much of this outcome has one cause (#211).
+        Some(later) => Naming::Unread(format!(
+            "the amendment names no section before its first quotation mark — \
+             section {} comes after it, so it is not the section it acts on",
+            &later["section"]
         )),
         None => Naming::Unread("the amendment's words name no section".to_string()),
     })
+}
+
+/// Whether a section the words mention is only a cross-reference: *as defined
+/// in section 25A(f)(2)*, *within the meaning of section 7701(a)(30)*,
+/// *described in section 501(c)(3)*.
+///
+/// The bill writes these inside the text it inserts, and an excerpt that
+/// starts inside that text holds no quotation mark to stop the reading. The
+/// maintainer met one at link `3a9530032fb5`: the new § 4968(c), read as naming
+/// § 25A. A cross-reference says where a term is found, never which provision
+/// the amendment acts on.
+fn is_cross_reference(words: &str, mention: &regex::Captures) -> bool {
+    static REFERRING: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)(?:defined\s+in|within\s+the\s+meaning\s+of|described\s+in)\s*$")
+            .expect("the cross-reference pattern must compile")
+    });
+    let start = mention.get(0).expect("a match always has a whole").start();
+    REFERRING.is_match(&words[..start])
 }
 
 /// The number of the whole new section an amendment inserts, when it inserts
@@ -427,7 +472,7 @@ pub fn section_named_in(words: &str) -> Naming {
 /// subsection (f) the following new section"* and then quotes `"(g) …"` states
 /// no section heading, so this answers `None` and the ordinary reading stands.
 ///
-/// This is the one place a quotation is read rather than blanked, because it is
+/// This is the one place a quotation is read rather than cut away, because it is
 /// the one place the quoted text **is** the answer.
 fn new_section_inserted(words: &str) -> Option<String> {
     static INSERTING_A_SECTION: LazyLock<Regex> = LazyLock::new(|| {
@@ -439,7 +484,8 @@ fn new_section_inserted(words: &str) -> Option<String> {
     Some(INSERTING_A_SECTION.captures(words)?["section"].to_string())
 }
 
-/// `words` with every quoted run replaced by spaces.
+/// The words before the first quotation mark, or all of them when none is
+/// quoted.
 ///
 /// Amendment language quotes three kinds of thing and **none** of them is the
 /// provision being amended: the text struck, the text inserted, and the
@@ -448,46 +494,22 @@ fn new_section_inserted(words: &str) -> Option<String> {
 /// > by inserting ", as in effect for such academic year," after
 /// > "section 479A(b)(1)(B)(v)"
 ///
-/// and § 479A is there only as the string to search for. Reading it as the
-/// section the amendment names reported a **correct** link as suspect, which is
-/// the cry-wolf failure `#183` and `#211` both warn about.
+/// and § 479A is there only as the string to search for.
 ///
-/// Spaces rather than deletion, so a byte offset into the result is the same
-/// offset in `words` and a reason built from it still points at the real
-/// sentence.
+/// **Why the words before the first mark, and not the words outside every
+/// quotation.** The stored words often write a closing mark and the next
+/// opening mark as one character — `…for 'clause (ii)'."(D) Special rule…` — so
+/// a reader that pairs the marks by position loses step at the join, and every
+/// section after it lands in a stretch it takes for prose. The count of marks
+/// cannot tell when that happened: an even count breaks the same way as an odd
+/// one. A bill names its target before it starts to quote, so the words before
+/// the first mark are the only ones this check can trust.
 ///
-/// Both the straight and the curly marks, because the publisher's markup writes
-/// curly quotes and a stored excerpt of it writes straight ones.
-///
-/// **A run nothing closes is blanked to the end.** An excerpt that stops inside
-/// a quotation is still inside it — 116 of the 753 committed annotations carry
-/// an odd number of quote marks — and refusing to read is the safe direction: a
-/// wrong flag costs a reviewer more than a missing one.
-fn without_quotations(words: &str) -> String {
-    const OPENS: [char; 2] = ['"', '\u{201C}'];
-    const CLOSES: [char; 2] = ['"', '\u{201D}'];
-
-    let mut spoken = String::with_capacity(words.len());
-    let mut inside = false;
-    for mark in words.chars() {
-        let opening = !inside && OPENS.contains(&mark);
-        let closing = inside && CLOSES.contains(&mark);
-
-        if inside || opening {
-            for _ in 0..mark.len_utf8() {
-                spoken.push(' ');
-            }
-        } else {
-            spoken.push(mark);
-        }
-
-        if opening {
-            inside = true;
-        } else if closing {
-            inside = false;
-        }
-    }
-    spoken
+/// Every kind of double mark ends the prefix, the closing curly one too: an
+/// excerpt that begins inside a quotation meets a closing mark first.
+fn before_first_quotation(words: &str) -> &str {
+    const MARKS: [char; 3] = ['"', '\u{201C}', '\u{201D}'];
+    words.find(MARKS).map_or(words, |first| &words[..first])
 }
 
 /// What the U.S. Code citations in `text` name, read by the shared extractor.

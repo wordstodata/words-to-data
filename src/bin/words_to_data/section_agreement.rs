@@ -16,8 +16,16 @@
 //!
 //! A section inside a quotation is never the section an amendment acts on: a
 //! quoted run is struck text, inserted text, or the anchor an insertion follows.
-//! Those are ignored, and a link whose only section sits inside a quotation is
-//! reported as *could not be read* rather than as a disagreement.
+//! A bill names its target before it starts to quote, so only the words
+//! **before the first quotation mark** are read. Skipping each quotation by
+//! pairing its marks is not safe: the stored words often write a closing mark
+//! and the next opening mark as one character (`…'."(D) …`), and the pairing
+//! then loses step. A link that names no section before its first quotation
+//! mark is reported as *could not be read* rather than as a disagreement.
+//!
+//! A cross-reference is not read either: a section after *as defined in*,
+//! *within the meaning of* or *described in* says where a term is found, not
+//! which provision is acted on.
 //!
 //! One insertion form is the exception, and it is read: `inserting after
 //! section 223 the following new section:"SEC. 224. …"` names the **new**
@@ -30,6 +38,11 @@
 //! example one that only quotes the words it strikes — cannot be checked, and is
 //! counted rather than guessed at. On the maintainer's dataset that outcome is
 //! the majority of links, which is `#211`'s to weigh.
+//!
+//! **Known limit.** A stored excerpt can start inside the inserted text, with
+//! its opening mark cut off. Its first words are then the inserted text and not
+//! the amendment's own, and a section there that is not phrased as a
+//! cross-reference is still read. Such a row can be false.
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
