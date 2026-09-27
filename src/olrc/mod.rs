@@ -25,6 +25,10 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+pub mod links;
+
+pub use links::{Classified, SkipReason, Skipped, classification_reference, classify};
+
 /// Something went wrong reading a classification table.
 #[derive(Debug, thiserror::Error)]
 pub enum OlrcError {

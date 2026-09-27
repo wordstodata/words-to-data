@@ -48,6 +48,15 @@ impl LinkKind {
     /// `crate::legislature::redesignation`).
     pub const REDESIGNATED_AS: &'static str = "legislature.redesignated_as";
 
+    /// A Code section, classified from a section of a public law.
+    ///
+    /// The Office of the Law Revision Counsel says so in its classification
+    /// tables, so the link is `Asserted` and its source names the table it was
+    /// read from (`crate::olrc`). The namespace names a third party, and the
+    /// source is the note ADR 0002 asks for when a party other than the one
+    /// named writes the link.
+    pub const CLASSIFIED_FROM: &'static str = "olrc.classified_from";
+
     /// The namespace a review lives in. Not an extension of the law: it is this
     /// repo's own first use of the freedom ADR 0002 gave every party, which is
     /// to add a link type without permission
