@@ -9,7 +9,6 @@
 
 use std::collections::HashMap;
 
-use words_to_data::congress::BillDownload;
 use words_to_data::document::DocumentNode;
 use words_to_data::uslm::amendment_address::{AmendmentAddress, addresses_in};
 use words_to_data::uslm::bill_parser::{amendment_paths, bill_expression};
@@ -91,4 +90,27 @@ fn should_read_the_whole_section_number_when_the_citation_carries_an_en_dash() {
 
     assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s1400Z-2"));
     assert_eq!(step_numbers(&address), ["d", "2", "D", "ii"]);
+}
+
+/// An amendment that inserts a whole new section names a *part* in its
+/// amending line:
+///
+/// > Part VI of subchapter B of chapter 1 is amended by inserting after section
+/// > 174 the following new section:"SEC. 174A. 26 USC 174A. …
+///
+/// § 174 is only the anchor. The new section's own `SEC. 174A.` heading and
+/// the publisher's marginal note `26 USC 174A` both name the address.
+#[test]
+fn should_address_the_new_section_when_an_amendment_inserts_one() {
+    let bill = committed_bill();
+    let addresses = addresses_in(BILL_ID, &bill);
+
+    let address = address_saying(
+        &addresses,
+        "Part VI of subchapter B of chapter 1 is amended by inserting after section 174 the following new section",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s174A"));
+    assert_eq!(address.unresolved, None);
+    assert!(address.container.is_empty());
 }

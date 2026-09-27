@@ -130,7 +130,7 @@ fn address_of(
         container: Vec::new(),
         unresolved: None,
     };
-    match scope.section(came_through, code_of_1986) {
+    match scope.address(came_through, code_of_1986) {
         Ok((section, container)) => {
             address.section = Some(section);
             address.container = container;
@@ -209,10 +209,39 @@ impl<'a> Scope<'a> {
 
     /// The section this scope acts in, and every step below it: the
     /// citation's designations first, then the scope phrases.
+    ///
+    /// Only the amending line's own citation is read. A renumbering such as
+    /// *"redesignating section 224 as section 225 and inserting after section
+    /// 223 the following new section: SEC. 224."* renumbers inside the part the
+    /// line names, and the new section 224 is not where it acts.
     pub(crate) fn section(
         &self,
         came_through: &[&DocumentNode],
         code_of_1986: &[String],
+    ) -> Result<(String, Vec<Step>), Reason> {
+        self.section_cited_by(came_through, code_of_1986, |line| citation_in(line))
+    }
+
+    /// The address of a whole amending instruction.
+    ///
+    /// As [`Self::section`], and where the amending line names no section but
+    /// the instruction inserts a whole new one, the new section
+    /// ([`new_section_inserted`]).
+    fn address(
+        &self,
+        came_through: &[&DocumentNode],
+        code_of_1986: &[String],
+    ) -> Result<(String, Vec<Step>), Reason> {
+        self.section_cited_by(came_through, code_of_1986, |line| {
+            citation_in(line).or_else(|| new_section_inserted(&self.clause, came_through))
+        })
+    }
+
+    fn section_cited_by(
+        &self,
+        came_through: &[&DocumentNode],
+        code_of_1986: &[String],
+        cite: impl Fn(&str) -> Option<(String, Vec<String>)>,
     ) -> Result<(String, Vec<Step>), Reason> {
         if self.is_table_of_sections() {
             return Err(Reason::TableOfSections);
@@ -220,8 +249,9 @@ impl<'a> Scope<'a> {
         let Some((line, holder)) = &self.amending_line else {
             return Err(Reason::NoSectionNamed);
         };
+        let cited = cite(line).ok_or(Reason::NoSectionNamed)?;
         let (section, trail) =
-            stored_section_under_amendment(line, holder, came_through, code_of_1986)?;
+            stored_section_under_amendment(cited, line, holder, came_through, code_of_1986)?;
         // The citation's own trail sits above anything the `in` phrases named:
         // `Section 898(c)` reaches the subsection, and `in paragraph (2)` below
         // it reaches further down.
@@ -332,12 +362,13 @@ fn stored_usc_references(node: &DocumentNode) -> Vec<UscReference> {
 /// nobody told us is a confident guess, and this is the one place a wrong guess
 /// would silently move a provision between titles of the Code.
 fn stored_section_under_amendment(
+    cited: (String, Vec<String>),
     line: &str,
     holder: &DocumentNode,
     came_through: &[&DocumentNode],
     code_of_1986: &[String],
 ) -> Result<(String, Vec<String>), Reason> {
-    let (number, trail) = citation_in(line).ok_or(Reason::NoSectionNamed)?;
+    let (number, trail) = cited;
 
     if let Some(title) = title_named_in(line) {
         return Ok((uslm_section_id(&title, &number), trail));
@@ -389,6 +420,41 @@ fn stored_section_under_amendment(
     }
 
     Err(Reason::NoTitleForSection(number))
+}
+
+/// The number of the whole new section an instruction inserts, when it inserts
+/// one.
+///
+/// Such an amendment names a *part* in its amending line, not a section:
+///
+/// > Part VI of subchapter B of chapter 1 is amended by inserting after section
+/// > 174 the following new section:"SEC. 174A. 26 USC 174A. …
+///
+/// § 174 is only the anchor. The new section states its own number in the text
+/// the bill enacts, as a `SEC. 174A.` heading, so that heading is read. Two
+/// things must both be there: the phrase *the following new section* in the
+/// instruction's own words, and a `SEC. <number>.` heading at the start of the
+/// first block it enacts. The title is not read here. The publisher's marginal
+/// note `26 USC 174A`, or the bill's References clause, gives it, exactly as for
+/// a bare section.
+fn new_section_inserted(
+    clause: &str,
+    came_through: &[&DocumentNode],
+) -> Option<(String, Vec<String>)> {
+    static SECTION_HEADING: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"^\W*SEC\.\s*([0-9][0-9A-Za-z]*)\s*\."#)
+            .expect("the new-section heading pattern must compile")
+    });
+    if !clause.contains("the following new section") {
+        return None;
+    }
+    let instruction = came_through
+        .iter()
+        .rev()
+        .find_map(|node| stored_facts(node).and_then(|facts| facts.amendment))?;
+    let first_block = instruction.enacted_text.first()?;
+    let number = SECTION_HEADING.captures(first_block.trim())?[1].to_string();
+    Some((number, Vec::new()))
 }
 
 // --- Reading the words, shared with the markup reader ---
