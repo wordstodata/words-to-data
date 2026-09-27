@@ -43,15 +43,21 @@ use serde::Serialize;
 use crate::dataset::{Dataset, DatasetError, ExpressionId, WorkId};
 use crate::diff::{FieldChangeEvent, TreeDiff};
 use crate::document::{DocumentNode, NodeData};
+use crate::legislature::AmendingAction;
 use crate::legislature::redesignation::{SectionIndex, walk_down};
+use crate::link::{
+    Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
+    amendment_reference,
+};
+use crate::method::Method;
 use crate::storage::{LegislatureReader, Storage};
 use crate::uslm::UslmFacts;
 use crate::uslm::amendment_address::{AmendmentAddress, addresses_in};
 
-use evidence::Evidence;
+use quoted_words::QuotedWords;
 use resolve::{Change, Contender, Resolution, resolve};
 
-mod evidence;
+mod quoted_words;
 mod resolve;
 
 /// What the matcher found for one amendment.
@@ -61,6 +67,12 @@ pub struct AmendmentMatch {
     pub bill_id: String,
     /// The amendment, by the content hash its bill's node carries.
     pub amendment_id: String,
+    /// The amendment's words, as the bill states them.
+    pub amending_text: String,
+    /// The action the bill's markup states for it.
+    pub operation: AmendingAction,
+    /// The law's enactment date: the date of its stored expression.
+    pub enacted: String,
     /// Where the bill's markup says the amendment acts.
     pub address: AmendmentAddress,
     /// Linked, or stopped with a reason.
@@ -82,8 +94,8 @@ pub struct Linked {
     pub from: ExpressionId,
     /// The newer expression of the window.
     pub to: ExpressionId,
-    /// Each changed path the amendment caused, in document order.
-    pub paths: Vec<String>,
+    /// Each change the amendment caused, in document order.
+    pub changes: Vec<CausedChange>,
     /// Every later window in which something under the address changed too.
     ///
     /// Never a second link. The law landed in the first window after its
@@ -91,6 +103,26 @@ pub struct Linked {
     /// something else, or the same change seen twice. It is named so a
     /// reviewer can look (`docs/adr/0013`).
     pub later_windows: Vec<LaterWindow>,
+}
+
+impl Linked {
+    /// The changed paths, in document order.
+    pub fn paths(&self) -> Vec<String> {
+        self.changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect()
+    }
+}
+
+/// One change an amendment caused, and why it was given to that amendment.
+#[derive(Debug, Clone, Serialize)]
+pub struct CausedChange {
+    /// The changed path.
+    pub path: String,
+    /// How the change was told apart from the others under the address, in
+    /// words a reviewer can check.
+    pub why: String,
 }
 
 /// A later window in which an address changed again.
@@ -132,6 +164,100 @@ pub enum Stage {
     Resolve,
 }
 
+/// The reasoning this module applies, at the version it is at now.
+///
+/// A different reasoning from [`crate::matching::matching_method`], so a new
+/// name and not a new version of that one (#179, decision 10). Raise the
+/// version when this method's answers change — a new rule for telling changes
+/// apart, a different window rule. Tidying the code that gives the same answers
+/// is not such a change (`crate::method::Method`).
+pub fn evidence_method() -> Method {
+    Method::new("address, window and quoted words", 1)
+}
+
+/// Who a link this method writes says made it.
+const SOURCE: &str = "rule:evidence_matching";
+
+impl AmendmentMatch {
+    /// One `legislature.amended_by` link for each change this amendment
+    /// caused, or none when it is residue.
+    ///
+    /// The shape `match-amendments` writes, so every reader of those links
+    /// reads these unchanged: the subject is the change, the object is the
+    /// amendment, and the payload is the legislature's. The address, the
+    /// window and the words that placed the change are the link's evidence.
+    ///
+    /// `MachineSuggested`: the bill asserted the amendment, and the reading of
+    /// which change it made is ours (`docs/adr/0010`). No clock reading,
+    /// because the same dataset gives the same answer on any day.
+    pub fn links(&self) -> Vec<Link> {
+        let Outcome::Linked(linked) = &self.outcome else {
+            return Vec::new();
+        };
+        linked
+            .changes
+            .iter()
+            .map(|change| Link {
+                subject: Target::Change {
+                    work: linked.from.work.clone(),
+                    path: change.path.clone(),
+                    from_date: linked.from.at.clone(),
+                    to_date: linked.to.at.clone(),
+                },
+                kind: LinkKind::new(LinkKind::AMENDED_BY),
+                object: Target::External {
+                    reference: amendment_reference(&self.bill_id, &self.amendment_id),
+                    display: self.amending_text.clone(),
+                },
+                provenance: Provenance {
+                    source: SOURCE.to_string(),
+                    method: Some(evidence_method()),
+                    verification: VerificationState::MachineSuggested,
+                    evidence: Evidence::from_reasoning(Some(self.reasoning(linked, change))),
+                    raw_score: None,
+                    timestamp: None,
+                    corroboration: None,
+                },
+                payload: Some(KindPayload {
+                    namespace: LinkKind::LEGISLATURE.to_string(),
+                    value: serde_json::json!({
+                        "operation": self.operation,
+                        "bill_id": self.bill_id,
+                        "amendment_id": self.amendment_id,
+                        "notes": null,
+                    }),
+                }),
+            })
+            .collect()
+    }
+
+    /// The link's evidence: where, when, and by which words.
+    fn reasoning(&self, linked: &Linked, change: &CausedChange) -> String {
+        let below: String = self
+            .address
+            .container
+            .iter()
+            .map(|step| format!("({})", step.number))
+            .collect();
+        let section = self.address.section.as_deref().unwrap_or_default();
+        let mut reasoning = format!(
+            "Address: {section}{below}, read from the bill's markup. \
+             Window: {} to {}, the first window after the law's enactment on {} \
+             in which something under the address changed. ",
+            linked.from, linked.to.at, self.enacted
+        );
+        for later in &linked.later_windows {
+            reasoning.push_str(&format!(
+                "The address changed again from {} to {}, and that window is not linked. ",
+                later.from, later.to.at
+            ));
+        }
+        reasoning.push_str("Change: ");
+        reasoning.push_str(&change.why);
+        reasoning
+    }
+}
+
 /// What the matcher finds for every amendment of every public law the dataset
 /// holds, in the order each bill states them.
 pub fn match_by_evidence<S: Storage + LegislatureReader>(
@@ -161,6 +287,9 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
         .map(|(amendment, outcome)| AmendmentMatch {
             bill_id: amendment.bill_id,
             amendment_id: amendment.address.amendment_id.clone(),
+            amending_text: amendment.amending_text,
+            operation: amendment.operation,
+            enacted: amendment.enacted,
             address: amendment.address,
             outcome: outcome.expect("every amendment is answered for"),
         })
@@ -172,9 +301,11 @@ struct Stated {
     bill_id: String,
     /// The date of the law's stored expression.
     enacted: String,
+    amending_text: String,
+    operation: AmendingAction,
     address: AmendmentAddress,
     /// The words the bill quotes for it.
-    evidence: Evidence,
+    evidence: QuotedWords,
 }
 
 /// Every amendment of every public law the dataset holds as a document.
@@ -189,23 +320,53 @@ fn stated_amendments<S: Storage + LegislatureReader>(
         let Some(law) = dataset.bill_document(&bill_id)? else {
             continue;
         };
+        let Some(bill) = dataset.get_bill(&bill_id)? else {
+            continue;
+        };
         for address in addresses_in(&law.root) {
             let evidence = law
                 .root
                 .find(&address.path)
                 .and_then(|node| UslmFacts::of(&node.data))
                 .and_then(|facts| facts.amendment)
-                .map(|facts| Evidence::of(&facts))
+                .map(|facts| QuotedWords::of(&facts))
                 .unwrap_or_default();
+            let amendment = bill.amendments.get(&address.amendment_id);
             stated.push(Stated {
                 bill_id: bill_id.clone(),
                 enacted: law.id.at.clone(),
+                amending_text: amendment
+                    .map(|amendment| amendment.amending_text.clone())
+                    .unwrap_or_else(|| address.text.clone()),
+                operation: amendment.map_or(AmendingAction::Amend, |amendment| {
+                    stated_operation(&amendment.action_types)
+                }),
                 address,
                 evidence,
             });
         }
     }
     Ok(stated)
+}
+
+/// The action a link records: the one the bill's markup states.
+///
+/// `amend` is the markup's umbrella word, and most instructions carry it beside
+/// the action that says what they do, so it is set aside. When one action is
+/// left, that is the action. When none or several are left, `amend` is the
+/// honest word, because choosing one of several would claim a reading nobody
+/// made.
+fn stated_operation(actions: &[AmendingAction]) -> AmendingAction {
+    let mut specific: Vec<AmendingAction> = Vec::new();
+    for action in actions {
+        if *action != AmendingAction::Amend && !specific.contains(action) {
+            specific.push(*action);
+        }
+    }
+    match specific.as_slice() {
+        [one] => *one,
+        _ => AmendingAction::Amend,
+    }
 }
 
 /// The work of the Code an address acts in, or why there is none.
@@ -331,9 +492,12 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 Resolution::Caused(caused) => Outcome::Linked(Linked {
                     from: view.from.clone(),
                     to: view.to.clone(),
-                    paths: caused
+                    changes: caused
                         .iter()
-                        .map(|(change, _)| view.changes[*change].path.clone())
+                        .map(|(change, found)| CausedChange {
+                            path: view.changes[*change].path.clone(),
+                            why: found.to_string(),
+                        })
                         .collect(),
                     later_windows: placed[at][1..]
                         .iter()

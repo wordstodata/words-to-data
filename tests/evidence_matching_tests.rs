@@ -16,8 +16,10 @@ use words_to_data::dataset::{
     Dataset, DatasetMetadata, ExpressionId, WorkId, adjacent_expressions,
 };
 use words_to_data::legislature::evidence_matching::{
-    AmendmentMatch, Outcome, Stage, match_by_evidence,
+    AmendmentMatch, Outcome, Stage, evidence_method, match_by_evidence,
 };
+use words_to_data::link::{LinkKind, Target, VerificationState, amendment_reference};
+use words_to_data::matching::matching_method;
 use words_to_data::storage::InMemoryStorage;
 
 /// The committed public law, as the Congress client leaves it in the cache.
@@ -106,7 +108,7 @@ fn should_link_the_one_change_under_the_address_when_an_amendment_has_a_single_c
     assert_eq!(linked.from, title_7_at("2025-07-18"));
     assert_eq!(linked.to, title_7_at("2025-07-30"));
     assert_eq!(
-        linked.paths,
+        linked.paths(),
         vec![
             "uscode/title_7/chapter_51/section_2028/subsection_a/paragraph_2/subparagraph_A/clause_ii"
                 .to_string()
@@ -119,9 +121,9 @@ fn should_link_the_one_change_under_the_address_when_an_amendment_has_a_single_c
 const SECTION_2015_O: &str = "uscode/title_7/chapter_51/section_2015/subsection_o";
 
 /// The paths an amendment was linked to, or a failure that says why not.
-fn linked_paths(id_start: &str) -> &'static [String] {
+fn linked_paths(id_start: &str) -> Vec<String> {
     match &match_of(id_start).outcome {
-        Outcome::Linked(linked) => &linked.paths,
+        Outcome::Linked(linked) => linked.paths(),
         other => panic!("{id_start} should be linked: {other:?}"),
     }
 }
@@ -155,6 +157,75 @@ fn should_assign_each_change_by_the_words_the_bill_quotes_when_two_amendments_sh
         !new_paragraph_7.iter().any(|path| under(path, &paragraph_3)),
         "the change to paragraph (3) has one cause, and it is not this amendment: {new_paragraph_7:?}"
     );
+}
+
+#[test]
+fn should_write_one_amended_by_link_per_changed_path_in_the_shape_every_reader_knows() {
+    // Section 508(e)(2)(H)(i) of the Federal Crop Insurance Act
+    // (7 U.S.C. 1508(e)(2)(H)(i)) is amended by striking "65" and inserting
+    // "80".
+    let found = match_of("179c37ff9497");
+
+    let links = found.links();
+
+    assert_eq!(links.len(), 1, "one changed path, one link");
+    let link = &links[0];
+    assert_eq!(link.kind, LinkKind::new(LinkKind::AMENDED_BY));
+    assert_eq!(
+        link.subject,
+        Target::Change {
+            work: WorkId::new(TITLE_7),
+            path: "uscode/title_7/chapter_36/subchapter_I/section_1508/subsection_e/paragraph_2/subparagraph_H/clause_i"
+                .to_string(),
+            from_date: "2025-07-18".to_string(),
+            to_date: "2025-07-30".to_string(),
+        }
+    );
+    let Target::External { reference, .. } = &link.object else {
+        panic!("the object is the amendment: {:?}", link.object);
+    };
+    assert_eq!(*reference, amendment_reference(BILL_ID, &found.amendment_id));
+
+    // The method has its own name and a version a person chose, and it is
+    // not the model method it replaces (#179, decision 10).
+    assert_eq!(link.provenance.method, Some(evidence_method()));
+    assert_ne!(Some(evidence_method()), Some(matching_method()));
+    assert_eq!(
+        link.provenance.verification,
+        VerificationState::MachineSuggested
+    );
+
+    // The evidence says where, when and by which words, so a reviewer can
+    // check each step.
+    let reasoning = link
+        .provenance
+        .evidence
+        .as_ref()
+        .and_then(|evidence| evidence.reasoning.as_deref())
+        .expect("the link carries its reasoning");
+    for part in [
+        "/us/usc/t7/s1508(e)(2)(H)(i)",
+        "2025-07-04",
+        "2025-07-18",
+        "struck \"65\"",
+        "inserted \"80\"",
+    ] {
+        assert!(
+            reasoning.contains(part),
+            "the reasoning names {part}: {reasoning}"
+        );
+    }
+    // No model answered, so no reply and no model are named.
+    let evidence = link.provenance.evidence.as_ref().unwrap();
+    assert_eq!((&evidence.reply, &evidence.model), (&None, &None));
+
+    // The payload is the one `match-amendments` writes, so every reader of it
+    // works unchanged.
+    let payload = link.payload.as_ref().expect("the link carries its payload");
+    assert_eq!(payload.namespace, "legislature");
+    assert_eq!(payload.value["bill_id"], BILL_ID);
+    assert_eq!(payload.value["amendment_id"], found.amendment_id.as_str());
+    assert!(payload.value.get("operation").is_some());
 }
 
 #[test]

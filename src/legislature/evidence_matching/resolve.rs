@@ -18,7 +18,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::evidence::Evidence;
+use super::quoted_words::QuotedWords;
 
 /// One change in a window: a path, and its words before and after.
 #[derive(Debug, Clone)]
@@ -31,7 +31,7 @@ pub(super) struct Change {
 /// One amendment addressed to the section: what it states, and the changes
 /// under its own address, by their place in the window's list.
 pub(super) struct Contender<'a> {
-    pub evidence: &'a Evidence,
+    pub evidence: &'a QuotedWords,
     pub candidates: Vec<usize>,
 }
 
@@ -45,15 +45,39 @@ pub(super) enum Resolution {
 }
 
 /// How a change was given to its amendment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Found {
-    /// The change shows this many of the amendment's quoted strings and
-    /// enacted blocks.
-    Quoted(usize),
-    /// The change sits inside a provision the amendment's quoted words placed.
-    Inside,
-    /// No other amendment's address covers the change.
+    /// The change shows these of the amendment's quoted strings and enacted
+    /// blocks.
+    Quoted(Vec<String>),
+    /// The change sits inside the provision at this path, which the
+    /// amendment's quoted words placed.
+    Inside(String),
+    /// No other amendment's address, still wanting a change, covers it.
     OnlyAddress,
+}
+
+impl std::fmt::Display for Found {
+    /// How the change was given to its amendment, as a sentence for the
+    /// link's evidence.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Quoted(shown) => write!(
+                f,
+                "the change shows the words the bill quotes: {}.",
+                shown.join(", ")
+            ),
+            Self::Inside(path) => write!(
+                f,
+                "the change sits inside {path}, which the words the bill quotes placed."
+            ),
+            Self::OnlyAddress => write!(
+                f,
+                "the change is under the address, and no other amendment addressed there \
+                 takes it."
+            ),
+        }
+    }
 }
 
 /// Assign every change under one section to the amendments addressed there.
@@ -70,24 +94,29 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
     // 1. The quoted words.
     for &at in &every_change {
         let change = &changes[at];
-        let claims: Vec<(usize, usize)> = contenders
+        let claims: Vec<(usize, Vec<String>)> = contenders
             .iter()
             .enumerate()
             .filter(|(_, contender)| contender.candidates.contains(&at))
-            .map(|(who, contender)| (who, contender.evidence.strength(&change.before, &change.after)))
-            .filter(|(_, strength)| *strength > 0)
+            .map(|(who, contender)| (who, contender.evidence.shown(&change.before, &change.after)))
+            .filter(|(_, shown)| !shown.is_empty())
             .collect();
-        let Some(strongest) = claims.iter().map(|(_, strength)| *strength).max() else {
+        let Some(strongest) = claims.iter().map(|(_, shown)| shown.len()).max() else {
             continue;
         };
         let tied: Vec<usize> = claims
             .iter()
-            .filter(|(_, strength)| *strength == strongest)
+            .filter(|(_, shown)| shown.len() == strongest)
             .map(|(who, _)| *who)
             .collect();
         match rank_by_overlap(change, contenders, &tied) {
             Some(who) => {
-                cause.insert(at, (who, Found::Quoted(strongest)));
+                let shown = claims
+                    .iter()
+                    .find(|(claimant, _)| *claimant == who)
+                    .map(|(_, shown)| shown.clone())
+                    .unwrap_or_default();
+                cause.insert(at, (who, Found::Quoted(shown)));
             }
             None => {
                 held_back.insert(at);
@@ -98,7 +127,7 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
     // 2. The provision it rewrote.
     let placed: Vec<(String, usize)> = cause
         .iter()
-        .map(|(&at, &(who, _))| (changes[at].path.clone(), who))
+        .map(|(&at, (who, _))| (changes[at].path.clone(), *who))
         .collect();
     for &at in &every_change {
         if cause.contains_key(&at) || held_back.contains(&at) {
@@ -110,8 +139,8 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
                 is_below(&changes[at].path, path) && contenders[*who].candidates.contains(&at)
             })
             .max_by_key(|(path, _)| path.len());
-        if let Some((_, who)) = inside {
-            cause.insert(at, (*who, Found::Inside));
+        if let Some((path, who)) = inside {
+            cause.insert(at, (*who, Found::Inside(path.clone())));
         }
     }
 
@@ -157,7 +186,7 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
             let caused: Vec<(usize, Found)> = cause
                 .iter()
                 .filter(|(_, (by, _))| *by == who)
-                .map(|(&at, &(_, found))| (at, found))
+                .map(|(&at, (_, found))| (at, found.clone()))
                 .collect();
             if !caused.is_empty() {
                 return Resolution::Caused(caused);

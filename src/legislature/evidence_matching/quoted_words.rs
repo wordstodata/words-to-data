@@ -25,7 +25,7 @@ use crate::uslm::{AmendmentFacts, QuotedText};
 
 /// The words one amendment states, ready to test against a change.
 #[derive(Debug, Clone, Default)]
-pub(super) struct Evidence {
+pub(super) struct QuotedWords {
     quoted: Vec<Quoted>,
     /// Each enacted block, as words without marks.
     enacted: Vec<Vec<String>>,
@@ -35,6 +35,8 @@ pub(super) struct Evidence {
 
 #[derive(Debug, Clone)]
 struct Quoted {
+    /// The words as the bill quotes them, for a reviewer to read.
+    text: String,
     tokens: Vec<String>,
     direction: Direction,
 }
@@ -50,7 +52,7 @@ enum Direction {
     Either,
 }
 
-impl Evidence {
+impl QuotedWords {
     /// The evidence one instruction's stored facts give.
     pub(super) fn of(facts: &AmendmentFacts) -> Self {
         let quoted: Vec<Quoted> = facts
@@ -89,19 +91,27 @@ impl Evidence {
     /// How many of the amendment's quoted strings and enacted blocks this
     /// change shows. Zero is no evidence.
     pub(super) fn strength(&self, before: &str, after: &str) -> usize {
+        self.shown(before, after).len()
+    }
+
+    /// The amendment's quoted strings and enacted blocks this change shows,
+    /// each said as a reviewer reads it: `struck "2023"`, `inserted "2031"`,
+    /// `enacted text 1 of 2`.
+    pub(super) fn shown(&self, before: &str, after: &str) -> Vec<String> {
         let (before_tokens, after_tokens) = (tokens_of(before), tokens_of(after));
-        let shown_strings = self
+        let strings = self
             .quoted
             .iter()
             .filter(|quoted| quoted.is_shown(&before_tokens, &after_tokens))
-            .count();
+            .map(Quoted::described);
         let after_words = words_of(after);
-        let shown_blocks = self
+        let blocks = self
             .enacted
             .iter()
-            .filter(|block| !after_words.is_empty() && contains_run(block, &after_words))
-            .count();
-        shown_strings + shown_blocks
+            .enumerate()
+            .filter(|(_, block)| !after_words.is_empty() && contains_run(block, &after_words))
+            .map(|(at, _)| format!("enacted text {} of {}", at + 1, self.enacted.len()));
+        strings.chain(blocks).collect()
     }
 
     /// The share of the words that differ between `before` and `after` that
@@ -135,7 +145,20 @@ impl Quoted {
             Some("insert" | "add") => Direction::Inserted,
             _ => Direction::Either,
         };
-        Some(Self { tokens, direction })
+        Some(Self {
+            text: quoted.text.clone(),
+            tokens,
+            direction,
+        })
+    }
+
+    fn described(&self) -> String {
+        let verb = match self.direction {
+            Direction::Struck => "struck",
+            Direction::Inserted => "inserted",
+            Direction::Either => "quoted",
+        };
+        format!("{verb} \"{}\"", self.text)
     }
 
     fn is_shown(&self, before: &[String], after: &[String]) -> bool {
