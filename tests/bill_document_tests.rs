@@ -12,9 +12,9 @@ use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, WorkId};
 use words_to_data::document::DocumentNode;
 use words_to_data::storage::InMemoryStorage;
-use words_to_data::uslm::{QuotedText, UslmFacts};
 use words_to_data::uslm::bill_parser::amendment_paths;
 use words_to_data::uslm::bill_redesignation::{redesignations_stated, redesignations_stated_in};
+use words_to_data::uslm::{QuotedText, UslmFacts};
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";

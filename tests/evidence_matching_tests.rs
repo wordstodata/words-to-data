@@ -12,20 +12,20 @@
 use std::process::Command;
 use std::sync::OnceLock;
 
+use words_to_data::citation::resolve::SectionPaths;
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, ExpressionId, WorkId, adjacent_expressions,
 };
-use words_to_data::citation::resolve::SectionPaths;
 use words_to_data::legislature::evidence_matching::{
     AmendmentMatch, OlrcClassification, Outcome, Stage, evidence_method, match_by_evidence,
     olrc_classification,
 };
-use words_to_data::olrc::{ClassificationTable, classify};
 use words_to_data::link::{Link, LinkKind, Target, VerificationState, amendment_reference};
-use words_to_data::storage::LinkReader;
 use words_to_data::matching::matching_method;
+use words_to_data::olrc::{ClassificationTable, classify};
 use words_to_data::storage::InMemoryStorage;
+use words_to_data::storage::LinkReader;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -193,7 +193,10 @@ fn should_write_one_amended_by_link_per_changed_path_in_the_shape_every_reader_k
     let Target::External { reference, .. } = &link.object else {
         panic!("the object is the amendment: {:?}", link.object);
     };
-    assert_eq!(*reference, amendment_reference(BILL_ID, &found.amendment_id));
+    assert_eq!(
+        *reference,
+        amendment_reference(BILL_ID, &found.amendment_id)
+    );
 
     // The method has its own name and a version a person chose, and it is
     // not the model method it replaces (#179, decision 10).
@@ -264,7 +267,11 @@ fn should_write_every_link_and_record_the_method_over_each_window_when_the_comma
         .collect();
     let expected: usize = matches().iter().map(|found| found.links().len()).sum();
     assert!(expected > 0, "the corpus gives links");
-    assert_eq!(ours.len(), expected, "every link the matcher finds is written");
+    assert_eq!(
+        ours.len(),
+        expected,
+        "every link the matcher finds is written"
+    );
 
     // The method ran over the window its links sit in, and a reader can say
     // so without counting links (#179, decision 11).

@@ -418,10 +418,10 @@ fn stated_operation(actions: &[AmendingAction]) -> AmendingAction {
 /// The work of the Code an address acts in, or why there is none.
 fn addressed_work(address: &AmendmentAddress) -> Result<WorkId, String> {
     let Some(section) = &address.section else {
-        return Err(address
-            .unresolved
-            .as_ref()
-            .map_or("the markup gives no address".to_string(), ToString::to_string));
+        return Err(address.unresolved.as_ref().map_or(
+            "the markup gives no address".to_string(),
+            ToString::to_string,
+        ));
     };
     work_of(section).ok_or_else(|| format!("{section} is not a section of the US Code"))
 }
@@ -491,8 +491,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
             if !window_can_hold(&amendment.enacted, &view.to.at) {
                 continue;
             }
-            let Some((section, under)) = address_path(&later, &earlier, &amendment.address)
-            else {
+            let Some((section, under)) = address_path(&later, &earlier, &amendment.address) else {
                 continue;
             };
             let candidates: Vec<usize> = (0..view.changes.len())

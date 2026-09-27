@@ -55,11 +55,7 @@ enum Direction {
 impl QuotedWords {
     /// The evidence one instruction's stored facts give.
     pub(super) fn of(facts: &AmendmentFacts) -> Self {
-        let quoted: Vec<Quoted> = facts
-            .quoted_text
-            .iter()
-            .filter_map(Quoted::of)
-            .collect();
+        let quoted: Vec<Quoted> = facts.quoted_text.iter().filter_map(Quoted::of).collect();
         let enacted: Vec<Vec<String>> = facts
             .enacted_text
             .iter()

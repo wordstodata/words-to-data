@@ -58,7 +58,10 @@ pub fn olrc_classification(
         let Some(law_section) = reference.strip_prefix(&prefix) else {
             continue;
         };
-        let into = if descriptions(link).iter().all(|description| is_a_note(description)) {
+        let into = if descriptions(link)
+            .iter()
+            .all(|description| is_a_note(description))
+        {
             &mut notes
         } else {
             &mut text

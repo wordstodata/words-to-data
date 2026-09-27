@@ -1257,7 +1257,10 @@ fn resolve_one(
 }
 
 /// The node the steps lead to, below `section`.
-pub(crate) fn walk_down<'a>(section: &'a DocumentNode, steps: &[Step]) -> Result<&'a DocumentNode, Reason> {
+pub(crate) fn walk_down<'a>(
+    section: &'a DocumentNode,
+    steps: &[Step],
+) -> Result<&'a DocumentNode, Reason> {
     let mut current = section;
     for step in steps {
         let matches: Vec<&DocumentNode> = current
