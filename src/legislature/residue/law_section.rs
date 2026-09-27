@@ -24,7 +24,11 @@ impl LawSection {
         let trail = path
             .split('/')
             .skip_while(|segment| !segment.starts_with("section_"))
-            .map(|segment| segment.split_once('_').map(|(_, number)| number.to_string()))
+            .map(|segment| {
+                segment
+                    .split_once('_')
+                    .map(|(_, number)| number.to_string())
+            })
             .collect::<Option<Vec<String>>>()?;
         (!trail.is_empty()).then_some(Self(trail))
     }

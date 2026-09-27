@@ -116,7 +116,10 @@ fn run(command: &str, args: &[&str]) -> std::process::Output {
 fn unlinked() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
-        let path = PathBuf::from(format!("{}/residue_built.sqlite", env!("CARGO_TARGET_TMPDIR")));
+        let path = PathBuf::from(format!(
+            "{}/residue_built.sqlite",
+            env!("CARGO_TARGET_TMPDIR")
+        ));
         let _ = std::fs::remove_file(&path);
         built()
             .save_to_sqlite(&path)
@@ -130,7 +133,10 @@ fn unlinked() -> &'static Path {
 fn linked() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
-        let path = PathBuf::from(format!("{}/residue_linked.sqlite", env!("CARGO_TARGET_TMPDIR")));
+        let path = PathBuf::from(format!(
+            "{}/residue_linked.sqlite",
+            env!("CARGO_TARGET_TMPDIR")
+        ));
         std::fs::copy(unlinked(), &path).expect("the fixture should copy");
         let output = run("link-by-evidence", &[path.to_str().expect("a UTF-8 path")]);
         assert!(
@@ -361,7 +367,8 @@ fn should_report_an_amendment_to_a_table_of_sections_as_not_held_and_not_as_a_mi
 }
 
 #[test]
-fn should_say_the_batch_has_not_written_its_link_when_the_method_links_an_amendment_no_link_names() {
+fn should_say_the_batch_has_not_written_its_link_when_the_method_links_an_amendment_no_link_names()
+{
     // Section 10102(c) of the law renumbers paragraph (7) of 7 U.S.C. 2015(o)
     // as (8) and inserts a new (7). The evidence method links it, and in this
     // dataset `link-by-evidence` has not run, so no link names it yet. That is
@@ -416,7 +423,10 @@ fn should_store_nothing_when_it_lists_the_residue() {
 fn should_print_at_most_a_screenful_and_say_how_many_rows_it_left_out_when_the_output_is_for_a_person()
  {
     let total = residue_rows(linked()).len();
-    assert!(total > DEFAULT_LIMIT, "the corpus gives more than a screenful");
+    assert!(
+        total > DEFAULT_LIMIT,
+        "the corpus gives more than a screenful"
+    );
 
     let output = run(
         "residue",

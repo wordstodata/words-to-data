@@ -438,10 +438,7 @@ fn address_text(address: &AmendmentAddress) -> String {
         .iter()
         .map(|step| format!("({})", step.number))
         .collect();
-    format!(
-        "{}{below}",
-        address.section.as_deref().unwrap_or_default()
-    )
+    format!("{}{below}", address.section.as_deref().unwrap_or_default())
 }
 
 /// The work of the Code a section identifier sits in: `/us/usc/t7/s2028` is in
