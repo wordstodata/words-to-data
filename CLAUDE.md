@@ -61,7 +61,18 @@ There is a branch called `sleuth` which builds an iced desktop app. It's also re
 ## AI Building
 Work happens on `main`. If set off on your own autonomous task and you find yourself on `main`, create a branch for the work, and file the PR against `main`.
 
-`main` is protected: `Rust Tests` must pass, and a branch must be up to date with `main` before it merges. The second rule is there because two PRs that never conflict in git can still break the build together — one changed a function's arguments, the other added a caller, both were green, and `main` did not compile.
+`main` is protected: `Rust Tests` must pass. A **merge queue** does the merging, so do not merge a PR by hand — add it to the queue and let it land.
+
+The queue exists because two PRs that never conflict in git can still break the build together: one changed a function's arguments, the other added a caller, both were green, and `main` did not compile. The queue catches that by building each entry against `main` **plus every earlier entry in the batch** and running `Rust Tests` on that combination.
+
+So a branch does **not** have to be up to date with `main` before it merges. `required_status_checks.strict` is `false`, and an earlier version of this file said the opposite — it was written before the queue existed and it sent agents chasing rebases they did not need.
+
+Two consequences worth knowing:
+
+- **Several PRs can be queued at once.** The queue builds up to 5 entries and merges up to 5. A fleet of parallel agents does not have to land one at a time.
+- **The strategy is `ALLGREEN`**, so a batch merges only when every entry passes. One failing entry does not block the rest for good: it is dropped and the others are retried.
+
+`gh pr merge <n>` adds a PR to the queue. It warns that the merge strategy is set by the queue, which is expected and is not an error. `--delete-branch` is rejected while a queue is enabled, so delete the branch after it lands.
 
 ## Communication
 Communicate _only_ via  ASD-STE100 Simplified Technical English (STE)
