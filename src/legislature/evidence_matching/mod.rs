@@ -15,6 +15,21 @@
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
 //!
+//! # The window rule
+//!
+//! A window can hold a law's change only when it ends after the law's
+//! enactment date. Public Law 119-21 was enacted on 2025-07-04, and the first
+//! committed release point after it is dated 2025-07-18:
+//!
+//! ```
+//! use words_to_data::legislature::evidence_matching::window_can_hold;
+//!
+//! assert!(window_can_hold("2025-07-04", "2025-07-18"));
+//! // A window that ends on the day of enactment, or before it, holds the Code
+//! // as it read before the law, so nothing is linked in it.
+//! assert!(!window_can_hold("2025-07-04", "2025-07-04"));
+//! ```
+//!
 //! **Nothing here is stored.** The answer for each amendment, linked or
 //! stopped with the stage and the reason, is derived from the dataset every
 //! time it is asked for (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
@@ -253,7 +268,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
         let earlier = SectionIndex::of(&view.earlier);
         for &at in members {
             let amendment = &stated[at];
-            if view.to.at <= amendment.enacted {
+            if !window_can_hold(&amendment.enacted, &view.to.at) {
                 continue;
             }
             let Some((section, under)) = address_path(&later, &earlier, &amendment.address)
@@ -360,11 +375,17 @@ fn residue(stage: Stage, reason: String) -> Outcome {
     })
 }
 
-/// Every window of a work whose later expression is dated after `enacted`,
-/// oldest first, each read and diffed once.
+/// Whether a window that ends on `window_end` can hold a change made by a law
+/// enacted on `enacted`. Both are ISO dates.
 ///
-/// A window that ends on or before a law's enactment date holds the Code as it
+/// A window that ends on or before the enactment date holds the Code as it
 /// read before the law existed, so the law cannot have changed anything in it.
+pub fn window_can_hold(enacted: &str, window_end: &str) -> bool {
+    window_end > enacted
+}
+
+/// Every window of a work that can hold a change made on `enacted`, oldest
+/// first, each read and diffed once.
 fn windows_after<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     work: &WorkId,
@@ -374,7 +395,7 @@ fn windows_after<S: Storage + LegislatureReader>(
     let mut views = Vec::new();
     for pair in held.windows(2) {
         let (from, to) = (pair[0].id.clone(), pair[1].id.clone());
-        if to.at.as_str() <= enacted {
+        if !window_can_hold(enacted, &to.at) {
             continue;
         }
         let (Some(earlier), Some(later)) =
