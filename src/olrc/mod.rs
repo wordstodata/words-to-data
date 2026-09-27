@@ -25,8 +25,10 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+pub mod client;
 pub mod links;
 
+pub use client::{OlrcClient, TablePage};
 pub use links::{Classified, SkipReason, Skipped, classification_reference, classify};
 
 /// Something went wrong reading a classification table.
@@ -35,6 +37,18 @@ pub enum OlrcError {
     /// The page does not hold a table in the shape this reader knows.
     #[error("the page is not a classification table this reader knows: {0}")]
     Shape(String),
+    /// A Congress has two sessions, and a table is published for each.
+    #[error("there is no table for session {0}; a Congress has sessions 1 and 2")]
+    Session(u32),
+    /// An offline client was asked for a page the cache does not hold.
+    #[error("{page} is not in the cache at {directory}, and this run may not fetch it")]
+    Offline { page: String, directory: String },
+    /// The request failed.
+    #[error("fetching a classification table failed: {0}")]
+    Http(String),
+    /// The cache could not be written.
+    #[error("the cache could not be written: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// One row of a classification table, as the table writes it.

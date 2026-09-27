@@ -4,12 +4,15 @@
 //! 1st session, in public law order, committed under
 //! `tests/test_data/olrc/classification`. No row here is made up.
 
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use words_to_data::citation::resolve::SectionPaths;
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Scope, WorkId};
 use words_to_data::link::{LinkKind, Target, VerificationState};
-use words_to_data::olrc::{ClassificationRow, ClassificationTable, SkipReason, classify};
+use words_to_data::olrc::{
+    ClassificationRow, ClassificationTable, OlrcClient, SkipReason, classify,
+};
 
 /// The committed page, as the OLRC served it.
 const PUBLIC_LAW_ORDER: &str = "tests/test_data/olrc/classification/tbl119pl_1st.htm";
@@ -85,6 +88,23 @@ fn should_leave_out_the_quoted_code_section_when_a_row_names_a_new_one() {
     // section column already states. It is not a section of the law.
     assert_eq!(row.section, "174A");
     assert_eq!(row.named_law_sections(), vec!["70302(a)"]);
+}
+
+#[test]
+fn should_read_the_table_from_the_cache_when_the_page_is_held() {
+    let client = OlrcClient::offline(PathBuf::from("tests/test_data"));
+
+    let page = client
+        .public_law_table(119, 1)
+        .expect("the committed page is in the cache");
+
+    assert_eq!(
+        page.url,
+        "https://usc-cdn.house.gov/classification/tbl119pl_1st.htm"
+    );
+    let table = ClassificationTable::parse(&page.html).expect("the page should parse");
+    assert_eq!(table.rows.len(), 3049);
+    assert_eq!(client.fetched(), 0, "a page the cache holds is never fetched");
 }
 
 /// The table page the committed fixture is, as a link's source names it.
