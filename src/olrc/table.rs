@@ -94,7 +94,7 @@ fn continue_from(previous: &str, continuation: &str) -> String {
 
 /// Whether two designations are written the same way: both in digits, both in
 /// capitals, or both in small letters.
-fn written_alike(one: &str, other: &str) -> bool {
+pub(crate) fn written_alike(one: &str, other: &str) -> bool {
     let way = |designation: &str| {
         designation.chars().next().map(|c| {
             if c.is_ascii_digit() {

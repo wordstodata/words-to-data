@@ -11,6 +11,7 @@
 use serde::Serialize;
 
 use crate::link::{Link, LinkKind, Target};
+use crate::olrc::table::written_alike;
 
 /// A place in a public law: the section number, then each designation below
 /// it, outermost first. `10101(b)(3)` is `["10101", "b", "3"]`.
@@ -110,23 +111,6 @@ impl Named {
             }
         }
     }
-}
-
-/// Whether two designations are written the same way: both in digits, both in
-/// capitals, or both in small letters.
-fn written_alike(one: &str, other: &str) -> bool {
-    let way = |designation: &str| {
-        designation.chars().next().map(|c| {
-            if c.is_ascii_digit() {
-                0
-            } else if c.is_ascii_uppercase() {
-                1
-            } else {
-                2
-            }
-        })
-    };
-    way(one).is_some() && way(one) == way(other)
 }
 
 /// Whether `at` falls between `first` and `last`, both included.
