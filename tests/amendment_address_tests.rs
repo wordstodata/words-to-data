@@ -114,3 +114,24 @@ fn should_address_the_new_section_when_an_amendment_inserts_one() {
     assert_eq!(address.unresolved, None);
     assert!(address.container.is_empty());
 }
+
+/// The measurement ADR 0013 records: over every amending instruction of
+/// `119-hr-1`, the markup resolver named a section for 495 of 603 before the
+/// en-dash and new-section fixes. The resolver must answer for at least as
+/// many, and the two fixes add at least the two instructions above.
+#[test]
+fn should_address_more_than_the_measured_share_when_every_instruction_of_the_bill_is_read() {
+    let bill = committed_bill();
+    let addresses = addresses_in(BILL_ID, &bill);
+
+    let addressed = addresses
+        .iter()
+        .filter(|address| address.section.is_some())
+        .count();
+    println!("addressed {addressed} of {}", addresses.len());
+
+    assert!(
+        addressed > 495,
+        "the measured baseline is 495 of 603, found {addressed}"
+    );
+}
