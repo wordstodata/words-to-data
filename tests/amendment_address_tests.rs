@@ -8,7 +8,10 @@
 //! Every case reads the committed public law `119-hr-1`. Nothing is mocked.
 
 use std::collections::HashMap;
+use std::process::Command;
 
+use words_to_data::congress::BillDownload;
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 use words_to_data::document::DocumentNode;
 use words_to_data::uslm::amendment_address::{AmendmentAddress, addresses_in};
 use words_to_data::uslm::bill_parser::{amendment_paths, bill_expression};
@@ -134,4 +137,101 @@ fn should_address_more_than_the_measured_share_when_every_instruction_of_the_bil
         addressed > 495,
         "the measured baseline is 495 of 603, found {addressed}"
     );
+}
+
+// --- The command ----------------------------------------------------------
+
+/// The committed bill as the Congress client would hand it over.
+fn committed_bill_download() -> BillDownload {
+    let read = |name: &str| {
+        std::fs::read_to_string(format!("{BILL_DIR}/{name}"))
+            .unwrap_or_else(|e| panic!("{name} should be committed: {e}"))
+    };
+    BillDownload {
+        bill_id: BILL_ID.to_string(),
+        bill_xml: read("public_law.xml"),
+        bill_metadata_json: read("metadata.json"),
+        cosponsors_json: read("cosponsors.json"),
+        votes_json: None,
+        member_jsons: HashMap::new(),
+    }
+}
+
+/// A dataset file that holds the committed bill and nothing else, saved under
+/// `name` in the test target's own directory.
+fn dataset_holding_the_bill(name: &str) -> String {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the committed bill should load");
+    let path = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the dataset should save");
+    path
+}
+
+/// Run the command, and read what it printed as JSON.
+fn run_amendment_addresses(args: &[&str]) -> serde_json::Value {
+    let run = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .arg("amendment-addresses")
+        .args(args)
+        .output()
+        .expect("the binary should run");
+    assert!(
+        run.status.success(),
+        "the command should exit zero, stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    serde_json::from_slice(&run.stdout).expect("--json should emit json")
+}
+
+/// The command shows every amendment of a public law, with its address or
+/// its reason. `--json` is the surface an agent reads.
+#[test]
+fn should_show_every_amendments_address_or_reason_when_the_command_runs_with_json() {
+    let path = dataset_holding_the_bill("amendment_addresses_all.json");
+
+    let shown = run_amendment_addresses(&[&path, "--bill", BILL_ID, "--json"]);
+
+    let rows = shown.as_array().expect("an array of addresses");
+    assert_eq!(rows.len(), 603);
+    let new_section = rows
+        .iter()
+        .find(|row| row["section"] == "/us/usc/t26/s174A")
+        .expect("the new § 174A is one of the addresses");
+    assert!(new_section["amendment_id"].is_string());
+    assert!(
+        rows.iter()
+            .all(|row| row["section"].is_null() != row["unresolved"].is_null()),
+        "every row has a section or a reason"
+    );
+}
+
+/// `--amendment` narrows the command to one amendment, by the start of its id,
+/// which is how `settle` and the review queue name things.
+#[test]
+fn should_show_only_that_amendment_when_the_command_is_given_its_id() {
+    let bill = committed_bill();
+    let addresses = addresses_in(BILL_ID, &bill);
+    let new_section = addresses
+        .iter()
+        .find(|address| address.section.as_deref() == Some("/us/usc/t26/s174A"))
+        .expect("the bill inserts § 174A");
+    let short_id = &new_section.amendment_id[..12];
+
+    let path = dataset_holding_the_bill("amendment_addresses_one.json");
+    let shown = run_amendment_addresses(&[
+        &path,
+        "--bill",
+        BILL_ID,
+        "--amendment",
+        short_id,
+        "--json",
+    ]);
+
+    let rows = shown.as_array().expect("an array of addresses");
+    assert_eq!(rows.len(), 1, "one amendment was asked for, found {rows:?}");
+    assert_eq!(rows[0]["amendment_id"], new_section.amendment_id.as_str());
+    assert_eq!(rows[0]["section"], "/us/usc/t26/s174A");
 }
