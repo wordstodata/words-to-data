@@ -419,6 +419,23 @@ fn should_link_only_in_the_first_window_when_the_address_also_changed_in_a_later
 }
 
 #[test]
+fn should_say_the_dataset_does_not_hold_the_title_when_an_address_is_outside_it() {
+    // Section 1240O(b) of the Food Security Act of 1985 (16 U.S.C.
+    // 3839bb-2(b)), and this dataset holds title 7 alone. That is a limit of the dataset, not
+    // a statement that nothing changed, and the reason must not read as one.
+    let found = match_of("c0b8fadcd360");
+
+    let Outcome::Residue(residue) = &found.outcome else {
+        panic!("the amendment should be residue: {:?}", found.outcome);
+    };
+    assert_eq!(residue.stage, Stage::Window);
+    assert_eq!(
+        residue.reason,
+        "the dataset holds no expression of uscode/title_16"
+    );
+}
+
+#[test]
 fn should_leave_changes_as_residue_when_the_quoted_words_cannot_place_them() {
     // Section 27(a)(2) of the Food and Nutrition Act of 2008
     // (7 U.S.C. 2036(a)(2)) is amended by striking "section 3(u)(4)" each place

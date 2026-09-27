@@ -467,6 +467,17 @@ fn match_in_work<S: Storage + LegislatureReader>(
         .map(|&at| stated[at].enacted.as_str())
         .min()
         .unwrap_or_default();
+    // A title the dataset does not hold is a limit of the dataset. Saying that
+    // nothing changed there would state a fact about the law nobody checked.
+    if dataset.expressions(work)?.is_empty() {
+        for &at in members {
+            outcomes[at] = Some(residue(
+                Stage::Window,
+                format!("the dataset holds no expression of {work}"),
+            ));
+        }
+        return Ok(Vec::new());
+    }
     let windows = windows_after(dataset, work, earliest_enactment)?;
 
     // Stage 2: the window. Every window the amendment's address changed in,
