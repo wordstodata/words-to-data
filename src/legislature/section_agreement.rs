@@ -10,6 +10,16 @@
 //! reporting it as one would manufacture a false fault out of an extractor
 //! limitation (#140).
 //!
+//! **A quoted section is not the section being amended.** Amendment language
+//! quotes the text struck, the text inserted, and the positional anchor an
+//! insertion is placed after, and none of those three is the provision acted on.
+//! Reading one made the check report correct links as suspect — 29 of 40
+//! disagreements sampled on the maintainer's own dataset — so
+//! [`without_quotations`] blanks every quotation before a word is read. A link
+//! whose only section sits inside a quotation is then honestly the third
+//! outcome. The one exception is an insertion that states a whole new section,
+//! where the quoted text **is** the answer ([`new_section_inserted`]).
+//!
 //! **It does not decide.** A disagreement is a reason for a person to look, and
 //! nothing here is stored (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
 //! An amendment may lawfully name one section and act on a provision in another,
@@ -207,7 +217,7 @@ fn tally_by_window(rows: &[Row]) -> Vec<WindowTally> {
 fn check(link: &Link) -> Row {
     let path = link.subject.path().unwrap_or_default().to_string();
     let path_section = section_in_path(&path);
-    let (named_section, reason) = match naming_in(amendment_words(&link.object)) {
+    let (named_section, reason) = match section_named_in(amendment_words(&link.object)) {
         Naming::Section(section) => (Some(section), None),
         Naming::Unread(why) => (None, Some(why)),
     };
@@ -269,11 +279,31 @@ fn section_in_path(path: &str) -> Option<String> {
 }
 
 /// What an amendment's own words name, or why they could not be read.
-enum Naming {
+///
+/// Public because the reading is the reusable half of this module and the half
+/// worth testing on its own. A review tool holding an amendment's words and no
+/// dataset still wants the answer, and a test that feeds it one real sentence
+/// out of the committed bill says more about the reading than a test that
+/// builds a dataset around it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Naming {
     /// A section of the Code.
     Section(String),
     /// Nothing this check may rely on, and why not.
     Unread(String),
+}
+
+impl Naming {
+    /// The section named, or `None` when the words could not be read.
+    ///
+    /// Here so a caller can ask the question without matching on the reason,
+    /// which is a sentence for a person and not something to branch on.
+    pub fn section(&self) -> Option<&str> {
+        match self {
+            Self::Section(section) => Some(section),
+            Self::Unread(_) => None,
+        }
+    }
 }
 
 /// The section an amendment's own words name.
@@ -306,23 +336,57 @@ enum Naming {
 /// one is the single place a wrong guess would silently move a provision between
 /// titles of the Code. No link in the committed corpus names a title its own
 /// path disagrees with, so the check stays with the sections.
-fn naming_in(text: &str) -> Naming {
+pub fn section_named_in(words: &str) -> Naming {
+    // The dashed part is taken only after a **letter**, which is the rule
+    // `crate::citation::usc::law_section` already carries and for the same
+    // reason: the Code numbers `1400Z-1`, `479a-1` and `300gg-11` that way, so
+    // stopping at the dash names a real but different provision (#135, #141).
+    // After a digit the dash is a range — `sections 1961-63` — and there the
+    // first number is one the text really named, so it is left alone.
     static IN_PROSE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)\bsection\s+(?P<section>[0-9][0-9A-Za-z]*)\s*(?:\([0-9A-Za-z]{1,6}\))*")
-            .expect("the prose-section pattern must compile")
+        let dashes: String = crate::citation::usc::DASHES
+            .iter()
+            .map(|dash| regex::escape(&dash.to_string()))
+            .collect();
+        // The dashed alternative comes first, so a number that has one is read
+        // whole. In the other order the plain branch matches `1400Z` and stops,
+        // which is the same trap `law_section` documents for subsections.
+        //
+        // Its digits and its letters are separate runs, `[0-9]+[A-Za-z]+`,
+        // rather than one `[0-9A-Za-z]*` followed by a letter. The second
+        // spelling lets the same characters be read two ways, and this engine
+        // then answers `1400Z` for `1400Z-1`: it reports the branch that reaches
+        // a match first rather than backtracking the run to save the branch.
+        let number = format!(r"[0-9]+[A-Za-z]+[{dashes}][0-9][0-9A-Za-z]*|[0-9][0-9A-Za-z]*");
+        Regex::new(&format!(
+            r"(?i)\bsection\s+(?P<section>{number})\s*(?:\([0-9A-Za-z]{{1,6}}\))*"
+        ))
+        .expect("the prose-section pattern must compile")
     });
     static OF_AN_ACT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)^\s*of\s+the\s+").expect("the of-an-Act pattern must compile")
     });
 
-    if let Some(prose) = IN_PROSE.captures(text) {
+    // An insertion names the new section, and the bill states its number inside
+    // the text it inserts. Read before the quotations go, because that is the
+    // one place the quoted text holds the answer rather than a distraction.
+    if let Some(inserted) = new_section_inserted(words) {
+        return Naming::Section(inserted);
+    }
+
+    // Every quotation is blanked before a word of this is read. A quoted run is
+    // struck text, inserted text, or a positional anchor, and none of the three
+    // is the provision the amendment acts on.
+    let spoken = without_quotations(words);
+
+    if let Some(prose) = IN_PROSE.captures(&spoken) {
         let whole = prose.get(0).expect("a match always has a whole");
         let section = prose["section"].to_string();
-        if !OF_AN_ACT.is_match(&text[whole.end()..]) {
+        if !OF_AN_ACT.is_match(&spoken[whole.end()..]) {
             return Naming::Section(section);
         }
         // A section of an Act. Its place in the Code is the citation's to give.
-        return cited_in(text).unwrap_or_else(|| {
+        return cited_in(&spoken).unwrap_or_else(|| {
             Naming::Unread(format!(
                 "the amendment names section {section} of an Act, and no U.S.C. \
                  citation beside it gives its place in the Code"
@@ -330,8 +394,100 @@ fn naming_in(text: &str) -> Naming {
         });
     }
 
-    cited_in(text)
-        .unwrap_or_else(|| Naming::Unread("the amendment's words name no section".to_string()))
+    cited_in(&spoken).unwrap_or_else(|| match IN_PROSE.captures(words) {
+        // The words do name a section, and every mention of it is quoted. That
+        // is a different fact from naming none, and folding the two together
+        // would hide how much of this outcome has one cause (#211).
+        Some(quoted) => Naming::Unread(format!(
+            "every section the amendment names sits inside a quotation — \
+             section {} — so none of them is the section it acts on",
+            &quoted["section"]
+        )),
+        None => Naming::Unread("the amendment's words name no section".to_string()),
+    })
+}
+
+/// The number of the whole new section an amendment inserts, when it inserts
+/// one.
+///
+/// The bill writes
+///
+/// > by inserting after section 223 the following new section:"SEC. 224.
+/// > 26 USC 224. QUALIFIED TIPS."
+///
+/// where § 223 is the **anchor** the new section is placed after. An anchor is
+/// no more the section the amendment names than a quoted string is, so reading
+/// it would report a true finding with a false reason — and the maintainer met
+/// exactly that at link `3609722628c6`, where the row was right and its words
+/// were wrong.
+///
+/// Two things must both be there, so this cannot fire on a sentence that merely
+/// mentions an insertion: the phrase *the following new section*, and a
+/// `SEC. <number>.` heading after it. A bill that says *"inserting after
+/// subsection (f) the following new section"* and then quotes `"(g) …"` states
+/// no section heading, so this answers `None` and the ordinary reading stands.
+///
+/// This is the one place a quotation is read rather than blanked, because it is
+/// the one place the quoted text **is** the answer.
+fn new_section_inserted(words: &str) -> Option<String> {
+    static INSERTING_A_SECTION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r#"(?i)the\s+following\s+new\s+section[^"“]*["“]\s*SEC\.\s*(?P<section>[0-9][0-9A-Za-z]*)\s*\."#,
+        )
+        .expect("the new-section pattern must compile")
+    });
+    Some(INSERTING_A_SECTION.captures(words)?["section"].to_string())
+}
+
+/// `words` with every quoted run replaced by spaces.
+///
+/// Amendment language quotes three kinds of thing and **none** of them is the
+/// provision being amended: the text struck, the text inserted, and the
+/// positional anchor an insertion is placed after. The bill writes
+///
+/// > by inserting ", as in effect for such academic year," after
+/// > "section 479A(b)(1)(B)(v)"
+///
+/// and § 479A is there only as the string to search for. Reading it as the
+/// section the amendment names reported a **correct** link as suspect, which is
+/// the cry-wolf failure `#183` and `#211` both warn about.
+///
+/// Spaces rather than deletion, so a byte offset into the result is the same
+/// offset in `words` and a reason built from it still points at the real
+/// sentence.
+///
+/// Both the straight and the curly marks, because the publisher's markup writes
+/// curly quotes and a stored excerpt of it writes straight ones.
+///
+/// **A run nothing closes is blanked to the end.** An excerpt that stops inside
+/// a quotation is still inside it — 116 of the 753 committed annotations carry
+/// an odd number of quote marks — and refusing to read is the safe direction: a
+/// wrong flag costs a reviewer more than a missing one.
+fn without_quotations(words: &str) -> String {
+    const OPENS: [char; 2] = ['"', '\u{201C}'];
+    const CLOSES: [char; 2] = ['"', '\u{201D}'];
+
+    let mut spoken = String::with_capacity(words.len());
+    let mut inside = false;
+    for mark in words.chars() {
+        let opening = !inside && OPENS.contains(&mark);
+        let closing = inside && CLOSES.contains(&mark);
+
+        if inside || opening {
+            for _ in 0..mark.len_utf8() {
+                spoken.push(' ');
+            }
+        } else {
+            spoken.push(mark);
+        }
+
+        if opening {
+            inside = true;
+        } else if closing {
+            inside = false;
+        }
+    }
+    spoken
 }
 
 /// What the U.S. Code citations in `text` name, read by the shared extractor.

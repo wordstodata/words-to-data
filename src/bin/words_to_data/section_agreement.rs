@@ -11,6 +11,25 @@
 //! link's path. Nothing is stored, because the answer is derived from what the
 //! dataset already holds
 //! (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+//!
+//! # What it reads, and what it will not read
+//!
+//! A section inside a quotation is never the section an amendment acts on: a
+//! quoted run is struck text, inserted text, or the anchor an insertion follows.
+//! Those are ignored, and a link whose only section sits inside a quotation is
+//! reported as *could not be read* rather than as a disagreement.
+//!
+//! One insertion form is the exception, and it is read: `inserting after
+//! section 223 the following new section:"SEC. 224. …"` names the **new**
+//! section, 224, and not the anchor 223. Both halves must be there — the phrase
+//! and a `SEC. <number>.` heading — so `inserting after subsection (f) the
+//! following new section:"(g) …"`, which states no section heading, falls back
+//! to the ordinary reading.
+//!
+//! **Known limit.** An amendment that states its target in no other way — for
+//! example one that only quotes the words it strikes — cannot be checked, and is
+//! counted rather than guessed at. On the maintainer's dataset that outcome is
+//! the majority of links, which is `#211`'s to weigh.
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
