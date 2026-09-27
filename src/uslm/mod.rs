@@ -22,6 +22,7 @@ use thiserror::Error;
 
 use crate::document::{ClassPayload, NodeData, NodeType};
 
+pub mod amendment_address;
 pub mod bill_parser;
 pub mod bill_redesignation;
 pub mod parser;
