@@ -41,6 +41,7 @@ use crate::dataset::{
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::link::Link;
+use crate::query::{Answer, Locator};
 use crate::uslm::bill_parser::Bill;
 
 /// The dataset shape this build reads and writes.
@@ -154,8 +155,38 @@ pub trait DocumentReader {
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError>;
 
-    /// Search text across every expression.
-    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError>;
+    /// Search text where a locator says to look, at most `limit` hits.
+    ///
+    /// The locator is the vocabulary [`crate::query`] settled, not a second set
+    /// of filters (#234). Its work and window pick the expressions read; its
+    /// path picks the provisions inside them.
+    ///
+    /// **A window holds a date rather than equalling one.** A link's subject
+    /// spans two dates, so a locator's window matches a link's window exactly.
+    /// An expression is one work on one date, so the same window reaches every
+    /// expression published between its ends, which is what asking for a release
+    /// point means.
+    ///
+    /// `limit` bounds the rows and not the count: the answer's total says how
+    /// many matched, so a caller that showed twenty of a thousand can say so.
+    /// One word over the real corpus answered with 1135 hits and no way to ask
+    /// for fewer (#235).
+    fn search_text_in(
+        &self,
+        query: &str,
+        locator: &Locator,
+        limit: Option<usize>,
+    ) -> Result<Answer<SearchResult>, DatasetError>;
+
+    /// Search text across every expression, unbounded.
+    ///
+    /// The whole-corpus case of [`search_text_in`], kept for a caller that
+    /// really does want every hit everywhere.
+    ///
+    /// [`search_text_in`]: DocumentReader::search_text_in
+    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
+        Ok(self.search_text_in(query, &Locator::new(), None)?.rows)
+    }
 
     /// Find an element by path, in every expression that holds it.
     fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError>;
@@ -170,6 +201,81 @@ pub trait DocumentReader {
     ///
     /// [`find_nodes`]: DocumentReader::find_nodes
     fn has_node(&self, path: &str) -> Result<bool, DatasetError>;
+}
+
+/// Whether a locator reaches this expression at all.
+///
+/// This and [`locates_path`] state what a locator means for a backend that walks
+/// documents. SQLite says the same thing as a `WHERE` clause, because its index
+/// can answer a work and a date without reading a tree, so the two must be read
+/// together: a locator that reads one way over SQLite and another way in memory
+/// is two datasets wearing one name.
+pub(crate) fn locates_expression(locator: &Locator, id: &ExpressionId) -> bool {
+    if let Some(work) = &locator.work
+        && id.work.as_str() != work
+    {
+        return false;
+    }
+    // A window holds a date here rather than equalling one: an expression is
+    // one work on one date, so `--at 2025-07-18` is the window that begins and
+    // ends there. Dates are `YYYY-MM-DD`, so a string compare orders them.
+    if let Some(window) = &locator.window
+        && (id.at < window.from_date || id.at > window.to_date)
+    {
+        return false;
+    }
+    true
+}
+
+/// Whether a locator reaches a provision recorded at this path.
+///
+/// The rule is [`crate::query::PathMatch`]'s own, so a path means here exactly
+/// what it means to a link query. See [`locates_expression`] on the SQL twin.
+pub(crate) fn locates_path(locator: &Locator, path: &str) -> bool {
+    locator
+        .path
+        .as_ref()
+        .is_none_or(|asked| locator.matching.accepts(asked, path))
+}
+
+/// The hits a search kept, and the number it found.
+///
+/// A limit bounds the rows and never the count. Truncating without counting is
+/// how a partial answer comes to read as the whole one (#220, #235), so the
+/// total is kept whether or not the row is.
+pub(crate) struct Hits {
+    rows: Vec<SearchResult>,
+    total: usize,
+    limit: Option<usize>,
+}
+
+impl Hits {
+    pub(crate) fn with_limit(limit: Option<usize>) -> Self {
+        Self {
+            rows: Vec::new(),
+            total: 0,
+            limit,
+        }
+    }
+
+    /// Count one match, and keep it while there is room.
+    ///
+    /// The hit arrives as a closure so that a match past the limit is never
+    /// built: a section's text can be ten thousand characters, and the reason
+    /// for a limit is not to copy the ones nobody will read.
+    pub(crate) fn offer(&mut self, hit: impl FnOnce() -> SearchResult) {
+        self.total += 1;
+        if self.limit.is_none_or(|limit| self.rows.len() < limit) {
+            self.rows.push(hit());
+        }
+    }
+
+    pub(crate) fn answer(self) -> Answer<SearchResult> {
+        Answer {
+            rows: self.rows,
+            total: self.total,
+        }
+    }
 }
 
 /// Reading the links a dataset holds.

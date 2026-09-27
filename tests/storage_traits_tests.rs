@@ -25,6 +25,7 @@ use words_to_data::dataset::{
 use words_to_data::diff::TreeDiff;
 use words_to_data::document::DocumentNode;
 use words_to_data::link::{Link, LinkKind, Provenance, Target, VerificationState};
+use words_to_data::query::{Answer, Locator};
 use words_to_data::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
     LegislatureReader, LinkReader, LinkWriter, Storage,
@@ -74,8 +75,13 @@ impl DocumentReader for DocumentsOnly {
         self.0.compute_diff(from, to)
     }
 
-    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
-        self.0.search_text(query)
+    fn search_text_in(
+        &self,
+        query: &str,
+        locator: &Locator,
+        limit: Option<usize>,
+    ) -> Result<Answer<SearchResult>, DatasetError> {
+        self.0.search_text_in(query, locator, limit)
     }
 
     fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {
@@ -267,8 +273,13 @@ impl DocumentReader for DocumentsAndLinks {
         self.0.compute_diff(from, to)
     }
 
-    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
-        self.0.search_text(query)
+    fn search_text_in(
+        &self,
+        query: &str,
+        locator: &Locator,
+        limit: Option<usize>,
+    ) -> Result<Answer<SearchResult>, DatasetError> {
+        self.0.search_text_in(query, locator, limit)
     }
 
     fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {

@@ -15,10 +15,11 @@ use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
-use crate::link::{Link, LinkKind, Provenance, Target};
+use crate::link::{Link, LinkKind, Provenance, Target, Window};
+use crate::query::{Answer, Locator, PathMatch};
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
-    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
+    DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, Hits, InMemoryStorage,
     LegislatureCounts, LegislatureReader, LegislatureWriter, LinkReader, LinkWriter,
     SCHEMA_VERSION, Storage,
 };
@@ -27,6 +28,83 @@ use crate::uslm::bill_parser::Bill;
 pub struct SqliteStorage {
     conn: Connection,
     metadata: DatasetMetadata,
+}
+
+/// A [`Locator`] as SQL: the `AND` clauses it adds, and the values they bind.
+///
+/// Pushed into the query rather than filtered afterwards in Rust, because
+/// `element_index` is keyed by `(work, date, ordinal)` and carries its own index
+/// on `path`, so a locator naming one work reads one title rather than
+/// fifty-eight (#235).
+///
+/// Named parameters, not numbered ones: the search union repeats this clause
+/// once per text field, and a numbered set would have to be recounted by hand
+/// every time a clause is added.
+struct ScopeClause {
+    sql: String,
+    work: Option<String>,
+    window: Option<Window>,
+    path: Option<String>,
+    /// The subtree pattern, when the locator asked for a subtree.
+    beneath: Option<String>,
+}
+
+impl ScopeClause {
+    fn of(locator: &Locator) -> Self {
+        let mut sql = String::new();
+        if locator.work.is_some() {
+            sql.push_str(" AND work = :work");
+        }
+        // Between the ends, not equal to them: see
+        // [`crate::storage::locates_expression`], which says the same thing for
+        // the backend that walks trees.
+        if locator.window.is_some() {
+            sql.push_str(" AND date >= :from_date AND date <= :to_date");
+        }
+        // A subtree is the path itself or anything below the next separator.
+        // The `/` is what makes it segment-aware, so `section_1` does not answer
+        // for `section_16` — the same rule `PathMatch::Subtree` applies in Rust.
+        let beneath = match (&locator.path, locator.matching) {
+            (Some(path), PathMatch::Subtree) => {
+                sql.push_str(" AND (path = :path OR path LIKE :beneath)");
+                Some(format!("{path}/%"))
+            }
+            (Some(_), PathMatch::Exact) => {
+                sql.push_str(" AND path = :path");
+                None
+            }
+            (None, _) => None,
+        };
+        Self {
+            sql,
+            work: locator.work.clone(),
+            window: locator.window.clone(),
+            path: locator.path.clone(),
+            beneath,
+        }
+    }
+
+    /// The values to bind, one for each clause [`Self::of`] wrote.
+    ///
+    /// Binding a name the SQL does not hold is an error in rusqlite, and so is
+    /// the reverse, so both are built from the same conditions.
+    fn bindings(&self) -> Vec<(&'static str, &dyn rusqlite::ToSql)> {
+        let mut bound: Vec<(&'static str, &dyn rusqlite::ToSql)> = Vec::new();
+        if let Some(work) = &self.work {
+            bound.push((":work", work));
+        }
+        if let Some(window) = &self.window {
+            bound.push((":from_date", &window.from_date));
+            bound.push((":to_date", &window.to_date));
+        }
+        if let Some(path) = &self.path {
+            bound.push((":path", path));
+        }
+        if let Some(beneath) = &self.beneath {
+            bound.push((":beneath", beneath));
+        }
+        bound
+    }
 }
 
 /// The columns of `element_index`, in the order the insert takes them.
@@ -1022,7 +1100,12 @@ impl DocumentReader for SqliteStorage {
         Ok(TreeDiff::from_nodes(&from_e.root, &to_e.root))
     }
 
-    fn search_text(&self, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
+    fn search_text_in(
+        &self,
+        query: &str,
+        locator: &Locator,
+        limit: Option<usize>,
+    ) -> Result<Answer<SearchResult>, DatasetError> {
         // Every text field, not a chosen few: a field left out of this query is
         // a field whose text reads as absent from the law (#82).
         //
@@ -1030,26 +1113,30 @@ impl DocumentReader for SqliteStorage {
         // backends answer alike: work, then date, then document position, then
         // the field order that backend declares.
         let query_pattern = format!("%{}%", query.to_lowercase());
-        let mut stmt = self.conn.prepare(
+        let scope = ScopeClause::of(locator);
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT work, date, path, ordinal, 0 AS field_rank, 'heading' AS field, heading AS snippet
-                 FROM element_index WHERE LOWER(heading) LIKE ?1
+                 FROM element_index WHERE LOWER(heading) LIKE :pattern{scope}
              UNION ALL
              SELECT work, date, path, ordinal, 1, 'chapeau', chapeau
-                 FROM element_index WHERE LOWER(chapeau) LIKE ?1
+                 FROM element_index WHERE LOWER(chapeau) LIKE :pattern{scope}
              UNION ALL
              SELECT work, date, path, ordinal, 2, 'content', content
-                 FROM element_index WHERE LOWER(content) LIKE ?1
+                 FROM element_index WHERE LOWER(content) LIKE :pattern{scope}
              UNION ALL
              SELECT work, date, path, ordinal, 3, 'proviso', proviso
-                 FROM element_index WHERE LOWER(proviso) LIKE ?1
+                 FROM element_index WHERE LOWER(proviso) LIKE :pattern{scope}
              UNION ALL
              SELECT work, date, path, ordinal, 4, 'continuation', continuation
-                 FROM element_index WHERE LOWER(continuation) LIKE ?1
+                 FROM element_index WHERE LOWER(continuation) LIKE :pattern{scope}
              ORDER BY work, date, ordinal, field_rank",
-        )?;
-        let mut rows = stmt.query(params![query_pattern])?;
+            scope = scope.sql,
+        ))?;
+        let mut bound: Vec<(&str, &dyn rusqlite::ToSql)> = vec![(":pattern", &query_pattern)];
+        bound.extend(scope.bindings());
+        let mut rows = stmt.query(&bound[..])?;
 
-        let mut results = Vec::new();
+        let mut hits = Hits::with_limit(limit);
         while let Some(row) = rows.next()? {
             let work: String = row.get(0)?;
             let date: String = row.get(1)?;
@@ -1057,7 +1144,7 @@ impl DocumentReader for SqliteStorage {
             let field: String = row.get(5)?;
             let snippet: Option<String> = row.get(6)?;
             if let Some(snippet) = snippet {
-                results.push(SearchResult {
+                hits.offer(|| SearchResult {
                     expression: ExpressionId::new(WorkId::new(work), date),
                     path,
                     field,
@@ -1066,7 +1153,7 @@ impl DocumentReader for SqliteStorage {
             }
         }
 
-        Ok(results)
+        Ok(hits.answer())
     }
 
     fn find_nodes(&self, path: &str) -> Result<Vec<(ExpressionId, DocumentNode)>, DatasetError> {

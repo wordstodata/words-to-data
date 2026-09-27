@@ -30,20 +30,27 @@
 //! 0.71, and a report sorted by the figure would put the wrong link first.
 
 use clap::Args as ClapArgs;
-use words_to_data::inspect::{self, ContradictionGroup};
+use words_to_data::inspect::{self, ContradictionGroup, Contradictions};
+use words_to_data::link::LinkKind;
+use words_to_data::query::{DEFAULT_LIMIT, LinkQuery};
 
 use crate::load::{self, with_dataset};
-
-/// How many groups the human output prints per category before it stops.
-///
-/// `--json` carries them all. A three-release-point corpus gives tens of
-/// duplication groups, and a reader who wants every one is piping the output.
-const SHOWN: usize = 20;
 
 #[derive(ClapArgs)]
 pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
+
+    /// Report only groups of this kind in full, e.g. `legislature.redesignated_as`
+    ///
+    /// Matched literally, so a kind this build has never seen still filters
+    /// rather than being refused (`docs/adr/0002`)
+    #[arg(long)]
+    pub kind: Option<String>,
+
+    /// Report only groups in this namespace, e.g. `legislature`
+    #[arg(long)]
+    pub namespace: Option<String>,
 
     /// Emit JSON instead of human-readable text
     #[arg(long)]
@@ -51,11 +58,23 @@ pub struct Args {
 }
 
 pub fn run(args: Args) {
+    // The filters are `LinkQuery`'s, not this command's own (#234). Only the two
+    // terms that name a kind apply: a contradiction is about a subject, and the
+    // groups are already keyed by it.
+    let mut query = LinkQuery::new();
+    if let Some(kind) = &args.kind {
+        query = query.of_kind(kind);
+    }
+    if let Some(namespace) = &args.namespace {
+        query = query.in_namespace(namespace);
+    }
+
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
-    let report = crate::fail::or_exit(
+    let mut report = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::contradictions(&d)),
         "Error reading the dataset's links",
     );
+    narrow(&mut report, &query);
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -89,6 +108,30 @@ pub fn run(args: Args) {
     }
 }
 
+/// Keep the groups whose kind the query names, and recount the totals.
+///
+/// The totals have to follow the lists. A report that filtered the groups and
+/// kept the old counts would say it found ninety-seven and print none, which is
+/// the reader-that-lies defect of #220.
+///
+/// `links_read` is deliberately left alone: it says how many links the run read,
+/// which is every one of them, and it is what tells "nothing of that kind" apart
+/// from "nothing was looked at".
+fn narrow(report: &mut Contradictions, query: &LinkQuery) {
+    let named = |group: &ContradictionGroup| {
+        let kind = LinkKind::new(&group.kind);
+        query.kind.as_ref().is_none_or(|asked| group.kind == *asked)
+            && query
+                .namespace
+                .as_ref()
+                .is_none_or(|asked| kind.namespace() == asked)
+    };
+    report.duplication.retain(named);
+    report.disagreement.retain(named);
+    report.totals.duplication = report.duplication.len();
+    report.totals.disagreement = report.disagreement.len();
+}
+
 /// Print one category, named and headed, whether or not it holds anything.
 ///
 /// An empty category still prints its heading. "Duplication: none" and silence
@@ -99,7 +142,7 @@ fn print_category(heading: &str, groups: &[ContradictionGroup]) {
         println!("  none");
         return;
     }
-    for group in groups.iter().take(SHOWN) {
+    for group in groups.iter().take(DEFAULT_LIMIT) {
         println!("  {} [{}]", group.subject, group.kind);
         for link in &group.links {
             let window = link
@@ -124,10 +167,10 @@ fn print_category(heading: &str, groups: &[ContradictionGroup]) {
             }
         }
     }
-    if groups.len() > SHOWN {
+    if groups.len() > DEFAULT_LIMIT {
         println!(
             "  … {} more subject(s); pass --json for all of them",
-            groups.len() - SHOWN
+            groups.len() - DEFAULT_LIMIT
         );
     }
 }

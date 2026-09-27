@@ -831,3 +831,120 @@ fn should_name_a_placed_row_by_its_link_id_and_leave_an_unplaced_row_without_one
         );
     }
 }
+
+/// A kind this build has never seen must filter, never be refused.
+///
+/// `docs/adr/0002` makes a kind an open string, so a closed list behind `--kind`
+/// would refuse `westlaw.headnote` — the very kind that openness exists for. The
+/// answer to an unknown kind is "no group of that kind", said with exit zero
+/// (#235).
+#[test]
+fn should_filter_rather_than_refuse_when_contradictions_names_a_kind_the_build_does_not_know() {
+    let output = run(&[
+        "contradictions",
+        two_window_file(),
+        "--kind",
+        "westlaw.headnote",
+        "--json",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "an unknown kind should filter, not be refused, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the command should emit json");
+    for category in ["duplication", "disagreement"] {
+        assert_eq!(
+            report[category].as_array().map(Vec::len),
+            Some(0),
+            "no {category} group is of that kind, got:\n{report:#}"
+        );
+        assert_eq!(
+            report["totals"][category].as_u64(),
+            Some(0),
+            "the total should count the groups reported, got:\n{report:#}"
+        );
+    }
+
+    // The dataset was still read, so "nothing of that kind" is told apart from
+    // "nothing was looked at".
+    assert!(
+        report["totals"]["links_read"].as_u64().unwrap_or_default() > 0,
+        "the run should still say how many links it read, got:\n{report:#}"
+    );
+}
+
+/// The kind the corpus really holds keeps its groups; a namespace does the same.
+///
+/// The other half of the filter. Filtering to one kind used to mean parsing
+/// `--json` (#235).
+#[test]
+fn should_keep_the_groups_of_that_kind_when_contradictions_names_one_the_corpus_holds() {
+    let held = "legislature.redesignated_as";
+    let unfiltered = contradiction_report(&[]);
+    let by_kind = contradiction_report(&["--kind", held]);
+    let by_namespace = contradiction_report(&["--namespace", "legislature"]);
+
+    assert_eq!(
+        by_kind["duplication"], unfiltered["duplication"],
+        "the corpus holds one kind, so naming it keeps every group"
+    );
+    assert_eq!(
+        by_namespace["duplication"], unfiltered["duplication"],
+        "the namespace of that kind should keep the same groups"
+    );
+    assert!(
+        by_kind["duplication"]
+            .as_array()
+            .is_some_and(|g| !g.is_empty()),
+        "the fixture should hold a duplication group, got:\n{by_kind:#}"
+    );
+    assert_eq!(
+        by_kind["totals"]["duplication"].as_u64(),
+        by_kind["duplication"].as_array().map(|g| g.len() as u64),
+        "the total should count the groups reported, got:\n{by_kind:#}"
+    );
+}
+
+/// The human report stops at a screenful and says how many it did not show.
+///
+/// The screenful is `DEFAULT_LIMIT`, the one constant every listing uses, so two
+/// commands cannot disagree about what a screenful is (#234, #235). The corpus
+/// holds 47 duplication groups, so the run really does stop.
+#[test]
+fn should_say_how_many_subjects_it_did_not_show_when_the_contradiction_report_stops() {
+    let total = contradiction_report(&[])["duplication"]
+        .as_array()
+        .map(Vec::len)
+        .expect("the report carries a duplication list");
+    assert!(
+        total > words_to_data::query::DEFAULT_LIMIT,
+        "the fixture should hold more than a screenful, got {total}"
+    );
+
+    let output = run(&["contradictions", two_window_file()]);
+    assert!(output.status.success(), "contradictions should exit zero");
+    let said = String::from_utf8_lossy(&output.stdout);
+
+    let dropped = total - words_to_data::query::DEFAULT_LIMIT;
+    assert!(
+        said.contains(&format!("{dropped} more subject(s)")),
+        "the run should name the {dropped} subjects it did not show, said:\n{said}"
+    );
+}
+
+/// One `contradictions --json` run over the two-window fixture.
+fn contradiction_report(extra: &[&str]) -> serde_json::Value {
+    let mut args = vec!["contradictions", two_window_file(), "--json"];
+    args.extend_from_slice(extra);
+    let output = run(&args);
+    assert!(
+        output.status.success(),
+        "{args:?} should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("the command should emit json")
+}
