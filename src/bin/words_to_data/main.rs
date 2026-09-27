@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 mod add_classifications;
 mod add_opinions;
 mod add_release_points;
+mod amendment_addresses;
 mod annotations;
 mod bill_selection;
 mod bills;
@@ -82,6 +83,8 @@ enum Command {
     Contradictions(contradictions::Args),
     /// Report the amendments whose own words name a section their link does not sit in
     SectionAgreement(section_agreement::Args),
+    /// Show the Code address each amendment of a public law acts on, or why it is not known
+    AmendmentAddresses(amendment_addresses::Args),
 
     /// Show a bill's amendments
     ShowBill(show_bill::Args),
@@ -123,6 +126,7 @@ fn main() {
         Command::RedesignationReport(args) => redesignation_report::run(args),
         Command::Contradictions(args) => contradictions::run(args),
         Command::SectionAgreement(args) => section_agreement::run(args),
+        Command::AmendmentAddresses(args) => amendment_addresses::run(args),
         Command::ShowBill(args) => show_bill::run(args),
         Command::Votes(args) => votes::run(args),
         Command::Search(args) => search::run(args),

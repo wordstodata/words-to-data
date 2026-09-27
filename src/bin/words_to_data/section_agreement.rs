@@ -7,42 +7,24 @@
 //! rather than leaving a reader to call every row a fault (#239).
 //!
 //! **It reads the dataset and nothing else.** No XML, no model call, and no
-//! diff: an amendment's words travel on its link and the section is in the
-//! link's path. Nothing is stored, because the answer is derived from what the
-//! dataset already holds
+//! diff: the link names the amendment, the bill the dataset holds says where
+//! that amendment acts, and the section a link sits in is in its path. Nothing
+//! is stored, because the answer is derived from what the dataset already holds
 //! (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
 //!
-//! # What it reads, and what it will not read
+//! # Where the amendment's section comes from
 //!
-//! A section inside a quotation is never the section an amendment acts on: a
-//! quoted run is struck text, inserted text, or the anchor an insertion follows.
-//! A bill names its target before it starts to quote, so only the words
-//! **before the first quotation mark** are read. Skipping each quotation by
-//! pairing its marks is not safe: the stored words often write a closing mark
-//! and the next opening mark as one character (`…'."(D) …`), and the pairing
-//! then loses step. A link that names no section before its first quotation
-//! mark is reported as *could not be read* rather than as a disagreement.
+//! The address resolver reads it out of the bill's own markup, the same reading
+//! `amendment-addresses` shows (#248): the section the amending line cites, the
+//! publisher's `<ref>` beside a section of an Act, and a new section's own
+//! `SEC.` heading. The markup sets quoted text apart, so a section the
+//! amendment only quotes or cross-references is never read as the one it acts
+//! on.
 //!
-//! A cross-reference is not read either: a section after *as defined in*,
-//! *within the meaning of* or *described in* says where a term is found, not
-//! which provision is acted on.
-//!
-//! One insertion form is the exception, and it is read: `inserting after
-//! section 223 the following new section:"SEC. 224. …"` names the **new**
-//! section, 224, and not the anchor 223. Both halves must be there — the phrase
-//! and a `SEC. <number>.` heading — so `inserting after subsection (f) the
-//! following new section:"(g) …"`, which states no section heading, falls back
-//! to the ordinary reading.
-//!
-//! **Known limit.** An amendment that states its target in no other way — for
-//! example one that only quotes the words it strikes — cannot be checked, and is
-//! counted rather than guessed at. On the maintainer's dataset that outcome is
-//! the majority of links, which is `#211`'s to weigh.
-//!
-//! **Known limit.** A stored excerpt can start inside the inserted text, with
-//! its opening mark cut off. Its first words are then the inserted text and not
-//! the amendment's own, and a section there that is not phrased as a
-//! cross-reference is still read. Such a row can be false.
+//! **Known limit.** An amendment the resolver cannot address — one that names
+//! a part or a subchapter, or a table of sections — is reported as *could not
+//! be read*, with the resolver's reason, and never as a disagreement. So is a
+//! link whose bill the dataset holds no document for.
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
