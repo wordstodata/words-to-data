@@ -13,7 +13,9 @@ use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
-use words_to_data::legislature::evidence_matching::{AmendmentMatch, Outcome, match_by_evidence};
+use words_to_data::legislature::evidence_matching::{
+    AmendmentMatch, Outcome, Stage, match_by_evidence,
+};
 use words_to_data::storage::InMemoryStorage;
 
 /// The committed public law, as the Congress client leaves it in the cache.
@@ -136,5 +138,39 @@ fn should_assign_each_change_by_the_words_the_bill_quotes_when_two_amendments_sh
     assert!(
         !new_paragraph_7.iter().any(|path| under(path, &paragraph_3)),
         "the change to paragraph (3) has one cause, and it is not this amendment: {new_paragraph_7:?}"
+    );
+}
+
+#[test]
+fn should_leave_changes_as_residue_when_the_quoted_words_cannot_place_them() {
+    // Section 27(a)(2) of the Food and Nutrition Act of 2008
+    // (7 U.S.C. 2036(a)(2)) is amended by striking "section 3(u)(4)" each place
+    // it appears and inserting "section 3(u)(3)".
+    //
+    // The Code does not print the Act's own section numbers: it prints
+    // "section 2012(u)(4) of this title". So neither quoted string shows in
+    // either change under the address, and with two changes there, the
+    // matcher has nothing to choose by. It must not guess.
+    let found = match_of("a9fd405d5415");
+
+    let Outcome::Residue(residue) = &found.outcome else {
+        panic!("the amendment should be residue: {:?}", found.outcome);
+    };
+    assert_eq!(residue.stage, Stage::Resolve);
+    assert!(
+        residue.reason.contains("show in none"),
+        "the reason says the quoted words were not found: {}",
+        residue.reason
+    );
+    // An agent picks the residue up from here, so it is told where to look.
+    assert_eq!(residue.from.as_ref(), Some(&title_7_at("2025-07-18")));
+    assert_eq!(residue.to.as_ref(), Some(&title_7_at("2025-07-30")));
+    let paragraph_2 = "uscode/title_7/chapter_51/section_2036/subsection_a/paragraph_2";
+    assert_eq!(
+        residue.changes,
+        vec![
+            format!("{paragraph_2}/subparagraph_C"),
+            format!("{paragraph_2}/subparagraph_E"),
+        ]
     );
 }

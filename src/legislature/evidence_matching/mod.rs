@@ -78,6 +78,14 @@ pub struct Residue {
     pub stage: Stage,
     /// Why, in words a reviewer can act on.
     pub reason: String,
+    /// The older expression of the window the address changed in, when one
+    /// did.
+    pub from: Option<ExpressionId>,
+    /// The newer expression of that window.
+    pub to: Option<ExpressionId>,
+    /// The changes under the address in that window, in document order: where
+    /// a reviewer starts to look.
+    pub changes: Vec<String>,
 }
 
 /// The stage of the method at which an amendment stopped.
@@ -281,6 +289,13 @@ fn match_in_work<S: Storage + LegislatureReader>(
             })
             .collect();
         for (at, resolution) in group.iter().zip(resolve(&view.changes, &contenders)) {
+            let changes_under_address = || {
+                placed[at][0]
+                    .candidates
+                    .iter()
+                    .map(|change| view.changes[*change].path.clone())
+                    .collect()
+            };
             outcomes[*at] = Some(match resolution {
                 Resolution::Caused(caused) => Outcome::Linked(Linked {
                     from: view.from.clone(),
@@ -290,15 +305,28 @@ fn match_in_work<S: Storage + LegislatureReader>(
                         .map(|(change, _)| view.changes[*change].path.clone())
                         .collect(),
                 }),
-                Resolution::Stopped(reason) => residue(Stage::Resolve, reason),
+                Resolution::Stopped(reason) => Outcome::Residue(Residue {
+                    stage: Stage::Resolve,
+                    reason,
+                    from: Some(view.from.clone()),
+                    to: Some(view.to.clone()),
+                    changes: changes_under_address(),
+                }),
             });
         }
     }
     Ok(())
 }
 
+/// Residue that stopped before any window was found.
 fn residue(stage: Stage, reason: String) -> Outcome {
-    Outcome::Residue(Residue { stage, reason })
+    Outcome::Residue(Residue {
+        stage,
+        reason,
+        from: None,
+        to: None,
+        changes: Vec::new(),
+    })
 }
 
 /// Every window of a work whose later expression is dated after `enacted`,
