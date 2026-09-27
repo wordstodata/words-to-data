@@ -106,7 +106,6 @@ pub fn run(args: Args) {
 
     for a in &found.rows {
         print_annotation(a);
-        println!("    paths: {}", a.paths.join(", "));
     }
     println!("{} annotation(s)", found.total);
     // What was left out, said rather than left to be inferred. A listing that
@@ -135,6 +134,11 @@ pub fn path_matching(exact: bool) -> PathMatch {
 /// Print one annotation's headline: status, operation, bill, short amendment id,
 /// confidence, annotator, and the causative instruction snippet. Shared with the
 /// `path` command so both surfaces stay consistent.
+///
+/// Every path is printed beside the id of the link that states it, and that id
+/// is what `settle` takes. A record covering three paths is three links, so one
+/// id for the record would let a reviewer settle the first and read the record
+/// as done (#232).
 pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
     let confidence = a
         .confidence
@@ -156,6 +160,12 @@ pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
     let text = a.causative_text.trim();
     if !text.is_empty() {
         println!("      {}", truncate(text, 100));
+    }
+    // One line per path, each beside the id of the link that states it. Printed
+    // here rather than by the caller so that `path` names its annotations too:
+    // both commands are doors into a review, and the id is what opens it.
+    for (id, path) in a.link_ids.iter().zip(&a.paths) {
+        println!("      link {id}  {path}");
     }
 }
 

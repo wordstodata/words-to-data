@@ -1358,10 +1358,25 @@ pub struct AnnotationSummary {
     pub confidence: Option<f32>,
     pub annotator: String,
     pub paths: Vec<String>,
+    /// Short id of the link that states each path, in the same order as
+    /// `paths`, one for every path.
+    ///
+    /// The id is what `settle` takes, so a row a reader prints names the thing
+    /// that settles it. Several, because one annotation is one link per path it
+    /// covers and each is settled on its own (#232). Short because a sha256
+    /// prefix is reproducible across a rebuild (ADR 0004), and `review`
+    /// chooses how much of it a report prints.
+    pub link_ids: Vec<String>,
 }
 
-/// Build a summary for `ann`, tagging it with the expression pair it was found under.
-fn summarize(from: &ExpressionId, to: &ExpressionId, ann: &ChangeAnnotation) -> AnnotationSummary {
+/// Build a summary for `ann`, tagging it with the expression pair it was found
+/// under and the links its paths came from.
+fn summarize(
+    from: &ExpressionId,
+    to: &ExpressionId,
+    ann: &ChangeAnnotation,
+    link_ids: &[String],
+) -> AnnotationSummary {
     AnnotationSummary {
         work: from.work.to_string(),
         from: from.to_string(),
@@ -1376,6 +1391,10 @@ fn summarize(from: &ExpressionId, to: &ExpressionId, ann: &ChangeAnnotation) -> 
         confidence: ann.metadata.confidence,
         annotator: ann.metadata.annotator.clone(),
         paths: ann.paths.clone(),
+        link_ids: link_ids
+            .iter()
+            .map(|id| crate::review::short_id(id).to_string())
+            .collect(),
     }
 }
 
@@ -1417,8 +1436,11 @@ pub fn annotations<S: Storage>(
         let work = crate::dataset::WorkId::new(work);
         let from = ExpressionId::new(work.clone(), from_date);
         let to = ExpressionId::new(work, to_date);
-        for ann in crate::link::annotations_from_links(&group) {
-            out.push(summarize(&from, &to, &ann));
+        // The links are read back with their ids, not without them: the id a
+        // reviewer settles by is in hand here, and looking it up again after
+        // dropping it could only guess which link a path came from (#232).
+        for (ann, link_ids) in crate::link::annotations_with_their_links(&group) {
+            out.push(summarize(&from, &to, &ann, &link_ids));
         }
     }
 
