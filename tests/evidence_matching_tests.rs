@@ -9,6 +9,7 @@
 //! the smaller of the two titles the bill amends most, and 82 of the bill's
 //! amendments act in it.
 
+use std::process::Command;
 use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
@@ -18,7 +19,8 @@ use words_to_data::dataset::{
 use words_to_data::legislature::evidence_matching::{
     AmendmentMatch, Outcome, Stage, evidence_method, match_by_evidence,
 };
-use words_to_data::link::{LinkKind, Target, VerificationState, amendment_reference};
+use words_to_data::link::{Link, LinkKind, Target, VerificationState, amendment_reference};
+use words_to_data::storage::LinkReader;
 use words_to_data::matching::matching_method;
 use words_to_data::storage::InMemoryStorage;
 
@@ -78,7 +80,11 @@ fn dataset() -> &'static Dataset<InMemoryStorage> {
 /// What the matcher says about every amendment, worked out once.
 fn matches() -> &'static [AmendmentMatch] {
     static MATCHES: OnceLock<Vec<AmendmentMatch>> = OnceLock::new();
-    MATCHES.get_or_init(|| match_by_evidence(dataset()).expect("the matcher should run"))
+    MATCHES.get_or_init(|| {
+        match_by_evidence(dataset())
+            .expect("the matcher should run")
+            .matches
+    })
 }
 
 /// The matcher's answer for one amendment, by the start of its id.
@@ -226,6 +232,58 @@ fn should_write_one_amended_by_link_per_changed_path_in_the_shape_every_reader_k
     assert_eq!(payload.value["bill_id"], BILL_ID);
     assert_eq!(payload.value["amendment_id"], found.amendment_id.as_str());
     assert!(payload.value.get("operation").is_some());
+}
+
+#[test]
+fn should_write_every_link_and_record_the_method_over_each_window_when_the_command_runs() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("evidence.sqlite");
+    dataset()
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+
+    let run = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(["link-by-evidence", path.to_str().expect("a UTF-8 path")])
+        .output()
+        .expect("the binary should run");
+    assert!(
+        run.status.success(),
+        "the command should exit zero, stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    let written = Dataset::open_sqlite(&path).expect("the dataset should open");
+    let ours: Vec<Link> = written
+        .links_by_kind(LinkKind::AMENDED_BY)
+        .expect("the links should read")
+        .into_iter()
+        .filter(|link| link.provenance.method == Some(evidence_method()))
+        .collect();
+    let expected: usize = matches().iter().map(|found| found.links().len()).sum();
+    assert!(expected > 0, "the corpus gives links");
+    assert_eq!(ours.len(), expected, "every link the matcher finds is written");
+
+    // The method ran over the window its links sit in, and a reader can say
+    // so without counting links (#179, decision 11).
+    assert!(written.method_runs().iter().any(|run| {
+        run.method == evidence_method()
+            && run.covers(&WorkId::new(TITLE_7), "2025-07-18", "2025-07-30")
+    }));
+
+    // The answer is the same on every run, so a second run adds nothing.
+    let again = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(["link-by-evidence", path.to_str().expect("a UTF-8 path")])
+        .output()
+        .expect("the binary should run");
+    assert!(again.status.success());
+    let written = Dataset::open_sqlite(&path).expect("the dataset should open");
+    let after_again = written
+        .links_by_kind(LinkKind::AMENDED_BY)
+        .expect("the links should read")
+        .into_iter()
+        .filter(|link| link.provenance.method == Some(evidence_method()))
+        .count();
+    assert_eq!(after_again, expected);
 }
 
 #[test]

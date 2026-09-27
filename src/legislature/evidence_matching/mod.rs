@@ -258,13 +258,28 @@ impl AmendmentMatch {
     }
 }
 
+/// What one run of the matcher found.
+#[derive(Debug, Clone, Serialize)]
+pub struct EvidenceMatching {
+    /// One answer for every amendment of every public law the dataset holds,
+    /// in the order each bill states them.
+    pub matches: Vec<AmendmentMatch>,
+    /// Every window the method read, in the order it read them.
+    ///
+    /// A window it read and linked nothing in has still been worked on, so a
+    /// run is recorded over each of these and not only over the windows that
+    /// carry a link (#179, decision 11).
+    pub windows: Vec<(ExpressionId, ExpressionId)>,
+}
+
 /// What the matcher finds for every amendment of every public law the dataset
-/// holds, in the order each bill states them.
+/// holds.
 pub fn match_by_evidence<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
-) -> Result<Vec<AmendmentMatch>, DatasetError> {
+) -> Result<EvidenceMatching, DatasetError> {
     let stated = stated_amendments(dataset)?;
     let mut outcomes: Vec<Option<Outcome>> = vec![None; stated.len()];
+    let mut windows = Vec::new();
 
     // Stage 1: the address. Each addressed amendment is sent on to the work of
     // the Code its section sits in.
@@ -278,10 +293,16 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
 
     // One work at a time, so only one title of the Code is in memory at once.
     for (work, members) in &by_work {
-        match_in_work(dataset, work, &stated, members, &mut outcomes)?;
+        windows.extend(match_in_work(
+            dataset,
+            work,
+            &stated,
+            members,
+            &mut outcomes,
+        )?);
     }
 
-    Ok(stated
+    let matches = stated
         .into_iter()
         .zip(outcomes)
         .map(|(amendment, outcome)| AmendmentMatch {
@@ -293,7 +314,8 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
             address: amendment.address,
             outcome: outcome.expect("every amendment is answered for"),
         })
-        .collect())
+        .collect();
+    Ok(EvidenceMatching { matches, windows })
 }
 
 /// One amendment as its public law states it.
@@ -406,14 +428,15 @@ struct Placed {
     candidates: Vec<usize>,
 }
 
-/// Match every amendment that acts in one work.
+/// Match every amendment that acts in one work, and say which windows were
+/// read.
 fn match_in_work<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     work: &WorkId,
     stated: &[Stated],
     members: &[usize],
     outcomes: &mut [Option<Outcome>],
-) -> Result<(), DatasetError> {
+) -> Result<Vec<(ExpressionId, ExpressionId)>, DatasetError> {
     let earliest_enactment = members
         .iter()
         .map(|&at| stated[at].enacted.as_str())
@@ -492,13 +515,15 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 Resolution::Caused(caused) => Outcome::Linked(Linked {
                     from: view.from.clone(),
                     to: view.to.clone(),
-                    changes: caused
-                        .iter()
-                        .map(|(change, found)| CausedChange {
-                            path: view.changes[*change].path.clone(),
-                            why: found.to_string(),
-                        })
-                        .collect(),
+                    changes: one_for_each_path(
+                        caused
+                            .iter()
+                            .map(|(change, found)| CausedChange {
+                                path: view.changes[*change].path.clone(),
+                                why: found.to_string(),
+                            })
+                            .collect(),
+                    ),
                     later_windows: placed[at][1..]
                         .iter()
                         .map(|later| {
@@ -525,7 +550,29 @@ fn match_in_work<S: Storage + LegislatureReader>(
             });
         }
     }
-    Ok(())
+    Ok(windows
+        .into_iter()
+        .map(|view| (view.from, view.to))
+        .collect())
+}
+
+/// The caused changes with each path once, in the order first met.
+///
+/// A diff reports a renumbered provision whose words also changed twice at one
+/// path: as the move, and as the change to its words. One path is one link, so
+/// the two become one entry, and its reason says both.
+fn one_for_each_path(caused: Vec<CausedChange>) -> Vec<CausedChange> {
+    let mut merged: Vec<CausedChange> = Vec::new();
+    for change in caused {
+        match merged.iter_mut().find(|kept| kept.path == change.path) {
+            Some(kept) if kept.why != change.why => {
+                kept.why = format!("{} Also: {}", kept.why, change.why);
+            }
+            Some(_) => {}
+            None => merged.push(change),
+        }
+    }
+    merged
 }
 
 /// Residue that stopped before any window was found.
