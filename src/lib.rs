@@ -20,6 +20,7 @@ pub mod link;
 pub mod llm;
 pub mod matching;
 pub mod method;
+pub mod olrc;
 pub mod query;
 pub mod review;
 pub mod storage;
