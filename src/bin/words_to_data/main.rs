@@ -18,6 +18,7 @@ mod expressions;
 mod extract_changes;
 mod fail;
 mod info;
+mod link_amendment;
 mod load;
 mod match_amendments;
 mod path;
@@ -58,6 +59,8 @@ enum Command {
     Redesignations(redesignations::Args),
     /// Settle one link: say whether it is right, and record the review as its own link
     Settle(settle::Args),
+    /// Record an amendment link an agent found, refusing any path that did not change
+    LinkAmendment(link_amendment::Args),
     /// Add court opinions from CourtListener, with their U.S.C. citations as links
     AddOpinions(add_opinions::Args),
     /// Add more US Code release points to a dataset that is already there
@@ -106,6 +109,7 @@ fn main() {
         Command::MatchAmendments(args) => match_amendments::run(args),
         Command::Redesignations(args) => redesignations::run(args),
         Command::Settle(args) => settle::run(args),
+        Command::LinkAmendment(args) => link_amendment::run(args),
         Command::AddOpinions(args) => add_opinions::run(args),
         Command::AddReleasePoints(args) => add_release_points::run(args),
         Command::CasesCiting(args) => cases_citing::run(args),
