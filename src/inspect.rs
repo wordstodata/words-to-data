@@ -26,7 +26,7 @@ use crate::link::{
 };
 use crate::method::{Method, MethodRun};
 pub use crate::query::PathMatch;
-use crate::query::{Answer, LinkQuery, Locator};
+use crate::query::{Answer, LinkQuery, Locator, ReviewStatus};
 use crate::review::{Review, Verdict};
 use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
@@ -75,6 +75,23 @@ pub struct DatasetInfo {
     /// (`docs/adr/0002-links-live-in-the-core.md`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub link_counts_by_kind: BTreeMap<String, usize>,
+    /// How many links of each kind sit in each of the four review states, keyed
+    /// by the kind named in full.
+    ///
+    /// Keyed by kind first, so a reader takes one kind's row without scanning:
+    /// 1011 unreviewed amendment links and 146 unreviewed redesignation links
+    /// are different work, and one total hides which (#236).
+    ///
+    /// Always all four counts, and a fresh dataset reports every link
+    /// unreviewed rather than omitting the row. "Nobody has judged any of this
+    /// yet" is the answer an agent needs before it starts, and silence there
+    /// reads as a tool that does not measure it.
+    ///
+    /// Derived, never stored: a link's state is the verdict of the newest review
+    /// naming it (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`,
+    /// `docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub review_states_by_kind: BTreeMap<String, ReviewStates>,
     /// Number of verbatim model replies held as evidence (#58).
     #[serde(skip_serializing_if = "is_zero")]
     pub reply_count: usize,
@@ -124,6 +141,31 @@ pub struct DatasetInfo {
 /// different answers there.
 fn is_zero(count: &usize) -> bool {
     *count == 0
+}
+
+/// How many links of one kind sit in each review state.
+///
+/// Exactly the four values of [`ReviewStatus`], and no fifth. No coarser word
+/// like *settled* is added here: it is a fold over these four, and two
+/// vocabularies for one idea is how the link filters came to disagree in the
+/// first place (#234). **Disputed is its own count**, because *contested* is a
+/// third thing a reader acts on differently from *right* and *wrong*.
+///
+/// Every count is emitted, zero or not. A row exists to say how much of one
+/// kind is judged, so dropping the zeroes would leave a fresh dataset reporting
+/// the kind and nothing about it.
+///
+/// [`ReviewStatus`]: crate::query::ReviewStatus
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ReviewStates {
+    /// No review names the link.
+    pub unreviewed: usize,
+    /// The newest review confirms it.
+    pub confirmed: usize,
+    /// The newest review refutes it.
+    pub refuted: usize,
+    /// The newest review disputes it: contested, and not settled.
+    pub disputed: usize,
 }
 
 /// One expression's headline facts (no element tree).
@@ -2139,6 +2181,53 @@ pub fn votes<S: Storage + LegislatureReader>(
     Ok(Some(tallies))
 }
 
+/// How many links of each kind sit in each review state.
+///
+/// Nothing new is counted here. [`LinkReader::links_matching`] already answers
+/// "how many links of this kind are in this state", and it reads the state from
+/// the newest review naming each link, so a link two reviewers disagreed about
+/// falls in **one** bucket and never two (`docs/adr/0012`).
+///
+/// The `review` namespace is left out. A review is a link of a kind, and it
+/// carries no reviews of its own, so a status query honestly calls it
+/// `Unreviewed`. Counting the review records would make this report **climb** as
+/// the reviewing gets done, and a progress report that goes up as you make
+/// progress is worse than no report (#236).
+///
+/// [`LinkReader::links_matching`]: crate::storage::LinkReader::links_matching
+fn review_states_by_kind<S: Storage>(
+    dataset: &S,
+    held: &BTreeMap<String, usize>,
+) -> Result<BTreeMap<String, ReviewStates>, DatasetError> {
+    let mut by_kind = BTreeMap::new();
+    for kind in held.keys() {
+        if LinkKind::new(kind.clone()).namespace() == LinkKind::REVIEW {
+            continue;
+        }
+        let counted = |status| -> Result<usize, DatasetError> {
+            // A count, and not a load. `Answer.total` counts matches rather
+            // than rows, so a limit of zero gives the figure and builds none
+            // of the links behind it. Asking for the rows would clone every
+            // link of the kind four times over, for a number.
+            let query = LinkQuery::new()
+                .of_kind(kind.clone())
+                .with_status(status)
+                .with_limit(0);
+            Ok(dataset.links_matching(&query)?.total)
+        };
+        by_kind.insert(
+            kind.clone(),
+            ReviewStates {
+                unreviewed: counted(ReviewStatus::Unreviewed)?,
+                confirmed: counted(ReviewStatus::Confirmed)?,
+                refuted: counted(ReviewStatus::Refuted)?,
+                disputed: counted(ReviewStatus::Disputed)?,
+            },
+        );
+    }
+    Ok(by_kind)
+}
+
 /// Summarize a dataset's metadata and contents.
 ///
 /// Any [`Storage`] backend answers, legislature or not. Whether this dataset
@@ -2169,6 +2258,7 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
         expression_count: scope.held.iter().map(|held| held.dates.len()).sum(),
         legislature,
         link_count: links.values().sum(),
+        review_states_by_kind: review_states_by_kind(dataset, &links)?,
         link_counts_by_kind: links,
         reply_count: dataset.count_replies()?,
         // Derived, and still cheap: a statement is placed when the dataset
