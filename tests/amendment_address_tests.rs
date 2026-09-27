@@ -54,3 +54,41 @@ fn should_return_every_amendment_with_an_address_or_a_reason_when_a_public_law_i
         );
     }
 }
+
+/// The one address whose instruction's own words hold `phrase`.
+fn address_saying(addresses: &[AmendmentAddress], phrase: &str) -> AmendmentAddress {
+    let found: Vec<&AmendmentAddress> = addresses
+        .iter()
+        .filter(|address| address.text.contains(phrase))
+        .collect();
+    let [one] = found[..] else {
+        panic!(
+            "exactly one instruction should say {phrase:?}, found {}",
+            found.len()
+        );
+    };
+    one.clone()
+}
+
+/// The numbers of an address's steps, outermost first.
+fn step_numbers(address: &AmendmentAddress) -> Vec<&str> {
+    address
+        .container
+        .iter()
+        .map(|step| step.number.as_str())
+        .collect()
+}
+
+/// The bill writes `Section 1400Z–2(d)(2)(D)(ii)` with an en dash, as the Code
+/// prints it. Stopping at the dash names § 1400Z, a real but different section
+/// (#135, #141).
+#[test]
+fn should_read_the_whole_section_number_when_the_citation_carries_an_en_dash() {
+    let bill = committed_bill();
+    let addresses = addresses_in(BILL_ID, &bill);
+
+    let address = address_saying(&addresses, "Section 1400Z–2(d)(2)(D)(ii)");
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s1400Z-2"));
+    assert_eq!(step_numbers(&address), ["d", "2", "D", "ii"]);
+}

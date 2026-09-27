@@ -440,12 +440,27 @@ pub(crate) fn leading_in_phrase(text: &str) -> Option<Step> {
 ///
 /// One reading for both readers of a bill, so the stored bill and its markup
 /// cannot come to different answers about the same sentence.
+///
+/// A dash inside the number is any of the dashes the Code prints, and comes
+/// back as a hyphen. The bill writes `Section 1400Z–2` with an en dash, the
+/// publisher's identifiers write `s1400Z-2`, and a number cut at the dash names
+/// § 1400Z, which is a different section (#135, #141).
 pub(crate) fn citation_in(line: &str) -> Option<(String, Vec<String>)> {
     static CITATION: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)section\s+([0-9][0-9A-Za-z\-]*)\s*((?:\([0-9A-Za-z]{1,6}\))*)").unwrap()
+        let dashes: String = crate::citation::usc::DASHES
+            .iter()
+            .map(|dash| regex::escape(&dash.to_string()))
+            .collect();
+        Regex::new(&format!(
+            r"(?i)section\s+([0-9][0-9A-Za-z{dashes}]*)\s*((?:\([0-9A-Za-z]{{1,6}}\))*)"
+        ))
+        .unwrap()
     });
     let cited = CITATION.captures(line)?;
-    Some((cited[1].to_string(), designations_in(&cited[2])))
+    Some((
+        crate::citation::usc::fold_dashes(&cited[1]),
+        designations_in(&cited[2]),
+    ))
 }
 
 /// The title of the US Code an amending line names outright: `of title 10`.
