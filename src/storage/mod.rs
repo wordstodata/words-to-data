@@ -287,6 +287,79 @@ pub trait LinkReader {
         Ok(Some(crate::link::annotations_from_links(&links)))
     }
 
+    /// Every link answering a query, with how many matched.
+    ///
+    /// A default method, because every filter it applies is one an existing
+    /// reader already answers. It narrows with **one** index and then filters the
+    /// rest in memory, which is what the sum type it replaces already did for two
+    /// of its three cases (#234).
+    ///
+    /// The total counts matches rather than rows, so a limited answer can say how
+    /// many it left out. A truncated answer that reported only its rows would
+    /// read as a complete one.
+    fn links_matching(
+        &self,
+        query: &crate::query::LinkQuery,
+    ) -> Result<crate::query::Answer<Link>, DatasetError> {
+        // One index, chosen in order of how much it narrows. A path is only used
+        // where the query wants that path exactly: `links_for_path` answers for
+        // the path named and not for its subtree, so narrowing by it would drop
+        // every descendant the query asked for.
+        let candidates = if let Some(kind) = &query.kind {
+            self.links_by_kind(kind)?
+        } else if let Some(namespace) = &query.namespace {
+            self.links_by_namespace(namespace)?
+        } else if let Some(prefix) = &query.object_prefix {
+            self.links_for_object_prefix(prefix)?
+        } else if let (Some(path), crate::query::PathMatch::Exact) =
+            (&query.locator.path, query.locator.matching)
+        {
+            self.links_for_path(path)?
+        } else {
+            let mut all = Vec::new();
+            for kind in self.count_links_by_kind()?.into_keys() {
+                all.extend(self.links_by_kind(&kind)?);
+            }
+            all
+        };
+
+        let mut matched: Vec<Link> = candidates
+            .into_iter()
+            .filter(|link| query.accepts(link))
+            .collect();
+
+        // The one filter with no index. Read every review **once** and group it
+        // by the link it names, rather than asking per link: a query per match
+        // would be one prefix lookup for each of a thousand links.
+        if let Some(wanted) = query.status {
+            let mut reviews: BTreeMap<String, Vec<Link>> = BTreeMap::new();
+            for record in self.links_by_namespace(crate::link::LinkKind::REVIEW)? {
+                if let Some((reviewed, _)) = crate::review::reference_parts(&record.object.name()) {
+                    reviews
+                        .entry(reviewed.to_string())
+                        .or_default()
+                        .push(record);
+                }
+            }
+            matched.retain(|link| {
+                let status = reviews
+                    .get(&link.id())
+                    .and_then(|records| crate::review::newest(records))
+                    .map_or(crate::query::ReviewStatus::Unreviewed, |winning| {
+                        crate::query::ReviewStatus::of_verdict(winning.verdict)
+                    });
+                status == wanted
+            });
+        }
+
+        let total = matched.len();
+        let rows = match query.limit {
+            Some(limit) => matched.into_iter().take(limit).collect(),
+            None => matched,
+        };
+        Ok(crate::query::Answer { rows, total })
+    }
+
     /// Every annotation naming this path, across all pairs.
     fn annotations_for_path(&self, path: &str) -> Result<Vec<ChangeAnnotation>, DatasetError> {
         Ok(crate::link::annotations_from_links(

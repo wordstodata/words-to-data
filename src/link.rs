@@ -169,6 +169,33 @@ impl Target {
         }
     }
 
+    /// The structural path this end names, when it names one.
+    ///
+    /// A node and a change name one. An expression names a work and a date, and
+    /// an external reference leaves the dataset, so neither has a path and
+    /// answering one would invent it.
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            Self::Node(path) => Some(path),
+            Self::Change { path, .. } => Some(path),
+            Self::Expression(_) | Self::External { .. } => None,
+        }
+    }
+
+    /// The work this end belongs to, when it says so itself.
+    ///
+    /// A node returns `None` even though its work is the first segments of its
+    /// path (`CONTEXT.md`, "Paths"). The path is the record and this is not a
+    /// parser, so a caller filtering by work checks this **and** the path
+    /// prefix; [`crate::query::Locator`] does exactly that.
+    pub fn work(&self) -> Option<&str> {
+        match self {
+            Self::Change { work, .. } => Some(work.as_str()),
+            Self::Expression(id) => Some(id.work.as_str()),
+            Self::Node(_) | Self::External { .. } => None,
+        }
+    }
+
     /// The window this end was observed between, when it names one.
     ///
     /// Only a change names a window. An expression names one date and a node
@@ -417,6 +444,18 @@ pub fn reply_id(reply: &str) -> String {
 /// cruft from before the core and the extensions were separated.
 pub fn amendment_reference(bill_id: &str, amendment_id: &str) -> String {
     format!("legislature.amendment:{bill_id}:{amendment_id}")
+}
+
+/// The object prefix that names every amendment of one bill.
+///
+/// Here beside [`amendment_reference`] for the reason that function's own note
+/// gives: the format is written down once, or it is spelled out again at every
+/// call site and after an edit one of them is wrong. A query filters on a prefix
+/// of an object reference rather than on a field called `bill`, so this is what
+/// turns "one bill" into something class-neutral code can ask
+/// (`docs/adr/0002-links-live-in-the-core.md`).
+pub fn bill_reference_prefix(bill_id: &str) -> String {
+    format!("legislature.amendment:{bill_id}:")
 }
 
 /// The bill and the amendment a reference names, read back out of it.

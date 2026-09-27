@@ -12,9 +12,10 @@ use words_to_data::annotation::{
 use words_to_data::congress::CongressClient;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, ExpressionId, WorkId};
 use words_to_data::inspect;
-use words_to_data::inspect::{AnnotationQuery, PathMatch};
+use words_to_data::inspect::PathMatch;
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::LinkKind;
+use words_to_data::query::{LinkQuery, Locator};
 use words_to_data::storage::{InMemoryStorage, LegislatureCounts, SqliteStorage};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
@@ -505,12 +506,12 @@ fn should_list_annotations_for_an_expression_pair() {
 
     let anns = inspect::annotations(
         &dataset,
-        AnnotationQuery::Pair {
-            from: &from,
-            to: &to,
-        },
+        &LinkQuery::new().at(Locator::new()
+            .in_work(from.work.to_string())
+            .in_window(from.at.clone(), to.at.clone())),
     )
-    .expect("annotations");
+    .expect("annotations")
+    .rows;
 
     assert_eq!(anns.len(), 1);
     assert_eq!(anns[0].bill_id, "119-hr-1");
@@ -530,23 +531,32 @@ fn should_list_annotations_for_an_expression_pair() {
 fn should_list_annotations_filtered_by_bill_and_path() {
     let dataset = make_fixture();
 
-    let by_bill =
-        inspect::annotations(&dataset, AnnotationQuery::Bill("119-hr-1")).expect("by bill");
+    let by_bill = inspect::annotations(
+        &dataset,
+        &LinkQuery::new()
+            .with_object_prefix(words_to_data::link::bill_reference_prefix("119-hr-1")),
+    )
+    .expect("by bill")
+    .rows;
     assert_eq!(by_bill.len(), 1);
 
     let by_path = inspect::annotations(
         &dataset,
-        AnnotationQuery::Path {
-            path: ANNOTATED_PATH,
-            matching: PathMatch::Subtree,
-        },
+        &LinkQuery::new().at(Locator::new().at_path(ANNOTATED_PATH, PathMatch::Subtree)),
     )
-    .expect("by path");
+    .expect("by path")
+    .rows;
     assert_eq!(by_path.len(), 1);
     assert_eq!(by_path[0].from_date, "2025-07-18");
     assert_eq!(by_path[0].to_date, "2025-07-30");
 
-    let missing = inspect::annotations(&dataset, AnnotationQuery::Bill("000-none")).expect("none");
+    let missing = inspect::annotations(
+        &dataset,
+        &LinkQuery::new()
+            .with_object_prefix(words_to_data::link::bill_reference_prefix("000-none")),
+    )
+    .expect("none")
+    .rows;
     assert!(missing.is_empty());
 }
 
@@ -556,7 +566,12 @@ fn annotations_at(
     path: &str,
     matching: PathMatch,
 ) -> Vec<inspect::AnnotationSummary> {
-    inspect::annotations(dataset, AnnotationQuery::Path { path, matching }).expect("annotations")
+    inspect::annotations(
+        dataset,
+        &LinkQuery::new().at(Locator::new().at_path(path, matching)),
+    )
+    .expect("annotations")
+    .rows
 }
 
 #[test]
@@ -643,7 +658,13 @@ fn should_list_identical_annotations_for_sqlite_backend() {
     let fixture = make_fixture();
     let (_dir, sqlite) = to_sqlite(&fixture);
 
-    let anns = inspect::annotations(&sqlite, AnnotationQuery::Bill("119-hr-1")).expect("sqlite");
+    let anns = inspect::annotations(
+        &sqlite,
+        &LinkQuery::new()
+            .with_object_prefix(words_to_data::link::bill_reference_prefix("119-hr-1")),
+    )
+    .expect("sqlite")
+    .rows;
     assert_eq!(anns.len(), 1);
     assert_eq!(anns[0].paths, vec![ANNOTATED_PATH.to_string()]);
 }
