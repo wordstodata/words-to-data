@@ -535,6 +535,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
         let contenders: Vec<Contender> = group
             .iter()
             .map(|at| Contender {
+                amendment_id: &stated[*at].address.amendment_id,
                 evidence: &stated[*at].evidence,
                 candidates: placed[at][0].candidates.clone(),
             })
@@ -656,8 +657,9 @@ fn windows_after<S: Storage + LegislatureReader>(
             continue;
         };
         let diff = dataset.compute_diff(&from, &to)?;
+        let renumberings = renumberings(&dataset.storage().links_for_pair(&from, &to)?);
         let mut changes = Vec::new();
-        collect_changes(&diff, &mut changes);
+        collect_changes(&diff, &renumberings, &mut changes);
         views.push(WindowView {
             from,
             to,
@@ -687,9 +689,40 @@ fn address_path(
     })
 }
 
+/// Who made each renumbering in a window, by the two paths it moved a provision
+/// between, as the window's `legislature.redesignated_as` links say.
+type Renumberings = BTreeMap<(String, String), Vec<String>>;
+
+fn renumberings(links: &[Link]) -> Renumberings {
+    let path_of = |target: &Target| match target {
+        Target::Change { path, .. } | Target::Node(path) => Some(path.clone()),
+        _ => None,
+    };
+    let mut made_by = Renumberings::new();
+    for link in links {
+        if link.kind != LinkKind::new(LinkKind::REDESIGNATED_AS) {
+            continue;
+        }
+        let amendment = link
+            .payload
+            .as_ref()
+            .and_then(|payload| payload.value.get("amendment_id"))
+            .and_then(|id| id.as_str());
+        if let (Some(from), Some(to), Some(amendment)) =
+            (path_of(&link.subject), path_of(&link.object), amendment)
+        {
+            made_by
+                .entry((from, to))
+                .or_default()
+                .push(amendment.to_string());
+        }
+    }
+    made_by
+}
+
 /// Every change in a diff, with its words before and after: a provision whose
 /// own words changed, or one that was added, removed or renumbered.
-fn collect_changes(diff: &TreeDiff, changes: &mut Vec<Change>) {
+fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut Vec<Change>) {
     if !diff.changes.is_empty() {
         let joined = |value: fn(&FieldChangeEvent) -> &str| {
             diff.changes
@@ -702,25 +735,32 @@ fn collect_changes(diff: &TreeDiff, changes: &mut Vec<Change>) {
             path: diff.root_path.clone(),
             before: joined(|field| &field.old_value),
             after: joined(|field| &field.new_value),
+            renumbered_by: Vec::new(),
         });
     }
     changes.extend(diff.added.iter().map(|node| Change {
         path: node.path.to_string(),
         before: String::new(),
         after: own_text(node),
+        renumbered_by: Vec::new(),
     }));
     changes.extend(diff.removed.iter().map(|node| Change {
         path: node.path.to_string(),
         before: own_text(node),
         after: String::new(),
+        renumbered_by: Vec::new(),
     }));
-    changes.extend(diff.moved.iter().map(|moved| Change {
-        path: moved.to.path.to_string(),
-        before: own_text(&moved.from),
-        after: own_text(&moved.to),
+    changes.extend(diff.moved.iter().map(|moved| {
+        let paths = (moved.from.path.to_string(), moved.to.path.to_string());
+        Change {
+            path: moved.to.path.to_string(),
+            before: own_text(&moved.from),
+            after: own_text(&moved.to),
+            renumbered_by: renumberings.get(&paths).cloned().unwrap_or_default(),
+        }
     }));
     for child in &diff.child_diffs {
-        collect_changes(child, changes);
+        collect_changes(child, renumberings, changes);
     }
 }
 

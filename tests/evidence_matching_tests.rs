@@ -419,6 +419,26 @@ fn should_link_only_in_the_first_window_when_the_address_also_changed_in_a_later
 }
 
 #[test]
+fn should_give_a_renumbering_to_the_amendment_its_redesignation_link_names() {
+    // "(1) by redesignating paragraph (7) as paragraph (8); and (2) by
+    // inserting after paragraph (6) the following: (7) ..." The renumbering
+    // quotes no words, and the dataset already says which amendment made it:
+    // the `legislature.redesignated_as` link the bill's reading recorded.
+    let paragraph_8 = format!("{SECTION_2015_O}/paragraph_8");
+
+    let caused = linked_paths("d624331f459d");
+
+    assert!(
+        caused.contains(&paragraph_8),
+        "the renumbered paragraph is this amendment's change: {caused:?}"
+    );
+    assert!(
+        !linked_paths("f217bfa18755").contains(&paragraph_8),
+        "and no other amendment's"
+    );
+}
+
+#[test]
 fn should_say_the_dataset_does_not_hold_the_title_when_an_address_is_outside_it() {
     // Section 1240O(b) of the Food Security Act of 1985 (16 U.S.C.
     // 3839bb-2(b)), and this dataset holds title 7 alone. That is a limit of the dataset, not

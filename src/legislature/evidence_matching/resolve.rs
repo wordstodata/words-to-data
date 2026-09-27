@@ -4,6 +4,10 @@
 //! Together, so that one change has one cause and one amendment does not take
 //! another's change. The order of the steps is the order of trust:
 //!
+//! 0. **A renumbering the dataset already explains.** The bill's reading
+//!    records each renumbering as a `legislature.redesignated_as` link that
+//!    names its amendment. A renumbering quotes no words, so this is the only
+//!    evidence it has, and it is the bill's own.
 //! 1. **The quoted words.** A change goes to the amendment whose quoted strings
 //!    and enacted blocks it shows most. Where two show equally, word overlap
 //!    ranks them; where that ties too, the change is held back and nobody gets
@@ -26,11 +30,16 @@ pub(super) struct Change {
     pub path: String,
     pub before: String,
     pub after: String,
+    /// For a renumbering, the amendments the dataset's
+    /// `legislature.redesignated_as` links say made it. Empty for every other
+    /// change.
+    pub renumbered_by: Vec<String>,
 }
 
 /// One amendment addressed to the section: what it states, and the changes
 /// under its own address, by their place in the window's list.
 pub(super) struct Contender<'a> {
+    pub amendment_id: &'a str,
     pub evidence: &'a QuotedWords,
     pub candidates: Vec<usize>,
 }
@@ -47,6 +56,9 @@ pub(super) enum Resolution {
 /// How a change was given to its amendment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Found {
+    /// The change is a renumbering, and the dataset's redesignation link says
+    /// this amendment made it.
+    Renumbered,
     /// The change shows these of the amendment's quoted strings and enacted
     /// blocks.
     Quoted(Vec<String>),
@@ -62,6 +74,11 @@ impl std::fmt::Display for Found {
     /// link's evidence.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Renumbered => write!(
+                f,
+                "the change is a renumbering, and the dataset's legislature.redesignated_as \
+                 link says this amendment made it."
+            ),
             Self::Quoted(shown) => write!(
                 f,
                 "the change shows the words the bill quotes: {}.",
@@ -91,8 +108,30 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
         .flat_map(|contender| contender.candidates.iter().copied())
         .collect();
 
+    // 0. A renumbering, which the dataset already says the cause of.
+    for &at in &every_change {
+        let named: Vec<usize> = contenders
+            .iter()
+            .enumerate()
+            .filter(|(_, contender)| {
+                contender.candidates.contains(&at)
+                    && changes[at]
+                        .renumbered_by
+                        .iter()
+                        .any(|id| id == contender.amendment_id)
+            })
+            .map(|(who, _)| who)
+            .collect();
+        if let [who] = named.as_slice() {
+            cause.insert(at, (*who, Found::Renumbered));
+        }
+    }
+
     // 1. The quoted words.
     for &at in &every_change {
+        if cause.contains_key(&at) {
+            continue;
+        }
         let change = &changes[at];
         let claims: Vec<(usize, Vec<String>)> = contenders
             .iter()
