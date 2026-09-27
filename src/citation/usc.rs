@@ -143,13 +143,16 @@ fn law_section() -> String {
 ///
 /// The published `law.section` reads the ASCII hyphen of `[\-.:]` and nothing
 /// else, and the published Code prints `479a–1` with an en dash. The family is
-/// named once, here, and read three ways: [`law_section`] reads a number written
-/// with any of them, [`fold_dashes`] makes one lookup key out of all of them, and
-/// [`ends_cleanly`] refuses a number that a dash carries on past.
+/// named once, here, and read four ways: [`law_section`] reads a number written
+/// with any of them, [`fold_dashes`] makes one lookup key out of all of them,
+/// [`ends_cleanly`] refuses a number that a dash carries on past, and
+/// [`crate::legislature::section_agreement`] reads the same family out of a
+/// bill's prose. Public for that fourth reader: a second list of these
+/// characters is a list that drifts.
 ///
 /// Only the en dash is in the 2025-07-30 release. The rest are here because a
 /// citation is text somebody typed, and the cost of reading one is nothing.
-const DASHES: [char; 6] = [
+pub const DASHES: [char; 6] = [
     '-',        // HYPHEN-MINUS
     '\u{2010}', // HYPHEN
     '\u{2011}', // NON-BREAKING HYPHEN

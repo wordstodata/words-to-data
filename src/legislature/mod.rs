@@ -11,6 +11,7 @@
 //! none of them at all.
 
 pub mod redesignation;
+pub mod section_agreement;
 
 use std::str::FromStr;
 
