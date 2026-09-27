@@ -109,16 +109,27 @@ fn run(command: &str, args: &[&str]) -> std::process::Output {
         .expect("the binary should run")
 }
 
+/// The committed corpus, saved as a database before anything links an
+/// amendment, once for every case. No case writes over it.
+fn unlinked() -> &'static Path {
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let path = PathBuf::from(format!("{}/residue_built.sqlite", env!("CARGO_TARGET_TMPDIR")));
+        let _ = std::fs::remove_file(&path);
+        built()
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
 /// The committed corpus, saved as a database and linked by `link-by-evidence`,
 /// once for every case. No case writes over it.
 fn linked() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
         let path = PathBuf::from(format!("{}/residue_linked.sqlite", env!("CARGO_TARGET_TMPDIR")));
-        let _ = std::fs::remove_file(&path);
-        built()
-            .save_to_sqlite(&path)
-            .expect("the fixture should save");
+        std::fs::copy(unlinked(), &path).expect("the fixture should copy");
         let output = run("link-by-evidence", &[path.to_str().expect("a UTF-8 path")]);
         assert!(
             output.status.success(),
@@ -344,5 +355,36 @@ fn should_report_an_amendment_to_a_table_of_sections_as_not_held_and_not_as_a_mi
     assert_eq!(
         row["not_held"],
         "a table of sections, which the dataset does not hold as a provision"
+    );
+}
+
+#[test]
+fn should_say_the_batch_has_not_written_its_link_when_the_method_links_an_amendment_no_link_names() {
+    // Section 10102(c) of the law renumbers paragraph (7) of 7 U.S.C. 2015(o)
+    // as (8) and inserts a new (7). The evidence method links it, and in this
+    // dataset `link-by-evidence` has not run, so no link names it yet. That is
+    // not work for an agent: the batch writes it.
+    let rows = residue_rows(unlinked());
+
+    let row = row_of(&rows, "d624331f459d").expect("the amendment is listed");
+    assert_eq!(row["category"], "unwritten");
+    assert!(row["stage"].is_null(), "the method did not stop");
+    assert_eq!(
+        row["reason"],
+        "the evidence method links it, and no link is written: run link-by-evidence"
+    );
+    assert_eq!(
+        row["from"],
+        serde_json::json!({"work": "uscode/title_7", "at": "2025-07-18"})
+    );
+    assert!(
+        row["changes"]
+            .as_array()
+            .expect("a list of changes")
+            .contains(&serde_json::json!(
+                "uscode/title_7/chapter_51/section_2015/subsection_o/paragraph_8"
+            )),
+        "the changes it would be linked to: {}",
+        row["changes"]
     );
 }

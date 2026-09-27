@@ -17,6 +17,10 @@
 //! it: the stage, the reason, the window and the changes under the address.
 //! Nothing here matches anything again.
 //!
+//! **Not every row is work.** A row falls in one [`Category`]: work for an
+//! agent, quiet, not held by the dataset, or linked by the method with the
+//! link not yet written.
+//!
 //! **Nothing is stored.** The list is derived every time it is asked for,
 //! because a stored list goes false the moment someone links an amendment
 //! (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
@@ -25,8 +29,10 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
-use crate::dataset::{Dataset, DatasetError};
-use crate::legislature::evidence_matching::{Outcome, Residue, is_a_note, match_by_evidence};
+use crate::dataset::{Dataset, DatasetError, ExpressionId};
+use crate::legislature::evidence_matching::{
+    AmendmentMatch, Outcome, Stage, is_a_note, match_by_evidence,
+};
 use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
 use crate::query::LinkQuery;
@@ -63,9 +69,19 @@ pub struct Unlinked {
     /// What the amendment changes that the dataset does not hold, when the
     /// category is [`Category::NotHeld`].
     pub not_held: Option<String>,
-    /// The stage it stopped at, why, and where to look.
-    #[serde(flatten)]
-    pub residue: Residue,
+    /// The stage of the method it stopped at. `None` when the method links it
+    /// ([`Category::Unwritten`]).
+    pub stage: Option<Stage>,
+    /// Why, in words a reviewer can act on.
+    pub reason: String,
+    /// The older expression of the window its address changed in, when one
+    /// did.
+    pub from: Option<ExpressionId>,
+    /// The newer expression of that window.
+    pub to: Option<ExpressionId>,
+    /// The changes under the address in that window, in document order: where
+    /// a reviewer starts to look.
+    pub changes: Vec<String>,
 }
 
 /// Whether an unlinked amendment is work.
@@ -75,11 +91,94 @@ pub enum Category {
     /// Something is left to resolve.
     Work,
     /// The address is in the Code the dataset holds and nothing under it
-    /// changed after the law's enactment ([`Residue::quiet`]).
+    /// changed after the law's enactment
+    /// ([`crate::legislature::evidence_matching::Residue::quiet`]).
     Quiet,
     /// The amendment changes something the dataset does not hold, so no
     /// change the dataset holds can be its change. Not a miss.
     NotHeld,
+    /// The evidence method links it, and no link is written: the batch has
+    /// not run over this dataset since.
+    Unwritten,
+}
+
+/// Every amendment of the public law `bill` became, or of every public law the
+/// dataset holds when `bill` is `None`, that no `amended_by` link names.
+///
+/// In the order each bill states its amendments.
+pub fn unlinked_amendments<S: Storage + LegislatureReader>(
+    dataset: &Dataset<S>,
+    bill: Option<&str>,
+) -> Result<Vec<Unlinked>, DatasetError> {
+    let linked = linked_amendments(dataset, bill)?;
+    let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
+    let found = match_by_evidence(dataset)?;
+    let unlinked = found
+        .matches
+        .into_iter()
+        .filter(|amendment| bill.is_none_or(|bill| bill == amendment.bill_id))
+        .filter(|amendment| {
+            !linked.contains(&amendment_reference(
+                &amendment.bill_id,
+                &amendment.amendment_id,
+            ))
+        })
+        .map(|amendment| unlinked(amendment, &classified))
+        .collect();
+    Ok(unlinked)
+}
+
+/// One row, from the matcher's answer for an amendment no link names.
+fn unlinked(amendment: AmendmentMatch, classified: &[crate::link::Link]) -> Unlinked {
+    let place = LawSection::of_path(&amendment.address.path);
+    let olrc = place.as_ref().map_or_else(Vec::new, |place| {
+        classifications_of(classified, &amendment.public_law, place)
+    });
+    let not_held = not_held(&amendment.address, &olrc);
+    let (category, stage, reason, from, to, changes) = match amendment.outcome {
+        Outcome::Residue(residue) => {
+            let category = if not_held.is_some() {
+                Category::NotHeld
+            } else if residue.quiet {
+                Category::Quiet
+            } else {
+                Category::Work
+            };
+            (
+                category,
+                Some(residue.stage),
+                residue.reason,
+                residue.from,
+                residue.to,
+                residue.changes,
+            )
+        }
+        Outcome::Linked(linked) => (
+            Category::Unwritten,
+            None,
+            "the evidence method links it, and no link is written: run link-by-evidence"
+                .to_string(),
+            Some(linked.from.clone()),
+            Some(linked.to.clone()),
+            linked.paths(),
+        ),
+    };
+    Unlinked {
+        bill_id: amendment.bill_id,
+        public_law: amendment.public_law,
+        amendment_id: amendment.amendment_id,
+        amending_text: amendment.amending_text,
+        address: amendment.address,
+        law_section: place.map(|place| place.to_string()),
+        olrc,
+        category,
+        not_held,
+        stage,
+        reason,
+        from,
+        to,
+        changes,
+    }
 }
 
 /// What the dataset does not hold that the amendment changes, if anything.
@@ -99,62 +198,6 @@ fn not_held(address: &AmendmentAddress, olrc: &[Classification]) -> Option<Strin
          before a section, and the dataset holds neither"
             .to_string()
     })
-}
-
-impl Category {
-    fn of(residue: &Residue, not_held: Option<&String>) -> Self {
-        if not_held.is_some() {
-            Self::NotHeld
-        } else if residue.quiet {
-            Self::Quiet
-        } else {
-            Self::Work
-        }
-    }
-}
-
-/// Every amendment of the public law `bill` became, or of every public law the
-/// dataset holds when `bill` is `None`, that no `amended_by` link names.
-///
-/// In the order each bill states its amendments.
-pub fn unlinked_amendments<S: Storage + LegislatureReader>(
-    dataset: &Dataset<S>,
-    bill: Option<&str>,
-) -> Result<Vec<Unlinked>, DatasetError> {
-    let linked = linked_amendments(dataset, bill)?;
-    let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
-    let found = match_by_evidence(dataset)?;
-    let mut unlinked = Vec::new();
-    for amendment in found.matches {
-        if bill.is_some_and(|bill| bill != amendment.bill_id)
-            || linked.contains(&amendment_reference(
-                &amendment.bill_id,
-                &amendment.amendment_id,
-            ))
-        {
-            continue;
-        }
-        if let Outcome::Residue(residue) = amendment.outcome {
-            let place = LawSection::of_path(&amendment.address.path);
-            let olrc = place.as_ref().map_or_else(Vec::new, |place| {
-                classifications_of(&classified, &amendment.public_law, place)
-            });
-            let not_held = not_held(&amendment.address, &olrc);
-            unlinked.push(Unlinked {
-                bill_id: amendment.bill_id,
-                public_law: amendment.public_law,
-                amendment_id: amendment.amendment_id,
-                amending_text: amendment.amending_text,
-                address: amendment.address,
-                law_section: place.map(|place| place.to_string()),
-                olrc,
-                category: Category::of(&residue, not_held.as_ref()),
-                not_held,
-                residue,
-            });
-        }
-    }
-    Ok(unlinked)
 }
 
 /// The object reference of every amendment an `amended_by` link names.
