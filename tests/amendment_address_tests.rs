@@ -13,6 +13,7 @@ use std::process::Command;
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 use words_to_data::document::DocumentNode;
+use words_to_data::uslm::UslmFacts;
 use words_to_data::uslm::amendment_address::{AmendmentAddress, addresses_in};
 use words_to_data::uslm::bill_parser::{amendment_paths, bill_expression};
 
@@ -36,11 +37,15 @@ fn committed_bill() -> DocumentNode {
 #[test]
 fn should_return_every_amendment_with_an_address_or_a_reason_when_a_public_law_is_read() {
     let bill = committed_bill();
-    let addresses: Vec<AmendmentAddress> = addresses_in(BILL_ID, &bill);
+    let addresses: Vec<AmendmentAddress> = addresses_in(&bill);
 
     let stated = amendment_paths(&bill);
     assert_eq!(addresses.len(), stated.len());
-    assert_eq!(stated.len(), 603, "the committed bill states 603 amendments");
+    assert_eq!(
+        stated.len(),
+        603,
+        "the committed bill states 603 amendments"
+    );
 
     let by_id: HashMap<&str, &AmendmentAddress> = addresses
         .iter()
@@ -87,7 +92,7 @@ fn step_numbers(address: &AmendmentAddress) -> Vec<&str> {
 #[test]
 fn should_read_the_whole_section_number_when_the_citation_carries_an_en_dash() {
     let bill = committed_bill();
-    let addresses = addresses_in(BILL_ID, &bill);
+    let addresses = addresses_in(&bill);
 
     let address = address_saying(&addresses, "Section 1400Z–2(d)(2)(D)(ii)");
 
@@ -106,7 +111,7 @@ fn should_read_the_whole_section_number_when_the_citation_carries_an_en_dash() {
 #[test]
 fn should_address_the_new_section_when_an_amendment_inserts_one() {
     let bill = committed_bill();
-    let addresses = addresses_in(BILL_ID, &bill);
+    let addresses = addresses_in(&bill);
 
     let address = address_saying(
         &addresses,
@@ -125,7 +130,7 @@ fn should_address_the_new_section_when_an_amendment_inserts_one() {
 #[test]
 fn should_address_more_than_the_measured_share_when_every_instruction_of_the_bill_is_read() {
     let bill = committed_bill();
-    let addresses = addresses_in(BILL_ID, &bill);
+    let addresses = addresses_in(&bill);
 
     let addressed = addresses
         .iter()
@@ -137,6 +142,116 @@ fn should_address_more_than_the_measured_share_when_every_instruction_of_the_bil
         addressed > 495,
         "the measured baseline is 495 of 603, found {addressed}"
     );
+}
+
+// --- What the prose reader of `section-agreement` had to guess at ----------
+//
+// Before #248, `section-agreement` read an amendment's section out of its
+// words with a prose reader of its own. These are the cases that reader was
+// written against, carried over to the resolver that replaced it. The markup
+// sets quoted text apart, so none of them needs a guess any more.
+
+/// The clause the bill writes at § 83001(a)(2)(B), which quotes the section it
+/// searches **for**:
+///
+/// > by inserting ", as in effect for such academic year," after
+/// > "section 479A(b)(1)(B)(v)"
+///
+/// § 479A is only the string to search for. The clause sits under the
+/// instruction *"Section 401(b)(1)(D) of the Higher Education Act of 1965 (20
+/// U.S.C. 1070a(b)(1)(D)) is amended—"*, and the maintainer's dataset carries a
+/// link on these words inside § 1070a, where the change landed.
+#[test]
+fn should_not_address_a_section_the_instruction_only_quotes() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Section 401(b)(1)(D) of the Higher Education Act of 1965",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t20/s1070a"));
+    assert_eq!(step_numbers(&address), ["b", "1", "D"]);
+}
+
+/// `Section 1400Z-1(b)` with a hyphen, which the Code numbers as one section.
+#[test]
+fn should_read_the_whole_section_number_when_the_citation_carries_a_hyphen() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(&addresses, "1400Z-1(b) is amended by striking paragraph");
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s1400Z-1"));
+    assert_eq!(step_numbers(&address), ["b"]);
+}
+
+/// > Section 7701(a) is amended by adding at the end the following new
+/// > paragraphs:
+///
+/// The maintainer's dataset carries two links on these words inside § 48E,
+/// which only **uses** the new definitions. The address is § 7701(a).
+#[test]
+fn should_address_the_cited_section_and_its_designations_when_the_line_cites_them() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Section 7701(a) is amended by adding at the end the following new paragraphs",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s7701"));
+    assert_eq!(step_numbers(&address), ["a"]);
+}
+
+/// The new § 4968(c) the bill enacts:
+///
+/// > (c) Applicable Educational Institution.—For purposes of this subchapter,
+/// > the term 'applicable educational institution' means an eligible
+/// > educational institution (as defined in section 25A(f)(2))—
+///
+/// § 25A is only where a term is defined. The instruction that enacts this
+/// text does not act on § 25A.
+#[test]
+fn should_not_address_a_section_the_enacted_text_only_cross_references() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let mut enacting = Vec::new();
+    collect_amendments_enacting(&bill, "(as defined in section 25A(f)(2))", &mut enacting);
+    assert!(
+        !enacting.is_empty(),
+        "an instruction of the bill should enact the new § 4968(c)"
+    );
+
+    for amendment_id in &enacting {
+        let address = addresses
+            .iter()
+            .find(|address| &address.amendment_id == amendment_id)
+            .expect("every amendment has an address or a reason");
+        assert_ne!(
+            address.section.as_deref(),
+            Some("/us/usc/t26/s25A"),
+            "§ 25A is a cross-reference in the enacted text: {address:?}"
+        );
+    }
+}
+
+/// The ids of the amendments whose enacted text holds `phrase`.
+fn collect_amendments_enacting(node: &DocumentNode, phrase: &str, found: &mut Vec<String>) {
+    if let Some(amendment) = UslmFacts::of(&node.data).and_then(|facts| facts.amendment)
+        && amendment
+            .enacted_text
+            .iter()
+            .any(|block| block.contains(phrase))
+    {
+        found.push(amendment.id);
+    }
+    for child in &node.children {
+        collect_amendments_enacting(child, phrase, found);
+    }
 }
 
 // --- The command ----------------------------------------------------------
@@ -213,7 +328,7 @@ fn should_show_every_amendments_address_or_reason_when_the_command_runs_with_jso
 #[test]
 fn should_show_only_that_amendment_when_the_command_is_given_its_id() {
     let bill = committed_bill();
-    let addresses = addresses_in(BILL_ID, &bill);
+    let addresses = addresses_in(&bill);
     let new_section = addresses
         .iter()
         .find(|address| address.section.as_deref() == Some("/us/usc/t26/s174A"))
@@ -221,14 +336,8 @@ fn should_show_only_that_amendment_when_the_command_is_given_its_id() {
     let short_id = &new_section.amendment_id[..12];
 
     let path = dataset_holding_the_bill("amendment_addresses_one.json");
-    let shown = run_amendment_addresses(&[
-        &path,
-        "--bill",
-        BILL_ID,
-        "--amendment",
-        short_id,
-        "--json",
-    ]);
+    let shown =
+        run_amendment_addresses(&[&path, "--bill", BILL_ID, "--amendment", short_id, "--json"]);
 
     let rows = shown.as_array().expect("an array of addresses");
     assert_eq!(rows.len(), 1, "one amendment was asked for, found {rows:?}");

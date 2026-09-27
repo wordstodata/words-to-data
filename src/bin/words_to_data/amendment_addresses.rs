@@ -51,7 +51,7 @@ pub fn run(args: Args) {
         std::process::exit(1);
     };
 
-    let mut addresses = addresses_in(&args.bill, &document.root);
+    let mut addresses = addresses_in(&document.root);
     if let Some(wanted) = &args.amendment {
         addresses.retain(|address| address.amendment_id.starts_with(wanted.as_str()));
         if addresses.is_empty() {

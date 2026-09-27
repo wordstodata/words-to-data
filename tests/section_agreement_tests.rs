@@ -13,13 +13,13 @@
 //! links are loaded: the check reads an amendment's words and a path, so the two
 //! release points of title 26 are 112 MB of XML it never opens.
 
+use std::collections::HashMap;
 use std::process::Command;
 
 use words_to_data::annotation::ChangeAnnotation;
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
-use words_to_data::document::DocumentNode;
-use words_to_data::legislature::section_agreement::{self, Naming, Outcome};
+use words_to_data::legislature::section_agreement::{self, Outcome};
 use words_to_data::link::{Link, Named};
 use words_to_data::query::LinkQuery;
 use words_to_data::storage::{InMemoryStorage, LinkReader};
@@ -41,13 +41,48 @@ const SECTION_263_A_1_B: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter
 /// link into title 7 or title 20 is as checkable as one into title 26. The
 /// annotations name thirteen titles and the third outcome only happens outside
 /// title 26, so filtering would hide it.
+///
+/// The dataset holds the committed bill as well, because the check reads the
+/// section an amendment acts on out of the bill's own markup (#248).
+///
+/// **Each link is keyed to the amendment the committed bill states.** The run
+/// was recorded before an amendment's id stopped depending on how its source
+/// was laid out (#219), from a printing of the bill whose whitespace differs,
+/// so none of its ids is a key of the committed bill. Its own words still name
+/// the amendment: every one of its 317 amendments has exactly one amendment of
+/// the committed bill with the same words once whitespace, quotes and dashes
+/// are folded ([`words_key`]). So each link is recorded against that amendment.
 fn amendment_links() -> Dataset<InMemoryStorage> {
     let json = std::fs::read_to_string(REAL_ANNOTATIONS).expect("the fixture should be readable");
     let annotations: Vec<ChangeAnnotation> =
         serde_json::from_str(&json).expect("the fixture should parse as annotations");
 
     let mut dataset = Dataset::new(DatasetMetadata::default());
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the committed bill should load");
+    let bill = dataset
+        .get_bill(BILL_ID_HR1)
+        .expect("the dataset should answer for the bill")
+        .expect("the bill should be there");
+    let amendment_saying: HashMap<String, String> = bill
+        .amendments
+        .iter()
+        .map(|(id, amendment)| (words_key(&amendment.amending_text), id.clone()))
+        .collect();
+    assert_eq!(
+        amendment_saying.len(),
+        bill.amendments.len(),
+        "no two amendments of the bill may share their folded words"
+    );
+
     for annotation in &annotations {
+        let mut annotation = annotation.clone();
+        annotation.source_bill.amendment_id = amendment_saying
+            .get(&words_key(&annotation.source_bill.causative_text))
+            .expect("every amendment of the run is stated by the committed bill")
+            .clone();
+        annotation.source_bill.bill_id = BILL_ID_HR1.to_string();
         // A link's subject is a change to one work, so each annotation is
         // recorded against the work its own paths sit in.
         for path in &annotation.paths {
@@ -62,6 +97,26 @@ fn amendment_links() -> Dataset<InMemoryStorage> {
         }
     }
     dataset
+}
+
+/// An amendment's words with the differences between two printings folded
+/// away: curly quotes, every run of dashes, and all whitespace.
+///
+/// The two printings of `119-hr-1` differ in exactly these. One writes an em
+/// dash and the other `--`, and one puts a space where the other does not.
+fn words_key(words: &str) -> String {
+    let quotes_folded = words
+        .replace(['\u{2018}', '\u{2019}'], "'")
+        .replace(['\u{201C}', '\u{201D}'], "\"");
+    let dashes_folded = words_to_data::citation::usc::fold_dashes(&quotes_folded);
+    let mut key = String::new();
+    for character in dashes_folded.chars().filter(|c| !c.is_whitespace()) {
+        if character == '-' && key.ends_with('-') {
+            continue;
+        }
+        key.push(character);
+    }
+    key
 }
 
 /// `uscode/title_26` out of a path inside title 26.
@@ -79,49 +134,48 @@ fn should_report_the_link_when_the_amendment_names_a_different_section_from_its_
     let report = section_agreement::section_agreement(&dataset, &LinkQuery::new())
         .expect("the check should read the dataset");
 
+    // The run recorded more than one link at this path — the new § 174A is
+    // another — so the row is found by what it names, not by its place in the
+    // queue.
     let row = report
         .rows
         .iter()
-        .find(|row| row.path == SECTION_263_A_1_B)
-        .expect("the run recorded a link at § 263(a)(1)(B)");
+        .find(|row| row.path == SECTION_263_A_1_B && row.named_section.as_deref() == Some("263A"))
+        .expect("the run recorded a link at § 263(a)(1)(B) on the § 263A amendment");
 
     assert_eq!(row.outcome, Outcome::Disagrees);
-    assert_eq!(row.named_section.as_deref(), Some("263A"));
     assert_eq!(row.path_section.as_deref(), Some("263"));
 }
 
 /// § 1070a(b)(7)(A)(iii), which the bill reached through the Higher Education
 /// Act of 1965.
 ///
-/// The third outcome, on real data. The amendment names *section 401 of the
-/// Act*, and an Act's own numbering is not the Code's, so the section is only
-/// knowable from the citation beside it — `20 U.S.C. 1070a(b)(7)(A)(iii)`,
-/// which the extractor declines because it carries no section marker. Reading
-/// the bare `401` and comparing it against `1070a` would manufacture a fault out
-/// of that limitation (#140).
+/// The amendment names *section 401 of the Act*, and an Act's own numbering is
+/// not the Code's. The prose reader this check had before #248 could read the
+/// Code's place only from the citation beside it — `20 U.S.C.
+/// 1070a(b)(7)(A)(iii)` — which the citation extractor declines, so the link
+/// came out as *could not be read*. The publisher's own `<ref>` beside that
+/// citation says `/us/usc/t20/s1070a`, and the address resolver reads it.
 const SECTION_1070A_B_7_A_III: &str = "uscode/title_20/chapter_28/subchapter_IV/part_A/subpart_1/section_1070a/subsection_b/paragraph_7/subparagraph_A/clause_iii";
 
-/// A declined citation is its own case, and never a disagreement.
+/// A section of an Act is compared at the place the publisher codified it.
 #[test]
-fn should_report_its_own_case_when_the_extractor_declined_the_amendments_citation() {
+fn should_agree_when_the_publisher_codifies_the_acts_section_at_the_links_section() {
     let dataset = amendment_links();
     let report = section_agreement::section_agreement(&dataset, &LinkQuery::new())
         .expect("the check should read the dataset");
 
-    let row = report
+    let window = &report.windows[0];
+    assert!(window.checked > 0, "the run recorded links in its window");
+    let queued: Vec<_> = report
         .rows
         .iter()
-        .find(|row| row.path == SECTION_1070A_B_7_A_III)
-        .expect("the run recorded a link at § 1070a(b)(7)(A)(iii)");
-
-    assert_eq!(row.outcome, Outcome::CouldNotBeRead);
-    // Why, in the extractor's own words, so a reviewer meets a named extractor
-    // limit rather than a silent gap.
-    let reason = row.reason.as_deref().expect("a third case says why");
+        .filter(|row| row.path == SECTION_1070A_B_7_A_III)
+        .collect();
     assert!(
-        reason.contains("20 U.S.C. 1070a") && reason.contains("no section marker"),
-        "the reason should name the declined citation and the extractor's own \
-         words, found {reason:?}"
+        queued.is_empty(),
+        "the amendment names § 401 of the Act, codified at § 1070a, where the \
+         link sits; a link that agrees is not queued, found {queued:?}"
     );
 }
 
@@ -255,31 +309,19 @@ fn should_report_the_queue_and_each_windows_share_when_the_command_runs() {
     );
 }
 
-// --- The quote rule -------------------------------------------------------
+// --- The bill's markup -----------------------------------------------------
 //
-// Amendment language quotes three kinds of thing, and none of them is the
-// provision being amended: the text struck, the text inserted, and the
-// positional anchor an insertion is placed after. A section read out of a
-// quotation is therefore not a section the amendment names, and comparing one
-// against the link's path reports a correct link as suspect.
+// The section an amendment acts on is read out of the bill the dataset holds,
+// by the address resolver. Amendment language quotes the text struck, the text
+// inserted and the anchor an insertion is placed after, and none of those is
+// the provision acted on. The markup sets the quoted text apart, so the
+// resolver never reads it as the amendment's own words. The cases that pin the
+// reading itself — a quoted anchor, a dashed number, a cross-reference — are in
+// `tests/amendment_address_tests.rs`.
 
 /// The committed public law, which is the real record of what the bill wrote.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
 const BILL_ID_HR1: &str = "119-hr-1";
-/// The work the stored bill is held under.
-const BILL_WORK: &str = "publiclawdocument_119-21";
-
-/// The clause the bill writes at § 83001(a)(2)(B), which quotes the section it
-/// searches **for** and names no section it amends:
-///
-/// > by inserting ", as in effect for such academic year," after
-/// > "section 479A(b)(1)(B)(v)"
-///
-/// The maintainer's own dataset carries a link on these words pointing inside
-/// § 1070a, and `settle --explain` shows the change landed exactly where the
-/// link says. The row read `479A` against `1070a`, and the link was right all
-/// along.
-const QUOTED_ANCHOR_CLAUSE: &str = "as in effect for such academic year";
 
 /// The bill as the Congress client would hand it over, read from the committed
 /// cache.
@@ -296,117 +338,6 @@ fn committed_bill_download() -> BillDownload {
         votes_json: None,
         member_jsons: std::collections::HashMap::new(),
     }
-}
-
-/// The words of the one node in the committed bill whose own content holds
-/// `phrase`.
-///
-/// Read out of the stored bill rather than typed in here, so the sentence under
-/// test is the sentence the publisher wrote
-/// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
-fn bill_words_holding(phrase: &str) -> String {
-    let mut dataset = Dataset::new(DatasetMetadata::default());
-    dataset
-        .load_bill_download(&committed_bill_download())
-        .expect("the committed bill should load");
-    let held = dataset
-        .expressions(&WorkId::new(BILL_WORK))
-        .expect("the dataset should answer for the bill's work");
-    let bill = dataset
-        .get_expression(&held[0].id)
-        .expect("the expression should read")
-        .expect("the expression should be there");
-
-    let mut found = Vec::new();
-    collect_words_holding(&bill.root, phrase, &mut found);
-    assert_eq!(
-        found.len(),
-        1,
-        "exactly one node of the bill should hold {phrase:?}"
-    );
-    found.remove(0)
-}
-
-fn collect_words_holding(node: &DocumentNode, phrase: &str, found: &mut Vec<String>) {
-    if let Some(content) = &node.data.content
-        && content.contains(phrase)
-    {
-        found.push(content.to_string());
-    }
-    for child in &node.children {
-        collect_words_holding(child, phrase, found);
-    }
-}
-
-/// A section inside a quotation is not a section the amendment names.
-#[test]
-fn should_not_name_a_section_inside_a_quotation_when_an_amendment_quotes_one() {
-    let words = bill_words_holding(QUOTED_ANCHOR_CLAUSE);
-
-    // Guards. Without them the case could pass on a clause that quotes nothing.
-    assert!(
-        words.contains("479A"),
-        "the clause should quote § 479A, found {words:?}"
-    );
-    assert!(
-        words.to_lowercase().contains("section"),
-        "the clause should carry the word `section`, found {words:?}"
-    );
-
-    let naming = section_agreement::section_named_in(&words);
-    assert_eq!(
-        naming.section(),
-        None,
-        "the only section here sits inside a quotation, so these words name \
-         none; found {naming:?} in {words:?}"
-    );
-}
-
-/// A row a reviewer meets must say the section was quoted, and not that the
-/// words named none.
-///
-/// The two are different facts. *"The words name no section"* is already 668 of
-/// 685 unread rows on the maintainer's dataset, and folding the quoted ones into
-/// it would hide how much of that bucket is this one cause — which is the
-/// question `#211` is parked on.
-#[test]
-fn should_say_the_section_was_quoted_when_the_only_one_named_sits_in_a_quotation() {
-    let words = bill_words_holding(QUOTED_ANCHOR_CLAUSE);
-
-    let naming = section_agreement::section_named_in(&words);
-    let Naming::Unread(reason) = &naming else {
-        panic!("these words name no section outside a quotation, found {naming:?}");
-    };
-    assert!(
-        reason.contains("479A") && reason.contains("quotation"),
-        "the reason should name the quoted section and say it was quoted, \
-         found {reason:?}"
-    );
-}
-
-/// The clause the bill writes at § 70421(a)(3):
-///
-/// > Section 1400Z-1(b) is amended by striking paragraph (3).
-///
-/// A section number that carries a dash after a letter. The Code numbers whole
-/// families that way — `1400Z-1`, `479a-1`, `300gg-11` — and reading only the
-/// part before the dash names a real but **different** provision, which is the
-/// fault `#135` and `#141` are about. The maintainer's dataset carries a row
-/// reading `1400Z` against a path in `1400Z–2` for exactly this reason.
-const DASHED_SECTION_CLAUSE: &str = "1400Z-1(b) is amended by striking paragraph";
-
-/// A dashed section number is read whole, not down to its first dash.
-#[test]
-fn should_read_a_section_number_whole_when_it_carries_a_dash_after_a_letter() {
-    let words = bill_words_holding(DASHED_SECTION_CLAUSE);
-
-    let naming = section_agreement::section_named_in(&words);
-    assert_eq!(
-        naming.section(),
-        Some("1400Z-1"),
-        "the number runs past the dash, and § 1400Z is a different provision; \
-         found {naming:?} in {words:?}"
-    );
 }
 
 /// § 50(a)(5), which the bill reached by an amendment to § 1371(d)(1).
@@ -477,18 +408,6 @@ fn should_name_the_new_section_when_an_amendment_inserts_one_after_another() {
     assert_eq!(row.path_section.as_deref(), Some("41"));
 }
 
-// --- Collapsed quotes -----------------------------------------------------
-//
-// The stored words often write a closing quote and the next opening quote as
-// **one** character: `…for 'clause (ii)'."(D) Special rule…`. A reader that
-// pairs quote marks by position loses step there, and every section after the
-// join lands in a stretch it wrongly takes for prose. The count of marks cannot
-// say when this happened: an even count breaks the same way as an odd one.
-//
-// So the section an amendment names is read only from the words **before its
-// first quotation mark**. Amendment language names its target before it starts
-// to quote.
-
 /// § 529A(b)(2)(B), which carries a link to the amendment that adds the new
 /// part on Trump accounts:
 ///
@@ -497,15 +416,16 @@ fn should_name_the_new_section_when_an_amendment_inserts_one_after_another() {
 /// > …"(a) General Rule.--… an individual retirement account under section
 /// > 408(a)."(b) …
 ///
-/// Nothing before the first quotation mark names a section. § 408 sits inside
-/// the inserted text, after the collapsed marks `"Sec.` and `."(a)`, and a
-/// reader that paired the marks by position took it for prose.
+/// The amending line names a subchapter and no section. § 408 sits inside the
+/// inserted text, after the collapsed marks `"Sec.` and `."(a)`, and a prose
+/// reader that paired the marks by position took it for the amendment's own
+/// words. A new *part* holds more than one section, so no one section is its
+/// address.
 const SECTION_529A_B_2_B: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_VIII/section_529A/subsection_b/paragraph_2/subparagraph_B";
 
-/// A section after the first quotation mark is not a section the amendment
-/// names, even where the marks have collapsed together.
+/// A section inside the text an amendment inserts is not the section it names.
 #[test]
-fn should_not_name_a_section_when_it_comes_only_after_the_first_quotation_mark() {
+fn should_not_name_a_section_when_it_sits_only_in_the_inserted_text() {
     let dataset = amendment_links();
     let report = section_agreement::section_agreement(&dataset, &LinkQuery::new())
         .expect("the check should read the dataset");
@@ -529,90 +449,8 @@ fn should_not_name_a_section_when_it_comes_only_after_the_first_quotation_mark()
                 && row
                     .reason
                     .as_deref()
-                    .is_some_and(|reason| reason.contains("before its first quotation"))),
-        "the Trump-accounts row should be unread, and say that nothing before \
-         the first quotation names a section; found {at_529a:?}"
-    );
-}
-
-/// The clause the bill writes to add the definitions of prohibited foreign
-/// entities to § 7701(a):
-///
-/// > Section 7701(a) is amended by adding at the end the following new
-/// > paragraphs:
-///
-/// The maintainer's dataset carries two links on these words, `46de57fb0c0f`
-/// and `324e65f1e549`, and both point inside § 48E. The words state their
-/// target plainly, before any quotation, and it is not § 48E: the model matched
-/// the amendment to a provision that only **uses** the new definitions. That is
-/// a real matching error, and the prefix rule must still see it.
-const SECTION_7701_A_CLAUSE: &str =
-    "Section 7701(a) is amended by adding at the end the following new paragraphs";
-
-/// A target stated before the first quotation mark is still named.
-#[test]
-fn should_name_the_section_when_the_amendment_states_it_before_any_quotation() {
-    let words = bill_words_holding(SECTION_7701_A_CLAUSE);
-
-    let naming = section_agreement::section_named_in(&words);
-    assert_eq!(
-        naming.section(),
-        Some("7701"),
-        "the words name § 7701 before they quote anything, and a link inside \
-         § 48E on them must disagree; found {naming:?} in {words:?}"
-    );
-}
-
-// --- Cross-references -----------------------------------------------------
-
-/// The new § 4968(c) the bill writes, as the maintainer's dataset stores it at
-/// link `3a9530032fb5`: one quoted run of the inserted text, with no quotation
-/// mark left in it at all, because the excerpt starts inside the quotation.
-///
-/// > (c) Applicable Educational Institution.—For purposes of this subchapter,
-/// > the term 'applicable educational institution' means an eligible
-/// > educational institution (as defined in section 25A(f)(2))—
-///
-/// That link points at § 4968(c), and the row read `25A` against `4968`. § 25A
-/// is only the place a term is defined. A section after *as defined in*,
-/// *within the meaning of* or *described in* is a cross-reference, never the
-/// section acted on.
-const CROSS_REFERENCE_RUN: &str =
-    "means an eligible educational institution (as defined in section 25A(f)(2))";
-
-/// The one quoted run of the committed bill's words that holds `phrase`,
-/// without its marks — the shape a stored excerpt takes when it starts inside
-/// the inserted text.
-fn quoted_run_holding(phrase: &str) -> String {
-    let words = bill_words_holding(phrase);
-    let runs: Vec<&str> = words
-        .split(['"', '\u{201C}', '\u{201D}'])
-        .filter(|run| run.contains(phrase))
-        .collect();
-    let [run] = runs[..] else {
-        panic!("exactly one quoted run should hold {phrase:?}, found {runs:?}");
-    };
-    run.to_string()
-}
-
-/// A section named only as a cross-reference is not the section acted on.
-#[test]
-fn should_not_name_a_section_when_it_is_only_a_cross_reference() {
-    let words = quoted_run_holding(CROSS_REFERENCE_RUN);
-
-    // Guard. Without it the case could pass on words that name a target too.
-    assert!(
-        words.starts_with("(c) Applicable Educational Institution"),
-        "the run should be the new § 4968(c) alone, found {words:?}"
-    );
-
-    let naming = section_agreement::section_named_in(&words);
-    let Naming::Unread(reason) = &naming else {
-        panic!("§ 25A is only where a term is defined, found {naming:?} in {words:?}");
-    };
-    assert!(
-        reason.contains("25A") && reason.contains("cross-reference"),
-        "the reason should name the section and say it is a cross-reference, \
-         found {reason:?}"
+                    .is_some_and(|reason| reason.contains("no section under amendment"))),
+        "the Trump-accounts row should be unread, and say that the amendment \
+         names no section; found {at_529a:?}"
     );
 }

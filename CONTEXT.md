@@ -123,6 +123,10 @@ An instruction in a Bill that tells a reader how to change existing law. It is i
 The words an Amendment **enacts** are not a Provision. They are quoted text, not law in force, and a Provision is a location an annotation can name, so they stay out of the hierarchy and travel in the Bill node's Class payload instead (#86).
 _Avoid_: Edit, modification, revision
 
+**Address**:
+Where in the Code an Amendment acts, as its Bill's markup states it: the section its amending line names, the designations its citation gives below that section, and the containers its scope phrases open (*"in paragraph (2)"*). It is read from the publisher's markup and never from a model, and it is derived, never stored. An Amendment whose address cannot be read carries the reason instead. One resolver reads it, for every Amendment and for every renumbering (#248, `docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`). An address is where to look, not the change: it names a section and a container, and a Link still points at the Provision that changed.
+_Avoid_: target, citation
+
 ## The legislature
 
 These are facts about the people and the votes behind a Bill. Only some datasets carry them; see Extension.

@@ -34,7 +34,24 @@
 //! ADR 0013 says the Office of Law Revision Counsel's classification
 //! (`olrc.classified_from` links, #247) corroborates or contradicts an address.
 //! No dataset holds those links yet, so this resolver reads the markup alone and
-//! works the same with or without them. The comparison is a follow-up.
+//! works the same with or without them. The comparison is a follow-up, and it
+//! reads the links as #247 specifies them:
+//!
+//! - the subject is the Code **section**'s structural path, never lower;
+//! - the object is `olrc.classification:<public law>:<law section>`, such as
+//!   `olrc.classification:119-21:71301(a)`, and a range stays one object:
+//!   `…:70104(a)-(d)`. That law section is what joins a link to an amendment,
+//!   whose own node carries its place in the public law;
+//! - the payload, in the `olrc` namespace, is `{"descriptions": [...]}`, a list,
+//!   because two rows of a table can give one link.
+//!
+//! **A note does not corroborate an address.** A link whose descriptions are
+//! all note forms — `nt`, `nts`, `nt [tbl]`, `nt new`, `nt …` — classifies a
+//! note under the section, and the dataset holds no notes. It sits on the
+//! section's path and says nothing about the section's own text. `prec`, the
+//! heading before a section, is the same. For Public Law 119-21, 175 of 635
+//! rows are `nt new` and 10 more are `nt`, so counting them would corroborate
+//! addresses nothing supports.
 
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -83,9 +100,9 @@ pub struct AmendmentAddress {
 /// let document = roxmltree::Document::parse(&xml).unwrap();
 /// let (bill, _) = bill_expression(&document, "119-hr-1").unwrap();
 ///
-/// assert_eq!(addresses_in("119-hr-1", &bill.root).len(), 603);
+/// assert_eq!(addresses_in(&bill.root).len(), 603);
 /// ```
-pub fn addresses_in(_bill_id: &str, root: &DocumentNode) -> Vec<AmendmentAddress> {
+pub fn addresses_in(root: &DocumentNode) -> Vec<AmendmentAddress> {
     let code_of_1986 = stored_titles_declaring_the_1986_code(root);
     let mut addresses = Vec::new();
     let mut came_through = Vec::new();
@@ -219,7 +236,7 @@ impl<'a> Scope<'a> {
         came_through: &[&DocumentNode],
         code_of_1986: &[String],
     ) -> Result<(String, Vec<Step>), Reason> {
-        self.section_cited_by(came_through, code_of_1986, |line| citation_in(line))
+        self.section_cited_by(came_through, code_of_1986, citation_in)
     }
 
     /// The address of a whole amending instruction.
