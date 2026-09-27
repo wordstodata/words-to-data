@@ -15,8 +15,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
+use words_to_data::citation::resolve::SectionPaths;
 use words_to_data::congress::BillDownload;
-use words_to_data::dataset::{Dataset, DatasetMetadata, adjacent_expressions};
+use words_to_data::dataset::{
+    Dataset, DatasetMetadata, ExpressionId, WorkId, adjacent_expressions,
+};
+use words_to_data::link::Link;
+use words_to_data::olrc::{ClassificationTable, classify};
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -45,8 +50,10 @@ fn committed_bill_download() -> BillDownload {
     }
 }
 
-/// The bill and titles 7 and 26 at each committed release point, with the renumberings
-/// the bill states recorded over every window, as `build-dataset` records them.
+/// The bill and titles 7 and 26 at each committed release point, with the
+/// renumberings the bill states recorded over every window, as `build-dataset`
+/// records them, and the committed OLRC classification table stated as links,
+/// as `add-classifications` states them.
 fn built() -> Dataset<words_to_data::storage::InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata::default());
     dataset
@@ -67,7 +74,30 @@ fn built() -> Dataset<words_to_data::storage::InMemoryStorage> {
     dataset
         .record_redesignations_over(BILL_ID, &bill.root, &windows)
         .expect("the renumberings should record");
+    for link in olrc_links(&dataset) {
+        dataset.add_link(link).expect("the link should add");
+    }
     dataset
+}
+
+/// The committed classification table, as `olrc.classified_from` links against
+/// what the dataset holds.
+fn olrc_links(dataset: &Dataset<words_to_data::storage::InMemoryStorage>) -> Vec<Link> {
+    let html = std::fs::read_to_string("tests/test_data/olrc/classification/tbl119pl_1st.htm")
+        .expect("the committed table should read");
+    let table = ClassificationTable::parse(&html).expect("the committed table should parse");
+    let mut paths = SectionPaths::new();
+    for date in RELEASE_POINTS {
+        for work in ["uscode/title_7", "uscode/title_26"] {
+            let expression = dataset
+                .get_expression(&ExpressionId::new(WorkId::new(work), date))
+                .expect("storage should answer")
+                .expect("the title is held");
+            paths.add_work(&expression.root);
+        }
+    }
+    let scope = dataset.scope().expect("the scope should derive");
+    classify(&table.rows, &scope, &paths, "olrc:tbl119pl_1st.htm").links
 }
 
 /// One run of the binary.
@@ -255,5 +285,23 @@ fn should_not_call_an_amendment_quiet_when_the_code_held_has_nothing_at_its_addr
     assert_eq!(
         row["reason"],
         "the Code the dataset holds has no /us/usc/t26/s11026(a) in any window after 2025-07-04"
+    );
+}
+
+#[test]
+fn should_show_the_olrc_classification_of_the_amendments_section_of_the_law_when_one_is_stored() {
+    // The amendment sits at section 10101(b)(3) of the law, and the table
+    // classifies 10101(b)(3) to 7 U.S.C. 2036, as an amendment of the section.
+    let rows = residue_rows(linked());
+
+    let row = row_of(&rows, STRIKES_SECTION_3_U_4).expect("the amendment is listed");
+    assert_eq!(row["law_section"], "10101(b)(3)");
+    assert_eq!(
+        row["olrc"],
+        serde_json::json!([{
+            "law_section": "10101(b)(3)",
+            "code_section": "uscode/title_7/chapter_51/section_2036",
+            "descriptions": [""],
+        }])
     );
 }

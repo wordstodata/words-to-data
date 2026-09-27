@@ -32,6 +32,12 @@ use crate::query::LinkQuery;
 use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::amendment_address::AmendmentAddress;
 
+use law_section::{LawSection, classifications_of};
+
+mod law_section;
+
+pub use law_section::Classification;
+
 /// One amendment no link names, and what is known about it.
 #[derive(Debug, Clone, Serialize)]
 pub struct Unlinked {
@@ -45,6 +51,12 @@ pub struct Unlinked {
     pub amending_text: String,
     /// Where the bill's markup says the amendment acts.
     pub address: AmendmentAddress,
+    /// Where the amendment sits in its public law, as the OLRC writes it:
+    /// `10101(b)(3)`.
+    pub law_section: Option<String>,
+    /// What the OLRC's classification table says about that place in the law,
+    /// one entry for each row that names it. Empty when none is stored.
+    pub olrc: Vec<Classification>,
     /// Whether it is work for an agent.
     pub category: Category,
     /// The stage it stopped at, why, and where to look.
@@ -82,6 +94,7 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
     bill: Option<&str>,
 ) -> Result<Vec<Unlinked>, DatasetError> {
     let linked = linked_amendments(dataset, bill)?;
+    let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
     let found = match_by_evidence(dataset)?;
     let mut unlinked = Vec::new();
     for amendment in found.matches {
@@ -94,7 +107,13 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
             continue;
         }
         if let Outcome::Residue(residue) = amendment.outcome {
+            let place = LawSection::of_path(&amendment.address.path);
+            let olrc = place.as_ref().map_or_else(Vec::new, |place| {
+                classifications_of(&classified, &amendment.public_law, place)
+            });
             unlinked.push(Unlinked {
+                law_section: place.map(|place| place.to_string()),
+                olrc,
                 bill_id: amendment.bill_id,
                 public_law: amendment.public_law,
                 amendment_id: amendment.amendment_id,
