@@ -22,6 +22,7 @@ use words_to_data::dataset::{
 };
 use words_to_data::link::Link;
 use words_to_data::olrc::{ClassificationTable, classify};
+use words_to_data::query::DEFAULT_LIMIT;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -386,5 +387,40 @@ fn should_say_the_batch_has_not_written_its_link_when_the_method_links_an_amendm
             )),
         "the changes it would be linked to: {}",
         row["changes"]
+    );
+}
+
+#[test]
+fn should_print_at_most_a_screenful_and_say_how_many_rows_it_left_out_when_the_output_is_for_a_person()
+ {
+    let total = residue_rows(linked()).len();
+    assert!(total > DEFAULT_LIMIT, "the corpus gives more than a screenful");
+
+    let output = run(
+        "residue",
+        &[linked().to_str().expect("a UTF-8 path"), "--bill", BILL_ID],
+    );
+    assert!(
+        output.status.success(),
+        "residue should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Each row leads with the start of the amendment's id.
+    let shown = residue_rows(linked())
+        .iter()
+        .filter(|row| {
+            let id = row["amendment_id"].as_str().expect("an id");
+            stdout.contains(&format!("  {}  ", &id[..12]))
+        })
+        .count();
+    assert_eq!(shown, DEFAULT_LIMIT, "a screenful of rows: {stdout}");
+    assert!(
+        stdout.contains(&format!(
+            "{} more row(s) not shown; pass --json for all of them",
+            total - DEFAULT_LIMIT
+        )),
+        "the output says what it left out: {stdout}"
     );
 }
