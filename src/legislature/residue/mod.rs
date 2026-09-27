@@ -26,7 +26,7 @@ use std::collections::BTreeSet;
 use serde::Serialize;
 
 use crate::dataset::{Dataset, DatasetError};
-use crate::legislature::evidence_matching::{Outcome, Residue, match_by_evidence};
+use crate::legislature::evidence_matching::{Outcome, Residue, is_a_note, match_by_evidence};
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
 use crate::query::LinkQuery;
 use crate::storage::{LegislatureReader, LinkReader, Storage};
@@ -59,6 +59,9 @@ pub struct Unlinked {
     pub olrc: Vec<Classification>,
     /// Whether it is work for an agent.
     pub category: Category,
+    /// What the amendment changes that the dataset does not hold, when the
+    /// category is [`Category::NotHeld`].
+    pub not_held: Option<String>,
     /// The stage it stopped at, why, and where to look.
     #[serde(flatten)]
     pub residue: Residue,
@@ -73,11 +76,30 @@ pub enum Category {
     /// The address is in the Code the dataset holds and nothing under it
     /// changed after the law's enactment ([`Residue::quiet`]).
     Quiet,
+    /// The amendment changes something the dataset does not hold, so no
+    /// change the dataset holds can be its change. Not a miss.
+    NotHeld,
+}
+
+/// What the dataset does not hold that the amendment changes, if anything.
+fn not_held(olrc: &[Classification]) -> Option<String> {
+    let only_notes = !olrc.is_empty()
+        && olrc
+            .iter()
+            .flat_map(|row| &row.descriptions)
+            .all(|description| is_a_note(description));
+    only_notes.then(|| {
+        "the OLRC classifies this section of the law only as a note, \
+         and the dataset holds no notes"
+            .to_string()
+    })
 }
 
 impl Category {
-    fn of(residue: &Residue) -> Self {
-        if residue.quiet {
+    fn of(residue: &Residue, not_held: Option<&String>) -> Self {
+        if not_held.is_some() {
+            Self::NotHeld
+        } else if residue.quiet {
             Self::Quiet
         } else {
             Self::Work
@@ -111,15 +133,17 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
             let olrc = place.as_ref().map_or_else(Vec::new, |place| {
                 classifications_of(&classified, &amendment.public_law, place)
             });
+            let not_held = not_held(&olrc);
             unlinked.push(Unlinked {
-                law_section: place.map(|place| place.to_string()),
-                olrc,
                 bill_id: amendment.bill_id,
                 public_law: amendment.public_law,
                 amendment_id: amendment.amendment_id,
                 amending_text: amendment.amending_text,
                 address: amendment.address,
-                category: Category::of(&residue),
+                law_section: place.map(|place| place.to_string()),
+                olrc,
+                category: Category::of(&residue, not_held.as_ref()),
+                not_held,
                 residue,
             });
         }

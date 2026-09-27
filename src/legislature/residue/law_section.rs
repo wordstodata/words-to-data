@@ -29,8 +29,8 @@ impl LawSection {
         (!trail.is_empty()).then_some(Self(trail))
     }
 
-    /// A section of the law as a row writes it, such as `10101(b)(3)`.
-    fn of_row(written: &str) -> Self {
+    /// A place as a row writes it, such as `10101(b)(3)`.
+    fn written(written: &str) -> Self {
         let mut parts = written.split('(');
         let mut trail = vec![parts.next().unwrap_or_default().trim().to_string()];
         trail.extend(parts.map(|part| part.trim_end_matches(')').to_string()));
@@ -43,6 +43,100 @@ impl LawSection {
     fn overlaps(&self, other: &Self) -> bool {
         self.0.iter().zip(&other.0).all(|(one, two)| one == two)
     }
+}
+
+/// What a row names: one place, or a range of places.
+enum Named {
+    Place(LawSection),
+    /// `70118(a)-(c)`: the designations above the range, `70118`, then the
+    /// first and the last designation at the range's own level, `a` and `c`.
+    Range {
+        above: LawSection,
+        first: String,
+        last: String,
+    },
+}
+
+impl Named {
+    /// A row's section of the law, as the table writes it.
+    ///
+    /// A range is written as its first end in full and its last end from the
+    /// level it starts at: `70301(a)(1)-(5)(C)` runs from paragraph (1) to
+    /// paragraph (5) of subsection (a). The last end's first designation says
+    /// the level, because it is written the same way as the designation it
+    /// ends: digits, capitals or small letters.
+    fn of_row(written: &str) -> Self {
+        let Some((first_end, last_end)) = written.split_once("-(") else {
+            return Self::Place(LawSection::written(written));
+        };
+        let LawSection(first) = LawSection::written(first_end);
+        let last = last_end.split(')').next().unwrap_or_default().to_string();
+        let level = first
+            .iter()
+            .rposition(|designation| written_alike(designation, &last))
+            .filter(|&level| level > 0);
+        match level {
+            Some(level) => Self::Range {
+                above: LawSection(first[..level].to_vec()),
+                first: first[level].clone(),
+                last,
+            },
+            // No designation is written like the last end, so the range
+            // cannot be read. Its first end is still a place it names.
+            None => Self::Place(LawSection(first)),
+        }
+    }
+
+    /// Whether an amendment at `place` sits in what the row names.
+    ///
+    /// A place deeper than a range's level sits in it when its designation at
+    /// that level falls between the two ends. A place at or above the range's
+    /// level holds the whole range.
+    fn names(&self, place: &LawSection) -> bool {
+        match self {
+            Self::Place(named) => named.overlaps(place),
+            Self::Range { above, first, last } => {
+                if !above.overlaps(place) {
+                    return false;
+                }
+                match place.0.get(above.0.len()) {
+                    Some(at) => in_series(first, at, last),
+                    None => true,
+                }
+            }
+        }
+    }
+}
+
+/// Whether two designations are written the same way: both in digits, both in
+/// capitals, or both in small letters.
+fn written_alike(one: &str, other: &str) -> bool {
+    let way = |designation: &str| {
+        designation.chars().next().map(|c| {
+            if c.is_ascii_digit() {
+                0
+            } else if c.is_ascii_uppercase() {
+                1
+            } else {
+                2
+            }
+        })
+    };
+    way(one).is_some() && way(one) == way(other)
+}
+
+/// Whether `at` falls between `first` and `last`, both included.
+///
+/// Numbers compare as numbers and letters as letters: `aa` comes after `z`.
+/// A small roman numeral is compared as letters, so `iv` reads as after `v`.
+/// The 28 ranges the 119th Congress's table gives Pub. L. 119-21 run over
+/// subsections and paragraphs, where that does not arise.
+fn in_series(first: &str, at: &str, last: &str) -> bool {
+    if let (Ok(first), Ok(at), Ok(last)) = (first.parse::<u32>(), at.parse(), last.parse()) {
+        return first <= at && at <= last;
+    }
+    let key = |designation: &str| (designation.len(), designation.to_string());
+    key(first) <= key(at) && key(at) <= key(last)
 }
 
 impl std::fmt::Display for LawSection {
@@ -89,7 +183,7 @@ pub(super) fn classifications_of(
         let Some(law_section) = reference.strip_prefix(&prefix) else {
             continue;
         };
-        if !LawSection::of_row(law_section).overlaps(place) {
+        if !Named::of_row(law_section).names(place) {
             continue;
         }
         found.push(Classification {

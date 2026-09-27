@@ -60,6 +60,7 @@ use resolve::{Change, Contender, Resolution, resolve};
 mod olrc;
 mod quoted_words;
 
+pub(crate) use olrc::is_a_note;
 pub use olrc::{OlrcClassification, olrc_classification};
 mod resolve;
 

@@ -125,7 +125,7 @@ fn descriptions(link: &Link) -> Vec<String> {
 
 /// Whether a description classifies a note, or the heading before a section,
 /// rather than the section's own text.
-fn is_a_note(description: &str) -> bool {
+pub(crate) fn is_a_note(description: &str) -> bool {
     let first = description.split_whitespace().next().unwrap_or_default();
     matches!(first, "nt" | "nts" | "prec")
 }

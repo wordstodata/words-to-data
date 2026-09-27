@@ -305,3 +305,27 @@ fn should_show_the_olrc_classification_of_the_amendments_section_of_the_law_when
         }])
     );
 }
+
+#[test]
+fn should_report_an_amendment_to_a_note_as_not_held_and_not_as_a_miss() {
+    // Section 70118(a) of the law amends section 11026 of Public Law 115-97.
+    // The table classifies 70118(a)-(c) to 26 U.S.C. 112 as `nt`: a note
+    // under § 112. The dataset holds no notes, so no change it holds can be
+    // this amendment's, and an agent has nothing to look for.
+    let rows = residue_rows(linked());
+
+    let row = row_of(&rows, "5219c7e9a020").expect("the amendment is listed");
+    assert_eq!(row["category"], "not_held");
+    assert_eq!(
+        row["olrc"],
+        serde_json::json!([{
+            "law_section": "70118(a)-(c)",
+            "code_section": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_112",
+            "descriptions": ["nt"],
+        }])
+    );
+    assert_eq!(
+        row["not_held"],
+        "the OLRC classifies this section of the law only as a note, and the dataset holds no notes"
+    );
+}
