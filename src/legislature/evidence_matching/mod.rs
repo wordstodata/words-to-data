@@ -36,7 +36,7 @@
 //! A command writes the links; the reason an amendment stopped stays
 //! computable for the residue report (#251).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -149,6 +149,13 @@ pub struct Residue {
     pub stage: Stage,
     /// Why, in words a reviewer can act on.
     pub reason: String,
+    /// The address is in the Code the dataset holds, and nothing under it
+    /// changed in any window held after the law's enactment.
+    ///
+    /// Not work. A corpus that does not reach the date an amendment takes
+    /// effect is the ordinary state of a growing dataset (#211), and nothing is
+    /// there to resolve until a later release point is added.
+    pub quiet: bool,
     /// The older expression of the window the address changed in, when one
     /// did.
     pub from: Option<ExpressionId>,
@@ -241,18 +248,14 @@ impl AmendmentMatch {
 
     /// The link's evidence: where, when, and by which words.
     fn reasoning(&self, linked: &Linked, change: &CausedChange) -> String {
-        let below: String = self
-            .address
-            .container
-            .iter()
-            .map(|step| format!("({})", step.number))
-            .collect();
-        let section = self.address.section.as_deref().unwrap_or_default();
         let mut reasoning = format!(
-            "Address: {section}{below}, read from the bill's markup. \
+            "Address: {}, read from the bill's markup. \
              Window: {} to {}, the first window after the law's enactment on {} \
              in which something under the address changed. ",
-            linked.from, linked.to.at, self.enacted
+            address_text(&self.address),
+            linked.from,
+            linked.to.at,
+            self.enacted
         );
         for later in &linked.later_windows {
             reasoning.push_str(&format!(
@@ -426,6 +429,20 @@ fn addressed_work(address: &AmendmentAddress) -> Result<WorkId, String> {
     work_of(section).ok_or_else(|| format!("{section} is not a section of the US Code"))
 }
 
+/// An address as one string: the section, then each step below it,
+/// `/us/usc/t26/s11026(a)`.
+fn address_text(address: &AmendmentAddress) -> String {
+    let below: String = address
+        .container
+        .iter()
+        .map(|step| format!("({})", step.number))
+        .collect();
+    format!(
+        "{}{below}",
+        address.section.as_deref().unwrap_or_default()
+    )
+}
+
 /// The work of the Code a section identifier sits in: `/us/usc/t7/s2028` is in
 /// `uscode/title_7`.
 fn work_of(section: &str) -> Option<WorkId> {
@@ -483,6 +500,11 @@ fn match_in_work<S: Storage + LegislatureReader>(
     // Stage 2: the window. Every window the amendment's address changed in,
     // oldest first.
     let mut placed: BTreeMap<usize, Vec<Placed>> = BTreeMap::new();
+    // The amendments a window after enactment was read for, and those whose
+    // address that window's Code holds. One looked for and never found is not
+    // quiet: nothing changed there because nothing is there.
+    let mut looked_for: BTreeSet<usize> = BTreeSet::new();
+    let mut found: BTreeSet<usize> = BTreeSet::new();
     for (window, view) in windows.iter().enumerate() {
         let later = SectionIndex::of(&view.later);
         let earlier = SectionIndex::of(&view.earlier);
@@ -491,9 +513,11 @@ fn match_in_work<S: Storage + LegislatureReader>(
             if !window_can_hold(&amendment.enacted, &view.to.at) {
                 continue;
             }
+            looked_for.insert(at);
             let Some((section, under)) = address_path(&later, &earlier, &amendment.address) else {
                 continue;
             };
+            found.insert(at);
             let candidates: Vec<usize> = (0..view.changes.len())
                 .filter(|&change| is_at_or_below(&view.changes[change].path, &under))
                 .collect();
@@ -516,16 +540,31 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 .entry((first.window, first.section.as_str()))
                 .or_default()
                 .push(at),
-            None => {
+            None if looked_for.contains(&at) && !found.contains(&at) => {
                 let amendment = &stated[at];
                 outcomes[at] = Some(residue(
                     Stage::Window,
                     format!(
+                        "the Code the dataset holds has no {} in any window after {}",
+                        address_text(&amendment.address),
+                        amendment.enacted
+                    ),
+                ));
+            }
+            None => {
+                let amendment = &stated[at];
+                outcomes[at] = Some(Outcome::Residue(Residue {
+                    stage: Stage::Window,
+                    reason: format!(
                         "nothing under {} changed in any window after {}",
                         amendment.address.section.as_deref().unwrap_or_default(),
                         amendment.enacted
                     ),
-                ));
+                    quiet: true,
+                    from: None,
+                    to: None,
+                    changes: Vec::new(),
+                }));
             }
         }
     }
@@ -584,6 +623,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 Resolution::Stopped(reason) => Outcome::Residue(Residue {
                     stage: Stage::Resolve,
                     reason,
+                    quiet: false,
                     from: Some(view.from.clone()),
                     to: Some(view.to.clone()),
                     changes: changes_under_address(),
@@ -621,6 +661,7 @@ fn residue(stage: Stage, reason: String) -> Outcome {
     Outcome::Residue(Residue {
         stage,
         reason,
+        quiet: false,
         from: None,
         to: None,
         changes: Vec::new(),

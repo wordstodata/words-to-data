@@ -12,6 +12,7 @@
 
 pub mod evidence_matching;
 pub mod redesignation;
+pub mod residue;
 pub mod section_agreement;
 
 use std::str::FromStr;
