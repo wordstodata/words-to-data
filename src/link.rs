@@ -610,6 +610,18 @@ pub enum Named {
 /// The reverse of [`Link::from_annotation`], and the direction that matters now
 /// that links are what is stored.
 ///
+/// [`annotations_with_their_links`] does the regrouping and states the rules it
+/// follows. This drops the link ids, for a caller that wants the records alone.
+pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
+    annotations_with_their_links(links)
+        .into_iter()
+        .map(|(annotation, _)| annotation)
+        .collect()
+}
+
+/// The annotations `links` came from, each with the id of the link that states
+/// each of its paths.
+///
 /// Links group by amendment, expression pair, and source. Dropping the source
 /// would merge two annotators' accounts of one amendment into a single record
 /// with one provenance, which loses who said what. Several amendments can cause
@@ -617,12 +629,23 @@ pub enum Named {
 ///
 /// A link of another kind is skipped: this is a legislature-shaped view, and a
 /// `judicial.cites` link is not an annotation.
-pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
+///
+/// The ids sit in the same order as the annotation's `paths`, one for every
+/// path, because the projection wrote one link per path. A reader that reports
+/// an annotation needs them: a record covering three paths is three statements,
+/// and a reviewer settles one statement at a time (#232).
+pub fn annotations_with_their_links(links: &[Link]) -> Vec<(ChangeAnnotation, Vec<String>)> {
     use crate::annotation::{AnnotationMetadata, BillReference};
     use std::collections::BTreeMap;
 
+    /// What puts two links in one annotation: the amendment they name, the two
+    /// dates of the window, and the source that said it.
+    type Grouping = (String, String, String, String);
+    /// One annotation, and the id of the link that states each of its paths.
+    type Regrouped = (ChangeAnnotation, Vec<String>);
+
     let amended_by = LinkKind::new(LinkKind::AMENDED_BY);
-    let mut grouped: BTreeMap<(String, String, String, String), ChangeAnnotation> = BTreeMap::new();
+    let mut grouped: BTreeMap<Grouping, Regrouped> = BTreeMap::new();
 
     for link in links.iter().filter(|l| l.kind == amended_by) {
         let Target::Change {
@@ -651,9 +674,8 @@ pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
             to_date.clone(),
             link.provenance.source.clone(),
         );
-        grouped
-            .entry(key)
-            .or_insert_with(|| ChangeAnnotation {
+        let (annotation, link_ids) = grouped.entry(key).or_insert_with(|| {
+            let annotation = ChangeAnnotation {
                 // A legislature payload's operation came from a model, which
                 // answers in the drafter's words, so it is read with `from_prose`.
                 // A link stored before #156 holds `strike` or `strike_and_insert`,
@@ -683,9 +705,13 @@ pub fn annotations_from_links(links: &[Link]) -> Vec<ChangeAnnotation> {
                         .as_ref()
                         .and_then(|e| e.reasoning.clone()),
                 },
-            })
-            .paths
-            .push(path.clone());
+            };
+            (annotation, Vec::new())
+        });
+        // Pushed together, so the id of a path is the id of the link that
+        // states it however the links arrived.
+        annotation.paths.push(path.clone());
+        link_ids.push(link.id());
     }
 
     grouped.into_values().collect()
