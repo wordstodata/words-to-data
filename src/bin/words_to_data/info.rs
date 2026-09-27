@@ -100,6 +100,35 @@ pub fn run(args: Args) {
         }
     }
 
+    // How much of each kind somebody has judged, so an agent can read what work
+    // is left (#236). This is a census and not a gate: it lives here rather than
+    // in `validate` because an unreviewed link is work a person finishes by
+    // making a judgement, and `validate` exits 1 on outstanding work — which
+    // would fail every run for the life of the project.
+    //
+    // All four states on every line, and no fold over them. *Disputed* is a
+    // third thing a reader acts on differently from right and wrong, and one
+    // coarser word for two ideas is how the link filters came to disagree (#234).
+    //
+    // The `review` namespace is absent by construction: a review carries no
+    // reviews of its own, so counting the records would make this report climb
+    // as the reviewing gets done.
+    if !info.review_states_by_kind.is_empty() {
+        println!("Review state:");
+        let width = info
+            .review_states_by_kind
+            .keys()
+            .map(String::len)
+            .max()
+            .unwrap_or(0);
+        for (kind, states) in &info.review_states_by_kind {
+            println!(
+                "  {kind:<width$}  {} unreviewed, {} confirmed, {} refuted, {} disputed",
+                states.unreviewed, states.confirmed, states.refuted, states.disputed
+            );
+        }
+    }
+
     // Printed only where there is something to report. A dataset that recorded
     // no model replies holds none, and a zero there reads as a tool that
     // measured nothing rather than a dataset that holds nothing.

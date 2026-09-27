@@ -16,7 +16,7 @@ use words_to_data::inspect::PathMatch;
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::LinkKind;
 use words_to_data::query::{LinkQuery, Locator};
-use words_to_data::storage::{InMemoryStorage, LegislatureCounts, SqliteStorage};
+use words_to_data::storage::{InMemoryStorage, LegislatureCounts, LinkReader, SqliteStorage};
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 const ANNOTATED_PATH: &str = "uscode/title_9/chapter_1/section_1";
@@ -45,6 +45,9 @@ const SECTION_181: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/par
 /// No such section. It is a raw string prefix of [`SECTION_163`], so a filter
 /// that compared strings rather than whole segments would answer §163 here.
 const SECTION_16: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_16";
+/// Title 26 is the work every statement of the real matching run names, so its
+/// subtree is every record that run wrote.
+const TITLE_26: &str = "uscode/title_26";
 
 fn at(date: &str) -> ExpressionId {
     ExpressionId::new(WorkId::new(TITLE_9), date)
@@ -616,6 +619,37 @@ fn should_report_an_annotation_on_the_path_itself_when_matching_the_subtree() {
     }
 }
 
+/// A record covering several paths names the several links it projects into.
+///
+/// `Link::from_annotation` writes one link per path, so a record grouping two
+/// paths holds two statements a reviewer settles one at a time. One id for the
+/// record would let a reviewer settle the first and read the whole record as
+/// done (#232).
+#[test]
+fn should_name_one_link_for_each_path_when_a_record_covers_several_paths() {
+    let dataset = matched_statements_fixture();
+
+    let recorded = annotations_at(&dataset, TITLE_26, PathMatch::default());
+    let several = recorded
+        .iter()
+        .find(|a| a.paths.len() > 1)
+        .expect("one amendment of the run was recorded at several paths");
+
+    assert_eq!(
+        several.link_ids.len(),
+        several.paths.len(),
+        "every path is its own link, so every path is named"
+    );
+    for (path, id) in several.paths.iter().zip(&several.link_ids) {
+        let holds = dataset
+            .links_for_path(path)
+            .expect("the links should read")
+            .iter()
+            .any(|link| words_to_data::review::short_id(&link.id()) == id);
+        assert!(holds, "the link {id} names must be the one at {path}");
+    }
+}
+
 #[test]
 fn should_carry_the_subtree_annotations_into_a_path_report_by_default() {
     let dataset = matched_statements_fixture();
@@ -742,11 +776,20 @@ fn should_pass_validation_for_a_consistent_dataset() {
         &to,
     );
 
+    // The dataset says what has been done to it. Without this record, the
+    // window holds a bill of many amendments and nothing saying the matching
+    // step ever ran over it, which #210 reports as work outstanding. An
+    // annotation is the fruit of that step, so a dataset holding one and no
+    // record of the run is not consistent.
+    dataset
+        .record_method_run(words_to_data::matching::matching_method(), &from, &to)
+        .expect("record what ran");
+
     let report = inspect::validate(&dataset).expect("validate");
     assert!(
         report.ok,
-        "expected clean dataset, issues: {:?}",
-        report.issues
+        "expected clean dataset, issues: {:?}, uncovered: {:?}",
+        report.issues, report.uncovered_amendments
     );
     assert_eq!(report.checked_annotations, 1);
 }

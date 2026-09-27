@@ -26,7 +26,7 @@ use crate::link::{
 };
 use crate::method::{Method, MethodRun};
 pub use crate::query::PathMatch;
-use crate::query::{Answer, LinkQuery, Locator};
+use crate::query::{Answer, LinkQuery, Locator, ReviewStatus};
 use crate::review::{Review, Verdict};
 use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
 
@@ -75,6 +75,23 @@ pub struct DatasetInfo {
     /// (`docs/adr/0002-links-live-in-the-core.md`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub link_counts_by_kind: BTreeMap<String, usize>,
+    /// How many links of each kind sit in each of the four review states, keyed
+    /// by the kind named in full.
+    ///
+    /// Keyed by kind first, so a reader takes one kind's row without scanning:
+    /// 1011 unreviewed amendment links and 146 unreviewed redesignation links
+    /// are different work, and one total hides which (#236).
+    ///
+    /// Always all four counts, and a fresh dataset reports every link
+    /// unreviewed rather than omitting the row. "Nobody has judged any of this
+    /// yet" is the answer an agent needs before it starts, and silence there
+    /// reads as a tool that does not measure it.
+    ///
+    /// Derived, never stored: a link's state is the verdict of the newest review
+    /// naming it (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`,
+    /// `docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub review_states_by_kind: BTreeMap<String, ReviewStates>,
     /// Number of verbatim model replies held as evidence (#58).
     #[serde(skip_serializing_if = "is_zero")]
     pub reply_count: usize,
@@ -124,6 +141,31 @@ pub struct DatasetInfo {
 /// different answers there.
 fn is_zero(count: &usize) -> bool {
     *count == 0
+}
+
+/// How many links of one kind sit in each review state.
+///
+/// Exactly the four values of [`ReviewStatus`], and no fifth. No coarser word
+/// like *settled* is added here: it is a fold over these four, and two
+/// vocabularies for one idea is how the link filters came to disagree in the
+/// first place (#234). **Disputed is its own count**, because *contested* is a
+/// third thing a reader acts on differently from *right* and *wrong*.
+///
+/// Every count is emitted, zero or not. A row exists to say how much of one
+/// kind is judged, so dropping the zeroes would leave a fresh dataset reporting
+/// the kind and nothing about it.
+///
+/// [`ReviewStatus`]: crate::query::ReviewStatus
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ReviewStates {
+    /// No review names the link.
+    pub unreviewed: usize,
+    /// The newest review confirms it.
+    pub confirmed: usize,
+    /// The newest review refutes it.
+    pub refuted: usize,
+    /// The newest review disputes it: contested, and not settled.
+    pub disputed: usize,
 }
 
 /// One expression's headline facts (no element tree).
@@ -1075,6 +1117,20 @@ pub struct ValidationReport {
     /// run, named as the command that runs it. See
     /// [`UnresolvedWindow`].
     pub unresolved_redesignations: Vec<UnresolvedWindow>,
+    /// Each bill and window no amendment-matching run has covered.
+    ///
+    /// The same work-list one link kind over (#210). See
+    /// [`UncoveredAmendments`].
+    pub uncovered_amendments: Vec<UncoveredAmendments>,
+    /// Every bill that states no amendment at all.
+    ///
+    /// Nothing to cover, so no window of such a bill is a gap, and none of
+    /// them makes the answer not `ok`. Named all the same: a bill absent from
+    /// the work-list above would read exactly like a bill somebody had
+    /// finished, and "no amendments" can mean the bill amends nothing or the
+    /// parse found nothing. Which of the two it is, is not this report's
+    /// question; that the reader must ask it, is (#210).
+    pub bills_without_amendments: Vec<String>,
 }
 
 /// A bill and a window whose redesignation statements hold no link.
@@ -1113,6 +1169,60 @@ impl std::fmt::Display for UnresolvedWindow {
              run `words_to_data redesignations <dataset> --bill-id {} --between {} {}`",
             self.bill_id,
             self.statements,
+            self.work,
+            self.from,
+            self.to,
+            self.bill_id,
+            self.from,
+            self.to
+        )
+    }
+}
+
+/// A bill and a window whose amendments no matching run has covered.
+///
+/// The unit #210 asks for, and the unit #183 already uses one link kind over: a
+/// bill is covered against one window at a time, so a bill covered in the
+/// earlier window and not the later one is one row, not a verdict on the bill.
+///
+/// **Derived, never stored.** A [`MethodRun`] says which method ran over which
+/// window, so "has the matching method run here" is answerable from what the
+/// dataset holds. A stored work-list would go false the moment a release point
+/// arrived and made a window nobody had written down
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+#[derive(Debug, Clone, Serialize)]
+pub struct UncoveredAmendments {
+    pub bill_id: String,
+    /// The work the window is of, such as `uscode/title_26`.
+    pub work: WorkId,
+    /// The earlier date of the window.
+    pub from: String,
+    /// The later date of the window.
+    pub to: String,
+    /// How many amendments the bill states, none of which this window has had
+    /// a matching run for.
+    ///
+    /// Every one of them, because a method that never ran over this window
+    /// covered none of them. It is a count of amendments and never of
+    /// annotations: a window the model answered "no match" for has been worked
+    /// on, and on a real corpus four bills of five gave no annotation while the
+    /// run had covered all of them. Counting annotations would name those four
+    /// as unfinished, which is the crying wolf #183's own warning names.
+    ///
+    /// Whether each amendment's changes are findable in the corpus at all is a
+    /// different question, it needs a diff, and it is #211.
+    pub amendments: usize,
+}
+
+impl std::fmt::Display for UncoveredAmendments {
+    /// The line a reader acts on: the bill, the window, and the command.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} states {} amendment(s) no matching run has covered against {} {} -> {}: \
+             run `words_to_data match-amendments <dataset> --bills {} --between {} {}`",
+            self.bill_id,
+            self.amendments,
             self.work,
             self.from,
             self.to,
@@ -1207,6 +1317,75 @@ fn unresolved_redesignations<S: Storage + LegislatureReader>(
     Ok(unresolved)
 }
 
+/// What the amendment-coverage check found, in one pass over the bills.
+///
+/// Two answers rather than one, because "this window has work waiting" and
+/// "this bill had nothing to do" are different things and a reader acts on them
+/// differently.
+struct AmendmentCoverage {
+    uncovered: Vec<UncoveredAmendments>,
+    without_amendments: Vec<String>,
+}
+
+/// Whether a matching run covers this window.
+///
+/// **This is the whole question.** Not how many annotations the window holds: a
+/// window the model answered "no match" for has been worked on, and a report
+/// that could not tell that from an untouched window would send somebody to run
+/// the step again for nothing.
+///
+/// The method is matched by name and not by version. A window covered at
+/// version 1 was covered — the reasoning ran over it. A version rise says the
+/// reasoning's answers changed, which is a reason to re-run a window and not a
+/// reason to call it untouched, and a list that named every window of a corpus
+/// the day somebody raised a version would be ignored by the second day.
+fn a_matching_run_covers(runs: &[MethodRun], work: &WorkId, from: &str, to: &str) -> bool {
+    let matching = crate::matching::matching_method();
+    runs.iter()
+        .any(|run| run.method.name == matching.name && run.covers(work, from, to))
+}
+
+/// Every bill and window no amendment-matching run has covered.
+///
+/// Takes the amendment counts the caller has already read, because `validate`
+/// opens every bill once already and a second pass over them would be the whole
+/// legislature read twice.
+fn amendment_coverage<S: Storage>(
+    dataset: &S,
+    amendments_per_bill: &[(String, usize)],
+) -> Result<AmendmentCoverage, DatasetError> {
+    // A record, read rather than recomputed. An empty list means nothing was
+    // recorded, and for this question that is the same answer as "no run
+    // covers this window": the report names the step, and running it records
+    // what it did.
+    let runs = &dataset.metadata().method_runs;
+    let windows = adjacent_expressions(dataset)?;
+
+    let mut coverage = AmendmentCoverage {
+        uncovered: Vec::new(),
+        without_amendments: Vec::new(),
+    };
+    for (bill_id, amendments) in amendments_per_bill {
+        if *amendments == 0 {
+            coverage.without_amendments.push(bill_id.clone());
+            continue;
+        }
+        for (from, to) in &windows {
+            if a_matching_run_covers(runs, &from.work, &from.at, &to.at) {
+                continue;
+            }
+            coverage.uncovered.push(UncoveredAmendments {
+                bill_id: bill_id.clone(),
+                work: from.work.clone(),
+                from: from.at.clone(),
+                to: to.at.clone(),
+                amendments: *amendments,
+            });
+        }
+    }
+    Ok(coverage)
+}
+
 /// Check a dataset for internal consistency:
 ///
 /// - each work's expression dates are strictly ascending and unique,
@@ -1214,7 +1393,9 @@ fn unresolved_redesignations<S: Storage + LegislatureReader>(
 /// - every annotation's `amendment_id` resolves to a real bill amendment,
 /// - every annotation path names an element present in some expression,
 /// - every bill's redesignation statements have been resolved against the
-///   windows that could hold them (#183).
+///   windows that could hold them (#183),
+/// - a matching run has covered every window that a bill's amendments could
+///   have reached (#210).
 pub fn validate<S: Storage + LegislatureReader>(
     dataset: &S,
 ) -> Result<ValidationReport, DatasetError> {
@@ -1235,11 +1416,16 @@ pub fn validate<S: Storage + LegislatureReader>(
         }
     }
 
-    // 2. Set of every amendment id across every bill.
+    // 2. Set of every amendment id across every bill, and how many each bill
+    //    states. The count is taken here rather than in step 6, because the
+    //    bills are open already and reading them twice would be the whole
+    //    legislature read twice.
     let mut amendment_ids = std::collections::HashSet::new();
+    let mut amendments_per_bill = Vec::new();
     for bill_id in dataset.list_bill_ids()? {
         if let Some(bill) = dataset.get_bill(&bill_id)? {
             amendment_ids.extend(bill.amendments.keys().cloned());
+            amendments_per_bill.push((bill_id, bill.amendments.len()));
         }
     }
 
@@ -1285,11 +1471,25 @@ pub fn validate<S: Storage + LegislatureReader>(
     //    acts on the two differently. Both make the answer not `ok`.
     let unresolved_redesignations = unresolved_redesignations(dataset)?;
 
+    // 6. Windows no amendment-matching run has covered (#210). The same
+    //    question one link kind over, and answered from the record of what ran
+    //    rather than from the links: a run that found nothing is still a run,
+    //    and a check that could not tell it from an absent run would cry wolf
+    //    over finished work.
+    let coverage = amendment_coverage(dataset, &amendments_per_bill)?;
+
     Ok(ValidationReport {
-        ok: issues.is_empty() && unresolved_redesignations.is_empty(),
+        ok: issues.is_empty()
+            && unresolved_redesignations.is_empty()
+            && coverage.uncovered.is_empty(),
         issues,
         checked_annotations,
         unresolved_redesignations,
+        uncovered_amendments: coverage.uncovered,
+        // A bill with nothing to cover is not work outstanding, so it does not
+        // make the answer not `ok`. It is reported all the same, because
+        // silence about it is the absence this check exists to end.
+        bills_without_amendments: coverage.without_amendments,
     })
 }
 
@@ -1316,10 +1516,25 @@ pub struct AnnotationSummary {
     pub confidence: Option<f32>,
     pub annotator: String,
     pub paths: Vec<String>,
+    /// Short id of the link that states each path, in the same order as
+    /// `paths`, one for every path.
+    ///
+    /// The id is what `settle` takes, so a row a reader prints names the thing
+    /// that settles it. Several, because one annotation is one link per path it
+    /// covers and each is settled on its own (#232). Short because a sha256
+    /// prefix is reproducible across a rebuild (ADR 0004), and `review`
+    /// chooses how much of it a report prints.
+    pub link_ids: Vec<String>,
 }
 
-/// Build a summary for `ann`, tagging it with the expression pair it was found under.
-fn summarize(from: &ExpressionId, to: &ExpressionId, ann: &ChangeAnnotation) -> AnnotationSummary {
+/// Build a summary for `ann`, tagging it with the expression pair it was found
+/// under and the links its paths came from.
+fn summarize(
+    from: &ExpressionId,
+    to: &ExpressionId,
+    ann: &ChangeAnnotation,
+    link_ids: &[String],
+) -> AnnotationSummary {
     AnnotationSummary {
         work: from.work.to_string(),
         from: from.to_string(),
@@ -1334,6 +1549,10 @@ fn summarize(from: &ExpressionId, to: &ExpressionId, ann: &ChangeAnnotation) -> 
         confidence: ann.metadata.confidence,
         annotator: ann.metadata.annotator.clone(),
         paths: ann.paths.clone(),
+        link_ids: link_ids
+            .iter()
+            .map(|id| crate::review::short_id(id).to_string())
+            .collect(),
     }
 }
 
@@ -1375,8 +1594,11 @@ pub fn annotations<S: Storage>(
         let work = crate::dataset::WorkId::new(work);
         let from = ExpressionId::new(work.clone(), from_date);
         let to = ExpressionId::new(work, to_date);
-        for ann in crate::link::annotations_from_links(&group) {
-            out.push(summarize(&from, &to, &ann));
+        // The links are read back with their ids, not without them: the id a
+        // reviewer settles by is in hand here, and looking it up again after
+        // dropping it could only guess which link a path came from (#232).
+        for (ann, link_ids) in crate::link::annotations_with_their_links(&group) {
+            out.push(summarize(&from, &to, &ann, &link_ids));
         }
     }
 
@@ -2139,6 +2361,53 @@ pub fn votes<S: Storage + LegislatureReader>(
     Ok(Some(tallies))
 }
 
+/// How many links of each kind sit in each review state.
+///
+/// Nothing new is counted here. [`LinkReader::links_matching`] already answers
+/// "how many links of this kind are in this state", and it reads the state from
+/// the newest review naming each link, so a link two reviewers disagreed about
+/// falls in **one** bucket and never two (`docs/adr/0012`).
+///
+/// The `review` namespace is left out. A review is a link of a kind, and it
+/// carries no reviews of its own, so a status query honestly calls it
+/// `Unreviewed`. Counting the review records would make this report **climb** as
+/// the reviewing gets done, and a progress report that goes up as you make
+/// progress is worse than no report (#236).
+///
+/// [`LinkReader::links_matching`]: crate::storage::LinkReader::links_matching
+fn review_states_by_kind<S: Storage>(
+    dataset: &S,
+    held: &BTreeMap<String, usize>,
+) -> Result<BTreeMap<String, ReviewStates>, DatasetError> {
+    let mut by_kind = BTreeMap::new();
+    for kind in held.keys() {
+        if LinkKind::new(kind.clone()).namespace() == LinkKind::REVIEW {
+            continue;
+        }
+        let counted = |status| -> Result<usize, DatasetError> {
+            // A count, and not a load. `Answer.total` counts matches rather
+            // than rows, so a limit of zero gives the figure and builds none
+            // of the links behind it. Asking for the rows would clone every
+            // link of the kind four times over, for a number.
+            let query = LinkQuery::new()
+                .of_kind(kind.clone())
+                .with_status(status)
+                .with_limit(0);
+            Ok(dataset.links_matching(&query)?.total)
+        };
+        by_kind.insert(
+            kind.clone(),
+            ReviewStates {
+                unreviewed: counted(ReviewStatus::Unreviewed)?,
+                confirmed: counted(ReviewStatus::Confirmed)?,
+                refuted: counted(ReviewStatus::Refuted)?,
+                disputed: counted(ReviewStatus::Disputed)?,
+            },
+        );
+    }
+    Ok(by_kind)
+}
+
 /// Summarize a dataset's metadata and contents.
 ///
 /// Any [`Storage`] backend answers, legislature or not. Whether this dataset
@@ -2169,6 +2438,7 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
         expression_count: scope.held.iter().map(|held| held.dates.len()).sum(),
         legislature,
         link_count: links.values().sum(),
+        review_states_by_kind: review_states_by_kind(dataset, &links)?,
         link_counts_by_kind: links,
         reply_count: dataset.count_replies()?,
         // Derived, and still cheap: a statement is placed when the dataset

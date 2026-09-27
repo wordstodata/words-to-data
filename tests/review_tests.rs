@@ -24,6 +24,11 @@ use words_to_data::storage::{InMemoryStorage, LinkReader};
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
 const BILL: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 const BILL_ID: &str = "119-hr-1";
+/// The bill id the committed matching run wrote into the statements it recorded.
+///
+/// Not [`BILL_ID`]: the run named `119-hr-1` as `119-21`, and a listing filters
+/// on what the links say rather than on what the corpus calls the bill.
+const MATCHED_BILL: &str = "119-21";
 
 /// Title 26 before and after `119-hr-1` reached the Code: the window every
 /// case here is read over.
@@ -871,5 +876,142 @@ fn should_show_the_evidence_for_an_amendment_link_whose_object_is_not_a_provisio
     assert!(
         said.contains("Section 174 is amended"),
         "and what the bill instructed, which is what the object carries: {said}"
+    );
+}
+
+/// One run of `annotations`, and what it printed.
+fn annotations(args: &[&str]) -> std::process::Output {
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .arg("annotations")
+        .args(args)
+        .output()
+        .expect("the binary should run");
+    assert!(
+        output.status.success(),
+        "the listing should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+/// The rows one `annotations --json` run emitted.
+fn annotation_rows(args: &[&str]) -> Vec<serde_json::Value> {
+    let output = annotations(args);
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("--json should emit json");
+    json["annotations"]
+        .as_array()
+        .expect("an annotations array")
+        .clone()
+}
+
+/// A reviewer reads an id off a row of `annotations` and settles that link.
+///
+/// `annotations --bill` is where a review starts, and it was the one listing
+/// that could name nothing it printed: 883 of 1011 amendment links on the real
+/// dataset had no id any command would show, so the door `settle` opened could
+/// not be reached from the listing that found them (#232).
+///
+/// Both listings are read, because a person settles from what they can see and
+/// a script from what the JSON carries. They must name the same link.
+#[test]
+fn should_settle_the_link_an_annotations_row_names_when_the_id_is_read_off_that_row() {
+    let dataset = dataset_with_amendment_links();
+    let input = format!(
+        "{}/annotations_name_links.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let written = format!(
+        "{}/annotations_name_links_reviewed.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    dataset
+        .save(&input, Format::Compact)
+        .expect("the fixture should save");
+
+    let rows = annotation_rows(&[&input, "--bill", MATCHED_BILL, "--json"]);
+    assert!(!rows.is_empty(), "the bill recorded statements to review");
+    let named = rows[0]["link_ids"][0]
+        .as_str()
+        .expect("a row names the link it lists")
+        .to_string();
+
+    let printed = annotations(&[&input, "--bill", MATCHED_BILL]);
+    let said = String::from_utf8_lossy(&printed.stdout);
+    assert!(
+        said.contains(&named),
+        "the listing a person reads names the link `{named}`: {said}"
+    );
+
+    let output = settle(&[
+        &input,
+        "--link",
+        &named,
+        "--verdict",
+        "confirmed",
+        "--reviewer",
+        "human:jesse",
+        "--reason",
+        "The bill states this change, and it is recorded at the path it names.",
+        "--output",
+        &written,
+    ]);
+    assert!(
+        output.status.success(),
+        "the id off the row should settle, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The record is read back under the whole id of the link the row named, so
+    // the review argues with that link and not merely with something like it.
+    let settled = match dataset
+        .link_by_id_prefix(&named)
+        .expect("the prefix should resolve")
+    {
+        Named::One(link) => link.id(),
+        other => panic!("`{named}` should name one link, got {other:?}"),
+    };
+    let records = reviews_in(&written, &settled);
+    assert_eq!(records.len(), 1, "one review was written: {records:#?}");
+    assert_eq!(records[0].kind.0, LinkKind::REVIEW_CONFIRMED);
+}
+
+/// `path` names the link on its annotation lines, as it already does on its
+/// redesignation lines.
+///
+/// `path` is the other door into a review: a reader who knows the provision
+/// asks about the provision. It printed an id for every renumbering it reported
+/// and none for the amendments, so half of one report could be acted on (#232).
+#[test]
+fn should_name_the_link_on_its_annotation_lines_when_path_reports_an_amendment() {
+    let dataset = dataset_with_amendment_links();
+    let at_path = format!("{SECTION_174}/subsection_a");
+    let link = dataset
+        .links_for_path(&at_path)
+        .expect("the links should read")
+        .into_iter()
+        .find(|link| link.kind.0 == LinkKind::AMENDED_BY)
+        .expect("§ 174(a) carries an amendment link");
+    let input = format!("{}/path_names_links.json", env!("CARGO_TARGET_TMPDIR"));
+    dataset
+        .save(&input, Format::Compact)
+        .expect("the fixture should save");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(["path", &input, &at_path])
+        .output()
+        .expect("the binary should run");
+
+    assert!(
+        output.status.success(),
+        "the command should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let said = String::from_utf8_lossy(&output.stdout);
+    let id = link.id();
+    let printed = review::short_id(&id);
+    assert!(
+        said.contains(printed),
+        "the annotation line should name the link `{printed}`: {said}"
     );
 }
