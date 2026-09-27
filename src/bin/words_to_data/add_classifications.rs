@@ -161,6 +161,12 @@ fn add_classifications<S: Storage>(dataset: &mut Dataset<S>, client: &OlrcClient
 ///
 /// The 1st session first, and the 2nd only for a law the 1st does not list, so
 /// no page is read that no law needs.
+///
+/// The law's number cannot choose the session. The pages' own headers overlap:
+/// the 119th Congress's 1st session says it covers Public Laws 119-1 through
+/// 119-73, and its 2nd session 119-70 through 119-111, and the rows of 119-70
+/// are on the 2nd session's page. So a law with no row in the 1st session is
+/// looked for in the 2nd before it is reported as having none.
 fn read_tables(client: &OlrcClient, laws: &[String]) -> Vec<PageRows> {
     let mut by_congress: BTreeMap<u32, BTreeSet<&str>> = BTreeMap::new();
     for law in laws {
