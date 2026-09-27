@@ -69,6 +69,22 @@ pub struct Linked {
     pub to: ExpressionId,
     /// Each changed path the amendment caused, in document order.
     pub paths: Vec<String>,
+    /// Every later window in which something under the address changed too.
+    ///
+    /// Never a second link. The law landed in the first window after its
+    /// enactment that shows it, and a change under the same address later is
+    /// something else, or the same change seen twice. It is named so a
+    /// reviewer can look (`docs/adr/0013`).
+    pub later_windows: Vec<LaterWindow>,
+}
+
+/// A later window in which an address changed again.
+#[derive(Debug, Clone, Serialize)]
+pub struct LaterWindow {
+    pub from: ExpressionId,
+    pub to: ExpressionId,
+    /// The changes under the address in that window, in document order.
+    pub changes: Vec<String>,
 }
 
 /// Why an amendment was not linked.
@@ -303,6 +319,21 @@ fn match_in_work<S: Storage + LegislatureReader>(
                     paths: caused
                         .iter()
                         .map(|(change, _)| view.changes[*change].path.clone())
+                        .collect(),
+                    later_windows: placed[at][1..]
+                        .iter()
+                        .map(|later| {
+                            let view = &windows[later.window];
+                            LaterWindow {
+                                from: view.from.clone(),
+                                to: view.to.clone(),
+                                changes: later
+                                    .candidates
+                                    .iter()
+                                    .map(|change| view.changes[*change].path.clone())
+                                    .collect(),
+                            }
+                        })
                         .collect(),
                 }),
                 Resolution::Stopped(reason) => Outcome::Residue(Residue {

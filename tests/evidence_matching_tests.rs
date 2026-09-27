@@ -12,7 +12,9 @@
 use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
+use words_to_data::dataset::{
+    Dataset, DatasetMetadata, ExpressionId, WorkId, adjacent_expressions,
+};
 use words_to_data::legislature::evidence_matching::{
     AmendmentMatch, Outcome, Stage, match_by_evidence,
 };
@@ -41,6 +43,12 @@ fn committed_bill_download() -> BillDownload {
 
 /// The bill and title 7 at each committed release point, read once for every
 /// test in this file.
+///
+/// Built the way `build-dataset` builds one: after everything is loaded, the
+/// renumberings the bill states are recorded over every window the dataset
+/// holds. That includes the second window, where the bill changed nothing,
+/// which is how the maintainer's own dataset came to hold changes there that
+/// the Code's text does not show (#218).
 fn dataset() -> &'static Dataset<InMemoryStorage> {
     static DATASET: OnceLock<Dataset<InMemoryStorage>> = OnceLock::new();
     DATASET.get_or_init(|| {
@@ -53,6 +61,14 @@ fn dataset() -> &'static Dataset<InMemoryStorage> {
                 .add_uslm_xml(&format!("tests/test_data/usc/{date}/usc07.xml"), date, None)
                 .expect("title 7 should parse");
         }
+        let windows = adjacent_expressions(&dataset).expect("the windows should list");
+        let bill = dataset
+            .bill_document(BILL_ID)
+            .expect("the dataset should answer for the bill")
+            .expect("the bill is held as a document");
+        dataset
+            .record_redesignations_over(BILL_ID, &bill.root, &windows)
+            .expect("the renumberings should record");
         dataset
     })
 }
@@ -138,6 +154,42 @@ fn should_assign_each_change_by_the_words_the_bill_quotes_when_two_amendments_sh
     assert!(
         !new_paragraph_7.iter().any(|path| under(path, &paragraph_3)),
         "the change to paragraph (3) has one cause, and it is not this amendment: {new_paragraph_7:?}"
+    );
+}
+
+#[test]
+fn should_link_only_in_the_first_window_when_the_address_also_changed_in_a_later_one() {
+    // Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o)) is
+    // amended by redesignating paragraph (7) as paragraph (8), and by
+    // inserting a new paragraph (7). The law landed in the first window. The
+    // renumbering is recorded over the second window as well, as
+    // `build-dataset` records it, so something under the address changed there
+    // too.
+    let found = match_of("d624331f459d");
+
+    let Outcome::Linked(linked) = &found.outcome else {
+        panic!("the amendment should be linked: {:?}", found.outcome);
+    };
+    assert_eq!(linked.from, title_7_at("2025-07-18"));
+    assert_eq!(linked.to, title_7_at("2025-07-30"));
+
+    // The second window is never a second link. It is named for a reviewer.
+    let later: Vec<(&ExpressionId, &ExpressionId)> = linked
+        .later_windows
+        .iter()
+        .map(|window| (&window.from, &window.to))
+        .collect();
+    assert_eq!(
+        later,
+        vec![(&title_7_at("2025-07-30"), &title_7_at("2025-08-14"))]
+    );
+    assert!(
+        linked.later_windows[0]
+            .changes
+            .iter()
+            .all(|path| path.starts_with(SECTION_2015_O)),
+        "the later window names the changes under the address: {:?}",
+        linked.later_windows[0].changes
     );
 }
 
