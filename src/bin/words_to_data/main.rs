@@ -27,6 +27,7 @@ mod release_points;
 mod report;
 mod score_amendments;
 mod search;
+mod section_agreement;
 mod settle;
 mod show_bill;
 mod span;
@@ -73,6 +74,8 @@ enum Command {
     RedesignationReport(redesignation_report::Args),
     /// List the subjects the dataset holds more than one link about
     Contradictions(contradictions::Args),
+    /// Report the amendments whose own words name a section their link does not sit in
+    SectionAgreement(section_agreement::Args),
 
     /// Show a bill's amendments
     ShowBill(show_bill::Args),
@@ -111,6 +114,7 @@ fn main() {
         Command::Bills(args) => bills::run(args),
         Command::RedesignationReport(args) => redesignation_report::run(args),
         Command::Contradictions(args) => contradictions::run(args),
+        Command::SectionAgreement(args) => section_agreement::run(args),
         Command::ShowBill(args) => show_bill::run(args),
         Command::Votes(args) => votes::run(args),
         Command::Search(args) => search::run(args),
