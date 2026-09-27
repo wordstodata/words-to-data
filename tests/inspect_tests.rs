@@ -776,11 +776,20 @@ fn should_pass_validation_for_a_consistent_dataset() {
         &to,
     );
 
+    // The dataset says what has been done to it. Without this record, the
+    // window holds a bill of many amendments and nothing saying the matching
+    // step ever ran over it, which #210 reports as work outstanding. An
+    // annotation is the fruit of that step, so a dataset holding one and no
+    // record of the run is not consistent.
+    dataset
+        .record_method_run(words_to_data::matching::matching_method(), &from, &to)
+        .expect("record what ran");
+
     let report = inspect::validate(&dataset).expect("validate");
     assert!(
         report.ok,
-        "expected clean dataset, issues: {:?}",
-        report.issues
+        "expected clean dataset, issues: {:?}, uncovered: {:?}",
+        report.issues, report.uncovered_amendments
     );
     assert_eq!(report.checked_annotations, 1);
 }

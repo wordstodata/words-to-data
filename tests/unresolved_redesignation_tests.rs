@@ -150,7 +150,14 @@ fn should_say_nothing_when_no_statement_could_be_placed_in_the_window() {
         "an honest refusal is not a gap, got {:?}",
         report.unresolved_redesignations
     );
-    assert!(report.ok, "and nothing is reported: {:?}", report.issues);
+    // `ok` answers for the amendment work-list too since #210, and no matching
+    // run has covered this window. What this test is about is the list above,
+    // and the dataset's own faults, which is what `ok` meant here before.
+    assert!(
+        report.issues.is_empty(),
+        "and nothing is reported: {:?}",
+        report.issues
+    );
 }
 
 #[test]
@@ -167,7 +174,14 @@ fn should_say_nothing_when_the_step_has_run_over_the_window() {
         "the step has run, got {:?}",
         report.unresolved_redesignations
     );
-    assert!(report.ok, "and nothing is reported: {:?}", report.issues);
+    // The redesignation step has run; the amendment-matching step `ok` also
+    // answers for since #210 has not. `tests/uncovered_amendment_tests.rs`
+    // proves a dataset both steps have run over exits zero.
+    assert!(
+        report.issues.is_empty(),
+        "and nothing is reported: {:?}",
+        report.issues
+    );
 }
 
 #[test]
