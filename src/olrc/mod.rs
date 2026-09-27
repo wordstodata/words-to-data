@@ -54,6 +54,88 @@ pub struct ClassificationRow {
     pub statutes_page: String,
 }
 
+impl ClassificationRow {
+    /// Each section of the law this row names, one per item of the list.
+    ///
+    /// The table lists several items with a comma, and writes an item that
+    /// starts with a bracket as a continuation of the item before it:
+    /// `71301(a), (b)` names `71301(a)` and `71301(b)`.
+    ///
+    /// A quotation after the list names the section or heading the law added to
+    /// the Code — `70302(a) "174A"` — which is not a section of the law, so it is
+    /// left out. The column as written stays on the row.
+    ///
+    /// A range stays one item, as written: `70104(a)-(d)`. The table states its
+    /// two ends and not what lies between them, and `10401(a)-(c)(1)` shows the
+    /// ends need not be at one level.
+    pub fn named_law_sections(&self) -> Vec<String> {
+        let unquoted = self
+            .law_sections
+            .split('"')
+            .next()
+            .unwrap_or_default()
+            .trim();
+
+        let mut named: Vec<String> = Vec::new();
+        for item in unquoted.split(", ") {
+            let full = match (item.starts_with('('), named.last()) {
+                (true, Some(previous)) => continue_from(previous, item),
+                _ => item.to_string(),
+            };
+            named.push(full);
+        }
+        named
+    }
+}
+
+/// An item written as a continuation, such as `(5)`, made whole from the item
+/// before it, such as `70431(a)(4)(B)`.
+///
+/// The continuation takes the place of the last designation in the item before
+/// it that is written the same way — digits, capitals, or small letters — and
+/// keeps every designation above that one: `70431(a)(5)`. A small roman numeral
+/// is written in small letters, so `(ii)` after `(A)(i)` takes the place of
+/// `(i)`. When no designation is written the same way, the continuation follows
+/// the section number.
+fn continue_from(previous: &str, continuation: &str) -> String {
+    let mut parts = previous.split('(');
+    let number = parts.next().unwrap_or(previous);
+    let designations: Vec<&str> = parts.map(|part| part.trim_end_matches(')')).collect();
+
+    let first = continuation
+        .trim_start_matches('(')
+        .split(')')
+        .next()
+        .unwrap_or_default();
+    let kept = designations
+        .iter()
+        .rposition(|designation| written_alike(designation, first))
+        .unwrap_or(0);
+
+    let above: String = designations[..kept]
+        .iter()
+        .map(|designation| format!("({designation})"))
+        .collect();
+    format!("{number}{above}{continuation}")
+}
+
+/// Whether two designations are written the same way: both in digits, both in
+/// capitals, or both in small letters.
+fn written_alike(one: &str, other: &str) -> bool {
+    let way = |designation: &str| {
+        designation.chars().next().map(|c| {
+            if c.is_ascii_digit() {
+                0
+            } else if c.is_ascii_uppercase() {
+                1
+            } else {
+                2
+            }
+        })
+    };
+    way(one).is_some() && way(one) == way(other)
+}
+
 /// One page of classifications: every row, in the order the page lists them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassificationTable {
