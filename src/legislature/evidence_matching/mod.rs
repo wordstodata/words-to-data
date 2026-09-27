@@ -11,7 +11,9 @@
 //!    in which something under the address changed. The enactment date is the
 //!    date of the law's stored expression, such as
 //!    `publiclawdocument_119-21@2025-07-04`.
-//! 3. **Resolve.** The change under the address in that window.
+//! 3. **Resolve.** The changes under one section in that window, assigned to
+//!    the amendments addressed there all together, by the words the bill
+//!    quotes ([`resolve`]).
 //!
 //! **Nothing here is stored.** The answer for each amendment, linked or
 //! stopped with the stage and the reason, is derived from the dataset every
@@ -24,11 +26,18 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::dataset::{Dataset, DatasetError, ExpressionId, WorkId};
-use crate::diff::TreeDiff;
-use crate::document::DocumentNode;
+use crate::diff::{FieldChangeEvent, TreeDiff};
+use crate::document::{DocumentNode, NodeData};
 use crate::legislature::redesignation::{SectionIndex, walk_down};
 use crate::storage::{LegislatureReader, Storage};
+use crate::uslm::UslmFacts;
 use crate::uslm::amendment_address::{AmendmentAddress, addresses_in};
+
+use evidence::Evidence;
+use resolve::{Change, Contender, Resolution, resolve};
+
+mod evidence;
+mod resolve;
 
 /// What the matcher found for one amendment.
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +88,9 @@ pub enum Stage {
     Address,
     /// No window holds a change under the address.
     Window,
+    /// Changes were found under the address, and none could be given to this
+    /// amendment.
+    Resolve,
 }
 
 /// What the matcher finds for every amendment of every public law the dataset
@@ -122,6 +134,8 @@ struct Stated {
     /// The date of the law's stored expression.
     enacted: String,
     address: AmendmentAddress,
+    /// The words the bill quotes for it.
+    evidence: Evidence,
 }
 
 /// Every amendment of every public law the dataset holds as a document.
@@ -137,10 +151,18 @@ fn stated_amendments<S: Storage + LegislatureReader>(
             continue;
         };
         for address in addresses_in(&law.root) {
+            let evidence = law
+                .root
+                .find(&address.path)
+                .and_then(|node| UslmFacts::of(&node.data))
+                .and_then(|facts| facts.amendment)
+                .map(|facts| Evidence::of(&facts))
+                .unwrap_or_default();
             stated.push(Stated {
                 bill_id: bill_id.clone(),
                 enacted: law.id.at.clone(),
                 address,
+                evidence,
             });
         }
     }
@@ -171,15 +193,17 @@ struct WindowView {
     to: ExpressionId,
     earlier: DocumentNode,
     later: DocumentNode,
-    /// Every path that changed in the window, in document order.
-    changed: Vec<String>,
+    /// Every change in the window, in document order.
+    changes: Vec<Change>,
 }
 
-/// Where one amendment's address found changes: a window, and the changed
-/// paths under the address in it.
-struct Found {
+/// Where one amendment's address changed in one window.
+struct Placed {
     window: usize,
-    paths: Vec<String>,
+    /// The section's own path, which groups the amendments resolved together.
+    section: String,
+    /// The changes under the address, by their place in the window's list.
+    candidates: Vec<usize>,
 }
 
 /// Match every amendment that acts in one work.
@@ -199,51 +223,76 @@ fn match_in_work<S: Storage + LegislatureReader>(
 
     // Stage 2: the window. Every window the amendment's address changed in,
     // oldest first.
-    let mut found: Vec<Vec<Found>> = members.iter().map(|_| Vec::new()).collect();
+    let mut placed: BTreeMap<usize, Vec<Placed>> = BTreeMap::new();
     for (window, view) in windows.iter().enumerate() {
         let later = SectionIndex::of(&view.later);
         let earlier = SectionIndex::of(&view.earlier);
-        for (member, &at) in members.iter().enumerate() {
+        for &at in members {
             let amendment = &stated[at];
             if view.to.at <= amendment.enacted {
                 continue;
             }
-            let Some(under) = address_path(&later, &earlier, &amendment.address) else {
+            let Some((section, under)) = address_path(&later, &earlier, &amendment.address)
+            else {
                 continue;
             };
-            let paths: Vec<String> = view
-                .changed
-                .iter()
-                .filter(|path| is_at_or_below(path, &under))
-                .cloned()
+            let candidates: Vec<usize> = (0..view.changes.len())
+                .filter(|&change| is_at_or_below(&view.changes[change].path, &under))
                 .collect();
-            if !paths.is_empty() {
-                found[member].push(Found { window, paths });
+            if !candidates.is_empty() {
+                placed.entry(at).or_default().push(Placed {
+                    window,
+                    section,
+                    candidates,
+                });
             }
         }
     }
 
-    // Stage 3: resolve, in the first window that holds a change.
-    for (member, &at) in members.iter().enumerate() {
-        let amendment = &stated[at];
-        outcomes[at] = Some(match found[member].first() {
-            Some(first) => {
-                let view = &windows[first.window];
-                Outcome::Linked(Linked {
+    // Stage 3: resolve, in the first window that holds a change, with every
+    // amendment addressed to the same section in the same window.
+    let mut groups: BTreeMap<(usize, &str), Vec<usize>> = BTreeMap::new();
+    for &at in members {
+        match placed.get(&at).and_then(|found| found.first()) {
+            Some(first) => groups
+                .entry((first.window, first.section.as_str()))
+                .or_default()
+                .push(at),
+            None => {
+                let amendment = &stated[at];
+                outcomes[at] = Some(residue(
+                    Stage::Window,
+                    format!(
+                        "nothing under {} changed in any window after {}",
+                        amendment.address.section.as_deref().unwrap_or_default(),
+                        amendment.enacted
+                    ),
+                ));
+            }
+        }
+    }
+    for ((window, _), group) in groups {
+        let view = &windows[window];
+        let contenders: Vec<Contender> = group
+            .iter()
+            .map(|at| Contender {
+                evidence: &stated[*at].evidence,
+                candidates: placed[at][0].candidates.clone(),
+            })
+            .collect();
+        for (at, resolution) in group.iter().zip(resolve(&view.changes, &contenders)) {
+            outcomes[*at] = Some(match resolution {
+                Resolution::Caused(caused) => Outcome::Linked(Linked {
                     from: view.from.clone(),
                     to: view.to.clone(),
-                    paths: first.paths.clone(),
-                })
-            }
-            None => residue(
-                Stage::Window,
-                format!(
-                    "nothing under {} changed in any window after {}",
-                    amendment.address.section.as_deref().unwrap_or_default(),
-                    amendment.enacted
-                ),
-            ),
-        });
+                    paths: caused
+                        .iter()
+                        .map(|(change, _)| view.changes[*change].path.clone())
+                        .collect(),
+                }),
+                Resolution::Stopped(reason) => residue(Stage::Resolve, reason),
+            });
+        }
     }
     Ok(())
 }
@@ -275,49 +324,87 @@ fn windows_after<S: Storage + LegislatureReader>(
             continue;
         };
         let diff = dataset.compute_diff(&from, &to)?;
-        let mut changed = Vec::new();
-        collect_changed_paths(&diff, &mut changed);
+        let mut changes = Vec::new();
+        collect_changes(&diff, &mut changes);
         views.push(WindowView {
             from,
             to,
             earlier: earlier.root,
             later: later.root,
-            changed,
+            changes,
         });
     }
     Ok(views)
 }
 
-/// The structural path an address names, in the later document of a window
-/// or, when the later one does not hold it, in the earlier one.
+/// The paths an address names — its section's, and the provision's below
+/// it — in the later document of a window or, when the later one does not
+/// hold them, in the earlier one.
 fn address_path(
     later: &SectionIndex,
     earlier: &SectionIndex,
     address: &AmendmentAddress,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let section = address.section.as_deref()?;
     [later, earlier].into_iter().find_map(|index| {
         let [section] = index.get(section) else {
             return None;
         };
-        walk_down(section, &address.container)
-            .ok()
-            .map(|node| node.data.path.to_string())
+        let under = walk_down(section, &address.container).ok()?;
+        Some((section.data.path.to_string(), under.data.path.to_string()))
     })
 }
 
-/// Every path that changed in a diff: its own words changed, or it was added,
-/// removed or renumbered.
-fn collect_changed_paths(diff: &TreeDiff, paths: &mut Vec<String>) {
+/// Every change in a diff, with its words before and after: a provision whose
+/// own words changed, or one that was added, removed or renumbered.
+fn collect_changes(diff: &TreeDiff, changes: &mut Vec<Change>) {
     if !diff.changes.is_empty() {
-        paths.push(diff.root_path.clone());
+        let joined = |value: fn(&FieldChangeEvent) -> &str| {
+            diff.changes
+                .iter()
+                .map(value)
+                .collect::<Vec<&str>>()
+                .join(" ")
+        };
+        changes.push(Change {
+            path: diff.root_path.clone(),
+            before: joined(|field| &field.old_value),
+            after: joined(|field| &field.new_value),
+        });
     }
-    paths.extend(diff.added.iter().map(|node| node.path.to_string()));
-    paths.extend(diff.removed.iter().map(|node| node.path.to_string()));
-    paths.extend(diff.moved.iter().map(|moved| moved.to.path.to_string()));
+    changes.extend(diff.added.iter().map(|node| Change {
+        path: node.path.to_string(),
+        before: String::new(),
+        after: own_text(node),
+    }));
+    changes.extend(diff.removed.iter().map(|node| Change {
+        path: node.path.to_string(),
+        before: own_text(node),
+        after: String::new(),
+    }));
+    changes.extend(diff.moved.iter().map(|moved| Change {
+        path: moved.to.path.to_string(),
+        before: own_text(&moved.from),
+        after: own_text(&moved.to),
+    }));
     for child in &diff.child_diffs {
-        collect_changed_paths(child, paths);
+        collect_changes(child, changes);
     }
+}
+
+/// One provision's own words, its five text fields joined by a space.
+fn own_text(node: &NodeData) -> String {
+    [
+        node.heading.as_deref(),
+        node.chapeau.as_deref(),
+        node.content.as_deref(),
+        node.proviso.as_deref(),
+        node.continuation.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<&str>>()
+    .join(" ")
 }
 
 fn is_at_or_below(path: &str, under: &str) -> bool {

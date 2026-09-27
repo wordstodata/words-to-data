@@ -95,3 +95,46 @@ fn should_link_the_one_change_under_the_address_when_an_amendment_has_a_single_c
         ]
     );
 }
+
+/// Subsection (o) of 7 U.S.C. 2015, where two amendments of the bill share one
+/// address.
+const SECTION_2015_O: &str = "uscode/title_7/chapter_51/section_2015/subsection_o";
+
+/// The paths an amendment was linked to, or a failure that says why not.
+fn linked_paths(id_start: &str) -> &'static [String] {
+    match &match_of(id_start).outcome {
+        Outcome::Linked(linked) => &linked.paths,
+        other => panic!("{id_start} should be linked: {other:?}"),
+    }
+}
+
+#[test]
+fn should_assign_each_change_by_the_words_the_bill_quotes_when_two_amendments_share_an_address() {
+    // Both amendments are addressed to section 6(o) of the Food and Nutrition
+    // Act of 2008 (7 U.S.C. 2015(o)). The first strikes paragraph (3) and
+    // enacts a new one; the second redesignates paragraph (7) and enacts a new
+    // paragraph (7) after paragraph (6). The address alone cannot tell their
+    // changes apart. The text each one enacts can.
+    let paragraph_3 = format!("{SECTION_2015_O}/paragraph_3");
+    let paragraph_7 = format!("{SECTION_2015_O}/paragraph_7");
+    let under = |path: &str, container: &str| {
+        path == container || path.starts_with(&format!("{container}/"))
+    };
+
+    let new_paragraph_3 = linked_paths("f217bfa18755");
+    assert!(new_paragraph_3.contains(&paragraph_3));
+    assert!(
+        new_paragraph_3.iter().all(|path| under(path, &paragraph_3)),
+        "the new paragraph (3) causes only changes inside paragraph (3): {new_paragraph_3:?}"
+    );
+
+    let new_paragraph_7 = linked_paths("d624331f459d");
+    assert!(
+        new_paragraph_7.contains(&paragraph_7),
+        "the new paragraph (7) is linked: {new_paragraph_7:?}"
+    );
+    assert!(
+        !new_paragraph_7.iter().any(|path| under(path, &paragraph_3)),
+        "the change to paragraph (3) has one cause, and it is not this amendment: {new_paragraph_7:?}"
+    );
+}
