@@ -599,6 +599,43 @@ pub struct AmendmentFacts {
     /// wrote.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enacted_text: Vec<String>,
+
+    /// The short strings this instruction quotes, in document order
+    ///
+    /// The words the bill writes inside `<quotedText>`: the `"2023"` it strikes
+    /// and the `"2031"` it inserts. They are the evidence that tells two
+    /// changes under one section apart, because a struck string is in a
+    /// change's before text and an inserted one is in its after text (#250).
+    /// The tree keeps them only as a run of the instruction's words, with the
+    /// quotation marks as the only sign of where each one starts and ends.
+    ///
+    /// A string inside a `<quotedContent>` block is not here. It is part of
+    /// the text that block enacts, and [`Self::enacted_text`] holds it.
+    ///
+    /// A **record**: what the bill said, read once from its markup
+    /// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`). A
+    /// dataset built before this field existed reads it as empty, and a
+    /// rebuild fills it in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quoted_text: Vec<QuotedText>,
+}
+
+/// One `<quotedText>` of an instruction, and the action the bill wrote before
+/// it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuotedText {
+    /// The quoted words, without the quotation marks.
+    pub text: String,
+    /// The `type` of the last `<amendingAction>` before the string in the same
+    /// instruction: `delete` for *striking*, `insert` for *inserting*.
+    ///
+    /// It says what the bill did with the words in most sentences, and not in
+    /// all: in *inserting after "(3)" the following*, the `"(3)"` follows
+    /// `insert` and is only where the insertion goes. A reader treats it as a
+    /// hint to test against the Code, never as a fact about the string. `None`
+    /// when no action came before the string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
 }
 
 impl UslmFacts {

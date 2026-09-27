@@ -17,7 +17,7 @@ use crate::{
     io::load_xml_file,
     legislature::{AmendingAction, BillAmendment},
     uslm::parser::{ParseError, normalize_quotes},
-    uslm::{AmendmentFacts, UscReference, UslmFacts},
+    uslm::{AmendmentFacts, QuotedText, UscReference, UslmFacts},
 };
 
 /// Data extracted from a bill document
@@ -354,6 +354,7 @@ fn state_bill_facts(
             stated.entry(identifier.to_string()).or_default().amendment = Some(AmendmentFacts {
                 id: compute_amendment_id(bill_id, &node_text(&node)),
                 enacted_text: enacted_text(&node),
+                quoted_text: quoted_text(&node),
             });
         }
 
@@ -458,6 +459,36 @@ fn enacted_text(instruction: &Node) -> Vec<String> {
         .map(|node| node_text(&node))
         .filter(|text| !text.trim().is_empty())
         .collect()
+}
+
+/// The short strings an instruction quotes, each with the action before it
+///
+/// The bill's own `<quotedText>`, in document order. A string inside a
+/// `<quotedContent>` block is part of the text that block enacts, so it is left
+/// to [`enacted_text`]. The action is the `type` of the last `<amendingAction>`
+/// met before the string in the same instruction.
+fn quoted_text(instruction: &Node) -> Vec<QuotedText> {
+    let is = |node: &Node, name: &str| node.tag_name().name().eq_ignore_ascii_case(name);
+    let mut last_action: Option<String> = None;
+    let mut quoted = Vec::new();
+    for node in instruction.descendants() {
+        let inside_enacted_text = node
+            .ancestors()
+            .skip(1)
+            .any(|above| is(&above, "quotedContent"));
+        if inside_enacted_text {
+            continue;
+        }
+        if is(&node, "amendingAction") {
+            last_action = node.attribute("type").map(str::to_string);
+        } else if is(&node, "quotedText") {
+            quoted.push(QuotedText {
+                text: node_text(&node),
+                action: last_action.clone(),
+            });
+        }
+    }
+    quoted
 }
 
 /// Where each amendment's words sit in a bill's document, by content id
