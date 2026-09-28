@@ -33,6 +33,25 @@ pub(super) struct QuotedWords {
     words: std::collections::BTreeSet<String>,
 }
 
+/// One of an amendment's quoted strings or enacted blocks that a change
+/// shows.
+#[derive(Debug, Clone)]
+pub(super) struct Shown {
+    /// As a reviewer reads it: `struck "2023"`, `inserted "2031"`,
+    /// `enacted text 1 of 2`.
+    pub said: String,
+    /// Its words, as they are compared.
+    words: Vec<String>,
+}
+
+impl Shown {
+    /// Whether `other` states these words too: the same words, or more words
+    /// around them. A struck "$600" is within a struck "of $600 or more".
+    pub(super) fn is_within(&self, other: &Shown) -> bool {
+        contains_run(&other.words, &self.words)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Quoted {
     /// The words as the bill quotes them, for a reviewer to read.
@@ -90,23 +109,27 @@ impl QuotedWords {
         self.shown(before, after).len()
     }
 
-    /// The amendment's quoted strings and enacted blocks this change shows,
-    /// each said as a reviewer reads it: `struck "2023"`, `inserted "2031"`,
-    /// `enacted text 1 of 2`.
-    pub(super) fn shown(&self, before: &str, after: &str) -> Vec<String> {
+    /// The amendment's quoted strings and enacted blocks this change shows.
+    pub(super) fn shown(&self, before: &str, after: &str) -> Vec<Shown> {
         let (before_tokens, after_tokens) = (tokens_of(before), tokens_of(after));
         let strings = self
             .quoted
             .iter()
             .filter(|quoted| quoted.is_shown(&before_tokens, &after_tokens))
-            .map(Quoted::described);
+            .map(|quoted| Shown {
+                said: quoted.described(),
+                words: quoted.tokens.clone(),
+            });
         let after_words = words_of(after);
         let blocks = self
             .enacted
             .iter()
             .enumerate()
             .filter(|(_, block)| !after_words.is_empty() && contains_run(block, &after_words))
-            .map(|(at, _)| format!("enacted text {} of {}", at + 1, self.enacted.len()));
+            .map(|(at, block)| Shown {
+                said: format!("enacted text {} of {}", at + 1, self.enacted.len()),
+                words: block.clone(),
+            });
         strings.chain(blocks).collect()
     }
 

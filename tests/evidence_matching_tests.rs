@@ -495,3 +495,26 @@ fn should_leave_changes_as_residue_when_the_quoted_words_cannot_place_them() {
         ]
     );
 }
+
+#[test]
+fn should_give_an_added_provision_to_one_amendment_when_several_show_words_in_it() {
+    // Section 1204(g) of the Agricultural Act of 2014 (7 U.S.C. 9034(g)).
+    // Section 10309(c) of the law strikes "Effective" and inserts "(1) Crop
+    // years 2014 through 2025.—Effective", which makes the new paragraph (1).
+    // Section 10310 amends other parts of section 1204 and inserts "Cotton"
+    // there. The new paragraph holds the word "cotton" too, because every word
+    // of an added provision is new.
+    //
+    // An added provision shows every string it holds, so a string of its own
+    // does not make an amendment one of its causes. The amendment that shows
+    // the most is the cause, as for any other change.
+    let paragraph_1 =
+        "uscode/title_7/chapter_115/subchapter_II/section_9034/subsection_g/paragraph_1"
+            .to_string();
+
+    assert!(linked_paths("165bdc0e6631").contains(&paragraph_1));
+    assert!(
+        !linked_paths("6660f71439fb").contains(&paragraph_1),
+        "the amendment of other parts of the section is not a cause of the new paragraph"
+    );
+}
