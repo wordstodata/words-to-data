@@ -150,6 +150,16 @@ impl QuotedWords {
         !self.quoted.is_empty()
     }
 
+    /// Whether every word the bill quotes for this amendment is words it
+    /// strikes: it enacts no block and inserts no string.
+    pub(super) fn only_strikes(&self) -> bool {
+        self.enacted.is_empty()
+            && self
+                .quoted
+                .iter()
+                .all(|quoted| quoted.direction == Direction::Struck)
+    }
+
     /// The amendment's quoted strings and enacted blocks this change shows.
     ///
     /// `later` are the amendments the same law makes after this one, to the
@@ -338,6 +348,24 @@ fn occurrences(tokens: &[String], run: &[String]) -> usize {
         return 0;
     }
     tokens.windows(run.len()).filter(|at| *at == run).count()
+}
+
+/// Whether `after` holds a word more times than `before` does: the change
+/// brought new words, and so it is not a strike alone.
+pub(super) fn brings_new_words(before: &str, after: &str) -> bool {
+    let mut left: BTreeMap<String, usize> = BTreeMap::new();
+    for word in words_of(before) {
+        *left.entry(word).or_default() += 1;
+    }
+    words_of(after)
+        .into_iter()
+        .any(|word| match left.get_mut(&word) {
+            Some(count) if *count > 0 => {
+                *count -= 1;
+                false
+            }
+            _ => true,
+        })
 }
 
 /// The words that appear a different number of times in `before` and

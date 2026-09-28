@@ -30,10 +30,18 @@
 //!    takes a change this way when a single change is left to it, because its
 //!    own words speak against every other. An amendment that only renumbers
 //!    takes nothing this way: its changes are moves, and step 0 gives them.
+//!    An amendment whose words name the units it acts on, *"by striking
+//!    subsection (g)"*, takes only changes in those units this way: its
+//!    address is the whole section the line names, and a change elsewhere in
+//!    it is not one its words can have made (#274). An amendment that only
+//!    strikes takes no change that brings new words this way: a strike
+//!    removes words, and cannot add them. An amendment that only adds or
+//!    inserts takes no removal of a whole provision this way.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::quoted_words::{QuotedWords, Shown};
+use super::quoted_words::{QuotedWords, Shown, brings_new_words};
+use crate::legislature::redesignation::Step;
 
 /// One change in a window: a path, and its words before and after.
 #[derive(Debug, Clone)]
@@ -53,6 +61,22 @@ impl Change {
     fn is_edited_in_place(&self) -> bool {
         !self.before.trim().is_empty() && !self.after.trim().is_empty()
     }
+
+    /// Whether the provision was removed: it had words, and has none.
+    fn removes_a_provision(&self) -> bool {
+        !self.before.trim().is_empty() && self.after.trim().is_empty()
+    }
+
+    /// Whether the provision holds words after the change that it did not
+    /// hold before: it was added, or its new words are not all old ones.
+    ///
+    /// Where a provision was struck, the Code's editors often print a note in
+    /// its place: `Repealed. Pub. L. 119–21, § 71302(a), July 4, 2025, 139
+    /// Stat. 322]`. The note is their record of the strike, and not new words
+    /// of the law.
+    fn brings_new_words(&self) -> bool {
+        !is_a_repeal_note(&self.after) && brings_new_words(&self.before, &self.after)
+    }
 }
 
 /// One amendment addressed to the section: what it states, and the changes
@@ -69,9 +93,39 @@ pub(super) struct Contender<'a> {
     /// The amendment's only action is to renumber. Its changes are the moves
     /// the dataset's redesignation links name, so elimination gives it none.
     pub only_renumbers: bool,
+    /// The units its words name, each as the steps down to it
+    /// ([`crate::uslm::amendment_address::units_named_in`]). Elimination gives
+    /// it only changes in one of them. Empty when the words name none, and
+    /// then elimination is not narrowed.
+    pub units_named: Vec<Vec<Step>>,
+    /// The amendment only strikes and repeals: the markup states no other
+    /// action, and the bill quotes no words it inserts or enacts. Elimination
+    /// gives it no change that brings new words.
+    pub only_strikes: bool,
+    /// The amendment only adds and inserts: the markup states no other
+    /// action. Elimination gives it no removal of a whole provision.
+    pub only_inserts: bool,
 }
 
 impl Contender<'_> {
+    /// Whether the amendment's words can have made the change: it is in a unit
+    /// they name, and it is a kind of change their action makes.
+    fn can_have_made(&self, change: &Change) -> bool {
+        self.words_can_reach(change)
+            && !(self.only_strikes && change.brings_new_words())
+            && !(self.only_inserts && change.removes_a_provision())
+    }
+
+    /// Whether the change is in a unit the amendment's words name, or its
+    /// words name none.
+    fn words_can_reach(&self, change: &Change) -> bool {
+        self.units_named.is_empty()
+            || self
+                .units_named
+                .iter()
+                .any(|unit| is_in_unit(&change.path, unit))
+    }
+
     /// The words this amendment states that a change shows, read with the
     /// amendments its law makes after it in `contenders`.
     fn shown(&self, change: &Change, contenders: &[Contender], who: usize) -> Vec<Shown> {
@@ -288,6 +342,7 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
             .iter()
             .copied()
             .filter(|at| !cause.contains_key(at) && !held_back.contains(at))
+            .filter(|&at| contender.can_have_made(&changes[at]))
             .collect();
         let may_take = !contender.evidence.quotes_anything() || free.len() == 1;
         if may_take {
@@ -382,7 +437,70 @@ fn why_stopped(
             "the words it quotes show in none of the {count} change(s) under its address"
         );
     }
+    let reached = contender
+        .candidates
+        .iter()
+        .any(|&at| contender.words_can_reach(&changes[at]));
+    if !reached {
+        return format!(
+            "its words name the units it acts on, and none of the {count} change(s) under its \
+             address is in them"
+        );
+    }
+    let possible = contender
+        .candidates
+        .iter()
+        .any(|&at| contender.can_have_made(&changes[at]));
+    if !possible {
+        let (it_only, and_each) = if contender.only_strikes {
+            ("strikes", "brings new words")
+        } else {
+            ("adds or inserts", "removes a provision")
+        };
+        return format!(
+            "it only {it_only}, and each of the {count} change(s) under its address that its \
+             words reach {and_each}"
+        );
+    }
     format!("each of the {count} change(s) under its address is another amendment's")
+}
+
+/// Whether a provision's words are the note the Code prints where a provision
+/// was struck: `Repealed. Pub. L. …]`, with or without the opening bracket.
+fn is_a_repeal_note(text: &str) -> bool {
+    text.trim_start()
+        .trim_start_matches('[')
+        .trim_start()
+        .starts_with("Repealed")
+}
+
+/// Whether a path is in the unit the steps name: one of its segments is the
+/// provision the first step names, and the segments after it are the
+/// designations the other steps give.
+///
+/// `…/subsection_g/paragraph_2` is in subsection (g). The unit is looked for at
+/// any depth, because the words name it below the address, and not always
+/// directly below it.
+fn is_in_unit(path: &str, unit: &[Step]) -> bool {
+    let segments: Vec<&str> = path.split('/').collect();
+    (0..segments.len()).any(|start| {
+        segments.len() - start >= unit.len()
+            && unit
+                .iter()
+                .zip(&segments[start..])
+                .all(|(step, segment)| step_names(step, segment))
+    })
+}
+
+/// Whether a step names the provision one path segment is: `subsection_g`.
+fn step_names(step: &Step, segment: &str) -> bool {
+    let Some((level, number)) = segment.split_once('_') else {
+        return false;
+    };
+    number == step.number
+        && step
+            .level
+            .is_none_or(|named| level == named.path_segment_name())
 }
 
 fn is_below(path: &str, above: &str) -> bool {

@@ -268,3 +268,123 @@ fn should_give_a_rewritten_provision_only_to_the_amendment_that_enacted_its_word
         "the amendment of paragraph (1)(A) did not edit the rewritten subparagraph"
     );
 }
+
+/// 26 U.S.C. 36B(f)(2), which section 71305 of the law amends twice.
+const SECTION_36B_F_2: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_C/section_36B/subsection_f/paragraph_2";
+
+#[test]
+fn should_give_an_amendment_that_strikes_a_named_unit_only_changes_in_that_unit_when_its_address_holds_others()
+ {
+    // Section 71305(a) of the law: "Section 36B(f)(2) is amended by striking
+    // subparagraph (B)." It quotes no words, and its address is the whole of
+    // paragraph (2). The window holds three changes there:
+    //
+    // - subparagraph (B) is removed. This is the amendment's change.
+    // - subparagraph (A) is removed, and
+    // - paragraph (2) gains the words of (A). Section 71305(b)(1) strikes
+    //   "advance payments.-" and all that follows through "If the advance
+    //   payments", and so moves the words of (A) up into the paragraph. Its
+    //   quoted words give it (A). They do not show in the paragraph, so the
+    //   paragraph is left for elimination.
+    //
+    // "Striking subparagraph (B)" names the one unit it acts on. The
+    // paragraph's new words are not in that unit, so elimination does not give
+    // them to this amendment.
+    assert_eq!(
+        linked_paths(title_26_matches(), "5fe0631d2a2d"),
+        vec![format!("{SECTION_36B_F_2}/subparagraph_B")]
+    );
+}
+
+#[test]
+fn should_give_an_amendment_that_only_strikes_the_note_the_code_prints_where_the_struck_unit_was() {
+    // Section 71302(a) of the law: "Section 36B(c)(1) is amended by striking
+    // subparagraph (B)." The Code does not drop subparagraph (B). Its editors
+    // leave a note in its place, "Repealed. Pub. L. 119–21, § 71302(a), July
+    // 4, 2025, 139 Stat. 322]", and remove its clauses (i) and (ii).
+    //
+    // The note holds words the subparagraph did not hold, and they are the
+    // editors' record of the strike and not words of the law. So the change
+    // is the strike's, with the removals below it.
+    let subparagraph_b = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_C/section_36B/subsection_c/paragraph_1/subparagraph_B";
+
+    assert_eq!(
+        linked_paths(title_26_matches(), "bdd2f00cce42"),
+        vec![
+            subparagraph_b.to_string(),
+            format!("{subparagraph_b}/clause_i"),
+            format!("{subparagraph_b}/clause_ii"),
+        ]
+    );
+}
+
+/// The matcher's answer for every amendment that acts in one title, with the
+/// title's two committed release points read in the wrong order: the text of
+/// 2025-07-30 dated 2025-07-18, and the text of 2025-07-18 dated 2025-07-30.
+///
+/// The window then undoes the law. Every provision the law removed is added,
+/// and every provision it added is removed. The committed corpus holds one law,
+/// and none of its amendments meets a change of the wrong kind that elimination
+/// could give it. Read this way, the same real text puts one there.
+fn matches_read_backwards(file: &str) -> Vec<AmendmentMatch> {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the committed bill should load");
+    for (text_of, dated) in [("2025-07-30", "2025-07-18"), ("2025-07-18", "2025-07-30")] {
+        dataset
+            .add_uslm_xml(
+                &format!("tests/test_data/usc/{text_of}/{file}"),
+                dated,
+                None,
+            )
+            .expect("the title should parse");
+    }
+    match_by_evidence(&dataset)
+        .expect("the matcher should run")
+        .matches
+}
+
+#[test]
+fn should_not_give_an_amendment_that_only_strikes_a_change_that_brings_new_words() {
+    // Section 71302(a) of the law: "Section 36B(c)(1) is amended by striking
+    // subparagraph (B)." It quotes no words. Read in the right order, the
+    // window removes subparagraph (B) and its clauses (i) and (ii), and the
+    // amendment is given those removals. Read backwards, the window adds
+    // them, in the unit the amendment names.
+    //
+    // An amendment that only strikes removes words. It cannot add a
+    // provision, so elimination does not give it one, and it is left as
+    // residue.
+    let matches = matches_read_backwards("usc26.xml");
+
+    match &match_of(&matches, "bdd2f00cce42").outcome {
+        Outcome::Residue(_) => {}
+        Outcome::Linked(linked) => {
+            panic!("a strike made none of these changes: {:?}", linked.paths())
+        }
+    }
+}
+
+#[test]
+fn should_not_give_an_amendment_that_only_adds_a_change_that_removes_a_provision() {
+    // Section 10604(b) of the law: "Section 7601(g)(1)(A) of the Agricultural
+    // Act of 2014 (7 U.S.C. 5939(g)(1)(A)) is amended by adding at the end the
+    // following: (iv) …". Read in the right order, the window adds clause (iv),
+    // the one change under the address. Read backwards, the window removes it.
+    // The enacted words show in no removal, so the removal is the one change
+    // left to the amendment for elimination.
+    //
+    // An amendment that only adds or inserts brings words. It cannot remove a
+    // provision whole, so elimination does not give it one, and it is left as
+    // residue.
+    let matches = matches_read_backwards("usc07.xml");
+
+    match &match_of(&matches, "63c608ae5b45").outcome {
+        Outcome::Residue(_) => {}
+        Outcome::Linked(linked) => panic!(
+            "an addition made none of these changes: {:?}",
+            linked.paths()
+        ),
+    }
+}
