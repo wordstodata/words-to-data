@@ -298,7 +298,7 @@ A **duplication** is the same subject, the same object, and Links in more than o
 
 A **disagreement** is the same subject and a different object. The two Links cannot both be true.
 
-Which Link to keep is a separate question, and it is open (#172). So nothing orders a contradiction by Corroboration: the figure is evidence for a reviewer, and on a measured corpus the false link scored higher in five pairs out of 64, worst case 0.22 against 0.71. A report that put the highest figure first would present the wrong Link first.
+Which Link to keep is a separate question, and no rule answers it. The redesignation step records a statement in one Window since #172, so a duplicated renumbering is in a Dataset built before that. So nothing orders a contradiction by Corroboration: the figure is evidence for a reviewer, and on a measured corpus the false link scored higher in five pairs out of 64, worst case 0.22 against 0.71. A report that put the highest figure first would present the wrong Link first.
 
 A count of contradictions is a **floor** and not a total, while two statements asserting one move still collapse into one stored Link (#220).
 _Avoid_: Conflict, clash, error, duplicate

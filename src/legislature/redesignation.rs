@@ -64,6 +64,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::citation::usc::fold_dashes;
 use crate::document::DocumentNode;
+use crate::legislature::redesignation_window::LaterWindow;
 use crate::link::{
     Corroboration, Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
     amendment_reference,
@@ -199,6 +200,14 @@ pub enum Reason {
     /// subparagraph (A) and indenting appropriately` — where the new level sits
     /// under a container this build did not follow the bill into.
     RenumberedProvisionNotHeld(String),
+    /// The statement would resolve, and nothing under the provision it
+    /// renumbers inside changed in any window after the law's enactment. A
+    /// window whose text is the same at both ends cannot hold a move, so no
+    /// link is written (#172).
+    ///
+    /// Usually a dataset whose release points do not yet reach the date the
+    /// change takes effect.
+    NothingChangedUnder { container: String, enacted: String },
 }
 
 impl Reason {
@@ -251,6 +260,10 @@ impl fmt::Display for Reason {
             Self::RenumberedProvisionNotHeld(path) => {
                 write!(f, "no provision at {path} after the bill")
             }
+            Self::NothingChangedUnder { container, enacted } => write!(
+                f,
+                "nothing under {container} changed in any window after {enacted}"
+            ),
         }
     }
 }
@@ -484,6 +497,13 @@ pub struct RedesignationReport {
     /// set a total the store does not hold.
     #[serde(default)]
     links: usize,
+    /// Every later window that could also hold a statement placed here.
+    ///
+    /// Never a link: a statement is recorded in the first window after the
+    /// law's enactment that shows a change under it (#172). Named so a
+    /// reviewer can look.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub later_windows: Vec<LaterWindow>,
 }
 
 impl RedesignationReport {
@@ -590,10 +610,21 @@ impl RedesignationReport {
     ///
     /// The crate carries no logger and the CLI writes its own warnings with
     /// `eprintln!`, so this does the same (`crate::uslm::parser::ParseReport`).
+    ///
+    /// A later window that could also hold a statement is named too. It holds
+    /// no link, and a reviewer who is not told about it cannot look (#172).
     pub fn warn(&self, label: &str) {
         eprintln!("{}", self.summary(label));
         for unplaced in &self.unplaced {
             eprintln!("{unplaced}");
+        }
+        for later in &self.later_windows {
+            eprintln!(
+                "review: {} -> {} also changed under the statement, and holds no link: {}",
+                later.from,
+                later.to.at,
+                clause_start(&later.text)
+            );
         }
     }
 
@@ -607,6 +638,7 @@ impl RedesignationReport {
         Self {
             resolved: Vec::new(),
             links: 0,
+            later_windows: Vec::new(),
             unplaced: stated
                 .iter()
                 .map(|statement| UnplacedStatement {
@@ -629,6 +661,7 @@ impl RedesignationReport {
         self.resolved.extend(other.resolved);
         self.unplaced.extend(other.unplaced);
         self.links += other.links;
+        self.later_windows.extend(other.later_windows);
     }
 
     /// One view of a corpus, from one report per work.
@@ -676,6 +709,7 @@ impl RedesignationReport {
             resolved: folded.resolved,
             unplaced: best.into_values().collect(),
             links: folded.links,
+            later_windows: folded.later_windows,
         }
     }
 }
@@ -1341,8 +1375,12 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// a clause it used to leave unplaced, or places one somewhere else. Tidying
 /// the code that does the same reading is not such a change
 /// (`crate::method::Method`).
+///
+/// Version 2 (#172): a statement is recorded in one window only, the first
+/// after the law's enactment in which the text under its container changed.
+/// Version 1 recorded it in every window it resolved in.
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 1)
+    Method::new("amendingAction type=redesignate", 2)
 }
 
 /// How far the words at a redesignation's two ends agree.

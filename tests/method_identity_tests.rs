@@ -164,7 +164,10 @@ fn should_say_which_method_at_which_version_ran_over_which_window_in_both_stored
         assert_eq!(runs.len(), 1, "{label} should hold one run");
         let run = &runs[0];
         assert_eq!(run.method, method, "{label} should name the method");
-        assert_eq!(run.method.version, 1, "{label} should name the version");
+        assert_eq!(
+            run.method.version, method.version,
+            "{label} should name the version"
+        );
         assert_eq!(run.work.as_str(), WORK_1, "{label} should name the work");
         assert_eq!(run.from_date, EARLIER_RELEASE, "{label}: window start");
         assert_eq!(run.to_date, RELEASE, "{label}: window end");

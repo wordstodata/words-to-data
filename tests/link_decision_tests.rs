@@ -71,7 +71,7 @@ fn linked_dataset() -> &'static str {
             .expect("the dataset should answer for the bill")
             .expect("the bill is held as a document");
         dataset
-            .record_redesignations_over(BILL_ID, &bill.root, &windows)
+            .record_redesignations_over(BILL_ID, &bill, &windows)
             .expect("the renumberings should record");
 
         let html = std::fs::read_to_string("tests/test_data/olrc/classification/tbl119pl_1st.htm")

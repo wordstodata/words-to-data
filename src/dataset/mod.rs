@@ -304,9 +304,14 @@ impl<S: Storage> Dataset<S> {
     /// load time nobody knows which window matters and often the window is not
     /// held yet. Whoever knows names the windows here: an operator gives them
     /// with `--between` or `--from`/`--to`, and `build-dataset` gives every
-    /// window it holds after it has loaded everything. #172 decides which
-    /// windows a bill may be tried against, and it changes the list a caller
-    /// brings rather than this method.
+    /// window it holds after it has loaded everything.
+    ///
+    /// **Each statement is recorded in one window (#172):** the first of those
+    /// named that ends after the law's enactment and shows a change under the
+    /// statement's container. The enactment date is the date of the bill's
+    /// stored expression. A later window that shows a change too is named in
+    /// the report for review and holds no link. See
+    /// [`crate::legislature::redesignation_window`].
     ///
     /// Takes the bill's own document, not its XML. Which provision a clause is
     /// about comes from where the words sat in the bill, and the stored document
@@ -321,28 +326,33 @@ impl<S: Storage> Dataset<S> {
     pub fn record_redesignations_over(
         &mut self,
         bill_id: &str,
-        bill: &DocumentNode,
+        bill: &Expression,
         windows: &[ExpressionPair],
     ) -> Result<RedesignationReport, DatasetError> {
-        let stated = crate::uslm::bill_redesignation::redesignations_stated_in(bill_id, bill);
+        let stated = crate::uslm::bill_redesignation::redesignations_stated_in(bill_id, &bill.root);
         // A bill that renumbers nothing is ordinary, and reading every window to
         // prove it would cost a section index per work for no statement.
         if stated.is_empty() {
             return Ok(RedesignationReport::default());
         }
 
-        // A bill named against no window has nothing to be checked against.
-        // Every statement it makes is unplaced, and saying nothing would read as
-        // a bill that renumbered nothing (#153).
-        if windows.is_empty() {
-            return Ok(RedesignationReport::without_a_window(&stated));
+        // Each statement lands in the one window that can hold it
+        // (`crate::legislature::redesignation_window`, #172). The method ran
+        // over every window named, including one nothing landed in.
+        let placement = crate::legislature::redesignation_window::place(
+            &self.storage,
+            &stated,
+            &bill.id.at,
+            windows,
+        )?;
+        for ((from, to), report) in &placement.windows {
+            for resolved in &report.resolved {
+                self.storage
+                    .add_link(resolved.link(&from.work, &from.at, &to.at, bill_id))?;
+            }
+            self.record_method_run(redesignation::reading_method(), from, to)?;
         }
-
-        let mut per_work = Vec::new();
-        for (from, to) in windows {
-            per_work.push(self.record_redesignations(bill_id, &stated, from, to)?);
-        }
-        Ok(RedesignationReport::across_works(per_work))
+        Ok(placement.report())
     }
 
     /// Record that a method, at a version, ran over a window.

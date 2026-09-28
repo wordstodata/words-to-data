@@ -23,7 +23,9 @@
 //! **It reports, and it never resolves.** Decision 12 of #179 is settled: the
 //! contradiction is computed, contradicting links coexist, and no link is
 //! stamped or rewritten. `VerificationState::Disputed` stays for a person to
-//! set by hand. Which link to keep is #172, and the rule is left open.
+//! set by hand. No rule here says which link to keep. Since #172 the step
+//! records a renumbering in one window only, so a duplicated renumbering is in a
+//! dataset built before that, and a rebuild removes it.
 //!
 //! So nothing here ranks by corroboration. #218 measured five duplicated pairs
 //! out of 64 where the *false* link scores higher, worst case 0.22 against
@@ -97,7 +99,7 @@ pub fn run(args: Args) {
     if report.totals.duplication + report.totals.disagreement > 0 {
         // Said once, at the end, because it is the reading a reviewer is most
         // likely to take from a list like this and it is the wrong one.
-        println!("\nNothing above says which link is right. That rule is #172.");
+        println!("\nNothing above says which link is right.");
         // A reviewer can now say so themselves, which is what the id is for.
         println!(
             "To say which is wrong, settle it by its id:\n    \

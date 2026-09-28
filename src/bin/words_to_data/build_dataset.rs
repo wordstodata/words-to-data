@@ -116,9 +116,8 @@ pub fn run(args: Args) {
 /// load-time call did not have.
 ///
 /// The windows are every window the dataset holds. This command made them all,
-/// so it names them all. #172 decides which of them a bill may be tried
-/// against, and it changes this list — the choice of window is made here, once,
-/// rather than inside the dataset.
+/// so it names them all, and the step records each statement in the one window
+/// the law acted in (#172).
 ///
 /// Every statement the run cannot place reaches stderr, because the tool's
 /// silence must not read as the corpus's silence (#110).
@@ -142,7 +141,7 @@ fn record_redesignations<S: Storage + LegislatureReader>(
             continue;
         };
         let report = crate::fail::or_exit(
-            dataset.record_redesignations_over(bill, &document.root, &windows),
+            dataset.record_redesignations_over(bill, &document, &windows),
             "Error recording redesignations",
         );
         report.warn(bill);

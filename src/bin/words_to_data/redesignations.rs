@@ -101,7 +101,7 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
     // mechanism, and the window named by whoever knows which one matters.
     let pairs = args.span.resolve(&*dataset);
     let report = crate::fail::or_exit(
-        dataset.record_redesignations_over(&args.bill_id, &bill.root, &pairs),
+        dataset.record_redesignations_over(&args.bill_id, &bill, &pairs),
         "Error recording redesignations",
     );
     println!(

@@ -73,7 +73,7 @@ fn dataset() -> &'static Dataset<InMemoryStorage> {
             .expect("the dataset should answer for the bill")
             .expect("the bill is held as a document");
         dataset
-            .record_redesignations_over(BILL_ID, &bill.root, &windows)
+            .record_redesignations_over(BILL_ID, &bill, &windows)
             .expect("the renumberings should record");
         dataset
     })
@@ -390,13 +390,15 @@ fn should_name_the_olrc_classification_in_the_evidence_and_change_no_answer_when
 }
 
 #[test]
-fn should_link_only_in_the_first_window_when_the_address_also_changed_in_a_later_one() {
+fn should_link_only_in_the_first_window_when_the_address_is_unchanged_in_a_later_one() {
     // Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o)) is
     // amended by redesignating paragraph (7) as paragraph (8), and by
-    // inserting a new paragraph (7). The law landed in the first window. The
-    // renumbering is recorded over the second window as well, as
-    // `build-dataset` records it, so something under the address changed there
-    // too.
+    // inserting a new paragraph (7). The law landed in the first window.
+    //
+    // The text of 2015(o) is the same on 2025-07-30 and 2025-08-14. Before
+    // #172 the renumbering was recorded over that window too, and the diff it
+    // made named the window here as one in which the address "changed again".
+    // Nothing changed in it, so no later window is named.
     let found = match_of("d624331f459d");
 
     let Outcome::Linked(linked) = &found.outcome else {
@@ -405,23 +407,14 @@ fn should_link_only_in_the_first_window_when_the_address_also_changed_in_a_later
     assert_eq!(linked.from, title_7_at("2025-07-18"));
     assert_eq!(linked.to, title_7_at("2025-07-30"));
 
-    // The second window is never a second link. It is named for a reviewer.
     let later: Vec<(&ExpressionId, &ExpressionId)> = linked
         .later_windows
         .iter()
         .map(|window| (&window.from, &window.to))
         .collect();
-    assert_eq!(
-        later,
-        vec![(&title_7_at("2025-07-30"), &title_7_at("2025-08-14"))]
-    );
     assert!(
-        linked.later_windows[0]
-            .changes
-            .iter()
-            .all(|path| path.starts_with(SECTION_2015_O)),
-        "the later window names the changes under the address: {:?}",
-        linked.later_windows[0].changes
+        later.is_empty(),
+        "nothing under {SECTION_2015_O} changed after 2025-07-30, got {later:?}"
     );
 }
 
