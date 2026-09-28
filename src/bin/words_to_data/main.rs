@@ -3,6 +3,7 @@
 
 use clap::{Parser, Subcommand};
 
+mod add_bills;
 mod add_classifications;
 mod add_opinions;
 mod add_release_points;
@@ -11,6 +12,7 @@ mod annotations;
 mod bills;
 mod build_dataset;
 mod cases_citing;
+mod congress_bills;
 mod contradictions;
 mod convert_dataset;
 mod coverage;
@@ -60,6 +62,8 @@ enum Command {
     AddOpinions(add_opinions::Args),
     /// Add more US Code release points to a dataset that is already there
     AddReleasePoints(add_release_points::Args),
+    /// Add Congress bills to a dataset that is already there
+    AddBills(add_bills::Args),
     /// Add the OLRC's classification of each public law the dataset holds, as links
     AddClassifications(add_classifications::Args),
 
@@ -111,6 +115,7 @@ fn main() {
         Command::LinkAmendment(args) => link_amendment::run(args),
         Command::AddOpinions(args) => add_opinions::run(args),
         Command::AddReleasePoints(args) => add_release_points::run(args),
+        Command::AddBills(args) => add_bills::run(args),
         Command::AddClassifications(args) => add_classifications::run(args),
         Command::CasesCiting(args) => cases_citing::run(args),
         Command::Info(args) => info::run(args),

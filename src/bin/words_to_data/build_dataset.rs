@@ -2,9 +2,7 @@
 //! release points.
 
 use clap::Args as ClapArgs;
-use words_to_data::congress::CongressClient;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, Format, adjacent_expressions};
-use words_to_data::storage::{DocumentReader, LegislatureReader, Storage};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, Format};
 
 use crate::release_points::{self, DEFAULT_MIRROR_INDEX, Missing, ReleaseSource};
 
@@ -17,7 +15,8 @@ pub struct Args {
     /// Output path for the dataset
     pub output: String,
 
-    /// Congress bills to include (e.g. `119-hr-1,119-hr-42`); requires CONGRESS_API_KEY
+    /// Congress bills to include (e.g. `119-hr-1,119-hr-42`); requires
+    /// CONGRESS_API_KEY unless the run is offline
     #[arg(long, value_delimiter = ',')]
     pub bills: Vec<String>,
 
@@ -25,10 +24,17 @@ pub struct Args {
     #[arg(long, default_value = DEFAULT_MIRROR_INDEX)]
     pub mirror_index: String,
 
-    /// Cache directory for downloaded release points
+    /// Cache directory for downloaded release points and Congress responses
     /// (default: the shared `<user cache dir>/words_to_data`)
     #[arg(long)]
     pub cache_dir: Option<String>,
+
+    /// Read only the cache, and never reach the network
+    ///
+    /// A release point the cache has not got is skipped, as a date the mirror
+    /// does not carry is. A bill the cache has not got stops the run.
+    #[arg(long)]
+    pub offline: bool,
 
     /// JSON file declaring what this dataset is meant to cover
     ///
@@ -54,10 +60,14 @@ fn read_declaration(path: Option<&String>) -> Option<Declaration> {
 }
 
 pub fn run(args: Args) {
-    let source = crate::fail::or_exit(
-        ReleaseSource::from_mirror(&args.mirror_index, args.cache_dir.as_deref()),
-        "Error fetching mirror manifest",
-    );
+    let source = if args.offline {
+        ReleaseSource::cached_only(args.cache_dir.as_deref())
+    } else {
+        crate::fail::or_exit(
+            ReleaseSource::from_mirror(&args.mirror_index, args.cache_dir.as_deref()),
+            "Error fetching mirror manifest",
+        )
+    };
 
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "US Code".to_string(),
@@ -81,69 +91,18 @@ pub fn run(args: Args) {
         "Error adding release points",
     );
 
-    let mut loaded = Vec::new();
+    // The same path `add-bills` takes, so a dataset that took a bill
+    // afterwards holds what a dataset built with it holds (#272).
     if !args.bills.is_empty() {
-        let api_key = std::env::var("CONGRESS_API_KEY").expect(
-            "Including bills requires CONGRESS_API_KEY. Get it here: https://api.congress.gov/sign-up/",
+        let client = crate::congress_bills::client(args.cache_dir.as_deref(), args.offline);
+        crate::fail::or_exit(
+            crate::congress_bills::add_all(&mut dataset, &client, &args.bills),
+            "Error adding bills",
         );
-        let client = CongressClient::new(api_key, None);
-        for bill in &args.bills {
-            println!("Downloading bill {bill}...");
-            let download = client
-                .download_bill(bill)
-                .unwrap_or_else(|e| panic!("Error downloading bill {bill}: {e}"));
-            let bill_id = dataset
-                .load_bill_download(&download)
-                .unwrap_or_else(|e| panic!("Error loading bill {bill}: {e}"));
-            loaded.push(bill_id);
-        }
     }
-
-    record_redesignations(&mut dataset, &loaded);
 
     dataset
         .save(&args.output, Format::Compact)
         .expect("Error saving dataset");
     println!("Wrote {}", args.output);
-}
-
-/// Record what each bill renumbered, after everything is loaded.
-///
-/// **The step runs here and not at load time (#181).** Loading a bill loads a
-/// bill; at that moment this command holds only the bills it has loaded so far,
-/// and a bill named before a release point had no window to be checked against.
-/// Here it holds every release point and every bill, which is the knowledge the
-/// load-time call did not have.
-///
-/// The windows are every window the dataset holds. This command made them all,
-/// so it names them all, and the step records each statement in the one window
-/// the law acted in (#172).
-///
-/// Every statement the run cannot place reaches stderr, because the tool's
-/// silence must not read as the corpus's silence (#110).
-fn record_redesignations<S: Storage + LegislatureReader>(
-    dataset: &mut Dataset<S>,
-    bills: &[String],
-) {
-    if bills.is_empty() {
-        return;
-    }
-    let windows = crate::fail::or_exit(
-        adjacent_expressions(dataset as &dyn DocumentReader),
-        "Error listing the dataset's windows",
-    );
-
-    for bill in bills {
-        let Some(document) = crate::fail::or_exit(
-            dataset.bill_document(bill),
-            "Error reading the dataset's bills",
-        ) else {
-            continue;
-        };
-        let report = crate::fail::or_exit(
-            dataset.record_redesignations_over(bill, &document, &windows),
-            "Error recording redesignations",
-        );
-        report.warn(bill);
-    }
 }
