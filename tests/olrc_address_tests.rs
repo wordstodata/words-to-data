@@ -182,3 +182,24 @@ fn should_not_address_an_amendment_by_a_row_that_classifies_only_a_note() {
     };
     assert_eq!(residue.stage, Stage::Address);
 }
+
+/// Section 70116(a)(2) of Pub. L. 119-21:
+///
+/// > Paragraph (1) of section 103(e) of the SECURE 2.0 Act of 2022 is
+/// > repealed, and the Internal Revenue Code of 1986 shall be applied and
+/// > administered as though such paragraph were never enacted.
+///
+/// The OLRC classifies 70116(a)(2) to 26 U.S.C. 25B, and a row gives a section
+/// and nothing below it. The instruction quotes no words, so nothing in it can
+/// tell its change from the other changes to § 25B in the window. A section
+/// with nothing to choose among its changes is not an address to link from.
+#[test]
+fn should_not_address_by_the_olrc_an_amendment_that_quotes_no_words() {
+    let answer = answer_for("ac1415f08ef8");
+
+    assert_eq!(answer.address.section, None);
+    let Outcome::Residue(residue) = &answer.outcome else {
+        panic!("no address, so no link: {:?}", answer.outcome);
+    };
+    assert_eq!(residue.stage, Stage::Address);
+}

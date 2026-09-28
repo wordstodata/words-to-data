@@ -454,11 +454,17 @@ fn stated_amendments<S: Storage + LegislatureReader>(
 /// act on. The scope phrases the markup did read (*"in paragraph (87)"*) stay
 /// the container below the section. Each names its level, so a wrong one finds
 /// no provision and links nothing.
+///
+/// **An amendment that quotes no words gets no address from the table.** A row
+/// gives a section and nothing below it, and such an amendment has nothing to
+/// tell its change from the others in the section. *"Subsection (e) of section
+/// 455 … is repealed"* took a change to § 1087e(d)(5)(B), which another
+/// amendment made, when the table alone addressed it (#259).
 fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classifications: &[Link]) {
     let Some(markup_gave_none) = amendment.address.unresolved.clone() else {
         return;
     };
-    if markup_gave_none == Reason::TableOfSections {
+    if markup_gave_none == Reason::TableOfSections || !amendment.evidence.quotes_anything() {
         return;
     }
     let Some(found) = olrc_address(
