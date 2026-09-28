@@ -44,7 +44,7 @@ pub struct CourtListenerClient {
     /// `None` means this client may only read the cache.
     token: Option<String>,
     cache: ResponseCache,
-    agent: ureq::Agent,
+    http: crate::http::Http,
     spent: Cell<u32>,
     last_request: Cell<Option<Instant>>,
 }
@@ -71,7 +71,7 @@ impl CourtListenerClient {
         Self {
             token,
             cache: ResponseCache::new(ttl, cache_dir),
-            agent: ureq::Agent::new_with_defaults(),
+            http: crate::http::Http::new(),
             spent: Cell::new(0),
             last_request: Cell::new(None),
         }
@@ -126,12 +126,17 @@ impl CourtListenerClient {
         self.spent.set(self.spent.get() + 1);
         self.last_request.set(Some(Instant::now()));
 
+        // A retry over IPv4 (`crate::http`) follows only a request that never
+        // reached the host, so it spends no quota and is not counted again.
         let mut response = self
-            .agent
-            .get(&url)
-            .header("Authorization", &format!("Token {token}"))
-            .header("User-Agent", USER_AGENT)
-            .call()
+            .http
+            .call(|agent| {
+                agent
+                    .get(&url)
+                    .header("Authorization", &format!("Token {token}"))
+                    .header("User-Agent", USER_AGENT)
+                    .call()
+            })
             .map_err(|error| match error {
                 ureq::Error::StatusCode(429) => CourtListenerError::RateLimited,
                 ureq::Error::StatusCode(401) | ureq::Error::StatusCode(403) => {

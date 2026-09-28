@@ -38,7 +38,7 @@ pub struct TablePage {
 pub struct OlrcClient {
     cache: ResponseCache,
     /// `None` means this client may only read the cache.
-    agent: Option<ureq::Agent>,
+    http: Option<crate::http::Http>,
     fetched: Cell<u32>,
     last_request: Cell<Option<Instant>>,
 }
@@ -52,7 +52,7 @@ impl OlrcClient {
     pub fn new(cache_dir: Option<PathBuf>) -> Self {
         Self {
             cache: ResponseCache::new(None, cache_dir),
-            agent: Some(ureq::Agent::new_with_defaults()),
+            http: Some(crate::http::Http::new()),
             fetched: Cell::new(0),
             last_request: Cell::new(None),
         }
@@ -65,7 +65,7 @@ impl OlrcClient {
     pub fn offline(cache_dir: PathBuf) -> Self {
         Self {
             cache: ResponseCache::new(None, Some(cache_dir)),
-            agent: None,
+            http: None,
             fetched: Cell::new(0),
             last_request: Cell::new(None),
         }
@@ -102,7 +102,7 @@ impl OlrcClient {
             return Ok(TablePage { url, html });
         }
 
-        let Some(agent) = &self.agent else {
+        let Some(http) = &self.http else {
             return Err(OlrcError::Offline {
                 page: name.to_string(),
                 directory: self.cache.directory().display().to_string(),
@@ -113,10 +113,8 @@ impl OlrcClient {
         self.fetched.set(self.fetched.get() + 1);
         self.last_request.set(Some(Instant::now()));
 
-        let html = agent
-            .get(&url)
-            .header("User-Agent", USER_AGENT)
-            .call()
+        let html = http
+            .call(|agent| agent.get(&url).header("User-Agent", USER_AGENT).call())
             .and_then(|mut response| response.body_mut().read_to_string())
             .map_err(|error| OlrcError::Http(format!("{url}: {error}")))?;
 

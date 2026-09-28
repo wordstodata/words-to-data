@@ -13,7 +13,7 @@ const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
 pub struct CongressClient {
     api_key: String,
     cache: ResponseCache,
-    agent: ureq::Agent,
+    http: crate::http::Http,
 }
 
 impl CongressClient {
@@ -30,12 +30,10 @@ impl CongressClient {
     pub fn with_ttl(api_key: String, cache_dir: Option<String>, ttl: Option<Duration>) -> Self {
         let cache_path = cache_dir.map(std::path::PathBuf::from);
         let cache = ResponseCache::new(ttl, cache_path);
-        let agent = ureq::Agent::new_with_defaults();
-
         Self {
             api_key,
             cache,
-            agent,
+            http: crate::http::Http::new(),
         }
     }
 
@@ -63,10 +61,8 @@ impl CongressClient {
         let url = format!("{}/{}", BASE_URL, endpoint);
 
         let mut response = self
-            .agent
-            .get(&url)
-            .header("X-Api-Key", &self.api_key)
-            .call()
+            .http
+            .call(|agent| agent.get(&url).header("X-Api-Key", &self.api_key).call())
             .map_err(|e| match e {
                 ureq::Error::StatusCode(429) => CongressError::RateLimited,
                 ureq::Error::StatusCode(401) | ureq::Error::StatusCode(403) => {
@@ -324,9 +320,8 @@ impl CongressClient {
             })?;
         // Fetch XML from URL
         let mut response = self
-            .agent
-            .get(&xml_url)
-            .call()
+            .http
+            .call(|agent| agent.get(&xml_url).call())
             .map_err(|e| CongressError::Http(e.to_string()))?;
 
         let body = response

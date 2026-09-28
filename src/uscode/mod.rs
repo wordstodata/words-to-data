@@ -35,14 +35,17 @@ impl MirrorIndex {
 /// Fetch and parse the mirror manifest from `index_url` (e.g.
 /// `https://wordstodata.com/mirror/uslm/index.json`).
 pub fn fetch_index(index_url: &str) -> Result<MirrorIndex, Box<dyn StdError>> {
-    let body = ureq::get(index_url).call()?.body_mut().read_to_string()?;
+    let body = crate::http::Http::new()
+        .call(|agent| agent.get(index_url).call())?
+        .body_mut()
+        .read_to_string()?;
     Ok(serde_json::from_str(&body)?)
 }
 
 /// Download the release-point zip at `url` and extract its XML into `dest_dir`.
 pub fn download_release(url: &str, dest_dir: &Path) -> Result<(), Box<dyn StdError>> {
-    let bytes = ureq::get(url)
-        .call()?
+    let bytes = crate::http::Http::new()
+        .call(|agent| agent.get(url).call())?
         .body_mut()
         .with_config()
         .limit(MAX_ZIP_BYTES)

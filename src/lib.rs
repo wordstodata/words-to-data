@@ -11,6 +11,7 @@ pub mod dataset;
 pub mod date;
 pub mod diff;
 pub mod document;
+pub mod http;
 pub mod inspect;
 pub mod intern;
 pub mod io;
