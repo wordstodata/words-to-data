@@ -18,8 +18,14 @@
 //! Nothing here matches anything again.
 //!
 //! **Not every row is work.** A row falls in one [`Category`]: work for an
-//! agent, quiet, not held by the dataset, or linked by the method with the
-//! link not yet written.
+//! agent, quiet, not held by the dataset, linked by the method with the link
+//! not yet written, or reviewed by someone who concluded it has no link.
+//!
+//! **A "no link" conclusion is a record, and the list is not.** A reviewer who
+//! finds that an amendment has no correct link records a
+//! [`crate::review::NoLink`]. The newest such record for an amendment takes it
+//! out of the work, and the row still shows who concluded it and why. A link
+//! that names the amendment later takes it off the list, as any link does.
 //!
 //! **Nothing is stored.** The list is derived every time it is asked for,
 //! because a stored list goes false the moment someone links an amendment
@@ -37,6 +43,7 @@ use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
 use crate::olrc::law_section::{LawSection, classifications_of};
 use crate::query::LinkQuery;
+use crate::review::{NoLink, newest_no_links};
 use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::amendment_address::AmendmentAddress;
 
@@ -66,6 +73,9 @@ pub struct Unlinked {
     /// What the amendment changes that the dataset does not hold, when the
     /// category is [`Category::NotHeld`].
     pub not_held: Option<String>,
+    /// The newest conclusion that the amendment has no correct link, when the
+    /// category is [`Category::ReviewedNoLink`].
+    pub no_link: Option<NoLink>,
     /// The stage of the method it stopped at. `None` when the method links it
     /// ([`Category::Unwritten`]).
     pub stage: Option<Stage>,
@@ -97,6 +107,9 @@ pub enum Category {
     /// The evidence method links it, and no link is written: the batch has
     /// not run over this dataset since.
     Unwritten,
+    /// A reviewer concluded it has no correct link, and recorded why
+    /// ([`crate::review::NoLink`]). Not work.
+    ReviewedNoLink,
 }
 
 /// Every amendment of the public law `bill` became, or of every public law the
@@ -109,6 +122,7 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
 ) -> Result<Vec<Unlinked>, DatasetError> {
     let linked = linked_amendments(dataset, bill)?;
     let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
+    let no_links = newest_no_links(&dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?);
     let found = match_by_evidence(dataset)?;
     let unlinked = found
         .matches
@@ -120,13 +134,26 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
                 &amendment.amendment_id,
             ))
         })
-        .map(|amendment| unlinked(amendment, &classified))
+        .map(|amendment| {
+            let no_link = no_links
+                .get(&amendment_reference(
+                    &amendment.bill_id,
+                    &amendment.amendment_id,
+                ))
+                .cloned();
+            unlinked(amendment, &classified, no_link)
+        })
         .collect();
     Ok(unlinked)
 }
 
-/// One row, from the matcher's answer for an amendment no link names.
-fn unlinked(amendment: AmendmentMatch, classified: &[crate::link::Link]) -> Unlinked {
+/// One row, from the matcher's answer for an amendment no link names, and the
+/// newest conclusion that it has no link, if a reviewer recorded one.
+fn unlinked(
+    amendment: AmendmentMatch,
+    classified: &[crate::link::Link],
+    no_link: Option<NoLink>,
+) -> Unlinked {
     let place = LawSection::of_path(&amendment.address.path);
     let olrc = place.as_ref().map_or_else(Vec::new, |place| {
         classifications_of(classified, &amendment.public_law, place)
@@ -160,6 +187,13 @@ fn unlinked(amendment: AmendmentMatch, classified: &[crate::link::Link]) -> Unli
             linked.paths(),
         ),
     };
+    // A reviewer's conclusion outranks what the matcher derives: the matcher
+    // says where it stopped, and the reviewer looked further.
+    let category = if no_link.is_some() {
+        Category::ReviewedNoLink
+    } else {
+        category
+    };
     Unlinked {
         bill_id: amendment.bill_id,
         public_law: amendment.public_law,
@@ -170,6 +204,7 @@ fn unlinked(amendment: AmendmentMatch, classified: &[crate::link::Link]) -> Unli
         olrc,
         category,
         not_held,
+        no_link,
         stage,
         reason,
         from,

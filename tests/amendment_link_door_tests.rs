@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Format, WorkId};
-use words_to_data::link::{Link, LinkKind};
+use words_to_data::link::{Link, LinkKind, Target, VerificationState};
 use words_to_data::method::{Method, MethodRun};
 use words_to_data::storage::LinkReader;
 
@@ -565,4 +565,96 @@ fn should_refuse_and_write_nothing_when_the_method_is_not_a_name_and_a_whole_num
             "a refusal writes nothing"
         );
     }
+}
+
+/// Section 70201(g) of the law amends the table of sections for part VII of
+/// subchapter B of chapter 1. The dataset does not hold a table of sections, so
+/// no change it holds can be this amendment's.
+const AMENDS_A_TABLE_OF_SECTIONS: &str =
+    "4010e01c92b0071935b303ad59df08c1f226ce10143dfca31a5924ec92e0e9a9";
+
+/// The arguments of a run that concludes the table-of-sections amendment has
+/// no link.
+fn concluding_no_link(category: &str, source: &str, reason: &str, written: &str) -> Vec<String> {
+    [
+        fixture(),
+        "--bill",
+        BILL_ID,
+        "--amendment",
+        AMENDS_A_TABLE_OF_SECTIONS,
+        "--no-link",
+        category,
+        "--source",
+        source,
+        "--method",
+        METHOD,
+        "--reason",
+        reason,
+        "--output",
+        written,
+    ]
+    .iter()
+    .map(|arg| arg.to_string())
+    .collect()
+}
+
+/// A "no link" conclusion is a record of its own, shaped as a review is
+/// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`):
+/// the amendment is the subject, because there is no link to copy one from,
+/// and the reviewer is in the object, so two reviewers make two records.
+#[test]
+fn should_record_a_no_link_review_of_the_amendment_when_an_agent_concludes_it_has_no_link() {
+    let written = output_for("door_records_no_link");
+    let reason = "Section 70201(g) amends a table of sections, which the dataset does not hold.";
+
+    let output = link_amendment(&concluding_no_link(
+        "not_held",
+        "agent:claude",
+        reason,
+        &written,
+    ));
+    assert!(
+        output.status.success(),
+        "the conclusion should record, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let records = links_of_kind(&written, "review.no_link");
+    assert_eq!(records.len(), 1, "one record: {records:#?}");
+    let record = &records[0];
+    let reference = |target: &Target| match target {
+        Target::External { reference, .. } => reference.clone(),
+        other => panic!("an external reference, not {other:?}"),
+    };
+    assert_eq!(
+        reference(&record.subject),
+        format!("legislature.amendment:{BILL_ID}:{AMENDS_A_TABLE_OF_SECTIONS}")
+    );
+    assert_eq!(
+        reference(&record.object),
+        format!("review.amendment:{BILL_ID}:{AMENDS_A_TABLE_OF_SECTIONS}:agent:claude")
+    );
+    assert_eq!(
+        record
+            .payload
+            .as_ref()
+            .map(|payload| &payload.value["category"]),
+        Some(&serde_json::json!("not_held"))
+    );
+    let provenance = &record.provenance;
+    assert_eq!(provenance.source, "agent:claude");
+    assert_eq!(provenance.method, Some(Method::new("resolve-residue", 1)));
+    assert_eq!(provenance.verification, VerificationState::MachineSuggested);
+    assert_eq!(
+        provenance
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.reasoning.as_deref()),
+        Some(reason)
+    );
+    assert!(provenance.timestamp.is_some(), "newest-wins needs a time");
+    assert!(
+        links_of_kind(&written, LinkKind::AMENDED_BY).is_empty(),
+        "no amended_by link is written"
+    );
 }

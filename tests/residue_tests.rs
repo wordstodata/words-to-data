@@ -272,6 +272,65 @@ fn should_leave_the_list_when_an_agent_records_a_link_through_the_door() {
     );
 }
 
+/// Section 30001 of the law: "Section 1017(a)(2)(A)(iii) of the Consumer
+/// Financial Protection Act of 2010 (12 U.S.C. 5497(a)(2)(A)(iii)) is amended
+/// ...". The corpus holds no title 12, so the matcher stops at the window and
+/// calls it work, and no change the dataset holds can be its change.
+const AMENDS_TITLE_12: &str = "de4113b510a4";
+
+#[test]
+fn should_leave_the_work_and_show_as_reviewed_when_an_agent_concludes_an_amendment_has_no_link() {
+    let dataset = writable_copy("residue_after_no_link");
+    let before = residue_rows(&dataset);
+    let row = row_of(&before, AMENDS_TITLE_12).expect("the amendment is listed");
+    assert_eq!(row["category"], "work", "it is work before anyone looks");
+
+    let reason = "The amendment changes 12 U.S.C. 5497, and the dataset holds no title 12.";
+    let output = run(
+        "link-amendment",
+        &[
+            dataset.to_str().expect("a UTF-8 path"),
+            "--bill",
+            BILL_ID,
+            "--amendment",
+            &full_id(AMENDS_TITLE_12),
+            "--no-link",
+            "not_held",
+            "--source",
+            "agent:claude",
+            "--method",
+            "resolve-residue@1",
+            "--reason",
+            reason,
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "link-amendment should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let after = residue_rows(&dataset);
+    let row = row_of(&after, AMENDS_TITLE_12).expect("it is still listed, as reviewed");
+    assert_eq!(row["category"], "reviewed_no_link");
+    assert_eq!(row["no_link"]["category"], "not_held");
+    assert_eq!(row["no_link"]["reviewer"], "agent:claude");
+    assert_eq!(row["no_link"]["reasoning"], reason);
+    let work =
+        |rows: &[serde_json::Value]| rows.iter().filter(|row| row["category"] == "work").count();
+    assert_eq!(work(&after), work(&before) - 1, "one less row of work");
+
+    let printed = run(
+        "residue",
+        &[dataset.to_str().expect("a UTF-8 path"), "--bill", BILL_ID],
+    );
+    let stdout = String::from_utf8_lossy(&printed.stdout);
+    assert!(
+        stdout.contains("reviewed: no link"),
+        "a person sees the reviewed count: {stdout}"
+    );
+}
+
 #[test]
 fn should_report_an_amendment_as_quiet_and_not_as_work_when_nothing_under_its_address_changed() {
     // Section 70116(b)(1) of the law: "Section 25B(a) is amended by striking

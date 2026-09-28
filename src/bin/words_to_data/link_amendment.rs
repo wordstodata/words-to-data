@@ -17,7 +17,7 @@
 //! **It takes either form the dataset comes in.** A database is changed where it
 //! sits; a W2D file is read into memory and written out again (#195).
 
-use clap::Args as ClapArgs;
+use clap::{Args as ClapArgs, ValueEnum};
 use words_to_data::dataset::{Dataset, ExpressionId, Format};
 use words_to_data::inspect;
 use words_to_data::legislature::{AmendingAction, BillAmendment};
@@ -26,6 +26,7 @@ use words_to_data::link::{
     amendment_reference,
 };
 use words_to_data::method::Method;
+use words_to_data::review::{NoLink, NoLinkCategory, short_id};
 use words_to_data::storage::{LegislatureReader, Storage};
 
 #[derive(ClapArgs)]
@@ -43,16 +44,21 @@ pub struct Args {
     pub amendment: String,
 
     /// Older expression of the window, e.g. `uscode/title_26@2025-07-18`
-    #[arg(long)]
-    pub from: ExpressionId,
+    #[arg(long, required_unless_present = "no_link")]
+    pub from: Option<ExpressionId>,
 
     /// The next expression of the same work
-    #[arg(long)]
-    pub to: ExpressionId,
+    #[arg(long, required_unless_present = "no_link")]
+    pub to: Option<ExpressionId>,
 
     /// A path that changed in the window. Give it once for each path
-    #[arg(long = "path", required = true)]
+    #[arg(long = "path", required_unless_present = "no_link")]
     pub paths: Vec<String>,
+
+    /// Record that the amendment has no correct link, and why, in place of a
+    /// link. It names no window and no path
+    #[arg(long, value_enum, conflicts_with_all = ["from", "to", "paths"])]
+    pub no_link: Option<NoLinkSaid>,
 
     /// Who is recording the link: `agent:claude`, `human:jesse`
     #[arg(long)]
@@ -72,6 +78,51 @@ pub struct Args {
     /// changed in place.
     #[arg(long)]
     pub output: Option<String>,
+}
+
+impl Args {
+    /// The window a link is recorded over.
+    ///
+    /// `clap` requires both ends unless `--no-link` was given, and a
+    /// `--no-link` run never asks for a window, so they cannot be absent.
+    fn window(&self) -> (&ExpressionId, &ExpressionId) {
+        (
+            self.from
+                .as_ref()
+                .expect("clap requires --from without --no-link"),
+            self.to
+                .as_ref()
+                .expect("clap requires --to without --no-link"),
+        )
+    }
+}
+
+/// Why an amendment has no correct link, as the command line spells it.
+///
+/// A separate word list from [`NoLinkCategory`], as `settle` keeps one from
+/// its verdict, so that `clap`'s derive stays out of the core.
+#[derive(Clone, Copy, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum NoLinkSaid {
+    /// The change is in material the dataset does not hold
+    NotHeld,
+    /// The change takes effect after the newest release point held
+    NotYetInCorpus,
+    /// The text did not change
+    NoChange,
+    /// Another reason, which --reason gives
+    Other,
+}
+
+impl From<NoLinkSaid> for NoLinkCategory {
+    fn from(said: NoLinkSaid) -> Self {
+        match said {
+            NoLinkSaid::NotHeld => Self::NotHeld,
+            NoLinkSaid::NotYetInCorpus => Self::NotYetInCorpus,
+            NoLinkSaid::NoChange => Self::NoChange,
+            NoLinkSaid::Other => Self::Other,
+        }
+    }
 }
 
 pub fn run(args: Args) {
@@ -121,15 +172,53 @@ pub fn run(args: Args) {
     }
 }
 
-/// Write one link for each path, and say what was written.
+/// Write what the run concluded, and say what was written.
 ///
 /// Every check runs before the first write, so a refusal writes nothing.
 fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args) {
     let amendment = find_amendment(dataset, args);
+    match args.no_link {
+        Some(category) => record_no_link(dataset, &amendment, category.into(), args),
+        None => record_links(dataset, &amendment, args),
+    }
+}
+
+/// Write the reviewer's conclusion that the amendment has no correct link.
+///
+/// It records no method run. A run says a method was applied to a window, and
+/// this conclusion names none.
+fn record_no_link<S: Storage>(
+    dataset: &mut Dataset<S>,
+    amendment: &BillAmendment,
+    category: NoLinkCategory,
+    args: &Args,
+) {
+    let conclusion = NoLink {
+        bill_id: args.bill.clone(),
+        amendment_id: amendment.id.clone(),
+        category,
+        reviewer: args.source.clone(),
+        method: Some(args.method.clone()),
+        reasoning: args.reason.clone(),
+        at: time::OffsetDateTime::now_utc(),
+    };
+    let record = conclusion.record(&amendment.amending_text);
+    let id = record.id();
+    crate::fail::or_exit(dataset.add_link(record), "Error adding the record");
+    println!(
+        "Recorded no link ({category}) for amendment {}: record {}",
+        short_id(&amendment.id),
+        short_id(&id)
+    );
+}
+
+/// Write one link for each path, and a run of the method over the window.
+fn record_links<S: Storage>(dataset: &mut Dataset<S>, amendment: &BillAmendment, args: &Args) {
+    let (from, to) = args.window();
     refuse_unless_adjacent(dataset, args);
     refuse_unchanged_paths(dataset, args);
     for path in &args.paths {
-        let link = link_for(&amendment, path, args);
+        let link = link_for(amendment, path, args);
         let id = link.id();
         crate::fail::or_exit(dataset.add_link(link), "Error adding link");
         println!(
@@ -141,12 +230,12 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
     // identified by what it says, so recording the same finding again adds no
     // second run.
     crate::fail::or_exit(
-        dataset.record_method_run(args.method.clone(), &args.from, &args.to),
+        dataset.record_method_run(args.method.clone(), from, to),
         "Error recording what ran",
     );
     println!(
         "Recorded a run of {} over {} -> {}",
-        args.method, args.from, args.to.at
+        args.method, from, to.at
     );
 }
 
@@ -182,7 +271,7 @@ fn find_amendment<S: Storage + LegislatureReader>(
 /// happened in one of them, and a link over the pair would say it happened
 /// over both, so no window a link names may hold another expression.
 fn refuse_unless_adjacent<S: Storage>(dataset: &Dataset<S>, args: &Args) {
-    let (from, to) = (&args.from, &args.to);
+    let (from, to) = args.window();
     let refuse = |why: String| -> ! {
         eprintln!(
             "{from} -> {to} is not a window of two adjacent expressions, so nothing was written.\n\
@@ -223,10 +312,8 @@ fn refuse_unless_adjacent<S: Storage>(dataset: &Dataset<S>, args: &Args) {
 /// (`docs/adr/0013`). A section whose subsection changed did not change itself,
 /// and `diff --path` shows the paths beneath it that did.
 fn refuse_unchanged_paths<S: Storage>(dataset: &Dataset<S>, args: &Args) {
-    let diff = crate::fail::or_exit(
-        inspect::diff(dataset, &args.from, &args.to),
-        "Error computing the diff",
-    );
+    let (from, to) = args.window();
+    let diff = crate::fail::or_exit(inspect::diff(dataset, from, to), "Error computing the diff");
     let changed = |path: &str| {
         diff.changed_paths.iter().any(|p| p == path)
             || diff.added_paths.iter().any(|p| p == path)
@@ -245,28 +332,26 @@ fn refuse_unchanged_paths<S: Storage>(dataset: &Dataset<S>, args: &Args) {
         // mistyped or in another window, and one that did not change is the
         // wrong provision.
         if exists_in_window(dataset, path, args) {
-            eprintln!(
-                "{path} did not change between {} and {}.",
-                args.from, args.to
-            );
+            eprintln!("{path} did not change between {} and {}.", from, to);
         } else {
-            eprintln!("{path} does not exist at {} or at {}.", args.from, args.to);
+            eprintln!("{path} does not exist at {} or at {}.", from, to);
         }
     }
     eprintln!(
         "A link can only point at a change the diff produced, so nothing was written.\n\
          `words_to_data diff {} --from {} --to {} --path <section>` lists the paths that changed.",
-        args.dataset, args.from, args.to
+        args.dataset, from, to
     );
     std::process::exit(1);
 }
 
 /// Whether either end of the window holds a provision at `path`.
 fn exists_in_window<S: Storage>(dataset: &Dataset<S>, path: &str, args: &Args) -> bool {
+    let (from, to) = args.window();
     let holders = crate::fail::or_exit(dataset.find_nodes(path), "Error reading the path");
     holders
         .iter()
-        .any(|(expression, _)| *expression == args.from || *expression == args.to)
+        .any(|(expression, _)| *expression == *from || *expression == *to)
 }
 
 /// The link the batch would write for this amendment and this path.
@@ -276,12 +361,13 @@ fn exists_in_window<S: Storage>(dataset: &Dataset<S>, path: &str, args: &Args) -
 /// as `MachineSuggested`. A recorder names itself `agent:claude`, and its claim
 /// is still a machine's until someone settles it.
 fn link_for(amendment: &BillAmendment, path: &str, args: &Args) -> Link {
+    let (from, to) = args.window();
     Link {
         subject: Target::Change {
-            work: args.from.work.clone(),
+            work: from.work.clone(),
             path: path.to_string(),
-            from_date: args.from.at.clone(),
-            to_date: args.to.at.clone(),
+            from_date: from.at.clone(),
+            to_date: to.at.clone(),
         },
         kind: LinkKind::new(LinkKind::AMENDED_BY),
         object: Target::External {
