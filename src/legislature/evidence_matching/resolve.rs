@@ -10,7 +10,10 @@
 //!    records each renumbering as a `legislature.redesignated_as` link that
 //!    names its amendment. A renumbering quotes no words, so this is the only
 //!    evidence it has, and it is the bill's own.
-//! 1. **The quoted words.** A provision edited in place goes to every
+//! 1. **The quoted words.** A provision whose every word one amendment
+//!    enacted goes to that amendment alone: it rewrote the provision, and a
+//!    string that went with the old words is no other amendment's edit.
+//!    Otherwise a provision edited in place goes to every
 //!    amendment that shows words of its own in it: words no other amendment
 //!    there shows, alone or inside longer words. Any other change goes to the
 //!    amendment whose quoted strings and enacted blocks it shows most. Where
@@ -178,6 +181,17 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
             .map(|(who, contender)| (who, contender.shown(change, contenders, who)))
             .filter(|(_, shown)| !shown.is_empty())
             .collect();
+        // An amendment that enacted every word the provision now prints
+        // rewrote it, and another amendment's string that went with the old
+        // words is no edit of its own.
+        let rewrote: Vec<&(usize, Vec<Shown>)> = claims
+            .iter()
+            .filter(|(_, shown)| shown.iter().any(|words| words.rewrote))
+            .collect();
+        if let [(who, shown)] = rewrote.as_slice() {
+            cause.insert(at, vec![(*who, found_by(shown))]);
+            continue;
+        }
         // A provision edited in place can carry the edits of several
         // amendments, and every amendment that shows words of its own in it
         // made part of it. Words another amendment also states, alone or

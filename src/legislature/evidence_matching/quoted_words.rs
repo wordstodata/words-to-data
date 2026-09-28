@@ -62,6 +62,9 @@ pub(super) struct Shown {
     pub said: String,
     /// Its words, as they are compared.
     words: Vec<String>,
+    /// An enacted block that holds every word the provision now prints: the
+    /// amendment rewrote it.
+    pub rewrote: bool,
 }
 
 impl Shown {
@@ -174,6 +177,7 @@ impl QuotedWords {
             .map(|quoted| Shown {
                 said: quoted.described(),
                 words: quoted.tokens.clone(),
+                rewrote: false,
             });
         let after_words = words_of(after);
         let after_words_undone: Vec<String> = after_undone
@@ -192,6 +196,7 @@ impl QuotedWords {
             .map(|(at, block)| Shown {
                 said: format!("enacted text {} of {}", at + 1, self.enacted.len()),
                 words: block.clone(),
+                rewrote: !after_words.is_empty() && contains_run(block, &after_words),
             });
         let shown: Vec<Shown> = strings.chain(blocks).collect();
         // Common words alone decide nothing, unless they are all the change

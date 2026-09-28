@@ -246,3 +246,25 @@ fn should_not_give_a_change_to_an_amendment_that_only_renumbers_by_elimination()
         );
     }
 }
+
+#[test]
+fn should_give_a_rewritten_provision_only_to_the_amendment_that_enacted_its_words() {
+    // 26 U.S.C. 168(k)(10)(A). Section 70301(b)(3) of the law strikes the
+    // subparagraph and enacts a new one, and the Code prints exactly its
+    // words. The old words said "the applicable percentage", so the change
+    // also shows that string struck, and section 70301(b)(1) strikes that
+    // string, in paragraph (1)(A).
+    //
+    // An amendment that enacted every word a provision now holds rewrote it.
+    // Another amendment's string struck with the old words is not a second
+    // edit.
+    let subparagraph_a =
+        "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_10/subparagraph_A".to_string();
+    let matches = title_26_matches();
+
+    assert!(linked_paths(matches, "3becff5cdac9").contains(&subparagraph_a));
+    assert!(
+        !linked_paths(matches, "1be2c21a3613").contains(&subparagraph_a),
+        "the amendment of paragraph (1)(A) did not edit the rewritten subparagraph"
+    );
+}
