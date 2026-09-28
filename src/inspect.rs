@@ -404,6 +404,65 @@ pub struct ProvisionAtPath {
     /// The redesignation links this entry relied on, oldest first. Empty for a
     /// provision no bill renumbered, which is the ordinary case.
     pub via: Vec<RedesignationLink>,
+    /// The words of an addition or a removal, at the one end that holds them.
+    ///
+    /// An added provision has no older end to compare against, so `changes`
+    /// is empty and says nothing about it. These words are the evidence
+    /// instead: the words added, or the words removed, as `presence` says.
+    /// Empty for every other entry. Every field of the subtree is here, however
+    /// many there are; a person's screen is bounded by the printer, not here.
+    pub words: Vec<ProvisionField>,
+}
+
+/// One text field of a provision or of a provision beneath it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProvisionField {
+    /// The structural path of the node that holds the field.
+    pub path: String,
+    /// Which text field it is, serde string form (e.g. `"heading"`).
+    pub field: String,
+    pub text: String,
+}
+
+/// Every text field of a provision and of everything beneath it, in the order
+/// the law reads.
+///
+/// A continuation follows the children it closes, so it is read after them.
+pub fn provision_words(node: &DocumentNode) -> Vec<ProvisionField> {
+    let mut words = Vec::new();
+    collect_words(node, &mut words);
+    words
+}
+
+fn collect_words(node: &DocumentNode, words: &mut Vec<ProvisionField>) {
+    use crate::document::TextContentField as F;
+    for field in [F::Heading, F::Chapeau, F::Proviso, F::Content] {
+        push_field(node, field, words);
+    }
+    for child in &node.children {
+        collect_words(child, words);
+    }
+    push_field(node, F::Continuation, words);
+}
+
+/// One field of one node, when it holds any words.
+fn push_field(
+    node: &DocumentNode,
+    field: crate::document::TextContentField,
+    words: &mut Vec<ProvisionField>,
+) {
+    let Some(text) = node.data.get_text_content(field) else {
+        return;
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    words.push(ProvisionField {
+        path: node.data.path.to_string(),
+        field: field_str(&field),
+        text: text.to_string(),
+    });
 }
 
 /// Everything known about one structural path: where it exists, what happened
@@ -955,6 +1014,7 @@ fn pair_provisions(
                 presence: Presence::InBoth,
                 changes: field_changes(from_kin[j], to_kin[j]),
                 via: Vec::new(),
+                words: Vec::new(),
             });
             from_position += 1;
             to_position += 1;
@@ -962,23 +1022,25 @@ fn pair_provisions(
 
         // Pairing is a prefix, so whichever side is longer carries the tail.
         // Under one parent a path is therefore added or removed, never both.
-        for _ in paired..from_kin.len() {
+        for removed in &from_kin[paired..] {
             provisions.push(ProvisionAtPath {
                 from_position: Some(from_position),
                 to_position: None,
                 presence: Presence::Removed,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(removed),
             });
             from_position += 1;
         }
-        for _ in paired..to_kin.len() {
+        for added in &to_kin[paired..] {
             provisions.push(ProvisionAtPath {
                 from_position: None,
                 to_position: Some(to_position),
                 presence: Presence::Added,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(added),
             });
             to_position += 1;
         }
@@ -1026,6 +1088,7 @@ fn pair_across_moves(
                 },
                 changes: field_changes(node, landed),
                 via: out.via.clone(),
+                words: Vec::new(),
             },
             None => ProvisionAtPath {
                 from_position: Some(position),
@@ -1033,6 +1096,7 @@ fn pair_across_moves(
                 presence: Presence::Removed,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(node),
             },
         });
     }
@@ -1052,6 +1116,7 @@ fn pair_across_moves(
                 },
                 changes: field_changes(left, node),
                 via: into.via.clone(),
+                words: Vec::new(),
             },
             None => ProvisionAtPath {
                 from_position: None,
@@ -1059,6 +1124,7 @@ fn pair_across_moves(
                 presence: Presence::Added,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(node),
             },
         });
     }
@@ -1080,6 +1146,7 @@ fn root_provision(
             presence: Presence::InBoth,
             changes: field_changes(from_root, to_root),
             via: Vec::new(),
+            words: Vec::new(),
         }],
         (true, false) => vec![ProvisionAtPath {
             from_position: Some(0),
@@ -1087,6 +1154,7 @@ fn root_provision(
             presence: Presence::Removed,
             changes: Vec::new(),
             via: Vec::new(),
+            words: provision_words(from_root),
         }],
         (false, true) => vec![ProvisionAtPath {
             from_position: None,
@@ -1094,6 +1162,7 @@ fn root_provision(
             presence: Presence::Added,
             changes: Vec::new(),
             via: Vec::new(),
+            words: provision_words(to_root),
         }],
         // The path names nothing in either expression.
         (false, false) => Vec::new(),
