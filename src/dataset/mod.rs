@@ -631,6 +631,89 @@ impl<S: Storage + LegislatureWriter> Dataset<S> {
     ) -> Result<usize, DatasetError> {
         self.storage.update_amendments(readings)
     }
+
+    /// Load bill data from a BillDownload
+    ///
+    /// Into either backend: `add-bills` loads a bill into a SQLite dataset in
+    /// place, as `build-dataset` loads one into memory (#272).
+    pub fn load_bill_download(&mut self, download: &BillDownload) -> Result<String, DatasetError> {
+        use crate::uslm::bill_parser;
+        use serde_json::Value;
+
+        // One read of the XML, for every reader of it. The bill's amendments and
+        // the bill's document used to be two parses of the same 2.7 MB string
+        // (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
+        let markup =
+            roxmltree::Document::parse(&download.bill_xml).map_err(|e| invalid_data(&e))?;
+
+        let (bill, amendment_report) = bill_parser::bill_of_document(&markup, &download.bill_id);
+        amendment_report.print_to_stderr();
+        let bill_id = bill.bill_id.clone();
+        self.add_bill(bill)?;
+
+        // The bill itself, with the structure the parser found. Nothing stored
+        // it before this, so the nesting a redesignation is read out of existed
+        // only inside one function call and was then thrown away.
+        let (expression, parse_report) =
+            bill_parser::bill_expression(&markup, &bill_id).map_err(|e| invalid_data(&e))?;
+        parse_report.print_to_stderr();
+
+        // No redesignation is recorded here. Loading a bill loads a bill: the
+        // links it states are written by an explicit step over a named window
+        // (`Dataset::record_redesignations_over`, #181). Recording them here
+        // needed a window, nobody at load time knows which one, and often the
+        // window is not held yet — so the step swept every neighbouring pair
+        // the dataset happened to hold (#172) and still held for one build
+        // order only (#180).
+        self.add_expression(expression)?;
+
+        // Parse sponsor from metadata
+        let sponsors_v: Value = serde_json::from_str(&download.bill_metadata_json)?;
+        let sponsor_id = sponsors_v["bill"]["sponsors"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|s| s["bioguideId"].as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Parse cosponsors
+        let cosponsors_v: Value = serde_json::from_str(&download.cosponsors_json)?;
+        let mut cosponsors = Vec::new();
+        if let Some(arr) = cosponsors_v["cosponsors"].as_array() {
+            for c in arr {
+                cosponsors.push(CosponsorRecord {
+                    bioguide_id: c["bioguideId"].as_str().unwrap_or("").to_string(),
+                    date: c["sponsorshipDate"].as_str().unwrap_or("").to_string(),
+                    withdrawn: c["sponsorshipWithdrawnDate"].as_str().is_some(),
+                });
+            }
+        }
+
+        self.add_sponsor_info(SponsorInfo {
+            bill_id: bill_id.clone(),
+            sponsor: sponsor_id,
+            cosponsors,
+        })?;
+
+        // Parse and add members
+        for json in download.member_jsons.values() {
+            if let Ok(member) = Member::from_api_response(json) {
+                self.add_member(member)?;
+            }
+        }
+
+        // Parse votes
+        if let Some(ref votes_json) = download.votes_json
+            && let Ok(roll_calls) = serde_json::from_str::<Vec<HouseRollCall>>(votes_json)
+        {
+            self.add_bill_votes(BillVotes {
+                bill_id: bill_id.clone(),
+                roll_calls,
+            })?;
+        }
+
+        Ok(bill_id)
+    }
 }
 
 // --- Reading USLM into any backend ---
@@ -760,86 +843,6 @@ impl Dataset<InMemoryStorage> {
         let mut sqlite = SqliteStorage::open(path)?;
         sqlite.save_from_memory(self.storage())?;
         Ok(())
-    }
-
-    /// Load bill data from a BillDownload
-    pub fn load_bill_download(&mut self, download: &BillDownload) -> Result<String, DatasetError> {
-        use crate::uslm::bill_parser;
-        use serde_json::Value;
-
-        // One read of the XML, for every reader of it. The bill's amendments and
-        // the bill's document used to be two parses of the same 2.7 MB string
-        // (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).
-        let markup =
-            roxmltree::Document::parse(&download.bill_xml).map_err(|e| invalid_data(&e))?;
-
-        let (bill, amendment_report) = bill_parser::bill_of_document(&markup, &download.bill_id);
-        amendment_report.print_to_stderr();
-        let bill_id = bill.bill_id.clone();
-        self.add_bill(bill)?;
-
-        // The bill itself, with the structure the parser found. Nothing stored
-        // it before this, so the nesting a redesignation is read out of existed
-        // only inside one function call and was then thrown away.
-        let (expression, parse_report) =
-            bill_parser::bill_expression(&markup, &bill_id).map_err(|e| invalid_data(&e))?;
-        parse_report.print_to_stderr();
-
-        // No redesignation is recorded here. Loading a bill loads a bill: the
-        // links it states are written by an explicit step over a named window
-        // (`Dataset::record_redesignations_over`, #181). Recording them here
-        // needed a window, nobody at load time knows which one, and often the
-        // window is not held yet — so the step swept every neighbouring pair
-        // the dataset happened to hold (#172) and still held for one build
-        // order only (#180).
-        self.add_expression(expression)?;
-
-        // Parse sponsor from metadata
-        let sponsors_v: Value = serde_json::from_str(&download.bill_metadata_json)?;
-        let sponsor_id = sponsors_v["bill"]["sponsors"]
-            .as_array()
-            .and_then(|arr| arr.first())
-            .and_then(|s| s["bioguideId"].as_str())
-            .unwrap_or("")
-            .to_string();
-
-        // Parse cosponsors
-        let cosponsors_v: Value = serde_json::from_str(&download.cosponsors_json)?;
-        let mut cosponsors = Vec::new();
-        if let Some(arr) = cosponsors_v["cosponsors"].as_array() {
-            for c in arr {
-                cosponsors.push(CosponsorRecord {
-                    bioguide_id: c["bioguideId"].as_str().unwrap_or("").to_string(),
-                    date: c["sponsorshipDate"].as_str().unwrap_or("").to_string(),
-                    withdrawn: c["sponsorshipWithdrawnDate"].as_str().is_some(),
-                });
-            }
-        }
-
-        self.add_sponsor_info(SponsorInfo {
-            bill_id: bill_id.clone(),
-            sponsor: sponsor_id,
-            cosponsors,
-        })?;
-
-        // Parse and add members
-        for json in download.member_jsons.values() {
-            if let Ok(member) = Member::from_api_response(json) {
-                self.add_member(member)?;
-            }
-        }
-
-        // Parse votes
-        if let Some(ref votes_json) = download.votes_json
-            && let Ok(roll_calls) = serde_json::from_str::<Vec<HouseRollCall>>(votes_json)
-        {
-            self.add_bill_votes(BillVotes {
-                bill_id: bill_id.clone(),
-                roll_calls,
-            })?;
-        }
-
-        Ok(bill_id)
     }
 }
 

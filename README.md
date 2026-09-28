@@ -91,7 +91,8 @@ words_to_data build-dataset \
 
 The output path is positional, and it is the last argument here. `--bills` needs
 the `CONGRESS_API_KEY` environment variable. Get a key from
-https://api.congress.gov/sign-up/.
+https://api.congress.gov/sign-up/. `--offline` reads the release points and the
+Congress responses only from the cache, and needs no key.
 
 This step downloads each release point and keeps it in a cache. The default cache
 directory is `<user cache dir>/words_to_data`, which is `~/.cache/words_to_data`
@@ -336,6 +337,33 @@ hold them, and the dataset holds no link — and it prints the command that clos
 the gap. It says nothing about a statement no reader could place, because that is
 finished work with a reason rather than a step nobody has run (#183). The list is
 read out of the links the dataset holds, and nothing is stored.
+
+### Adding a law — `add-bills`
+
+A dataset does not have to be built again when a new law is enacted.
+
+```bash
+# A SQLite dataset changes in place.
+words_to_data add-bills dataset.sqlite --bills 119-s-1071,119-hr-998
+
+# A compact JSON dataset must be told where to write.
+words_to_data add-bills dataset.json --bills 119-s-1071 --output dataset-ndaa.json
+```
+
+Each bill is loaded as `build-dataset --bills` loads it, because both commands
+use one function. The bill, its public-law document, its sponsors, its House
+votes and their members are stored, and the renumbering statements of the bill
+are recorded over every window the dataset holds. A dataset built with a bill and
+a dataset that took the bill afterwards are the same dataset.
+
+`--bills` needs `CONGRESS_API_KEY`. `--offline` reads only the cache and needs no
+key. A bill, vote or member that the cache has not got stops the run by name.
+Every bill is fetched before any is stored, so a run that stops does not change
+the dataset. A bill that the dataset holds already is not added again, and the
+run says so.
+
+`add-bills` runs no other step. It ends by naming `add-classifications`,
+`link-by-evidence` and `residue --bill <id>` for the bills it added.
 
 ### What the OLRC classified — `add-classifications`
 
