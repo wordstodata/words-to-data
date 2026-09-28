@@ -72,6 +72,20 @@ fn title_26_matches() -> &'static [AmendmentMatch] {
     })
 }
 
+/// What the matcher says about every amendment that acts in title 42.
+fn title_42_matches() -> &'static [AmendmentMatch] {
+    static MATCHES: OnceLock<Vec<AmendmentMatch>> = OnceLock::new();
+    MATCHES.get_or_init(|| {
+        match_by_evidence(&dataset_with_title("usc42.xml"))
+            .expect("the matcher should run")
+            .matches
+    })
+}
+
+/// 42 U.S.C. 1396a, section 1902 of the Social Security Act, which several
+/// amendments of the law address as a whole.
+const SECTION_1396A: &str = "uscode/title_42/chapter_7/subchapter_XIX/section_1396a";
+
 /// The matcher's answer for one amendment, by the start of its id.
 fn match_of<'a>(matches: &'a [AmendmentMatch], id_start: &str) -> &'a AmendmentMatch {
     let found: Vec<&AmendmentMatch> = matches
@@ -156,4 +170,49 @@ fn should_link_an_amendment_whose_inserted_words_a_later_amendment_of_the_law_in
         linked_paths(matches, "fe5357110b54"),
         vec![SECTION_6041_A.to_string()]
     );
+}
+
+#[test]
+fn should_not_let_one_common_word_decide_a_change_when_the_amendment_quotes_nothing_else_there() {
+    // 42 U.S.C. 1396a(e)(14)(D)(iv). Section 71108(b) of the law strikes
+    // "Subparagraphs" there and inserts "(I) In general.—Subparagraphs", so
+    // the clause's words move down into a new subclause (I).
+    //
+    // Section 71103(a)(1) amends the whole of section 1396a, and one of the
+    // things it does is strike "and" at the end of paragraph (a)(86). The
+    // clause's words hold an "and", and they moved away, so the clause shows
+    // "and" struck. One common word is not evidence of which change an
+    // amendment made.
+    let clause_iv = format!("{SECTION_1396A}/subsection_e/paragraph_14/subparagraph_D/clause_iv");
+    let matches = title_42_matches();
+
+    assert!(
+        !linked_paths(matches, "c8020929f28e").contains(&clause_iv),
+        "a struck \"and\" does not link the whole-section amendment to the clause"
+    );
+    assert!(linked_paths(matches, "016d2c93ae1d").contains(&clause_iv));
+}
+
+#[test]
+fn should_let_common_words_decide_a_change_when_they_are_all_the_change_struck_or_inserted() {
+    // 42 U.S.C. 1396a(a)(86). Section 71103(a)(1) of the law strikes "and" at
+    // the end of it, and that is the whole of the change: the paragraph lost
+    // an "and" and nothing else. Words that small still say which change an
+    // amendment made when they are all the change there is.
+    let paragraph_86 = format!("{SECTION_1396A}/subsection_a/paragraph_86");
+
+    assert!(linked_paths(title_42_matches(), "c8020929f28e").contains(&paragraph_86));
+}
+
+#[test]
+fn should_link_an_enacted_provision_when_a_later_amendment_of_the_law_inserted_words_at_its_end() {
+    // 26 U.S.C. 6041(d)(3). Section 70201(f)(1)(B) of the law enacts a new
+    // paragraph (3) that ends "...receiving such tips.". Section
+    // 70202(c)(2)(B), later in the law, strikes that period and inserts
+    // ", and". So the Code prints the paragraph with words its enacting
+    // amendment never stated, and with those words taken out it prints
+    // exactly what the amendment enacted.
+    let paragraph_3 = "uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_III/subpart_B/section_6041/subsection_d/paragraph_3";
+
+    assert!(linked_paths(title_26_matches(), "6357bb071b53").contains(&paragraph_3.to_string()));
 }

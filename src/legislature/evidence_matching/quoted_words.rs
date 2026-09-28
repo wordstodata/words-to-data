@@ -18,14 +18,25 @@
 //! such tips and a separate accounting of any amount of qualified overtime
 //! compensation…)", where the earlier amendment quotes "…receiving such
 //! tips)". So a quoted string is also tested with the later amendments'
-//! inserted words taken out of the change. Only inserted words are taken out:
-//! words a later amendment struck are gone, and nothing in the change says
-//! where they stood.
+//! inserted words taken out of the change, and so is an enacted block. Only
+//! inserted words are taken out: words a later amendment struck are gone, and
+//! nothing in the change says where they stood.
+//!
+//! # Too little to decide
+//!
+//! A change shows nothing for an amendment when every string it shows is made
+//! of `COMMON_WORDS` alone — `"and"`, `", or"`, `"the"` — unless those words
+//! are all the change struck or inserted. A struck "and" shows in every list
+//! whose end moved, so under a wide address it points at many changes, and
+//! the one it chose was wrong (42 U.S.C. 1396a(e)(14)(D)(iv), #259). Where a
+//! paragraph lost an "and" and nothing else, the "and" is the change, and it
+//! still decides.
 //!
 //! The words are compared as tokens: runs of letters and digits, lower case,
 //! and each other mark on its own. Curly quotation marks and every dash are
 //! folded first, because the bill and the Code print them differently.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -39,7 +50,7 @@ pub(super) struct QuotedWords {
     /// Each enacted block, as words without marks.
     enacted: Vec<Vec<String>>,
     /// Every word the amendment states, for ranking a tie.
-    words: std::collections::BTreeSet<String>,
+    words: BTreeSet<String>,
 }
 
 /// One of an amendment's quoted strings or enacted blocks that a change
@@ -59,7 +70,25 @@ impl Shown {
     pub(super) fn is_within(&self, other: &Shown) -> bool {
         contains_run(&other.words, &self.words)
     }
+
+    /// Whether every word here is one of the [`COMMON_WORDS`]: `"and"`,
+    /// `"; or"`, `"the"`.
+    fn is_common_words(&self) -> bool {
+        self.words
+            .iter()
+            .filter(|token| is_word(token))
+            .all(|word| COMMON_WORDS.contains(&word.as_str()))
+    }
 }
+
+/// The words that join and qualify the Code's clauses. A quoted string made
+/// of these alone is too little to say which change an amendment made: a
+/// struck "and" shows in every list whose end moved.
+const COMMON_WORDS: &[&str] = &[
+    "a", "an", "and", "any", "as", "at", "be", "by", "each", "for", "he", "in", "is", "it", "may",
+    "not", "of", "on", "or", "shall", "such", "than", "that", "the", "there", "this", "to",
+    "which", "with",
+];
 
 #[derive(Debug, Clone)]
 struct Quoted {
@@ -141,16 +170,34 @@ impl QuotedWords {
                 words: quoted.tokens.clone(),
             });
         let after_words = words_of(after);
+        let after_words_undone: Vec<String> = after_undone
+            .iter()
+            .filter(|token| is_word(token))
+            .cloned()
+            .collect();
         let blocks = self
             .enacted
             .iter()
             .enumerate()
-            .filter(|(_, block)| !after_words.is_empty() && contains_run(block, &after_words))
+            .filter(|(_, block)| {
+                (!after_words.is_empty() && contains_run(block, &after_words))
+                    || (!after_words_undone.is_empty() && contains_run(block, &after_words_undone))
+            })
             .map(|(at, block)| Shown {
                 said: format!("enacted text {} of {}", at + 1, self.enacted.len()),
                 words: block.clone(),
             });
-        strings.chain(blocks).collect()
+        let shown: Vec<Shown> = strings.chain(blocks).collect();
+        // Common words alone decide nothing, unless they are all the change
+        // struck or inserted.
+        let stated: BTreeSet<&String> = shown.iter().flat_map(|words| &words.words).collect();
+        let whole_change = differing_words(&before_tokens, &after_tokens)
+            .iter()
+            .all(|word| stated.contains(word));
+        if shown.iter().all(Shown::is_common_words) && !whole_change {
+            return Vec::new();
+        }
+        shown
     }
 
     /// The strings this amendment inserts that a change shows inserted.
@@ -169,8 +216,8 @@ impl QuotedWords {
     /// Only for ranking what the quoted words left tied: overlap is a hint,
     /// and never a reason on its own (`docs/adr/0013`).
     pub(super) fn overlap(&self, before: &str, after: &str) -> f64 {
-        let before: std::collections::BTreeSet<String> = words_of(before).into_iter().collect();
-        let after: std::collections::BTreeSet<String> = words_of(after).into_iter().collect();
+        let before: BTreeSet<String> = words_of(before).into_iter().collect();
+        let after: BTreeSet<String> = words_of(after).into_iter().collect();
         let differing: Vec<&String> = before.symmetric_difference(&after).collect();
         if differing.is_empty() {
             return 0.0;
@@ -280,6 +327,24 @@ fn occurrences(tokens: &[String], run: &[String]) -> usize {
         return 0;
     }
     tokens.windows(run.len()).filter(|at| *at == run).count()
+}
+
+/// The words that appear a different number of times in `before` and
+/// `after`: what a change struck or inserted.
+fn differing_words(before: &[String], after: &[String]) -> BTreeSet<String> {
+    let count = |tokens: &[String]| {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for word in tokens.iter().filter(|token| is_word(token)) {
+            *counts.entry(word.clone()).or_default() += 1;
+        }
+        counts
+    };
+    let (was, is) = (count(before), count(after));
+    was.keys()
+        .chain(is.keys())
+        .filter(|word| was.get(*word) != is.get(*word))
+        .cloned()
+        .collect()
 }
 
 /// `tokens` with every appearance of each of `runs` taken out.

@@ -189,7 +189,7 @@ pub enum Stage {
 /// apart, a different window rule. Tidying the code that gives the same answers
 /// is not such a change (`crate::method::Method`).
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 1)
+    Method::new("address, window and quoted words", 2)
 }
 
 /// Who a link this method writes says made it.
