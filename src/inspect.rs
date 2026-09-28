@@ -487,6 +487,136 @@ pub struct PathReport {
     pub unfollowed_redesignations: Vec<UnfollowedRedesignation>,
     /// Annotations that reference this path (across all expression pairs).
     pub annotations: Vec<AnnotationSummary>,
+    /// The OLRC's classifications of the section the path belongs to.
+    ///
+    /// Empty for a path above any section, and for a section the table does
+    /// not name. See [`olrc_classifications`].
+    pub olrc_classifications: Vec<OlrcClassification>,
+}
+
+/// One statement of the OLRC's classification table about a Code section: a
+/// section of a public law was classified to it (#247).
+///
+/// The authority's own statement of which law changed the section, so a
+/// reviewer confirming a link reads it beside the link (#259).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OlrcClassification {
+    /// The Code section the row names, as the dataset's path for it.
+    pub section: String,
+    /// The public law, such as `119-21`.
+    pub public_law: String,
+    /// The section of that law, such as `70302(a)`.
+    pub law_section: String,
+    /// The Description column, as the table wrote it. Blank means "amended".
+    pub descriptions: Vec<String>,
+    /// What part of the section the row classifies to.
+    pub classifies: ClassifiedPart,
+}
+
+/// What part of a Code section a classification row is about.
+///
+/// The table resolves to a section and no lower, and it records a note, and a
+/// heading that stands before the section, against that section too. A row
+/// about a note is not a statement about the section's text, and a reader who
+/// took it for one would confirm the wrong thing (#259, and A.1's note trap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClassifiedPart {
+    /// At least one description is about the section itself: blank (amended),
+    /// `new`, `repealed`, and the rest.
+    SectionText,
+    /// Every description begins `nt` or `nts`: a note to the section.
+    Note,
+    /// Every description begins `prec`: what stands before the section, such
+    /// as the heading of the part it opens.
+    Heading,
+    /// Notes and preceding headings, and nothing about the section's text.
+    NoteOrHeading,
+}
+
+impl ClassifiedPart {
+    /// What a row with these descriptions classifies to. The words are the
+    /// OLRC's legend, in `crate::olrc`.
+    fn of(descriptions: &[String]) -> Self {
+        let note = |d: &str| d.trim_start().starts_with("nt");
+        let heading = |d: &str| d.trim_start().starts_with("prec");
+        if descriptions.iter().any(|d| !note(d) && !heading(d)) {
+            Self::SectionText
+        } else if descriptions.iter().all(|d| note(d)) {
+            Self::Note
+        } else if descriptions.iter().all(|d| heading(d)) {
+            Self::Heading
+        } else {
+            Self::NoteOrHeading
+        }
+    }
+}
+
+/// The section a structural path belongs to: the path cut after its
+/// `section_` segment, or `None` for a path above any section.
+fn section_of(path: &str) -> Option<&str> {
+    let mut end = 0;
+    for segment in path.split('/') {
+        end += segment.len();
+        if segment.starts_with("section_") {
+            return Some(&path[..end]);
+        }
+        end += 1;
+    }
+    None
+}
+
+/// The OLRC's classifications of the section `path` belongs to, in the order
+/// of the law.
+///
+/// A classification names a section and no lower, so a path inside a section
+/// is answered with its section's rows. A path above any section has none.
+pub fn olrc_classifications<S: Storage>(
+    dataset: &S,
+    path: &str,
+) -> Result<Vec<OlrcClassification>, DatasetError> {
+    let Some(section) = section_of(path) else {
+        return Ok(Vec::new());
+    };
+    let mut rows: Vec<OlrcClassification> = dataset
+        .links_for_path(section)?
+        .iter()
+        .filter(|link| link.kind.0 == LinkKind::CLASSIFIED_FROM)
+        .filter(|link| link.subject.name() == section)
+        .filter_map(|link| classification(section, link))
+        .collect();
+    rows.sort_by(|a, b| {
+        (&a.public_law, &a.law_section).cmp(&(&b.public_law, &b.law_section))
+    });
+    Ok(rows)
+}
+
+/// One `olrc.classified_from` link, read back into the row it states.
+fn classification(section: &str, link: &Link) -> Option<OlrcClassification> {
+    let Target::External { reference, .. } = &link.object else {
+        return None;
+    };
+    let (public_law, law_section) = reference
+        .strip_prefix("olrc.classification:")?
+        .split_once(':')?;
+    let descriptions: Vec<String> = link
+        .payload
+        .as_ref()
+        .and_then(|payload| payload.value.get("descriptions"))
+        .and_then(|value| value.as_array())
+        .map(|all| {
+            all.iter()
+                .filter_map(|d| d.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(OlrcClassification {
+        section: section.to_string(),
+        public_law: public_law.to_string(),
+        law_section: law_section.to_string(),
+        classifies: ClassifiedPart::of(&descriptions),
+        descriptions,
+    })
 }
 
 /// Serde string form of a text content field (e.g. `"heading"`).
@@ -553,6 +683,7 @@ pub fn path_report<S: Storage>(
         provisions,
         unfollowed_redesignations,
         annotations,
+        olrc_classifications: olrc_classifications(dataset, path)?,
     })
 }
 

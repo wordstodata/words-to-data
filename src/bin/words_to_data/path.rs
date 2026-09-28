@@ -108,6 +108,32 @@ pub fn run(args: Args) {
     for a in &report.annotations {
         crate::annotations::print_annotation(a);
     }
+
+    if let Some(first) = report.olrc_classifications.first() {
+        print_classifications(&first.section, &report.olrc_classifications);
+    }
+}
+
+/// The OLRC's classifications of one section, one line each.
+///
+/// A row about a note or a preceding heading says so on its own line. The
+/// table records both against the section, and a reviewer who read one as a
+/// statement about the section's text would confirm the wrong thing.
+pub fn print_classifications(section: &str, rows: &[inspect::OlrcClassification]) {
+    println!("\nOLRC classifications of {section} ({}):", rows.len());
+    for row in rows {
+        let said: Vec<&str> = row
+            .descriptions
+            .iter()
+            .map(|d| if d.trim().is_empty() { "amended" } else { d.as_str() })
+            .collect();
+        println!(
+            "  classified by the OLRC from Pub. L. {} §{}, {}",
+            row.public_law,
+            row.law_section,
+            said.join("; ")
+        );
+    }
 }
 
 fn provisions(n: usize) -> String {
