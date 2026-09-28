@@ -1412,8 +1412,13 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// Version 2 (#172): a statement is recorded in one window only, the first
 /// after the law's enactment in which the text under its container changed.
 /// Version 1 recorded it in every window it resolved in.
+///
+/// Version 3 (#273): a statement that already holds a standing link in an
+/// earlier window is not placed in a later one. Version 2 saw only the windows
+/// it was given, so a dataset that grew one window at a time recorded a move a
+/// second time.
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 2)
+    Method::new("amendingAction type=redesignate", 3)
 }
 
 /// How far the words at a redesignation's two ends agree.
