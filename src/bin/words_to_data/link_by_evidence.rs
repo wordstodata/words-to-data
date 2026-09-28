@@ -18,7 +18,7 @@
 //! told where to write and is never written back over its input (#186).
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::{Dataset, Format, adjacent_expressions};
 use words_to_data::legislature::evidence_matching::{
     EvidenceMatching, Outcome, Stage, evidence_method, match_by_evidence,
 };
@@ -80,7 +80,16 @@ fn link<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>) {
             written += 1;
         }
     }
-    for (from, to) in &found.windows {
+    // Every window of every work, and not only the windows `found` read. The
+    // method considered them all: a work no amendment addresses has nothing in
+    // it to link, and that is an answer. A run records that the reasoning was
+    // applied to a window, not that it wrote a link there (#179, decision 11),
+    // so `validate` does not name those windows as outstanding (#252).
+    let considered = crate::fail::or_exit(
+        adjacent_expressions(&*dataset),
+        "Error listing the dataset's windows",
+    );
+    for (from, to) in &considered {
         crate::fail::or_exit(
             dataset.record_method_run(evidence_method(), from, to),
             "Error recording what ran",

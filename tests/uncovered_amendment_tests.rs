@@ -315,3 +315,60 @@ fn should_say_nothing_when_a_run_of_the_removed_model_method_has_covered_the_win
         report.uncovered_amendments
     );
 }
+
+/// Title 7, which 82 amendments of the bill act in, and title 9, which no
+/// amendment addresses, at two committed release points, with the bill.
+fn dataset_with_an_addressed_and_an_unaddressed_work() -> Dataset<InMemoryStorage> {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    for date in [BEFORE, AFTER] {
+        for title in ["usc07", "usc09"] {
+            add_release_point(
+                &mut dataset,
+                &format!("tests/test_data/usc/{date}/{title}.xml"),
+                date,
+            );
+        }
+    }
+    dataset
+        .load_bill_download(&committed_bill_download())
+        .expect("the committed bill should load");
+    dataset
+}
+
+#[test]
+fn should_name_no_window_when_link_by_evidence_has_run_even_in_a_work_no_amendment_addresses() {
+    // The matcher looks at every window of every work. In a work no amendment
+    // addresses it finds nothing to link, and that is still a run over the
+    // window. `validate` must not send the reader to run `link-by-evidence`
+    // again for nothing (#252).
+    let input = format!(
+        "{}/link_by_evidence_every_window.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let linked = format!(
+        "{}/link_by_evidence_every_window_linked.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    dataset_with_an_addressed_and_an_unaddressed_work()
+        .save(&input, Format::Compact)
+        .expect("the fixture should save");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(["link-by-evidence", &input, "--output", &linked])
+        .output()
+        .expect("the binary should run");
+    assert!(
+        output.status.success(),
+        "link-by-evidence should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let dataset = Dataset::load(&linked, Format::Compact).expect("the output should load");
+    let report = inspect::validate(&dataset).expect("validate should run");
+
+    assert!(
+        report.uncovered_amendments.is_empty(),
+        "every window was looked at, got {:?}",
+        report.uncovered_amendments
+    );
+}
