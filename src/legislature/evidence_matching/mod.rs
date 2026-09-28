@@ -620,6 +620,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
             .map(|at| Contender {
                 amendment_id: &stated[*at].address.amendment_id,
                 public_law: &stated[*at].public_law,
+                only_renumbers: stated[*at].operation == AmendingAction::Redesignate,
                 evidence: &stated[*at].evidence,
                 candidates: placed[at][0].candidates.clone(),
             })

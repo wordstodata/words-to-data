@@ -216,3 +216,33 @@ fn should_link_an_enacted_provision_when_a_later_amendment_of_the_law_inserted_w
 
     assert!(linked_paths(title_26_matches(), "6357bb071b53").contains(&paragraph_3.to_string()));
 }
+
+#[test]
+fn should_not_give_a_change_to_an_amendment_that_only_renumbers_by_elimination() {
+    // 42 U.S.C. 1397gg(e)(1). Section 71109(b)(1) of the law (by the
+    // markup: "(1) by redesignating subparagraphs (R) through (V) as
+    // paragraphs (S) through (W)") only renumbers. It quotes no words, so
+    // nothing speaks against any change under its address. Other amendments
+    // edited the words of subparagraph (G) and added a new (H) there.
+    //
+    // An amendment that only renumbers made moves, and the dataset's
+    // redesignation links say which. It is given nothing by elimination.
+    //
+    // Before #262 the markup gives this amendment no address, and it stops
+    // there, so on its own this test only guards the rule.
+    let paragraph_1 =
+        "uscode/title_42/chapter_7/subchapter_XXI/section_1397gg/subsection_e/paragraph_1";
+    let found = match_of(title_42_matches(), "6a32ab182ca2");
+    let paths = match &found.outcome {
+        Outcome::Linked(linked) => linked.paths(),
+        Outcome::Residue(_) => Vec::new(),
+    };
+
+    for subparagraph in ["subparagraph_G", "subparagraph_H"] {
+        let path = format!("{paragraph_1}/{subparagraph}");
+        assert!(
+            !paths.contains(&path),
+            "the renumbering amendment did not make {path}: {paths:?}"
+        );
+    }
+}

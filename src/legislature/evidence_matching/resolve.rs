@@ -25,7 +25,8 @@
 //! 3. **Elimination.** What is left goes to the one amendment whose address
 //!    covers it. An amendment that quotes words its changes do not show only
 //!    takes a change this way when a single change is left to it, because its
-//!    own words speak against every other.
+//!    own words speak against every other. An amendment that only renumbers
+//!    takes nothing this way: its changes are moves, and step 0 gives them.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -62,6 +63,9 @@ pub(super) struct Contender<'a> {
     pub public_law: &'a str,
     pub evidence: &'a QuotedWords,
     pub candidates: Vec<usize>,
+    /// The amendment's only action is to renumber. Its changes are the moves
+    /// the dataset's redesignation links name, so elimination gives it none.
+    pub only_renumbers: bool,
 }
 
 impl Contender<'_> {
@@ -262,7 +266,7 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
     let has_a_cause: BTreeSet<usize> = cause.values().flatten().map(|(who, _)| *who).collect();
     let mut wanted: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for (who, contender) in contenders.iter().enumerate() {
-        if has_a_cause.contains(&who) {
+        if has_a_cause.contains(&who) || contender.only_renumbers {
             continue;
         }
         let free: Vec<usize> = contender
