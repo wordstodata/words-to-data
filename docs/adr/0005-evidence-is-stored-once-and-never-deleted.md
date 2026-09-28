@@ -2,6 +2,8 @@
 
 Status: accepted
 
+Superseded in part by ADR 0013: `extract-changes` and `match-amendments`, the commands this ADR names as the writers of replies, were removed in #252. The decision stands: a dataset keeps the replies it holds, and every reader still reads them.
+
 `CONTEXT.md` defined provenance as the source, the method, the evidence, and the verification state of a statement. (It now also names the timestamp, the raw score and the corroboration; those are not what this decision is about.) Three of the four survived an LLM extraction. The reasoning did too — the model's own explanation is parsed out of its reply and kept — but the reply itself did not. `classify` and `extract_changes` both used the raw text inside an error message and then dropped it.
 
 That left a machine's claim uncheckable. A party receiving a W2D file could see that a statement was `MachineSuggested`, but not what the machine said, so "never lie" rested on a label rather than on anything they could inspect. It also meant no recorded reply existed to test the parser against, and a reply reconstructed from stored results is well-formed by construction, so it proves nothing about what models really send.

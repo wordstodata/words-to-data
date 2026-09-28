@@ -2,6 +2,8 @@
 
 Status: accepted. Built in part — see ADR 0009, **Order of work**.
 
+Superseded in part by ADR 0013: the model pass this ADR keeps as a separate command was removed in #252.
+
 A bill states its renumberings in English: "by redesignating subparagraphs (H) through (U) as subparagraphs (I) through (V), respectively". A rule reader turns those words into two structural paths. Over `119-hr-1` it places 44 of the 57 statements the bill makes, as 89 links, and reports the other 13 with a reason each.
 
 Those 13 are not noise. Three name a *part* rather than a section, and the resolver starts at a section. Four rely on the bill's own "Amendment of 1986 Code" convention with nothing in the markup to confirm the title. Three amend a table of sections. One writes "subparagraphs (R) through (V)" on one side and "paragraphs (S) through (W)" on the other, so no series enumerates. A stricter regex will not read them; reading them is a language problem.

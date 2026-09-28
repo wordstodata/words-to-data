@@ -198,7 +198,7 @@ What a statement was based on: the maker's reasoning in their own words, and the
 _Avoid_: Proof, justification, backing
 
 **Model reply**:
-The text a model returned, kept exactly as it arrived. One reply usually makes several statements, so it is stored once and referred to, never copied onto each. It is never deleted, even when the statement it supported has been superseded: an unreferenced reply is a record that something was said. A reply that no parser could read makes no statement, so the Dataset does not carry it at all.
+The text a model returned, kept exactly as it arrived. One reply usually makes several statements, so it is stored once and referred to, never copied onto each. It is never deleted, even when the statement it supported has been superseded: an unreferenced reply is a record that something was said. A reply that no parser could read makes no statement, so the Dataset does not carry it at all. No command writes a new one since the model pipeline was removed (#252); a Dataset built before keeps its replies, and every reader still reads them.
 _Avoid_: Response, output, completion
 
 **Corroboration**:
@@ -270,7 +270,7 @@ A reason is part of the statement, as it is for an Exclusion: a hole with no rea
 _Avoid_: Error, failure, skip, warning
 
 **Window**:
-Two neighbouring Expressions of one Work: the law as it read before, and as it read after. It is what a statement about change is checked against, and every step that reads change takes one — `score-amendments`, `match-amendments` and `redesignations` all name it with the same argument.
+Two neighbouring Expressions of one Work: the law as it read before, and as it read after. It is what a statement about change is checked against, and every step that reads change takes one. `redesignations` names it with an argument; `link-by-evidence` chooses it itself, as the first window after the law's enactment in which the address changed.
 
 A window is made by loading a release point and is resolved by a separate step. Loading a Bill records nothing, because at that moment nobody knows which window matters and often the window is not held yet (#181).
 _Avoid_: Version pair, range, period

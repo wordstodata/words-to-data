@@ -33,32 +33,35 @@ words-to-data = "0.3.0"
 - Title data: https://uscode.house.gov/download/download.shtml
 - Bill data: https://congress.gov
 
-## Build a Dataset: The Six Steps
+## Build a Dataset: The Five Steps
 
-Six commands turn an empty directory into a finished dataset. Run them in this
+Five commands turn an empty directory into a finished dataset. Run them in this
 order:
 
 ```
-build-dataset → extract-changes → score-amendments → match-amendments → [redesignations] → convert-dataset
+build-dataset → add-classifications → link-by-evidence → [redesignations] → convert-dataset
 ```
+
+**No step calls a model.** The old pipeline had three more commands:
+`extract-changes`, `score-amendments` and `match-amendments`. Two of them sent
+requests to a model. They were removed in #252, and `link-by-evidence` does
+their work from the bill's own markup
+(`docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`). A
+dataset built before #252 keeps the model links and the model replies it holds,
+and every reader still reads them (`docs/adr/0005`).
 
 A dataset that missed a step used to look complete. One rebuild wrote 889
 `legislature.amended_by` links and no redesignation links at all, and nothing
 reported it (#150).
 
 The file now records **which method, at which version, ran over which window**,
-for the two steps that write statements into a window — step 4 and step 5
+for the two steps that write statements into a window — step 3 and step 4
 (#182). It records the method and not the command: "`redesignations` has run
 here" stays true for ever while the reading behind it changes underneath. `info`
 prints it under **Methods run**, one line for each method and window, with the
 number of works that line covers. A run is recorded once per work, so the record
 holds one entry per work: `info --json` carries every one of them as
 `method_runs`, and a reader that wants the works by name reads them there.
-
-It is not yet a list of every step. `extract-changes` runs over bills and not
-over a window, and `score-amendments` writes a file beside the dataset rather
-than into it, so neither leaves a record. Read the counts that each command
-prints, and compare them with the counts in this section.
 
 Build the CLI first:
 
@@ -72,14 +75,10 @@ cargo build --release
 | Step | Calls a model | Cache | A second run costs |
 | --- | --- | --- | --- |
 | 1. `build-dataset` | no | `<user cache dir>/words_to_data` | bandwidth, on a cache miss |
-| 2. `extract-changes` | **yes** | `changes_cache.json`, beside the dataset | nothing, while that file stays there |
-| 3. `score-amendments` | no | not applicable | nothing |
-| 4. `match-amendments` | **yes** | `matches_cache.json`, beside the dataset | nothing, while that file stays there |
-| 5. `redesignations` (for a re-run only) | no | not applicable | nothing |
-| 6. `convert-dataset` | no | not applicable | nothing |
-
-**Two steps call a model, and only two: `extract-changes` and `match-amendments`.
-These two steps spend money. No other step sends a request to a model.**
+| 2. `add-classifications` | no | `<user cache dir>/words_to_data` | nothing, while the cache holds the pages |
+| 3. `link-by-evidence` | no | not applicable | nothing |
+| 4. `redesignations` (for a re-run only) | no | not applicable | nothing |
+| 5. `convert-dataset` | no | not applicable | nothing |
 
 ### Step 1 — `build-dataset`
 
@@ -110,148 +109,39 @@ committed release points, `build-dataset` writes **80**
 `words_to_data info dataset.json`.
 
 A dataset that **grew** instead of being built has to be given that step by
-hand, with step 5. `words_to_data validate` names each bill and window that is
+hand, with step 4. `words_to_data validate` names each bill and window that is
 waiting for it.
 
-### Step 2 — `extract-changes` (calls a model)
+### Step 2 — `add-classifications`
+
+```bash
+words_to_data add-classifications dataset.json --output dataset-classified.json
+```
+
+This step stores the OLRC's classification of each public law the dataset holds,
+as `olrc.classified_from` links. Step 3 reads them as evidence, and never as the
+reason for a link. See [What the OLRC classified](#what-the-olrc-classified--add-classifications)
+below.
+
+### Step 3 — `link-by-evidence`
 
 ```bash
 # A SQLite dataset is changed in place.
-words_to_data extract-changes dataset.sqlite --threads 8
+words_to_data link-by-evidence dataset.sqlite
 
 # A compact JSON dataset must be told where to write.
-words_to_data extract-changes dataset.json --threads 8 \
-  --output dataset-extracted.json
+words_to_data link-by-evidence dataset.json --output dataset-linked.json
 ```
 
-This step reads the word-level changes out of each amendment, and writes them
-into the dataset. It sends one request for each amendment that carries no changes
-yet. The five committed bills hold **606** amendments, so a cold run sends
-approximately 606 requests.
+This step links each amendment of every public law to the change it made, from
+the address the bill's markup names, the window after the law's enactment, and
+the words the bill quotes. It writes each link as `legislature.amended_by`. It
+takes no span: it reads every window after each law's enactment. Over the
+committed corpus it links **449** of the **603** amendments of `119-hr-1`, as
+**1195** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
+below, and `residue` for the amendments it did not link.
 
-It takes either form the dataset comes in. A SQLite dataset is changed in place,
-under one transaction. A compact JSON dataset is written whole, so it is never
-written back over its input, and a run without `--output` refuses before it
-sends its first request (#186, #199).
-
-**The whole reading is written in one call.** Each amendment's changes and
-provenance are gathered first and given to the store together, so a database
-writes each bill once and not once for each change. One bill holds 603
-amendments, and a write for each of them costs 27 seconds where one call costs
-45 milliseconds.
-
-The command speaks to an OpenAI-compatible chat-completions server. The default
-is a local server at `http://localhost:8080`. For a hosted endpoint, give
-`--base-url` and `--model`. Put the key in the `W2D_API_KEY` environment
-variable: a key in `--api-key` goes into the shell history and into `ps`.
-
-**Keep `changes_cache.json` beside the dataset.** The command writes this file
-into the same directory as the dataset, and reads it at the start of each run. A
-run that finds the cache sends no request for an amendment the cache holds. A run
-that does not find the cache buys all of those replies again. `--no-cache` forces
-a new request for each amendment, which is correct only when you know that the
-replies must change.
-
-The command writes the cache after each successful request, so you can stop a run
-and start it again without a loss. A request that fails is not cached, and a
-later run tries it again.
-
-### Step 3 — `score-amendments` (no model)
-
-```bash
-words_to_data score-amendments dataset.json --between 2025-07-18 2025-07-30
-```
-
-This step compares each amendment against the US Code diff, and gives each pair a
-similarity score. The calculation is deterministic, and the same dataset always
-gives the same scores.
-
-Use `--between FROM TO` for every work that both dates hold, or `--from` and
-`--to` together for one named pair, such as
-`--from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30`.
-
-Use `--bills` to score only some of the bills, as `--bills 119-hr-1,119-hr-42`.
-A run that names no bill covers every bill the dataset holds, as it always did.
-A name the dataset does not hold stops the run and is named, because a run that
-covered nothing and said nothing would read as a run that did the job. Run
-`words_to_data bills <dataset>` to see the names the dataset holds.
-
-**A run with `--bills` must be told where to write, with `--output`.**
-`similarity_scores.json` beside the dataset holds the scores of every bill, and
-an entry says which pair it came from but not which bill, so a reader could not
-tell a part from the whole. Such a run refuses before it does the work.
-
-The scores go to `similarity_scores.json` beside the dataset, or to the path in
-`--output`. **That file is a report, and no command reads it.** Step 4 calculates
-the same scores again from the dataset. So step 3 writes nothing into the
-dataset, and a reader who skips it gets the same dataset. Run it to see which
-candidates step 4 will offer the model, and at which cutoff. The two steps have
-the same default cutoff of 0.4.
-
-### Step 4 — `match-amendments` (calls a model)
-
-```bash
-# A SQLite dataset is changed in place.
-words_to_data match-amendments dataset.sqlite --between 2025-07-18 2025-07-30
-
-# A compact JSON dataset must be told where to write.
-words_to_data match-amendments dataset.json --between 2025-07-18 2025-07-30 \
-  --output dataset-matched.json
-```
-
-This step asks the model which change each amendment caused, and writes each
-answer into the dataset as a `legislature.amended_by` link. It takes the same
-span flags as step 3, the same `--bills` flag, and the same model flags as step
-2.
-
-**`--bills` is what holds the cost down.** The command sends a request for each
-amendment it covers, so a bill you do not name costs nothing. The cache holds a
-reply under the question it answers and not under the run that bought it, so a
-run with `--bills` leaves the replies bought for the other bills where they are,
-and a later run over every bill reuses them.
-
-It takes either form the dataset comes in. A SQLite dataset is changed in place,
-under a transaction. A compact JSON dataset is written whole, so it is never
-written back over its input, and a run without `--output` refuses before it
-sends its first request (#186).
-
-It sends a request for each amendment that has candidates and that no cached
-reply answers. A cold run over the committed corpus sends approximately **656**
-requests, one for each amendment with candidates across the 58 works.
-
-**Keep `matches_cache.json` beside the dataset.** The command writes this file
-into the same directory as the dataset, and reads it at the start of each run. A
-run that finds the cache sends no request for an amendment that the cache
-answers, and it prints the replies that it reused and the calls that it made. A
-run that does not find the cache buys all of those replies again. `--no-cache`
-forces a new request for each amendment, which is correct only when you know that
-the replies must change.
-
-The command writes the cache after each successful request, so you can stop a run
-and start it again without a loss. A request that fails is not cached, and a
-later run tries it again.
-
-The cache holds each reply under two hashes: the candidates that the model saw,
-and the prompt that the command sent them in. The command reuses a reply only
-when both agree with the run that it makes now. A new prompt, or a new
-`--similarity-cutoff`, is a different question, and it buys new replies.
-
-**The cache also makes a rebuild reproducible.** Before the cache, the same commit
-over the same sources gave 893 links on one run and 899 on the next (#123). A run
-that reuses the cached replies writes the same links each time.
-
-The command writes `candidates.json` beside the dataset. That file records the
-question for a reader, and no command reads it.
-
-**"Beside the dataset" means the directory, not the name.** Both files take a
-fixed name in the directory the dataset sits in, so a `dataset.json` and the
-`dataset.sqlite` it converts to share one cache and one `candidates.json`. For
-the cache that is what you want, because a reply is keyed on the candidates and
-the prompt rather than on the file they came from: convert the dataset and the
-replies you already bought still answer. For `candidates.json` it means the
-later run overwrites the earlier one's report.
-
-### Step 5 — `redesignations` (for a grown dataset, or a re-run)
+### Step 4 — `redesignations` (for a grown dataset, or a re-run)
 
 Step 1 runs this same step over every window it made, so the ordinary build path
 does not include this command. Run it when the dataset **grew**: a release point
@@ -273,7 +163,7 @@ words_to_data redesignations dataset.json \
   --output dataset-redesignated.json
 ```
 
-This step takes either form as well, under the same rule as step 4.
+This step takes either form as well, under the same rule as step 3.
 
 `--bill-id` names which bill in the dataset to read. The command reads that
 bill's own document, which step 1 stored, so nothing opens the Congress cache a
@@ -302,7 +192,7 @@ twice. `contradictions` finds those, and it does not choose between them: the
 choice is [#172](https://github.com/wordstodata/words-to-data/issues/172). Do not
 read this document as an answer to it.
 
-### Step 6 — `convert-dataset`
+### Step 5 — `convert-dataset`
 
 ```bash
 words_to_data convert-dataset dataset.json dataset.sqlite
@@ -312,20 +202,22 @@ The output argument is positional and optional. Without it, the command swaps th
 extension of the input. The direction comes from the two extensions.
 
 **Every step takes either form now** (#180, #195, #199). Step 1 always writes
-compact JSON, whatever the output name. Steps 2, 3, 4 and 5 read or write either
+compact JSON, whatever the output name. Steps 2, 3 and 4 read or write either
 form, and a dataset they change is changed in place. So convert as soon as step
 1 is done, and let the rest of the pipeline work on the database.
 
 ### What the finished dataset holds
 
 `words_to_data info dataset.json` reports the links of each kind. A complete run
-gives two kinds:
+gives three kinds:
 
 - `legislature.redesignated_as`, from step 1. The committed corpus gives 80.
-- `legislature.amended_by`, from step 4. The last measured run gave 899.
+- `olrc.classified_from`, from step 2. The three committed release points give 673.
+- `legislature.amended_by`, from step 3. The three committed release points give 1195.
 
 A count of zero for `legislature.redesignated_as` says that step 1 did not record
-them. A count of zero for `legislature.amended_by` says that step 4 did not run.
+them. A count of zero for `olrc.classified_from` says that step 2 did not run. A
+count of zero for `legislature.amended_by` says that step 3 did not run.
 
 `info` also carries one line of renumbering counts, in this shape:
 
@@ -432,10 +324,11 @@ are now told apart by the record of what ran: a window that a method covered
 holds a `method_runs` entry naming that method and its version, whether or not
 the method found anything to write (#182).
 
-**Run the window steps again after the dataset grows.** Steps 4 and 5 take a
-`--between` span, and the run names the span to give them. A redesignation is
-recorded by a step over a named window, so a bill in a dataset that grew holds no
-link into the new window until step 5 runs over it (#181).
+**Run the window steps again after the dataset grows.** Step 4 takes a
+`--between` span, and the run names the span to give it. Step 3 takes no span,
+and the run names it too. A redesignation is recorded by a step over a named
+window, so a bill in a dataset that grew holds no link into the new window until
+step 4 runs over it (#181).
 
 **`validate` says which of those steps is outstanding, for redesignations.** It
 names each bill and window where the bill states renumberings, the window could
@@ -491,7 +384,7 @@ For each amendment it reads three things the dataset already holds:
    tie that the words cannot break is left alone.
 
 Each change becomes one `legislature.amended_by` link, in the shape
-`match-amendments` writes, with the method `address, window and quoted
+`match-amendments` wrote before it was removed (#252), with the method `address, window and quoted
 words@1`. Its evidence says the address, the window, the words that placed it,
 and what the OLRC classification (if `add-classifications` has run) says of the
 section. A note in the classification never counts.
@@ -505,8 +398,9 @@ carry them.
 ### What is left — `residue`
 
 This command lists every amendment of a public law that no
-`legislature.amended_by` link names, from any source: `link-by-evidence`,
-`match-amendments`, or an agent through `link-amendment`. It stores nothing, so
+`legislature.amended_by` link names, from any source: `link-by-evidence`, an
+agent through `link-amendment`, or `match-amendments` in a dataset built before
+that command was removed (#252). It stores nothing, so
 an amendment leaves the list as soon as a link names it.
 
 ```bash
