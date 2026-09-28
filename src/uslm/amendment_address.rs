@@ -406,28 +406,8 @@ fn stored_section_under_amendment(
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
-    let names_an_act = line.contains(" of the ") || cites_a_section_of_another_law(line);
-    if names_an_act {
-        let in_line: Vec<UscReference> = stored_usc_references(holder)
-            .into_iter()
-            .filter(|reference| line.contains(reference.display.trim()))
-            .collect();
-        if let Some(reference) = in_line.iter().find(|reference| places_a_section(reference)) {
-            return Ok((
-                uslm_section_id(&reference.title, &reference.section),
-                reference.trail.clone(),
-            ));
-        }
-        // The publisher placed the Act, and only as a note or as a range. The
-        // number cited is the Act's own, which no bare-section reading can
-        // turn into the Code's.
-        if !in_line.is_empty() {
-            return Err(Reason::SectionOfAnotherLaw(number));
-        }
-    }
-
-    if cites_a_section_of_another_law(line) {
-        return Err(Reason::SectionOfAnotherLaw(number));
+    if let Some(placed) = section_of_an_act(line, &number, stored_usc_references(holder)) {
+        return placed;
     }
 
     // A bare section: the title must come from the publisher, not from us. The
@@ -463,6 +443,42 @@ fn stored_section_under_amendment(
     }
 
     Err(Reason::NoTitleForSection(number))
+}
+
+/// Form 2: where the Code places the section of an Act an amending line cites.
+///
+/// `None` when the line does not cite a section of an Act, and a bare-section
+/// reading comes next. `references` are the publisher's references in the level
+/// that says the line; only those whose words the line holds count. Where the
+/// line cites a section of another law and no reference places it in the Code,
+/// the answer is [`Reason::SectionOfAnotherLaw`]: the number is the other
+/// law's, which no bare-section reading can turn into the Code's.
+///
+/// Both readers of a bill read form 2 here, so the stored bill and its markup
+/// come to the same answer about the same sentence.
+pub(crate) fn section_of_an_act(
+    line: &str,
+    number: &str,
+    references: Vec<UscReference>,
+) -> Option<Result<(String, Vec<String>), Reason>> {
+    let another_law = cites_a_section_of_another_law(line);
+    if !line.contains(" of the ") && !another_law {
+        return None;
+    }
+    let in_line: Vec<UscReference> = references
+        .into_iter()
+        .filter(|reference| line.contains(reference.display.trim()))
+        .collect();
+    if let Some(reference) = in_line.iter().find(|reference| places_a_section(reference)) {
+        return Some(Ok((
+            uslm_section_id(&reference.title, &reference.section),
+            reference.trail.clone(),
+        )));
+    }
+    // The publisher placed the Act only as a note or as a range, or the line
+    // cites another law and nothing places it.
+    (another_law || !in_line.is_empty())
+        .then(|| Err(Reason::SectionOfAnotherLaw(number.to_string())))
 }
 
 /// Whether a reference to the Code names one section of it.
