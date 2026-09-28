@@ -444,7 +444,10 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
         let group = if reason.starts_with("no provision at") {
             "no provision at <path> before/after the bill"
         } else if reason.starts_with("nothing says which title") {
-            "nothing says which title holds section 4 / 101"
+            "nothing says which title holds section 4"
+        } else if reason.ends_with("is a section of another law, and nothing places it in the Code")
+        {
+            "section 4 / 101 is a section of another law"
         } else if reason.ends_with("names more than one provision") {
             "names more than one provision"
         } else {
@@ -456,7 +459,12 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
         grouped,
         BTreeMap::from([
             ("no section under amendment was named", 3),
-            ("nothing says which title holds section 4 / 101", 4),
+            // Three cite a section of another Act, which no reference places
+            // in the Code (#259). The fourth is split by a page break,
+            // "Section 4(a)(1)(A) of 139 STAT. 395 the Radiation Exposure
+            // Compensation Act", so it does not read as a section of an Act.
+            ("nothing says which title holds section 4", 1),
+            ("section 4 / 101 is a section of another law", 3),
             ("a table of sections, not a provision", 3),
             ("no provision at <path> before/after the bill", 5),
             ("the numbers of a paragraph do not run in a known series", 1),

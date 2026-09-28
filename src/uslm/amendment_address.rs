@@ -29,13 +29,16 @@
 //! tool's silence read as the bill's silence, which is the rule #110 set for
 //! unknown elements.
 //!
-//! # The OLRC is not read yet
+//! # The OLRC is read by the matcher, not here
 //!
-//! ADR 0013 says the Office of Law Revision Counsel's classification
-//! (`olrc.classified_from` links, #247) corroborates or contradicts an address.
-//! No dataset holds those links yet, so this resolver reads the markup alone and
-//! works the same with or without them. The comparison is a follow-up, and it
-//! reads the links as #247 specifies them:
+//! This resolver reads the markup alone, and works the same with or without the
+//! Office of Law Revision Counsel's classification (`olrc.classified_from`
+//! links, #247). The matcher reads those links
+//! ([`crate::legislature::evidence_matching`]): where this resolver gives an
+//! instruction no section, the one section the OLRC classifies the
+//! instruction's place in the law to becomes its address (#259). **The markup
+//! wins**: an instruction addressed here is never readdressed by the table.
+//! The links are read as #247 specifies them:
 //!
 //! - the subject is the Code **section**'s structural path, never lower;
 //! - the object is `olrc.classification:<public law>:<law section>`, such as
@@ -45,13 +48,16 @@
 //! - the payload, in the `olrc` namespace, is `{"descriptions": [...]}`, a list,
 //!   because two rows of a table can give one link.
 //!
-//! **A note does not corroborate an address.** A link whose descriptions are
-//! all note forms — `nt`, `nts`, `nt [tbl]`, `nt new`, `nt …` — classifies a
-//! note under the section, and the dataset holds no notes. It sits on the
-//! section's path and says nothing about the section's own text. `prec`, the
-//! heading before a section, is the same. For Public Law 119-21, 175 of 635
-//! rows are `nt new` and 10 more are `nt`, so counting them would corroborate
-//! addresses nothing supports.
+//! **A note neither corroborates nor gives an address.** A link whose
+//! descriptions are all note forms — `nt`, `nts`, `nt [tbl]`, `nt new`,
+//! `nt …` — classifies a note under the section, and the dataset holds no
+//! notes. It sits on the section's path and says nothing about the section's
+//! own text. `prec`, the heading before a section, is the same, and so is
+//! `prec new`. For Public Law 119-21, 175 of 635 rows are `nt new` and 10 more
+//! are `nt`, so counting them would corroborate addresses nothing supports, and
+//! reading them as an address would point a link at a section whose text the
+//! instruction never touched: § 70118(a) amends § 11026 of Public Law 115-97,
+//! which the table places only as a note under 26 U.S.C. 112.
 
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -264,7 +270,7 @@ impl<'a> Scope<'a> {
             return Err(Reason::TableOfSections);
         }
         let Some((line, holder)) = &self.amending_line else {
-            return Err(Reason::NoSectionNamed);
+            return Err(Reason::NoAmendingLine);
         };
         let cited = cite(line).ok_or(Reason::NoSectionNamed)?;
         let (section, trail) =
@@ -365,10 +371,12 @@ fn stored_usc_references(node: &DocumentNode) -> Vec<UscReference> {
 ///
 /// 1. `Section 2881a of title 10, United States Code` — the bill says which
 ///    title, so nothing has to be inferred.
-/// 2. `Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o))` —
-///    the citation numbers a section of an Act, and the publisher's own `<ref>`
-///    beside it gives the place in the Code. A reference whose text says `note`
-///    is refused: the Act is *not* codified at that section.
+/// 2. `Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o))`,
+///    or `Section 321(a)(2) of such Act (19 U.S.C. 1321(a)(2))` — the citation
+///    numbers a section of an Act, and the publisher's own `<ref>` beside it
+///    gives the place in the Code. A reference whose text says `note` or `et
+///    seq.` is refused ([`places_a_section`]): the Act is *not* codified at
+///    that section.
 /// 3. A bare `Section 898(c)`, first against the publisher's own marginal
 ///    reference to the same section number — `26 USC 898` — found by climbing
 ///    the enclosing levels, and then against the bill's References clause,
@@ -378,6 +386,13 @@ fn stored_usc_references(node: &DocumentNode) -> Vec<UscReference> {
 /// Where none of the three answers, [`Reason::NoTitleForSection`]. A title
 /// nobody told us is a confident guess, and this is the one place a wrong guess
 /// would silently move a provision between titles of the Code.
+///
+/// A citation of a section **of another law** — `Section 11026(a) of Public
+/// Law 115–97`, `Section 2408(g)(1) of the Agriculture Improvement Act of
+/// 2018` — is not bare, so form 3 never reads it. Its number is the other
+/// law's, and only form 2 can place it in the Code. Where form 2 does not, the
+/// answer is [`Reason::SectionOfAnotherLaw`], never a Code section with the
+/// other law's number (#259).
 fn stored_section_under_amendment(
     cited: (String, Vec<String>),
     line: &str,
@@ -391,17 +406,8 @@ fn stored_section_under_amendment(
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
-    let names_an_act = line.contains(" of the ");
-    if names_an_act {
-        let codified = stored_usc_references(holder).into_iter().find(|reference| {
-            line.contains(reference.display.trim()) && !reference.display.contains("note")
-        });
-        if let Some(reference) = codified {
-            return Ok((
-                uslm_section_id(&reference.title, &reference.section),
-                reference.trail,
-            ));
-        }
+    if let Some(placed) = section_of_an_act(line, &number, stored_usc_references(holder)) {
+        return placed;
     }
 
     // A bare section: the title must come from the publisher, not from us. The
@@ -437,6 +443,53 @@ fn stored_section_under_amendment(
     }
 
     Err(Reason::NoTitleForSection(number))
+}
+
+/// Form 2: where the Code places the section of an Act an amending line cites.
+///
+/// `None` when the line does not cite a section of an Act, and a bare-section
+/// reading comes next. `references` are the publisher's references in the level
+/// that says the line; only those whose words the line holds count. Where the
+/// line cites a section of another law and no reference places it in the Code,
+/// the answer is [`Reason::SectionOfAnotherLaw`]: the number is the other
+/// law's, which no bare-section reading can turn into the Code's.
+///
+/// Both readers of a bill read form 2 here, so the stored bill and its markup
+/// come to the same answer about the same sentence.
+pub(crate) fn section_of_an_act(
+    line: &str,
+    number: &str,
+    references: Vec<UscReference>,
+) -> Option<Result<(String, Vec<String>), Reason>> {
+    let another_law = cites_a_section_of_another_law(line);
+    if !line.contains(" of the ") && !another_law {
+        return None;
+    }
+    let in_line: Vec<UscReference> = references
+        .into_iter()
+        .filter(|reference| line.contains(reference.display.trim()))
+        .collect();
+    if let Some(reference) = in_line.iter().find(|reference| places_a_section(reference)) {
+        return Some(Ok((
+            uslm_section_id(&reference.title, &reference.section),
+            reference.trail.clone(),
+        )));
+    }
+    // The publisher placed the Act only as a note or as a range, or the line
+    // cites another law and nothing places it.
+    (another_law || !in_line.is_empty())
+        .then(|| Err(Reason::SectionOfAnotherLaw(number.to_string())))
+}
+
+/// Whether a reference to the Code names one section of it.
+///
+/// `7 U.S.C. 8351 note` names a note, which the dataset does not hold, and
+/// `42 U.S.C. 1395 et seq.` names a run of sections starting at § 1395. An Act
+/// placed that way is *not* codified at the section the reference starts
+/// from.
+fn places_a_section(reference: &UscReference) -> bool {
+    let display = &reference.display;
+    !display.contains("note") && !display.contains("et seq")
 }
 
 /// The number of the whole new section an instruction inserts, when it inserts
@@ -494,9 +547,15 @@ pub(crate) fn collapse_spaces(text: &str) -> String {
 ///
 /// This is where a bill names what it is about to change. Everything after it is
 /// the instruction, which can mention any number of other provisions.
+///
+/// A line that names several provisions says *are each amended*:
+/// *"Subparagraphs (A) and (B) of section 1202(d)(1) are each amended"*. A
+/// line that names a provision an earlier instruction of the same law changed
+/// says *is further amended*: *"Section 6213(g)(2), as amended by this Act, is
+/// further amended"* (#259).
 pub(crate) fn amending_line_of(text: &str) -> Option<String> {
     static AMENDED: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"\b(?:is|are)\s+amended").unwrap());
+        LazyLock::new(|| Regex::new(r"\b(?:is|are)\s+(?:each\s+|further\s+)?amended").unwrap());
     let found = AMENDED.find(text)?;
     Some(text[..found.start()].to_string())
 }
@@ -529,21 +588,43 @@ pub(crate) fn leading_in_phrase(text: &str) -> Option<Step> {
 /// publisher's identifiers write `s1400Z-2`, and a number cut at the dash names
 /// § 1400Z, which is a different section (#135, #141).
 pub(crate) fn citation_in(line: &str) -> Option<(String, Vec<String>)> {
-    static CITATION: LazyLock<Regex> = LazyLock::new(|| {
-        let dashes: String = crate::citation::usc::DASHES
-            .iter()
-            .map(|dash| regex::escape(&dash.to_string()))
-            .collect();
-        Regex::new(&format!(
-            r"(?i)section\s+([0-9][0-9A-Za-z{dashes}]*)\s*((?:\([0-9A-Za-z]{{1,6}}\))*)"
-        ))
-        .unwrap()
-    });
     let cited = CITATION.captures(line)?;
     Some((
         crate::citation::usc::fold_dashes(&cited[1]),
         designations_in(&cited[2]),
     ))
+}
+
+/// `section 898(c)`: a section number, and the designations that follow it.
+static CITATION: LazyLock<Regex> = LazyLock::new(|| {
+    let dashes: String = crate::citation::usc::DASHES
+        .iter()
+        .map(|dash| regex::escape(&dash.to_string()))
+        .collect();
+    Regex::new(&format!(
+        r"(?i)section\s+([0-9][0-9A-Za-z{dashes}]*)\s*((?:\([0-9A-Za-z]{{1,6}}\))*)"
+    ))
+    .unwrap()
+});
+
+/// Whether the section an amending line cites is a section of another law:
+/// the citation is followed at once by `of Public Law`, `of such Act`, or `of
+/// the` and the name of an Act.
+///
+/// Only the words right after the citation count. *"Section 274(o), as added
+/// by section 13304 of Public Law 115-97, is amended"* cites § 274(o) of the
+/// Code, and the public law is only where that subsection came from. *"of the
+/// Internal Revenue Code of 1986"* names the Code itself.
+fn cites_a_section_of_another_law(line: &str) -> bool {
+    let Some(citation) = CITATION.find(line) else {
+        return false;
+    };
+    let Some(named) = line[citation.end()..].trim_start().strip_prefix("of ") else {
+        return false;
+    };
+    named.starts_with("Public Law")
+        || named.starts_with("such Act")
+        || (named.starts_with("the ") && !named.starts_with("the Internal Revenue Code"))
 }
 
 /// The title of the US Code an amending line names outright: `of title 10`.

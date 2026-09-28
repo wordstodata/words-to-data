@@ -10,18 +10,18 @@
 
 use serde::Serialize;
 
+use super::table::written_alike;
 use crate::link::{Link, LinkKind, Target};
-use crate::olrc::table::written_alike;
 
 /// A place in a public law: the section number, then each designation below
 /// it, outermost first. `10101(b)(3)` is `["10101", "b", "3"]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct LawSection(Vec<String>);
+pub(crate) struct LawSection(Vec<String>);
 
 impl LawSection {
     /// The place an amendment's node sits at, read from its structural path in
     /// the stored law. `None` when the path names no section of the law.
-    pub(super) fn of_path(path: &str) -> Option<Self> {
+    pub(crate) fn of_path(path: &str) -> Option<Self> {
         let trail = path
             .split('/')
             .skip_while(|segment| !segment.starts_with("section_"))
@@ -152,7 +152,7 @@ pub struct Classification {
 
 /// Every classification among `links` that names `place` in the public law
 /// numbered `public_law` (`119-21`).
-pub(super) fn classifications_of(
+pub(crate) fn classifications_of(
     links: &[Link],
     public_law: &str,
     place: &LawSection,

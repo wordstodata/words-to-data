@@ -1,5 +1,6 @@
-//! What the Office of Law Revision Counsel's classification says about the
-//! section an amendment was linked in.
+//! What the Office of Law Revision Counsel's classification says about an
+//! amendment's section: the address when the markup gives none, and evidence
+//! for a reviewer when it does.
 //!
 //! The `olrc.classified_from` links (#247) say which section of the Code each
 //! section of a public law was classified to, and the kind of change. They
@@ -11,15 +12,18 @@
 //! is a note form — `nt`, `nts`, `nt [tbl]`, `nt new` — classifies a note
 //! under the section, and the dataset holds no notes. `prec`, the heading
 //! before a section, is the same. Such a row sits on the section's path and
-//! says nothing of the section's own words, so it never corroborates a link.
+//! says nothing of the section's own words, so it never corroborates a link
+//! and never gives an address.
 //!
-//! **Nothing depends on these links.** The matcher decides from the address,
-//! the window and the quoted words. With no OLRC link held, every answer is the
-//! same, and only the evidence says less.
+//! **Only an amendment the markup does not address depends on these links**
+//! ([`olrc_address`], #259). The markup wins: an amendment it addresses gets
+//! the same answer with or without the links, and only its evidence says less.
 
 use serde::Serialize;
 
 use crate::link::{Link, LinkKind, Target};
+use crate::olrc::law_section::{LawSection, classifications_of};
+use crate::uslm::amendment_address::uslm_section_id;
 
 /// What the classification says about one section, for one public law.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -106,6 +110,72 @@ impl OlrcClassification {
             ),
         }
     }
+}
+
+/// The section the OLRC's classification gives an amendment whose markup gives
+/// none, and the rows of the table that give it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct OlrcAddress {
+    /// The section, as a USLM identifier: `/us/usc/t26/s530A`.
+    pub section: String,
+    /// The sections of the law the rows name, as the table writes them:
+    /// `70204(a)(1)`.
+    pub law_sections: Vec<String>,
+}
+
+/// The section the OLRC's classification gives the amendment at
+/// `amendment_path` in the public law numbered `public_law` (`119-21`), when
+/// it gives exactly one.
+///
+/// A row names the amendment's place in the law as `residue` reads it
+/// ([`classifications_of`]), ranges included. A row whose descriptions are all
+/// note forms, or `prec`, is left out: it never addresses a section's own
+/// text ([`is_a_note`]). When the rows left name more than one section, the
+/// table does not say which one this amendment acts on, and nothing is given.
+pub(super) fn olrc_address(
+    links: &[Link],
+    public_law: &str,
+    amendment_path: &str,
+) -> Option<OlrcAddress> {
+    let place = LawSection::of_path(amendment_path)?;
+    let mut sections: Vec<String> = Vec::new();
+    let mut law_sections: Vec<String> = Vec::new();
+    for row in classifications_of(links, public_law, &place) {
+        if row
+            .descriptions
+            .iter()
+            .all(|description| is_a_note(description))
+        {
+            continue;
+        }
+        let section = uslm_section_of_path(&row.code_section)?;
+        if !sections.contains(&section) {
+            sections.push(section);
+        }
+        if !law_sections.contains(&row.law_section) {
+            law_sections.push(row.law_section);
+        }
+    }
+    match <[String; 1]>::try_from(sections) {
+        Ok([section]) => Some(OlrcAddress {
+            section,
+            law_sections,
+        }),
+        Err(_) => None,
+    }
+}
+
+/// The USLM identifier of the section at a structural path:
+/// `uscode/title_26/…/section_530A` is `/us/usc/t26/s530A`.
+///
+/// A section can sit at more than one path over the release points a dataset
+/// holds, and a classification link is stated for each. The identifier is the
+/// same for all of them.
+fn uslm_section_of_path(path: &str) -> Option<String> {
+    let mut segments = path.split('/');
+    let title = segments.nth(1)?.strip_prefix("title_")?;
+    let section = path.rsplit('/').next()?.strip_prefix("section_")?;
+    Some(uslm_section_id(title, section))
 }
 
 /// The descriptions a classification link carries, as the table wrote them.

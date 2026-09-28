@@ -4,8 +4,12 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
+use words_to_data::query::DEFAULT_LIMIT;
 
 use crate::load::{self, with_dataset};
+
+/// Where a reader of `path` finds the words a screen left out.
+const EVERY_WORD: &str = "--json carries every field in full.";
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -79,6 +83,15 @@ pub fn run(args: Args) {
             for c in &p.changes {
                 println!("      {}: {:?} -> {:?}", c.field, c.old_value, c.new_value);
             }
+            match p.presence {
+                inspect::Presence::Added => {
+                    print_words("added", &report.path, &p.words, "      ", EVERY_WORD)
+                }
+                inspect::Presence::Removed => {
+                    print_words("removed", &report.path, &p.words, "      ", EVERY_WORD)
+                }
+                _ => {}
+            }
         }
     }
 
@@ -94,6 +107,48 @@ pub fn run(args: Args) {
     println!("\nAnnotations {scope} ({}):", report.annotations.len());
     for a in &report.annotations {
         crate::annotations::print_annotation(a);
+    }
+
+    if let Some(first) = report.olrc_classifications.first() {
+        print_classifications(&first.section, &report.olrc_classifications);
+    }
+}
+
+/// The OLRC's classifications of one section, one line each.
+///
+/// A row about a note or a preceding heading says so on its own line. The
+/// table records both against the section, and a reviewer who read one as a
+/// statement about the section's text would confirm the wrong thing.
+pub fn print_classifications(section: &str, rows: &[inspect::OlrcClassification]) {
+    println!("\nOLRC classifications of {section} ({}):", rows.len());
+    for row in rows {
+        let said: Vec<&str> = row
+            .descriptions
+            .iter()
+            .map(|d| {
+                if d.trim().is_empty() {
+                    "amended"
+                } else {
+                    d.as_str()
+                }
+            })
+            .collect();
+        let part = match row.classifies {
+            inspect::ClassifiedPart::SectionText => "",
+            inspect::ClassifiedPart::Note => " (a note, not the section's text)",
+            inspect::ClassifiedPart::Heading => {
+                " (a heading before the section, not the section's text)"
+            }
+            inspect::ClassifiedPart::NoteOrHeading => {
+                " (a note or a heading before the section, not the section's text)"
+            }
+        };
+        println!(
+            "  classified by the OLRC from Pub. L. {} §{}, {}{part}",
+            row.public_law,
+            row.law_section,
+            said.join("; ")
+        );
     }
 }
 
@@ -213,5 +268,84 @@ fn positions(p: &inspect::ProvisionAtPath) -> String {
         (Some(from), None) => format!("was at position {from}"),
         (None, Some(to)) => format!("now at position {to}"),
         (None, None) => "no position".to_string(),
+    }
+}
+
+/// How many characters of one field a person is shown before it is cut.
+///
+/// A field is one node's text, and one node can hold a whole section: a real
+/// search hit carried 10,228 characters (#235). Wide enough for a sentence of
+/// the law, short enough that a screenful of fields is still a screenful.
+const FIELD_WIDTH: usize = 300;
+
+/// The words of a provision the window holds at one end only, and which way
+/// they went.
+///
+/// A field diff has nothing to say about a provision with no other end, so
+/// these words are the evidence a reviewer reads instead (#259). The label says
+/// plainly whether they were added or removed, because the same words mean the
+/// opposite in the two cases.
+///
+/// Each field is named by its path from `provision` down, so the reader can see
+/// where in the provision the words sit.
+///
+/// A screenful, and no more: at most [`DEFAULT_LIMIT`] fields, each cut at
+/// [`FIELD_WIDTH`] characters with the cut marked `…`. What was left out is said,
+/// and `rest` tells the reader where to read all of it. A reader that stopped
+/// in silence would read as the whole provision.
+pub fn print_words(
+    change: &str,
+    provision: &str,
+    words: &[inspect::ProvisionField],
+    indent: &str,
+    rest: &str,
+) {
+    if words.is_empty() {
+        println!("{indent}The words {change}: none. The provision holds no text.");
+        return;
+    }
+    // The provision's parent is cut off, so every line starts at the
+    // provision itself.
+    let parent = provision.rsplit_once('/').map_or("", |(parent, _)| parent);
+    println!("{indent}The words {change} ({}):", fields(words.len()));
+    for word in words.iter().take(DEFAULT_LIMIT) {
+        let at = word
+            .path
+            .strip_prefix(parent)
+            .map_or(word.path.as_str(), |below| below.trim_start_matches('/'));
+        println!("{indent}  {at} [{}] {}", word.field, cut(&word.text));
+    }
+    let dropped = words.len().saturating_sub(DEFAULT_LIMIT);
+    if dropped > 0 {
+        let noun = if dropped == 1 { "field" } else { "fields" };
+        println!("{indent}  … {dropped} more {noun} not shown.");
+    }
+    let any_cut = words
+        .iter()
+        .take(DEFAULT_LIMIT)
+        .any(|word| word.text.chars().count() > FIELD_WIDTH);
+    if dropped > 0 || any_cut {
+        println!("{indent}  {rest}");
+    }
+}
+
+/// The first [`FIELD_WIDTH`] characters of a field, with `…` where it was cut.
+///
+/// Counted in characters and not bytes. The corpus holds `§`, and a byte slice
+/// through a character panics.
+fn cut(text: &str) -> String {
+    if text.chars().count() <= FIELD_WIDTH {
+        return text.to_string();
+    }
+    let mut shown: String = text.chars().take(FIELD_WIDTH).collect();
+    shown.push('…');
+    shown
+}
+
+fn fields(n: usize) -> String {
+    if n == 1 {
+        "1 field".to_string()
+    } else {
+        format!("{n} fields")
     }
 }

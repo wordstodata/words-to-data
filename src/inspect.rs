@@ -404,6 +404,65 @@ pub struct ProvisionAtPath {
     /// The redesignation links this entry relied on, oldest first. Empty for a
     /// provision no bill renumbered, which is the ordinary case.
     pub via: Vec<RedesignationLink>,
+    /// The words of an addition or a removal, at the one end that holds them.
+    ///
+    /// An added provision has no older end to compare against, so `changes`
+    /// is empty and says nothing about it. These words are the evidence
+    /// instead: the words added, or the words removed, as `presence` says.
+    /// Empty for every other entry. Every field of the subtree is here, however
+    /// many there are; a person's screen is bounded by the printer, not here.
+    pub words: Vec<ProvisionField>,
+}
+
+/// One text field of a provision or of a provision beneath it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProvisionField {
+    /// The structural path of the node that holds the field.
+    pub path: String,
+    /// Which text field it is, serde string form (e.g. `"heading"`).
+    pub field: String,
+    pub text: String,
+}
+
+/// Every text field of a provision and of everything beneath it, in the order
+/// the law reads.
+///
+/// A continuation follows the children it closes, so it is read after them.
+pub fn provision_words(node: &DocumentNode) -> Vec<ProvisionField> {
+    let mut words = Vec::new();
+    collect_words(node, &mut words);
+    words
+}
+
+fn collect_words(node: &DocumentNode, words: &mut Vec<ProvisionField>) {
+    use crate::document::TextContentField as F;
+    for field in [F::Heading, F::Chapeau, F::Proviso, F::Content] {
+        push_field(node, field, words);
+    }
+    for child in &node.children {
+        collect_words(child, words);
+    }
+    push_field(node, F::Continuation, words);
+}
+
+/// One field of one node, when it holds any words.
+fn push_field(
+    node: &DocumentNode,
+    field: crate::document::TextContentField,
+    words: &mut Vec<ProvisionField>,
+) {
+    let Some(text) = node.data.get_text_content(field) else {
+        return;
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    words.push(ProvisionField {
+        path: node.data.path.to_string(),
+        field: field_str(&field),
+        text: text.to_string(),
+    });
 }
 
 /// Everything known about one structural path: where it exists, what happened
@@ -428,6 +487,134 @@ pub struct PathReport {
     pub unfollowed_redesignations: Vec<UnfollowedRedesignation>,
     /// Annotations that reference this path (across all expression pairs).
     pub annotations: Vec<AnnotationSummary>,
+    /// The OLRC's classifications of the section the path belongs to.
+    ///
+    /// Empty for a path above any section, and for a section the table does
+    /// not name. See [`olrc_classifications`].
+    pub olrc_classifications: Vec<OlrcClassification>,
+}
+
+/// One statement of the OLRC's classification table about a Code section: a
+/// section of a public law was classified to it (#247).
+///
+/// The authority's own statement of which law changed the section, so a
+/// reviewer confirming a link reads it beside the link (#259).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OlrcClassification {
+    /// The Code section the row names, as the dataset's path for it.
+    pub section: String,
+    /// The public law, such as `119-21`.
+    pub public_law: String,
+    /// The section of that law, such as `70302(a)`.
+    pub law_section: String,
+    /// The Description column, as the table wrote it. Blank means "amended".
+    pub descriptions: Vec<String>,
+    /// What part of the section the row classifies to.
+    pub classifies: ClassifiedPart,
+}
+
+/// What part of a Code section a classification row is about.
+///
+/// The table resolves to a section and no lower, and it records a note, and a
+/// heading that stands before the section, against that section too. A row
+/// about a note is not a statement about the section's text, and a reader who
+/// took it for one would confirm the wrong thing (#259, and A.1's note trap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClassifiedPart {
+    /// At least one description is about the section itself: blank (amended),
+    /// `new`, `repealed`, and the rest.
+    SectionText,
+    /// Every description begins `nt` or `nts`: a note to the section.
+    Note,
+    /// Every description begins `prec`: what stands before the section, such
+    /// as the heading of the part it opens.
+    Heading,
+    /// Notes and preceding headings, and nothing about the section's text.
+    NoteOrHeading,
+}
+
+impl ClassifiedPart {
+    /// What a row with these descriptions classifies to. The words are the
+    /// OLRC's legend, in `crate::olrc`.
+    fn of(descriptions: &[String]) -> Self {
+        let note = |d: &str| d.trim_start().starts_with("nt");
+        let heading = |d: &str| d.trim_start().starts_with("prec");
+        if descriptions.iter().any(|d| !note(d) && !heading(d)) {
+            Self::SectionText
+        } else if descriptions.iter().all(|d| note(d)) {
+            Self::Note
+        } else if descriptions.iter().all(|d| heading(d)) {
+            Self::Heading
+        } else {
+            Self::NoteOrHeading
+        }
+    }
+}
+
+/// The section a structural path belongs to: the path cut after its
+/// `section_` segment, or `None` for a path above any section.
+fn section_of(path: &str) -> Option<&str> {
+    let mut end = 0;
+    for segment in path.split('/') {
+        end += segment.len();
+        if segment.starts_with("section_") {
+            return Some(&path[..end]);
+        }
+        end += 1;
+    }
+    None
+}
+
+/// The OLRC's classifications of the section `path` belongs to, in the order
+/// of the law.
+///
+/// A classification names a section and no lower, so a path inside a section
+/// is answered with its section's rows. A path above any section has none.
+pub fn olrc_classifications<S: Storage>(
+    dataset: &S,
+    path: &str,
+) -> Result<Vec<OlrcClassification>, DatasetError> {
+    let Some(section) = section_of(path) else {
+        return Ok(Vec::new());
+    };
+    let mut rows: Vec<OlrcClassification> = dataset
+        .links_for_path(section)?
+        .iter()
+        .filter(|link| link.kind.0 == LinkKind::CLASSIFIED_FROM)
+        .filter(|link| link.subject.name() == section)
+        .filter_map(|link| classification(section, link))
+        .collect();
+    rows.sort_by(|a, b| (&a.public_law, &a.law_section).cmp(&(&b.public_law, &b.law_section)));
+    Ok(rows)
+}
+
+/// One `olrc.classified_from` link, read back into the row it states.
+fn classification(section: &str, link: &Link) -> Option<OlrcClassification> {
+    let Target::External { reference, .. } = &link.object else {
+        return None;
+    };
+    let (public_law, law_section) = reference
+        .strip_prefix("olrc.classification:")?
+        .split_once(':')?;
+    let descriptions: Vec<String> = link
+        .payload
+        .as_ref()
+        .and_then(|payload| payload.value.get("descriptions"))
+        .and_then(|value| value.as_array())
+        .map(|all| {
+            all.iter()
+                .filter_map(|d| d.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(OlrcClassification {
+        section: section.to_string(),
+        public_law: public_law.to_string(),
+        law_section: law_section.to_string(),
+        classifies: ClassifiedPart::of(&descriptions),
+        descriptions,
+    })
 }
 
 /// Serde string form of a text content field (e.g. `"heading"`).
@@ -494,6 +681,7 @@ pub fn path_report<S: Storage>(
         provisions,
         unfollowed_redesignations,
         annotations,
+        olrc_classifications: olrc_classifications(dataset, path)?,
     })
 }
 
@@ -785,13 +973,8 @@ fn kin_at<'a>(parent: &'a DocumentNode, path: &str) -> Vec<&'a DocumentNode> {
 /// ends are unrelated provisions (#230).
 #[derive(Debug, Clone, Serialize)]
 pub struct LinkEvidence {
-    /// The older end, as `work@date` and a path.
-    pub from: String,
-    /// The newer end.
-    pub to: String,
-    /// How the fields differ, measured **across** the move, so a renumbering
-    /// that changed nothing else reports an empty list rather than a rewrite.
-    pub changes: Vec<PathFieldChange>,
+    /// The words the window holds, at both ends or at one.
+    pub words: EvidenceWords,
     /// What the object carries in words, where it is external and carries any.
     ///
     /// For an amendment link this is the amending text the bill wrote, which is
@@ -801,8 +984,48 @@ pub struct LinkEvidence {
     pub object_text: Option<String>,
 }
 
-/// The words at a link's two ends, or `None` when the link does not name two
-/// provisions this dataset holds.
+/// The words at a link's ends, as the window holds them.
+///
+/// A provision new in the window has no older end, so there is nothing to
+/// compare. Its words are the evidence instead, and which way they went is part
+/// of the variant: the same words mean the opposite when they were removed
+/// (#259).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceWords {
+    /// Both ends hold the provision.
+    BothEnds {
+        /// The older end, as `work@date` and a path.
+        from: String,
+        /// The newer end.
+        to: String,
+        /// How the fields differ, measured **across** the move, so a
+        /// renumbering that changed nothing else reports an empty list rather
+        /// than a rewrite.
+        changes: Vec<PathFieldChange>,
+    },
+    /// Only the newer end holds the provision. These are the words added.
+    Added {
+        /// The newer end, as `work@date`.
+        expression: String,
+        /// Where the provision is at that end.
+        path: String,
+        /// Every text field of the provision and of everything beneath it.
+        words: Vec<ProvisionField>,
+    },
+    /// Only the older end holds the provision. These are the words removed.
+    Removed {
+        /// The older end, as `work@date`.
+        expression: String,
+        /// Where the provision was at that end.
+        path: String,
+        /// Every text field of the provision and of everything beneath it.
+        words: Vec<ProvisionField>,
+    },
+}
+
+/// The words at a link's ends, or `None` when the link does not name a
+/// provision this dataset holds at either end.
 ///
 /// `None` rather than an error: a link whose **subject** is not a change to a
 /// provision is a perfectly good link — an opinion citation names a node — and a
@@ -843,19 +1066,29 @@ pub fn link_evidence<S: Storage>(
     let from_id = ExpressionId::new(work.clone(), from_date.clone());
     let to_id = ExpressionId::new(work.clone(), to_date.clone());
 
-    let Some(from) = node_at(dataset, &from_id, from_path)? else {
-        return Ok(None);
-    };
-    let Some(to) = node_at(dataset, &to_id, to_path)? else {
-        return Ok(None);
+    let words = match (
+        node_at(dataset, &from_id, from_path)?,
+        node_at(dataset, &to_id, to_path)?,
+    ) {
+        (Some(from), Some(to)) => EvidenceWords::BothEnds {
+            from: format!("{from_id} {from_path}"),
+            to: format!("{to_id} {to_path}"),
+            changes: field_changes(&from, &to),
+        },
+        (None, Some(to)) => EvidenceWords::Added {
+            expression: to_id.to_string(),
+            path: to_path.clone(),
+            words: provision_words(&to),
+        },
+        (Some(from), None) => EvidenceWords::Removed {
+            expression: from_id.to_string(),
+            path: from_path.clone(),
+            words: provision_words(&from),
+        },
+        (None, None) => return Ok(None),
     };
 
-    Ok(Some(LinkEvidence {
-        from: format!("{from_id} {from_path}"),
-        to: format!("{to_id} {to_path}"),
-        changes: field_changes(&from, &to),
-        object_text,
-    }))
+    Ok(Some(LinkEvidence { words, object_text }))
 }
 
 /// The first provision one expression holds at a path.
@@ -955,6 +1188,7 @@ fn pair_provisions(
                 presence: Presence::InBoth,
                 changes: field_changes(from_kin[j], to_kin[j]),
                 via: Vec::new(),
+                words: Vec::new(),
             });
             from_position += 1;
             to_position += 1;
@@ -962,23 +1196,25 @@ fn pair_provisions(
 
         // Pairing is a prefix, so whichever side is longer carries the tail.
         // Under one parent a path is therefore added or removed, never both.
-        for _ in paired..from_kin.len() {
+        for removed in &from_kin[paired..] {
             provisions.push(ProvisionAtPath {
                 from_position: Some(from_position),
                 to_position: None,
                 presence: Presence::Removed,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(removed),
             });
             from_position += 1;
         }
-        for _ in paired..to_kin.len() {
+        for added in &to_kin[paired..] {
             provisions.push(ProvisionAtPath {
                 from_position: None,
                 to_position: Some(to_position),
                 presence: Presence::Added,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(added),
             });
             to_position += 1;
         }
@@ -1026,6 +1262,7 @@ fn pair_across_moves(
                 },
                 changes: field_changes(node, landed),
                 via: out.via.clone(),
+                words: Vec::new(),
             },
             None => ProvisionAtPath {
                 from_position: Some(position),
@@ -1033,6 +1270,7 @@ fn pair_across_moves(
                 presence: Presence::Removed,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(node),
             },
         });
     }
@@ -1052,6 +1290,7 @@ fn pair_across_moves(
                 },
                 changes: field_changes(left, node),
                 via: into.via.clone(),
+                words: Vec::new(),
             },
             None => ProvisionAtPath {
                 from_position: None,
@@ -1059,6 +1298,7 @@ fn pair_across_moves(
                 presence: Presence::Added,
                 changes: Vec::new(),
                 via: Vec::new(),
+                words: provision_words(node),
             },
         });
     }
@@ -1080,6 +1320,7 @@ fn root_provision(
             presence: Presence::InBoth,
             changes: field_changes(from_root, to_root),
             via: Vec::new(),
+            words: Vec::new(),
         }],
         (true, false) => vec![ProvisionAtPath {
             from_position: Some(0),
@@ -1087,6 +1328,7 @@ fn root_provision(
             presence: Presence::Removed,
             changes: Vec::new(),
             via: Vec::new(),
+            words: provision_words(from_root),
         }],
         (false, true) => vec![ProvisionAtPath {
             from_position: None,
@@ -1094,6 +1336,7 @@ fn root_provision(
             presence: Presence::Added,
             changes: Vec::new(),
             via: Vec::new(),
+            words: provision_words(to_root),
         }],
         // The path names nothing in either expression.
         (false, false) => Vec::new(),

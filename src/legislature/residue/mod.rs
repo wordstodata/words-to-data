@@ -35,15 +35,12 @@ use crate::legislature::evidence_matching::{
 };
 use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
+use crate::olrc::law_section::{LawSection, classifications_of};
 use crate::query::LinkQuery;
 use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::amendment_address::AmendmentAddress;
 
-use law_section::{LawSection, classifications_of};
-
-mod law_section;
-
-pub use law_section::Classification;
+pub use crate::olrc::law_section::Classification;
 
 /// One amendment no link names, and what is known about it.
 #[derive(Debug, Clone, Serialize)]

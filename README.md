@@ -137,8 +137,8 @@ This step links each amendment of every public law to the change it made, from
 the address the bill's markup names, the window after the law's enactment, and
 the words the bill quotes. It writes each link as `legislature.amended_by`. It
 takes no span: it reads every window after each law's enactment. Over the
-committed corpus it links **458** of the **603** amendments of `119-hr-1`, as
-**1185** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
+committed corpus it links **480** of the **603** amendments of `119-hr-1`, as
+**1214** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
 below, and `residue` for the amendments it did not link.
 
 ### Step 4 — `redesignations` (for a grown dataset, or a re-run)
@@ -213,7 +213,7 @@ gives three kinds:
 
 - `legislature.redesignated_as`, from step 1. The committed corpus gives 80.
 - `olrc.classified_from`, from step 2. The three committed release points give 673.
-- `legislature.amended_by`, from step 3. The three committed release points give 1185.
+- `legislature.amended_by`, from step 3. The three committed release points give 1214.
 
 A count of zero for `legislature.redesignated_as` says that step 1 did not record
 them. A count of zero for `olrc.classified_from` says that step 2 did not run. A
@@ -373,7 +373,11 @@ words_to_data link-by-evidence dataset.json --output dataset-linked.json
 For each amendment it reads three things the dataset already holds:
 
 1. **The address.** The section, and the provision below it, that the bill's
-   markup names (`amendment-addresses` prints them).
+   markup names (`amendment-addresses` prints them). Where the markup names no
+   section, and `add-classifications` has run, the address is the one section
+   the OLRC's table classifies the amendment's section of the law to. A row
+   that classifies only a note, or the heading before a section, never gives
+   an address, and the markup's own address always wins.
 2. **The window.** The first window after the law's enactment date in which
    something under the address changed. A later window that changed too is
    named in the evidence, and is never a second link.
@@ -396,9 +400,10 @@ For each amendment it reads three things the dataset already holds:
 
 Each change becomes one `legislature.amended_by` link, in the shape
 `match-amendments` wrote before it was removed (#252), with the method `address, window and quoted
-words@2`. Its evidence says the address, the window, the words that placed it,
-and what the OLRC classification (if `add-classifications` has run) says of the
-section. A note in the classification never counts.
+words@3`. Its evidence says the address and which source gave it, the window,
+the words that placed it, and what the OLRC classification (if
+`add-classifications` has run) says of the section. A note in the
+classification never counts.
 
 An amendment it cannot link is not stored. The stage it stopped at, and why, is
 worked out again whenever it is asked for, because a stored reason goes false
