@@ -294,7 +294,14 @@ fn should_carry_every_individual_run_when_info_emits_json() {
     );
     for run in runs {
         assert!(run["method"]["name"].is_string(), "got:\n{run:#?}");
-        assert!(run["method"]["version"].is_u64(), "got:\n{run:#?}");
+        let recorded = [
+            words_to_data::legislature::redesignation::reading_method(),
+            words_to_data::legislature::evidence_matching::evidence_method(),
+        ]
+        .into_iter()
+        .find(|method| run["method"]["name"] == method.name.as_str())
+        .expect("the run names a method this test recorded");
+        assert_eq!(run["method"]["version"], recorded.version, "got:\n{run:#?}");
         assert!(
             run["work"]
                 .as_str()

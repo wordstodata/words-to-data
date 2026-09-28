@@ -137,8 +137,8 @@ This step links each amendment of every public law to the change it made, from
 the address the bill's markup names, the window after the law's enactment, and
 the words the bill quotes. It writes each link as `legislature.amended_by`. It
 takes no span: it reads every window after each law's enactment. Over the
-committed corpus it links **449** of the **603** amendments of `119-hr-1`, as
-**1195** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
+committed corpus it links **480** of the **603** amendments of `119-hr-1`, as
+**1214** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
 below, and `residue` for the amendments it did not link.
 
 ### Step 4 — `redesignations` (for a grown dataset, or a re-run)
@@ -213,7 +213,7 @@ gives three kinds:
 
 - `legislature.redesignated_as`, from step 1. The committed corpus gives 80.
 - `olrc.classified_from`, from step 2. The three committed release points give 673.
-- `legislature.amended_by`, from step 3. The three committed release points give 1195.
+- `legislature.amended_by`, from step 3. The three committed release points give 1214.
 
 A count of zero for `legislature.redesignated_as` says that step 1 did not record
 them. A count of zero for `olrc.classified_from` says that step 2 did not run. A
@@ -384,12 +384,23 @@ For each amendment it reads three things the dataset already holds:
 3. **The words the bill quotes.** A struck string is in a change's before text,
    an inserted string is in its after text, and an enacted block is the text of
    an added provision. The changes under one section are given to the
-   amendments addressed there all together, so each change has one cause. A
-   tie that the words cannot break is left alone.
+   amendments addressed there all together, so one amendment does not take
+   another's change. A provision edited in place can carry the edits of
+   several amendments, and each that shows words of its own there is linked
+   to it. A tie that the words cannot break is left alone.
+
+   A law's amendments act in order, and a later one can insert words inside
+   an earlier one's words. So a quoted string, or an enacted block, is also
+   read with the words that later amendments of the same law inserted taken
+   out.
+
+   Common words alone — `"and"`, `", or"`, `"the"` — decide nothing, unless
+   they are all the change struck or inserted. A struck "and" shows in every
+   list whose end moved.
 
 Each change becomes one `legislature.amended_by` link, in the shape
 `match-amendments` wrote before it was removed (#252), with the method `address, window and quoted
-words@2`. Its evidence says the address and which source gave it, the window,
+words@3`. Its evidence says the address and which source gave it, the window,
 the words that placed it, and what the OLRC classification (if
 `add-classifications` has run) says of the section. A note in the
 classification never counts.
@@ -398,7 +409,10 @@ An amendment it cannot link is not stored. The stage it stopped at, and why, is
 worked out again whenever it is asked for, because a stored reason goes false
 the moment someone links the amendment. The quoted strings are read from the
 stored bill, so a dataset built before this command existed must be rebuilt to
-carry them.
+carry them. When a law's own words strike or insert quoted strings and none is
+stored, the command prints a warning that names the law and says to rebuild
+the dataset with `build-dataset`. It still links, and it links fewer of that
+law's amendments.
 
 ### What is left — `residue`
 

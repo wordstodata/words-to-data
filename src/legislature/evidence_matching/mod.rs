@@ -39,7 +39,9 @@
 //! computable for the residue report (#251).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde::Serialize;
 
 use crate::dataset::{Dataset, DatasetError, ExpressionId, WorkId};
@@ -213,7 +215,7 @@ pub enum Stage {
 /// apart, a different window rule. Tidying the code that gives the same answers
 /// is not such a change (`crate::method::Method`).
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 2)
+    Method::new("address, window and quoted words", 3)
 }
 
 /// Who a link this method writes says made it.
@@ -325,6 +327,14 @@ pub struct EvidenceMatching {
     /// run is recorded over each of these and not only over the windows that
     /// carry a link (#179, decision 11).
     pub windows: Vec<(ExpressionId, ExpressionId)>,
+    /// Each public law whose amendments strike or insert quoted strings in
+    /// their own words, while none of them is stored with one:
+    /// `(bill_id, public_law)`.
+    ///
+    /// A dataset whose bills were stored before #257 kept no quoted strings.
+    /// Without them the matcher links fewer of the law's amendments (408
+    /// against 449 on `119-hr-1`), so a reader is told.
+    pub laws_quoting_no_strings: Vec<(String, String)>,
 }
 
 /// What the matcher finds for every amendment of every public law the dataset
@@ -360,6 +370,7 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
         )?);
     }
 
+    let laws_quoting_no_strings = laws_quoting_no_strings(&stated);
     let matches = stated
         .into_iter()
         .zip(outcomes)
@@ -375,7 +386,42 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
             outcome: outcome.expect("every amendment is answered for"),
         })
         .collect();
-    Ok(EvidenceMatching { matches, windows })
+    Ok(EvidenceMatching {
+        matches,
+        windows,
+        laws_quoting_no_strings,
+    })
+}
+
+/// Each public law whose amendments strike or insert quoted strings in their
+/// own words, `by striking "2023"`, while none of them is stored with one, in
+/// the order the dataset lists them.
+///
+/// A law that quotes no string at all is no fault: Pub. L. 119-22 only
+/// enacts a subparagraph anew.
+fn laws_quoting_no_strings(stated: &[Stated]) -> Vec<(String, String)> {
+    static STRIKES_OR_INSERTS_A_STRING: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"(?i)\b(striking|inserting)\s+["“]"#).expect("the pattern must compile")
+    });
+    let mut laws: Vec<(String, String)> = Vec::new();
+    for amendment in stated {
+        let law = (amendment.bill_id.clone(), amendment.public_law.clone());
+        if !laws.contains(&law) {
+            laws.push(law);
+        }
+    }
+    laws.retain(|(bill_id, _)| {
+        let of_law = || {
+            stated
+                .iter()
+                .filter(|amendment| &amendment.bill_id == bill_id)
+        };
+        let stores_a_string = of_law().any(|amendment| amendment.evidence.quotes_strings());
+        let words_quote_a_string = of_law()
+            .any(|amendment| STRIKES_OR_INSERTS_A_STRING.is_match(&amendment.amending_text));
+        words_quote_a_string && !stores_a_string
+    });
+    laws
 }
 
 /// One amendment as its public law states it.
@@ -655,6 +701,8 @@ fn match_in_work<S: Storage + LegislatureReader>(
             .iter()
             .map(|at| Contender {
                 amendment_id: &stated[*at].address.amendment_id,
+                public_law: &stated[*at].public_law,
+                only_renumbers: stated[*at].operation == AmendingAction::Redesignate,
                 evidence: &stated[*at].evidence,
                 candidates: placed[at][0].candidates.clone(),
             })
