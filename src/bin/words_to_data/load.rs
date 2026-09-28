@@ -7,7 +7,7 @@
 //! **Every command takes either form now.** There was a `refuse_sqlite` here
 //! that stopped a command which could only write into a compact JSON file. Its
 //! last caller was `extract-changes`, and it went when that command learned to
-//! write into a database (#180, #195, #199).
+//! write into a database (#180, #195, #199). That command is gone too (#252).
 
 use words_to_data::dataset::{Dataset, DatasetError, Format};
 use words_to_data::storage::{InMemoryStorage, SqliteStorage};

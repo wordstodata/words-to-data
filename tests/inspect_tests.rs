@@ -31,8 +31,9 @@ const PL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public
 const CONGRESS_CACHE: &str = "tests/test_data/congress_client_cache";
 /// Replies a model really emitted, the evidence a sweep keeps (#58).
 const MODEL_REPLIES: &str = "tests/test_data/processed/model_replies.json";
-/// Every statement a real matching run of H.R. 1 recorded.
-const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+/// Every `legislature.amended_by` link `link-by-evidence` wrote over the
+/// committed corpus for H.R. 1 (#252).
+const EVIDENCE_LINKS: &str = "tests/test_data/processed/evidence_links.json";
 
 /// Section 163 of title 26 (interest deduction), the section H.R. 1 changed
 /// more than any other. Every statement recorded there sits *beneath* the
@@ -45,8 +46,8 @@ const SECTION_181: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/par
 /// No such section. It is a raw string prefix of [`SECTION_163`], so a filter
 /// that compared strings rather than whole segments would answer §163 here.
 const SECTION_16: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_16";
-/// Title 26 is the work every statement of the real matching run names, so its
-/// subtree is every record that run wrote.
+/// Title 26 is the work most of the evidence links name, so its subtree holds
+/// most of the records that run wrote.
 const TITLE_26: &str = "uscode/title_26";
 
 fn at(date: &str) -> ExpressionId {
@@ -137,18 +138,18 @@ fn recorded_replies() -> Vec<String> {
     replies.into_iter().map(|r| r.reply).collect()
 }
 
-/// A dataset holding every statement a real matching run of H.R. 1 recorded.
+/// A dataset holding every statement `link-by-evidence` wrote for H.R. 1.
 ///
 /// Separate from [`make_full_fixture`], which holds one statement so that a
 /// count of each kind of fact can be checked exactly. A path filter instead
-/// needs a real spread of paths, and this fixture holds 753 statements.
+/// needs a real spread of paths, and this fixture holds 1195 statements.
 ///
-/// The documents are title 9 while the statements name title 26. That is on
-/// purpose: a path filter compares paths and never reads a document, and
-/// loading the two 52 MB title 26 releases to show the same thing would cost a
-/// minute of test time. The statements are real —
-/// `tests/test_data/processed/annotations.json` is the output of a matching
-/// run, and `dataset_tests` reads the same file.
+/// The documents are title 9 while the statements name title 26 and fourteen
+/// other titles. That is on purpose: a path filter compares paths and never
+/// reads a document, and loading the two 52 MB title 26 releases to show the
+/// same thing would cost a minute of test time. The statements are real —
+/// `tests/test_data/processed/evidence_links.json` is the output of one run
+/// over the committed corpus, and `dataset_tests` reads the same file.
 fn matched_statements_fixture() -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "Matched Statements".to_string(),
@@ -166,13 +167,11 @@ fn matched_statements_fixture() -> Dataset<InMemoryStorage> {
         .add_uslm_xml(USC09_30, "2025-07-30", None)
         .expect("add second version");
 
-    let file = std::fs::File::open(REAL_ANNOTATIONS).expect("open the recorded annotations");
-    let annotations: Vec<ChangeAnnotation> =
-        serde_json::from_reader(std::io::BufReader::new(file)).expect("read the annotations");
-
-    let (from, to) = pair();
-    for annotation in annotations {
-        store_annotation(&mut dataset, annotation, &from, &to);
+    let file = std::fs::File::open(EVIDENCE_LINKS).expect("open the evidence links");
+    let links: Vec<words_to_data::link::Link> =
+        serde_json::from_reader(std::io::BufReader::new(file)).expect("read the links");
+    for link in links {
+        dataset.add_link(link).expect("the link should be added");
     }
     dataset
 }
@@ -588,12 +587,12 @@ fn should_report_the_annotations_beneath_a_section_when_given_that_section() {
         exactly_there.is_empty(),
         "no statement of this run sits on the section itself"
     );
-    // Nine records answer, not 44. A record groups every statement one
+    // Eight records answer, not 27. A record groups every statement one
     // amendment asserted, so the records are fewer than the statements the run
     // recorded beneath the section.
     assert_eq!(
         beneath.len(),
-        9,
+        8,
         "naming a section must report what was recorded beneath it"
     );
 }
@@ -607,8 +606,8 @@ fn should_report_an_annotation_on_the_path_itself_when_matching_the_subtree() {
     let on_the_section = annotations_at(&dataset, SECTION_181, PathMatch::Exact);
     let subtree = annotations_at(&dataset, SECTION_181, PathMatch::default());
 
-    assert_eq!(on_the_section.len(), 7, "the section itself is annotated");
-    assert_eq!(subtree.len(), 8, "and one more record sits beneath it");
+    assert_eq!(on_the_section.len(), 1, "the section itself is annotated");
+    assert_eq!(subtree.len(), 7, "and six more records sit beneath it");
     for ann in &on_the_section {
         assert!(
             subtree
@@ -661,7 +660,7 @@ fn should_carry_the_subtree_annotations_into_a_path_report_by_default() {
 
     assert_eq!(
         by_default.annotations.len(),
-        9,
+        8,
         "a path report answers with the subtree, as the annotation list does"
     );
     assert!(
@@ -782,7 +781,11 @@ fn should_pass_validation_for_a_consistent_dataset() {
     // annotation is the fruit of that step, so a dataset holding one and no
     // record of the run is not consistent.
     dataset
-        .record_method_run(words_to_data::matching::matching_method(), &from, &to)
+        .record_method_run(
+            words_to_data::legislature::evidence_matching::evidence_method(),
+            &from,
+            &to,
+        )
         .expect("record what ran");
 
     let report = inspect::validate(&dataset).expect("validate");

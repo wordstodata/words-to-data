@@ -120,8 +120,7 @@ pub struct Report {
     ///
     /// No finer ordering inside either group. Ordering the disagreements by how
     /// well each is corroborated is what a reviewer would want next, and these
-    /// links carry no corroboration figure to order them by — `score-amendments`
-    /// is what attaches one.
+    /// links carry no corroboration figure to order them by.
     pub rows: Vec<Row>,
 }
 

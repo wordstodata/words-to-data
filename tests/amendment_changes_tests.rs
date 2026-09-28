@@ -7,9 +7,12 @@
 //!
 //! The material is real: HR 1 of the 119th Congress, parsed from the corpus,
 //! and the changes are a recorded model reply from a production run.
+//!
+//! `extract-changes`, which wrote these readings, was removed with the model
+//! pipeline (#252). The store still takes them, because a dataset built before
+//! holds them and a reader of that dataset reads them back.
 
-use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 use words_to_data::legislature::{AmendmentChanges, BillDiff};
 use words_to_data::link::{
     Link, LinkKind, Provenance, Target, VerificationState, amendment_reference_parts,
@@ -20,17 +23,19 @@ use words_to_data::uslm::bill_parser::{Bill, parse_bill_amendments};
 
 /// A real public law from the test corpus: HR 1 of the 119th Congress.
 const BILL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
-const BILL_ID: &str = "119-21";
+const BILL_ID: &str = "119-hr-1";
 
-/// One real extraction result, as a production run recorded it.
-const REAL_EXTRACTION: &str = r#"<response>[{"added":["of—\"(A)"],"removed":["of"]},{"added":[";"],"removed":["."]}]</response>"#;
+/// One real extraction result, as a production run recorded it, with the
+/// `<response>` tags the model wrapped it in taken off.
+const REAL_EXTRACTION: &str =
+    r#"[{"added":["of—\"(A)"],"removed":["of"]},{"added":[";"],"removed":["."]}]"#;
 
 fn real_bill() -> Bill {
     parse_bill_amendments(BILL_ID, BILL_XML).expect("the public law should parse")
 }
 
 fn real_changes() -> Vec<BillDiff> {
-    words_to_data::llm::parse_changes(REAL_EXTRACTION).expect("the real extraction should parse")
+    serde_json::from_str(REAL_EXTRACTION).expect("the real extraction should parse")
 }
 
 fn metadata() -> DatasetMetadata {
@@ -213,36 +218,30 @@ fn should_carry_the_recorded_changes_through_a_w2d_file_when_the_database_is_wri
 // recording a change moved the hash, every such link would point at nothing.
 // These two tests resolve a real link rather than assert the rule.
 
-/// The real matching run this corpus carries, which names real amendments of
-/// HR 1 by their content hash.
-const ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
-const TITLE_26: &str = "uscode/title_26";
+/// The `legislature.amended_by` links `link-by-evidence` wrote over the
+/// committed corpus, which name real amendments of HR 1 by their content hash
+/// (#252).
+const EVIDENCE_LINKS: &str = "tests/test_data/processed/evidence_links.json";
 
 /// A real `legislature.amended_by` link that names an amendment this dataset
 /// holds, and that amendment's id.
 ///
-/// The annotation is a real one from the recorded matching run. It is pointed
-/// at the amendment the fixture holds, because the ids the run recorded were
-/// minted by an older parse of the same bill and no longer name an amendment of
-/// it. A link has to name something the dataset holds, or it cannot be shown to
-/// stop resolving either.
+/// The first link of the committed file, as it was written. A link has to name
+/// something the dataset holds, or it cannot be shown to stop resolving either.
 fn real_link_naming_an_amendment() -> (Link, String) {
-    let json = std::fs::read_to_string(ANNOTATIONS).expect("the fixture should be readable");
-    let annotations: Vec<ChangeAnnotation> =
-        serde_json::from_str(&json).expect("the fixture should parse as annotations");
-    let mut annotation = annotations
-        .into_iter()
-        .find(|a| a.source_bill.bill_id == BILL_ID)
-        .expect("the fixture should name an amendment of this bill");
-    let amendment_id = first_amendment_id(&real_bill());
-    annotation.source_bill.amendment_id = amendment_id.clone();
-
-    let from = ExpressionId::new(WorkId::new(TITLE_26), "2025-07-18");
-    let to = ExpressionId::new(WorkId::new(TITLE_26), "2025-07-30");
-    let link = Link::from_annotation(&annotation, &from, &to)
+    let json = std::fs::read_to_string(EVIDENCE_LINKS).expect("the fixture should be readable");
+    let links: Vec<Link> = serde_json::from_str(&json).expect("the fixture should parse as links");
+    let link = links
         .into_iter()
         .next()
-        .expect("the annotation should give a link");
+        .expect("the fixture should hold a link");
+    let Target::External { reference, .. } = &link.object else {
+        panic!("an amendment link names an amendment");
+    };
+    let (bill_id, amendment_id) =
+        amendment_reference_parts(reference).expect("the reference should name an amendment");
+    assert_eq!(bill_id, BILL_ID, "the link names an amendment of this bill");
+    let amendment_id = amendment_id.to_string();
     (link, amendment_id)
 }
 

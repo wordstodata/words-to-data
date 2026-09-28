@@ -589,7 +589,7 @@ pub struct AmendmentFacts {
     /// The words the bill writes inside `<quotedContent>`. They stay out of the
     /// hierarchy, because quoted amendment text is not law in force, and as a
     /// provision it would become a searchable, diffable location an annotation
-    /// could name (#86). They are kept here because `extract-changes` needs
+    /// could name (#86). They are kept here because `link-by-evidence` reads
     /// those words, and a record split between a tree and a flat string
     /// somewhere else turns "parse once" into "parse once and keep a copy"
     /// (`docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md`).

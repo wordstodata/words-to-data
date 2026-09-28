@@ -59,7 +59,7 @@ fn dataset_over(titles: &[&str]) -> Dataset<InMemoryStorage> {
 /// The same dataset, with both window methods this build really runs recorded
 /// over every work it holds.
 ///
-/// The methods are the ones step 4 and step 5 record (`README.md`), rather than
+/// The methods are the ones `link-by-evidence` and `redesignations` record, rather than
 /// names invented here.
 fn dataset_with_runs_over(titles: &[&str]) -> Dataset<InMemoryStorage> {
     let mut dataset = dataset_over(titles);
@@ -69,7 +69,7 @@ fn dataset_with_runs_over(titles: &[&str]) -> Dataset<InMemoryStorage> {
         let to = ExpressionId::new(work, LATE);
         for method in [
             words_to_data::legislature::redesignation::reading_method(),
-            words_to_data::matching::matching_method(),
+            words_to_data::legislature::evidence_matching::evidence_method(),
         ] {
             dataset
                 .record_method_run(method, &from, &to)
@@ -191,7 +191,7 @@ fn should_print_one_line_for_each_method_when_the_same_window_ran_over_many_work
     // spells it (`Method`'s `Display`).
     for method in [
         words_to_data::legislature::redesignation::reading_method(),
-        words_to_data::matching::matching_method(),
+        words_to_data::legislature::evidence_matching::evidence_method(),
     ] {
         let named = method.to_string();
         let line = lines

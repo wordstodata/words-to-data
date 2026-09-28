@@ -6,11 +6,10 @@
 //! unaskable, and the way through was to diff a whole title and grep the output
 //! (#234).
 //!
-//! The links here are real: the committed output of one matching run over the
+//! The links here are real: the committed output of `link-by-evidence` over the
 //! real corpus, so no model runs and nothing is invented.
 
-use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 use words_to_data::link::{Link, LinkKind};
 use words_to_data::query::{LinkQuery, Locator, PathMatch, ReviewStatus};
 use words_to_data::review::{self, Review, Verdict};
@@ -18,49 +17,37 @@ use words_to_data::storage::{InMemoryStorage, LinkReader};
 
 use time::{Date, Month, OffsetDateTime, Time};
 
-/// The committed output of one real matching run.
-const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+/// The `legislature.amended_by` links `link-by-evidence` wrote over the
+/// committed corpus: the public law `119-hr-1`, every title at the three
+/// committed release points, and the committed OLRC table (#252).
+const EVIDENCE_LINKS: &str = "tests/test_data/processed/evidence_links.json";
 const TITLE_26: &str = "uscode/title_26";
-const BEFORE: &str = "2025-07-18";
-const AFTER: &str = "2025-07-30";
 
-/// Subsection (a) of § 174, which more than one amendment of the bill changed.
+/// The bill the links were made over, named as the corpus names it.
+const BILL_ID: &str = "119-hr-1";
+
+/// Section 163, whose subtree the amendments below sit in.
+const SECTION_163: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163";
+
+/// Paragraph (11) of § 163(j), which two amendments of the bill changed.
 ///
-/// One amendment narrows it to foreign research; another reaches it through
-/// § 864(g)(2). Two links at one path, from two amendments, is what makes a
-/// conjunction provable: filtering by the path alone cannot tell them apart.
-/// The bill the committed matching run was made over.
-const BILL_ID: &str = "119-21";
+/// One amendment renumbers paragraphs (10) and (11) of § 163(j), and another
+/// renumbers them again "as amended by subsection (a)". Two links at one path, from two
+/// amendments, is what makes a conjunction provable: filtering by the path
+/// alone cannot tell them apart.
+const SECTION_163_J_11: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_11";
 
-/// Section 174, whose subtree the amendments above sit in.
-const SECTION_174: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174";
-
-const SECTION_174_A: &str =
-    "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a";
-
-/// Every amendment link the run recorded over title 26, and no documents.
+/// Every amendment link the method wrote in title 26, and no documents.
 ///
 /// A query filters links, so the text is not needed and parsing two release
 /// points of title 26 would cost 112 MB of XML for nothing.
 fn amendment_links() -> Dataset<InMemoryStorage> {
-    let json = std::fs::read_to_string(REAL_ANNOTATIONS).expect("the fixture should be readable");
-    let annotations: Vec<ChangeAnnotation> =
-        serde_json::from_str(&json).expect("the fixture should parse as annotations");
-
-    let work = WorkId::new(TITLE_26);
-    let from = ExpressionId::new(work.clone(), BEFORE);
-    let to = ExpressionId::new(work, AFTER);
+    let json = std::fs::read_to_string(EVIDENCE_LINKS).expect("the fixture should be readable");
+    let links: Vec<Link> = serde_json::from_str(&json).expect("the fixture should parse as links");
 
     let mut dataset = Dataset::new(DatasetMetadata::default());
-    for annotation in &annotations {
-        if !annotation
-            .paths
-            .iter()
-            .all(|path| path.starts_with(TITLE_26))
-        {
-            continue;
-        }
-        for link in Link::from_annotation(annotation, &from, &to) {
+    for link in links {
+        if link.subject.name().contains(TITLE_26) {
             dataset.add_link(link).expect("the link should be added");
         }
     }
@@ -69,14 +56,14 @@ fn amendment_links() -> Dataset<InMemoryStorage> {
 
 /// A query naming a path **and** an object returns only what matches both.
 ///
-/// The case the sum type could not express. Two amendments changed § 174(a), so
+/// The case the sum type could not express. Two amendments changed § 163(j)(11), so
 /// the path alone cannot name one of them, and the object alone reaches every
 /// path that amendment touched. Only the conjunction names one link.
 #[test]
 fn should_return_only_the_links_matching_both_when_a_query_names_a_path_and_an_object() {
     let dataset = amendment_links();
 
-    let at_path = LinkQuery::new().at(Locator::new().at_path(SECTION_174_A, PathMatch::Exact));
+    let at_path = LinkQuery::new().at(Locator::new().at_path(SECTION_163_J_11, PathMatch::Exact));
     let everything_at_path = dataset
         .links_matching(&at_path)
         .expect("the query should read");
@@ -85,13 +72,13 @@ fn should_return_only_the_links_matching_both_when_a_query_names_a_path_and_an_o
     // fixture must really hold more than one amendment at this provision.
     assert!(
         everything_at_path.total > 1,
-        "the fixture should hold several amendment links at § 174(a), found {}",
+        "the fixture should hold several amendment links at § 163(j)(11), found {}",
         everything_at_path.total
     );
 
     let one_amendment = everything_at_path.rows[0].object.name();
     let both = LinkQuery::new()
-        .at(Locator::new().at_path(SECTION_174_A, PathMatch::Exact))
+        .at(Locator::new().at_path(SECTION_163_J_11, PathMatch::Exact))
         .with_object_prefix(&one_amendment);
     let narrowed = dataset
         .links_matching(&both)
@@ -199,12 +186,12 @@ fn should_tell_reviewed_links_from_unreviewed_ones_when_a_query_names_a_status()
 
     let at_path = dataset
         .links_matching(
-            &LinkQuery::new().at(Locator::new().at_path(SECTION_174_A, PathMatch::Exact)),
+            &LinkQuery::new().at(Locator::new().at_path(SECTION_163_J_11, PathMatch::Exact)),
         )
         .expect("the query should read");
     assert!(
         at_path.total > 1,
-        "the fixture should hold several links at § 174(a)"
+        "the fixture should hold several links at § 163(j)(11)"
     );
     let confirmed_link = at_path.rows[0].clone();
     let refuted_link = at_path.rows[1].clone();
@@ -261,7 +248,7 @@ fn should_narrow_by_status_and_path_together_when_a_query_names_both() {
     let at_path = dataset
         .links_matching(
             &LinkQuery::new()
-                .at(Locator::new().at_path(SECTION_174_A, PathMatch::Exact))
+                .at(Locator::new().at_path(SECTION_163_J_11, PathMatch::Exact))
                 .of_kind(LinkKind::AMENDED_BY),
         )
         .expect("the query should read");
@@ -283,7 +270,7 @@ fn should_narrow_by_status_and_path_together_when_a_query_names_both() {
     let unreviewed_here = dataset
         .links_matching(
             &LinkQuery::new()
-                .at(Locator::new().at_path(SECTION_174_A, PathMatch::Exact))
+                .at(Locator::new().at_path(SECTION_163_J_11, PathMatch::Exact))
                 .of_kind(LinkKind::AMENDED_BY)
                 .with_status(ReviewStatus::Unreviewed),
         )
@@ -323,7 +310,7 @@ fn should_return_the_intersection_when_annotations_is_given_a_bill_and_a_path() 
         "--bill",
         BILL_ID,
         "--path",
-        SECTION_174,
+        SECTION_163,
         "--json",
     ]);
 
@@ -347,7 +334,7 @@ fn should_return_the_intersection_when_annotations_is_given_a_bill_and_a_path() 
         assert!(
             paths
                 .iter()
-                .any(|p| p.as_str().unwrap_or_default().starts_with(SECTION_174)),
+                .any(|p| p.as_str().unwrap_or_default().starts_with(SECTION_163)),
             "every row should touch the path named, got {paths:?}"
         );
         assert_eq!(

@@ -24,11 +24,6 @@ use words_to_data::storage::{InMemoryStorage, LinkReader};
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
 const BILL: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 const BILL_ID: &str = "119-hr-1";
-/// The bill id the committed matching run wrote into the statements it recorded.
-///
-/// Not [`BILL_ID`]: the run named `119-hr-1` as `119-21`, and a listing filters
-/// on what the links say rather than on what the corpus calls the bill.
-const MATCHED_BILL: &str = "119-21";
 
 /// Title 26 before and after `119-hr-1` reached the Code: the window every
 /// case here is read over.
@@ -791,12 +786,11 @@ fn should_show_the_words_at_both_ends_when_a_reviewer_asks_to_see_a_link_without
     );
 }
 
-/// Title 26 at both release points, with the amendment matches a real matching
-/// run produced recorded as links.
+/// Title 26 at both release points, with the amendment links `link-by-evidence`
+/// wrote over the committed corpus.
 ///
-/// The annotations are the committed output of one run over the real corpus, so
-/// the links are the ones a reviewer really meets. No model runs here: the
-/// replies were bought once and committed.
+/// The links are the committed output of one run over the real corpus (#252),
+/// so they are the ones a reviewer really meets. No model runs here.
 fn dataset_with_amendment_links() -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
@@ -804,23 +798,11 @@ fn dataset_with_amendment_links() -> Dataset<InMemoryStorage> {
             .add_uslm_xml(file, date, None)
             .expect("title 26 should load");
     }
-    let json = std::fs::read_to_string("tests/test_data/processed/annotations.json")
-        .expect("the annotations fixture should be readable");
-    let annotations: Vec<words_to_data::annotation::ChangeAnnotation> =
-        serde_json::from_str(&json).expect("the fixture should parse as annotations");
-
-    let work = WorkId::new("uscode/title_26");
-    let from = ExpressionId::new(work.clone(), BEFORE);
-    let to = ExpressionId::new(work, AFTER);
-    for annotation in &annotations {
-        if !annotation
-            .paths
-            .iter()
-            .all(|path| path.starts_with("uscode/title_26"))
-        {
-            continue;
-        }
-        for link in Link::from_annotation(annotation, &from, &to) {
+    let json = std::fs::read_to_string("tests/test_data/processed/evidence_links.json")
+        .expect("the evidence links fixture should be readable");
+    let links: Vec<Link> = serde_json::from_str(&json).expect("the fixture should parse as links");
+    for link in links {
+        if link.subject.name().contains("uscode/title_26") {
             dataset.add_link(link).expect("the link should be added");
         }
     }
@@ -929,14 +911,14 @@ fn should_settle_the_link_an_annotations_row_names_when_the_id_is_read_off_that_
         .save(&input, Format::Compact)
         .expect("the fixture should save");
 
-    let rows = annotation_rows(&[&input, "--bill", MATCHED_BILL, "--json"]);
+    let rows = annotation_rows(&[&input, "--bill", BILL_ID, "--json"]);
     assert!(!rows.is_empty(), "the bill recorded statements to review");
     let named = rows[0]["link_ids"][0]
         .as_str()
         .expect("a row names the link it lists")
         .to_string();
 
-    let printed = annotations(&[&input, "--bill", MATCHED_BILL]);
+    let printed = annotations(&[&input, "--bill", BILL_ID]);
     let said = String::from_utf8_lossy(&printed.stdout);
     assert!(
         said.contains(&named),

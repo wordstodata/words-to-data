@@ -14,14 +14,14 @@ use words_to_data::congress::CongressClient;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, ExpressionId, Format, WorkId};
 use words_to_data::legislature::AmendingAction;
 use words_to_data::link::{Link, LinkKind};
-use words_to_data::uslm::bill_parser::parse_bill_amendments;
 
 /// The two US Code release points held in `tests/test_data`.
 const EARLY: &str = "2025-07-18";
 const LATE: &str = "2025-07-30";
 
-/// Every statement a real matching run of H.R. 1 recorded.
-const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+/// Every `legislature.amended_by` link `link-by-evidence` wrote over the
+/// committed corpus for H.R. 1 (#252).
+const EVIDENCE_LINKS: &str = "tests/test_data/processed/evidence_links.json";
 
 /// Section 163 of title 26, the section H.R. 1 changed more than any other.
 /// Every statement recorded there sits beneath the section, because an
@@ -309,14 +309,15 @@ fn annotated_fixture() -> &'static str {
     })
 }
 
-/// A dataset carrying every statement a real matching run of H.R. 1 recorded.
+/// A dataset carrying every statement `link-by-evidence` wrote for H.R. 1.
 ///
 /// Separate from [`annotated_fixture`], which holds one link on purpose so that
-/// `info` can count each kind of fact exactly. This one holds 753 statements
+/// `info` can count each kind of fact exactly. This one holds 1195 statements
 /// over hundreds of paths, because a path filter is only tested by a real spread
 /// of paths.
 ///
-/// The documents are title 9 while the statements name title 26. A path filter
+/// The documents are title 9 while the statements name title 26 and fourteen
+/// other titles. A path filter
 /// compares paths and never reads a document, so holding the amended title
 /// itself would add a minute of parsing and prove nothing more; `inspect_tests`
 /// says the same of the same fixture file.
@@ -346,17 +347,11 @@ fn matched_statements_fixture() -> &'static str {
                 .expect("the corpus should parse and load");
         }
 
-        let file = std::fs::File::open(REAL_ANNOTATIONS).expect("open the recorded annotations");
-        let annotations: Vec<ChangeAnnotation> =
-            serde_json::from_reader(std::io::BufReader::new(file)).expect("read the annotations");
-
-        let work = WorkId::new(UNCHANGED_WORK);
-        let from = ExpressionId::new(work.clone(), EARLY);
-        let to = ExpressionId::new(work, LATE);
-        for annotation in &annotations {
-            for link in Link::from_annotation(annotation, &from, &to) {
-                dataset.add_link(link).expect("the link should be added");
-            }
+        let file = std::fs::File::open(EVIDENCE_LINKS).expect("open the evidence links");
+        let links: Vec<Link> =
+            serde_json::from_reader(std::io::BufReader::new(file)).expect("read the links");
+        for link in links {
+            dataset.add_link(link).expect("the link should be added");
         }
 
         dataset
@@ -763,7 +758,7 @@ fn should_report_the_annotations_beneath_a_section_when_path_names_a_section() {
 
     assert_eq!(
         by_default.len(),
-        9,
+        8,
         "naming a section must report the records held beneath it"
     );
     assert!(
@@ -788,7 +783,7 @@ fn should_report_the_annotations_beneath_a_section_when_annotations_is_given_one
 
     assert_eq!(
         by_default.len(),
-        9,
+        8,
         "both commands must answer a section the same way"
     );
     assert!(exactly_there.is_empty(), "--exact means exactly");
@@ -1085,79 +1080,96 @@ fn should_report_no_changes_when_only_the_release_stamp_differs() {
     );
 }
 
-// --- Covering a corpus, now that a diff is per work ---
+// --- Choosing the windows a run covers ---
 //
-// A diff used to span the whole `uscode` root, so one `score-amendments` run
-// covered every title. It now covers one work, so the command has to loop.
-// `score-amendments` is the deterministic half of the pipeline — no LLM — so it
-// is where this behaviour is pinned.
+// A diff is per work, so a command over a corpus has to loop over the works a
+// span names. `redesignations` takes that span (`--between`, or `--from` and
+// `--to`), and it is the command left that does, since `score-amendments` and
+// `match-amendments` were removed (#252).
 
-/// Run `score-amendments` and return the parsed scores file it wrote.
-fn scored(dataset: &str, span: &[&str], out_name: &str) -> (Output, serde_json::Value) {
+/// A copy of a compact-JSON fixture with the committed public law added, which
+/// `redesignations` reads before it resolves its span.
+fn with_the_bill(source: &str, name: &str) -> String {
+    let path = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
+    let mut dataset = Dataset::load(source, Format::Compact).expect("the fixture should load");
+    // The committed download of one real bill, read without the network.
+    let client = CongressClient::with_ttl(
+        String::new(),
+        Some("tests/test_data/congress_client_cache".to_string()),
+        None,
+    );
+    let download = client
+        .download_bill("119-hr-1")
+        .expect("the cached bill should read");
+    dataset
+        .load_bill_download(&download)
+        .expect("the download should load");
+    dataset
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+    path
+}
+
+/// Both titles at both release points, and the bill.
+fn both_works_and_the_bill() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| with_the_bill(both_works_json_fixture(), "cli_both_works_bill.json"))
+}
+
+/// Neither title at both dates, and the bill.
+fn two_works_and_the_bill() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| with_the_bill(two_works_json_fixture(), "cli_two_works_bill.json"))
+}
+
+/// Run `redesignations` over a span, writing to a file of this test's own.
+fn redesignate(dataset: &str, span: &[&str], out_name: &str) -> Output {
     let out = format!("{}/{out_name}", env!("CARGO_TARGET_TMPDIR"));
-    let _ = std::fs::remove_file(&out);
-
-    let mut args = vec!["score-amendments", dataset];
+    let mut args = vec!["redesignations", dataset, "--bill-id", "119-hr-1"];
     args.extend_from_slice(span);
     args.extend_from_slice(&["--output", &out]);
-    let output = run(&args);
-
-    let written = std::fs::read_to_string(&out).unwrap_or_else(|_| "null".to_string());
-    (
-        output,
-        serde_json::from_str(&written).expect("the scores file should be json"),
-    )
+    run(&args)
 }
 
 #[test]
-fn should_cover_every_work_when_score_amendments_is_given_two_dates() {
-    let (output, scores) = scored(
-        both_works_json_fixture(),
+fn should_cover_every_work_when_a_span_is_given_two_dates() {
+    let output = redesignate(
+        both_works_and_the_bill(),
         &["--between", EARLY, LATE],
-        "scores_between.json",
+        "span_between.json",
     );
 
     assert!(
         output.status.success(),
-        "score-amendments should exit zero, stderr: {}",
+        "redesignations should exit zero, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    let entries = scores.as_array().expect("an array of scored works");
-    let works: Vec<&str> = entries
-        .iter()
-        .map(|e| e["work"].as_str().expect("a work"))
-        .collect();
-
-    assert_eq!(
-        works,
-        vec![AMENDED_WORK, UNCHANGED_WORK],
-        "one run should cover both documents"
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("across 2 work pair(s)"),
+        "one run should cover both documents, got: {}",
+        String::from_utf8_lossy(&output.stdout)
     );
-    // Each entry says which pair it came from, so the file is readable without
-    // knowing the command line that produced it.
-    assert_eq!(entries[0]["from"], expression(AMENDED_WORK, EARLY));
-    assert_eq!(entries[0]["to"], expression(AMENDED_WORK, LATE));
 }
 
 #[test]
-fn should_cover_one_work_when_score_amendments_is_given_one_pair() {
-    let (output, scores) = scored(
-        both_works_json_fixture(),
+fn should_cover_one_work_when_a_span_is_given_one_pair() {
+    let output = redesignate(
+        both_works_and_the_bill(),
         &[
             "--from",
             &expression(AMENDED_WORK, EARLY),
             "--to",
             &expression(AMENDED_WORK, LATE),
         ],
-        "scores_one.json",
+        "span_one.json",
     );
 
-    assert!(output.status.success(), "score-amendments should exit zero");
-
-    let entries = scores.as_array().expect("an array of scored works");
-    assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0]["work"], AMENDED_WORK);
+    assert!(output.status.success(), "redesignations should exit zero");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("across 1 work pair(s)"),
+        "a named pair is one work, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
 /// A work held at only one of the two dates cannot be diffed between them.
@@ -1165,16 +1177,15 @@ fn should_cover_one_work_when_score_amendments_is_given_one_pair() {
 /// would read as having done the job.
 #[test]
 fn should_name_the_works_it_could_not_cover() {
-    let (output, scores) = scored(
-        two_works_json_fixture(),
+    let output = redesignate(
+        two_works_and_the_bill(),
         &["--between", EARLY, LATE],
-        "scores_skipped.json",
+        "span_skipped.json",
     );
 
-    assert!(output.status.success(), "score-amendments should exit zero");
-    assert_eq!(
-        scores.as_array().expect("an array").len(),
-        0,
+    assert!(output.status.success(), "redesignations should exit zero");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("across 0 work pair(s)"),
         "neither title spans both dates"
     );
 
@@ -1192,8 +1203,10 @@ fn should_name_the_works_it_could_not_cover() {
 #[test]
 fn should_reject_a_span_that_names_both_forms() {
     let output = run(&[
-        "score-amendments",
-        both_works_json_fixture(),
+        "redesignations",
+        both_works_and_the_bill(),
+        "--bill-id",
+        "119-hr-1",
         "--between",
         EARLY,
         LATE,
@@ -1208,7 +1221,12 @@ fn should_reject_a_span_that_names_both_forms() {
 
 #[test]
 fn should_reject_a_span_that_names_neither_form() {
-    let output = run(&["score-amendments", both_works_json_fixture()]);
+    let output = run(&[
+        "redesignations",
+        both_works_and_the_bill(),
+        "--bill-id",
+        "119-hr-1",
+    ]);
 
     assert!(
         !output.status.success(),
@@ -1223,8 +1241,10 @@ fn should_reject_a_span_that_names_neither_form() {
 #[test]
 fn should_reject_a_between_date_that_is_not_a_date() {
     let output = run(&[
-        "score-amendments",
-        both_works_json_fixture(),
+        "redesignations",
+        both_works_and_the_bill(),
+        "--bill-id",
+        "119-hr-1",
         "--between",
         "not-a-date",
         LATE,
@@ -1243,292 +1263,20 @@ fn should_reject_a_between_date_that_is_not_a_date() {
 /// expression per work — would legitimately span nothing.
 #[test]
 fn should_report_and_succeed_when_a_valid_span_covers_no_work() {
-    let (output, scores) = scored(
-        both_works_json_fixture(),
+    let output = redesignate(
+        both_works_and_the_bill(),
         &["--between", "1999-01-01", LATE],
-        "scores_empty_span.json",
+        "span_empty.json",
     );
 
     assert!(output.status.success(), "an empty span is not a failure");
-    assert_eq!(scores.as_array().expect("an array").len(), 0);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("across 0 work pair(s)"),
+        "it covered no work"
+    );
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("nothing to do"),
         "it must say it did nothing"
-    );
-}
-
-#[test]
-fn should_score_amendments_when_the_dataset_is_sqlite() {
-    let output = run(&[
-        "score-amendments",
-        amended_fixture(),
-        "--from",
-        &expression(AMENDED_WORK, EARLY),
-        "--to",
-        &expression(AMENDED_WORK, LATE),
-        "--output",
-        &format!("{}/sqlite_scores.json", env!("CARGO_TARGET_TMPDIR")),
-    ]);
-
-    // Scoring only reads the dataset, so it must work over either backend.
-    // Handing it SQLite used to read the database as JSON and report
-    // "stream did not contain valid UTF-8", which named neither cause nor cure.
-    assert!(
-        output.status.success(),
-        "score-amendments should accept a SQLite dataset, stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-// --- Choosing which bills a run covers (#208) ---
-//
-// A run that covers every bill the dataset holds is a bill of unknown size.
-// `score-amendments` is the half of the pair that calls no model, so it is
-// where the shared `--bills` argument is pinned.
-
-/// Title 26, which the one act in the corpus amends.
-const BILL_TITLE: &str = "usc26";
-const BILL_WORK: &str = "uscode/title_26";
-
-/// The one act the corpus holds, published twice: by Congress.gov, and by
-/// govinfo. Each goes in under one of the two names the act is published by, so
-/// the dataset holds two bills to choose between. Both files are real and both
-/// are in `tests/test_data`; only the name each goes in under is chosen here.
-const PL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
-const PL_ID: &str = "119-21";
-const GOVINFO_PL_XML: &str = "tests/test_data/bills/hr-119-21.xml";
-const BILL_ID: &str = "119-hr-1";
-
-/// One real extraction result, lifted verbatim from a production
-/// `changes_cache.json`, as `cli_llm_tests` lifts it.
-const REAL_EXTRACTION: &str =
-    r#"[{"added":["of—\"(A)"],"removed":["of"]},{"added":[";"],"removed":["."]}]"#;
-
-/// A dataset holding two bills: title 26 at both release points, and the act
-/// under both of its published names.
-///
-/// The amendments carry one real extraction copied across the bill, because
-/// word-level changes come from an LLM and the corpus holds no per-amendment
-/// result. `cli_llm_tests` and `matching_tests` make the same compromise with
-/// the same real output. It decides which scores appear, not which bill they
-/// belong to, which is what these tests are about.
-fn two_bills_json_fixture() -> &'static str {
-    static FIXTURE: OnceLock<String> = OnceLock::new();
-    FIXTURE.get_or_init(|| {
-        let path = format!("{}/cli_two_bills.json", env!("CARGO_TARGET_TMPDIR"));
-
-        let mut dataset = Dataset::new(DatasetMetadata {
-            name: "Two Bills".to_string(),
-            description: "Title 26 at both release points, and one act under both its names"
-                .to_string(),
-            author: "words_to_data tests".to_string(),
-            source_urls: vec![],
-            license: "MIT".to_string(),
-            version: "1.0.0".to_string(),
-            ..Default::default()
-        });
-        for date in [EARLY, LATE] {
-            let xml = format!("tests/test_data/usc/{date}/{BILL_TITLE}.xml");
-            dataset
-                .add_uslm_xml(&xml, date, None)
-                .expect("the corpus should parse and load");
-        }
-
-        let changes =
-            words_to_data::llm::parse_changes(&format!("<response>{REAL_EXTRACTION}</response>"))
-                .expect("the real extraction should parse");
-        for (id, xml) in [(PL_ID, PL_XML), (BILL_ID, GOVINFO_PL_XML)] {
-            let mut bill = parse_bill_amendments(id, xml).expect("the public law should parse");
-            for amendment in bill.amendments.values_mut() {
-                amendment.changes = changes.clone();
-            }
-            dataset.add_bill(bill).expect("the bill should be added");
-        }
-
-        dataset
-            .save(&path, Format::Compact)
-            .expect("the fixture should save");
-        path
-    })
-}
-
-/// Every amendment id one bill holds, read from the file the bill is parsed
-/// from. An amendment id is a hash of its bill id and its text, so the two
-/// bills share none.
-fn amendment_ids_of(bill_id: &str, xml: &str) -> Vec<String> {
-    parse_bill_amendments(bill_id, xml)
-        .expect("the public law should parse")
-        .amendments
-        .keys()
-        .cloned()
-        .collect()
-}
-
-/// The amendment ids in a scores file, in the order it lists them.
-fn scored_amendment_ids(scores: &serde_json::Value) -> Vec<String> {
-    scores
-        .as_array()
-        .expect("an array of scored works")
-        .iter()
-        .flat_map(|work| {
-            work["scores"]
-                .as_array()
-                .expect("an array of scores")
-                .iter()
-                .map(|score| {
-                    score["amendment_id"]
-                        .as_str()
-                        .expect("a score names its amendment")
-                        .to_string()
-                })
-        })
-        .collect()
-}
-
-/// What `run` takes: the same arguments, borrowed.
-fn borrow(args: &[String]) -> Vec<&str> {
-    args.iter().map(String::as_str).collect()
-}
-
-/// The pair the fixture is scored over, with every score kept: the default
-/// cutoff drops them all, and a filter cannot be seen in an empty file.
-fn every_score_over_title_26() -> Vec<String> {
-    vec![
-        "--from".to_string(),
-        expression(BILL_WORK, EARLY),
-        "--to".to_string(),
-        expression(BILL_WORK, LATE),
-        "--similarity-cutoff".to_string(),
-        "0".to_string(),
-    ]
-}
-
-#[test]
-fn should_score_only_the_named_bill_when_score_amendments_is_given_one_bill_of_two() {
-    let mut narrowed_args: Vec<String> = every_score_over_title_26();
-    narrowed_args.push("--bills".to_string());
-    narrowed_args.push(BILL_ID.to_string());
-
-    let (full_output, full) = scored(
-        two_bills_json_fixture(),
-        &borrow(&every_score_over_title_26()),
-        "scores_every_bill.json",
-    );
-    let (narrow_output, narrowed) = scored(
-        two_bills_json_fixture(),
-        &borrow(&narrowed_args),
-        "scores_one_bill.json",
-    );
-
-    assert!(
-        full_output.status.success() && narrow_output.status.success(),
-        "both runs should exit zero, stderr: {} {}",
-        String::from_utf8_lossy(&full_output.stderr),
-        String::from_utf8_lossy(&narrow_output.stderr)
-    );
-
-    let named: std::collections::HashSet<String> = amendment_ids_of(BILL_ID, GOVINFO_PL_XML)
-        .into_iter()
-        .collect();
-    let other: std::collections::HashSet<String> =
-        amendment_ids_of(PL_ID, PL_XML).into_iter().collect();
-
-    let full_ids = scored_amendment_ids(&full);
-    assert!(
-        full_ids.iter().any(|id| named.contains(id))
-            && full_ids.iter().any(|id| other.contains(id)),
-        "a run that names no bill should cover both bills"
-    );
-
-    let narrowed_ids = scored_amendment_ids(&narrowed);
-    assert!(
-        !narrowed_ids.is_empty(),
-        "the named bill should still be scored"
-    );
-    assert!(
-        narrowed_ids.iter().all(|id| named.contains(id)),
-        "a run told one bill should score no other bill"
-    );
-
-    // The two runs must agree about the bill they share, in the same order.
-    let shared: Vec<&String> = full_ids.iter().filter(|id| named.contains(*id)).collect();
-    let got: Vec<&String> = narrowed_ids.iter().collect();
-    assert_eq!(
-        got, shared,
-        "the two runs should give the shared bill's scores in the same order"
-    );
-}
-
-/// A name the dataset does not hold is a typo, not a fact about the data. A
-/// run that skipped it would cover nothing, say nothing, and exit zero, which
-/// reads as having done the job.
-#[test]
-fn should_refuse_a_named_bill_when_the_dataset_does_not_hold_it() {
-    let output = run(&[
-        "score-amendments",
-        annotated_fixture(),
-        "--from",
-        &expression(UNCHANGED_WORK, EARLY),
-        "--to",
-        &expression(UNCHANGED_WORK, LATE),
-        "--bills",
-        "119-hr-999",
-        // A run that names bills says where its scores go, so this one stops
-        // at the name it was given and not at the file it would write.
-        "--output",
-        &format!("{}/scores_no_such_bill.json", env!("CARGO_TARGET_TMPDIR")),
-    ]);
-
-    assert!(
-        !output.status.success(),
-        "a bill the dataset does not hold must not exit zero"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("119-hr-999"),
-        "the refusal should name the bill, got: {stderr}"
-    );
-    assert!(
-        stderr.contains("words_to_data bills"),
-        "the refusal should say how to see the bills the dataset holds, got: {stderr}"
-    );
-}
-
-/// `similarity_scores.json` beside the dataset is the whole corpus's scores.
-/// A run narrowed to some of the bills holds a part of that, and the file says
-/// nothing of the bills it came from, so a narrowed run must be told where its
-/// scores go rather than write over the whole.
-#[test]
-fn should_refuse_the_default_scores_file_when_the_run_names_bills() {
-    let dataset = annotated_fixture();
-    let beside = std::path::Path::new(dataset).with_file_name("similarity_scores.json");
-    let whole_corpus = "the scores of every bill";
-    std::fs::write(&beside, whole_corpus).expect("the sentinel should be writable");
-
-    let output = run(&[
-        "score-amendments",
-        dataset,
-        "--from",
-        &expression(UNCHANGED_WORK, EARLY),
-        "--to",
-        &expression(UNCHANGED_WORK, LATE),
-        "--bills",
-        "119-hr-1",
-    ]);
-
-    assert!(
-        !output.status.success(),
-        "a narrowed run must not write the whole corpus's file"
-    );
-    assert_eq!(
-        std::fs::read_to_string(&beside).expect("the file should still be there"),
-        whole_corpus,
-        "the whole corpus's scores should be left as they were"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("--output"),
-        "the refusal should name the argument that says where to write, got: {stderr}"
     );
 }
 
@@ -1642,6 +1390,31 @@ fn should_list_bill_ids_so_show_bill_can_be_used() {
             "a real public law carries amendments"
         );
     }
+}
+
+/// `bills` names no command that no longer exists.
+///
+/// Nothing writes word-level changes since `extract-changes` was removed with
+/// the model pipeline (#252), so a dataset built now holds none. The count
+/// stays, because a dataset built before holds them, but advice to run the
+/// removed command would send a reader to a dead end.
+#[test]
+fn should_name_no_removed_command_when_no_bill_carries_extracted_changes() {
+    let (sqlite, _) = bill_fixtures();
+
+    let output = run(&["bills", sqlite]);
+
+    assert!(
+        output.status.success(),
+        "bills should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let said = String::from_utf8_lossy(&output.stdout);
+    assert!(said.contains("119-hr-1"), "the bill is listed, got: {said}");
+    assert!(
+        !said.contains("extract-changes"),
+        "and no removed command is named, got: {said}"
+    );
 }
 
 #[test]

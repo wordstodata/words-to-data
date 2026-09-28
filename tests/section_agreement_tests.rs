@@ -24,7 +24,15 @@ use words_to_data::link::{Link, Named};
 use words_to_data::query::LinkQuery;
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 
-/// The committed output of one real matching run.
+/// The committed output of one real matching run, by the model method
+/// `match-amendments` ran before it was removed (#252).
+///
+/// Kept, and not replaced by the evidence method's links, because a check that
+/// finds disagreements needs links that disagree. The evidence method places
+/// each link from the address the markup names, which is the same reader this
+/// check uses, so all 1195 of its links over the committed corpus agree. A
+/// dataset built before #252 still holds model links like these
+/// (`docs/adr/0005`), and they are what this check is for.
 const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
 const BEFORE: &str = "2025-07-18";
 const AFTER: &str = "2025-07-30";

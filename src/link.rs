@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::annotation::{AnnotationStatus, ChangeAnnotation};
 use crate::dataset::{ExpressionId, WorkId};
-use crate::diff::AmendmentSimilarity;
 use crate::method::Method;
 
 /// The kind of a link, namespaced by the extension that defines it.
@@ -368,26 +367,6 @@ pub struct Corroboration {
     /// The parts it was built from, so the figure can be checked rather than
     /// taken on trust.
     pub detail: Vec<(String, f32)>,
-}
-
-impl From<&AmendmentSimilarity> for Corroboration {
-    /// Corroborate an amendment match with the deterministic overlap between
-    /// the amendment's words and the words that actually changed.
-    fn from(similarity: &AmendmentSimilarity) -> Self {
-        Self {
-            method: "precision_weighted_f1".to_string(),
-            score: similarity.score,
-            detail: vec![
-                ("precision".to_string(), similarity.precision),
-                ("recall".to_string(), similarity.recall),
-                ("matched_words".to_string(), similarity.matched_words as f32),
-                (
-                    "tree_diff_words".to_string(),
-                    similarity.tree_diff_words as f32,
-                ),
-            ],
-        }
-    }
 }
 
 /// Facts about a link that only the extension defining its kind understands.

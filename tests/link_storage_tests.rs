@@ -3,7 +3,7 @@
 //! `docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md` records
 //! why a link is shaped and named this way. The fixture is
 //! `tests/test_data/processed/annotations.json`, the output of a real matching
-//! run over the real corpus.
+//! run over the real corpus, by the model method removed in #252.
 
 use words_to_data::annotation::ChangeAnnotation;
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};

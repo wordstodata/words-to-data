@@ -2,7 +2,7 @@
 //!
 //! `show-bill` takes an id, and until this existed nothing would tell you what
 //! ids there were: `info` reports a count, and annotations carry ids but a
-//! dataset has none until `match-amendments` has run (#83).
+//! dataset has none until a matching step has run (#83).
 
 use clap::Args as ClapArgs;
 use words_to_data::inspect;
@@ -50,10 +50,4 @@ pub fn run(args: Args) {
         );
     }
     println!("{} bill(s)", bills.len());
-
-    // Scoring and matching both read the extracted changes, so a dataset where
-    // every bill reports zero is one where `extract-changes` has not run.
-    if !bills.is_empty() && bills.iter().all(|b| b.amendments_with_changes == 0) {
-        println!("\nNo amendment carries extracted changes yet. Run `extract-changes` first.");
-    }
 }

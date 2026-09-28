@@ -1,9 +1,9 @@
 //! Choosing which expression pairs a command runs over.
 //!
 //! A diff is between two expressions of one work, so a job that used to be one
-//! call over a global tree is now one call per document. Two commands need to
-//! make that choice — `score-amendments` and `match-amendments` — and they must
-//! make it the same way, so it is made here.
+//! call over a global tree is now one call per document. `redesignations` makes
+//! that choice, and any later command that takes a span must make it the same
+//! way, so it is made here.
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::{ExpressionId, ExpressionPair, works_between};

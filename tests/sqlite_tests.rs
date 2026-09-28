@@ -5,6 +5,7 @@ use words_to_data::annotation::ChangeAnnotation;
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, work_roots,
 };
+use words_to_data::link::Link;
 use words_to_data::storage::{
     DocumentReader, InMemoryStorage, LegislatureReader, LinkReader, SqliteStorage,
 };
@@ -95,10 +96,13 @@ fn should_save_and_load_sqlite_format() {
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 
-fn load_annotations() -> Vec<ChangeAnnotation> {
-    let file = File::open("tests/test_data/processed/annotations.json")
-        .expect("should be able to open annotations file");
-    serde_json::from_reader(BufReader::new(file)).unwrap()
+/// The `legislature.amended_by` links `link-by-evidence` wrote over the
+/// committed corpus: the public law `119-hr-1`, every title at the three
+/// committed release points, and the committed OLRC table (#252).
+fn evidence_links() -> Vec<Link> {
+    let file = File::open("tests/test_data/processed/evidence_links.json")
+        .expect("should be able to open the evidence links file");
+    serde_json::from_reader(BufReader::new(file)).expect("the fixture should parse as links")
 }
 
 #[test]
@@ -112,17 +116,12 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
         .unwrap();
 
     // Add bill
-    let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+    let bill = parse_bill_amendments("119-hr-1", PL_XML_PATH).unwrap();
     dataset.add_bill(bill).unwrap();
 
-    // Add annotations
-    for annotation in load_annotations() {
-        store_annotation(
-            &mut dataset,
-            annotation,
-            &at("2025-07-18"),
-            &at("2025-07-30"),
-        );
+    // Add the amendment links
+    for link in evidence_links() {
+        dataset.add_link(link).expect("the link should be added");
     }
 
     let dir = tempfile::tempdir().expect("a temporary directory");
@@ -133,19 +132,20 @@ fn should_roundtrip_bills_and_annotations_sqlite() {
 
     // Verify bill
     assert_eq!(loaded.storage().bills.len(), 1);
-    let loaded_bill = loaded.get_bill("119-21").unwrap().unwrap();
-    assert_eq!(loaded_bill.bill_id, "119-21");
+    let loaded_bill = loaded.get_bill("119-hr-1").unwrap().unwrap();
+    assert_eq!(loaded_bill.bill_id, "119-hr-1");
 
     // Verify annotations. Links regroup by amendment and asserter, so one
-    // record now carries every path that amendment touched; the fixture's 753
-    // single-path records hold 718 distinct (amendment, path) statements.
+    // record carries every path that amendment touched in the window's work;
+    // the 711 links in title 26 name 307 amendments.
+    let title_26 = |date: &str| ExpressionId::new(WorkId::new("uscode/title_26"), date);
     let anns = loaded
-        .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
+        .get_annotations(&title_26("2025-07-18"), &title_26("2025-07-30"))
         .unwrap()
         .unwrap();
-    assert_eq!(anns.len(), 317);
+    assert_eq!(anns.len(), 307);
     let paths: usize = anns.iter().map(|a| a.paths.len()).sum();
-    assert_eq!(paths, 718, "every statement must survive the round trip");
+    assert_eq!(paths, 711, "every statement must survive the round trip");
 }
 
 #[test]
@@ -195,16 +195,11 @@ fn should_query_via_trait_interface() {
         .add_expression(make_expression("2025-07-30", Some("V2")))
         .unwrap();
 
-    let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+    let bill = parse_bill_amendments("119-hr-1", PL_XML_PATH).unwrap();
     dataset.add_bill(bill).unwrap();
 
-    for annotation in load_annotations() {
-        store_annotation(
-            &mut dataset,
-            annotation,
-            &at("2025-07-18"),
-            &at("2025-07-30"),
-        );
+    for link in evidence_links() {
+        dataset.add_link(link).expect("the link should be added");
     }
 
     let dir = tempfile::tempdir().expect("a temporary directory");
@@ -226,17 +221,18 @@ fn should_query_via_trait_interface() {
         assert_eq!(v1.label, Some("V1".to_string()));
 
         // get_bill
-        let bill = reader.get_bill("119-21").unwrap().unwrap();
-        assert_eq!(bill.bill_id, "119-21");
+        let bill = reader.get_bill("119-hr-1").unwrap().unwrap();
+        assert_eq!(bill.bill_id, "119-hr-1");
 
-        // get_annotations, projected out of the stored links
+        // get_annotations, projected out of the stored links: the 251 links
+        // in title 7 name 81 amendments
         let anns = reader
             .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
             .unwrap()
             .unwrap();
-        assert_eq!(anns.len(), 317);
+        assert_eq!(anns.len(), 81);
         let paths: usize = anns.iter().map(|a| a.paths.len()).sum();
-        assert_eq!(paths, 718);
+        assert_eq!(paths, 251);
 
         // compute_diff
         let diff = reader
@@ -274,7 +270,12 @@ fn should_load_window_with_two_expressions() {
         .add_expression(make_expression("2024-12-01", Some("V3")))
         .unwrap();
 
-    for annotation in load_annotations() {
+    // The old model run's record, projected over two windows. Its annotations
+    // carry no window of their own, so one record can stand in both, which is
+    // what this test needs: links in both windows, so that the window loaded is
+    // seen to hold only its own. A stored link names its window, and the
+    // evidence links all sit in one.
+    for annotation in load_old_model_annotations() {
         store_annotation(
             &mut dataset,
             annotation.clone(),
@@ -337,13 +338,8 @@ fn should_query_annotations_for_path_via_trait() {
         .add_expression(make_expression("2025-07-30", None))
         .unwrap();
 
-    for annotation in load_annotations() {
-        store_annotation(
-            &mut dataset,
-            annotation,
-            &at("2025-07-18"),
-            &at("2025-07-30"),
-        );
+    for link in evidence_links() {
+        dataset.add_link(link).expect("the link should be added");
     }
 
     let dir = tempfile::tempdir().expect("a temporary directory");
@@ -366,7 +362,15 @@ fn should_query_annotations_for_path_via_trait() {
     check_annotations_for_path(&storage);
 }
 
-/// Store an annotation the way the pipeline does: one link per path it names.
+/// The annotations the model method `match-amendments` stored, before it was
+/// removed (#252). A dataset built then still holds them (`docs/adr/0005`).
+fn load_old_model_annotations() -> Vec<ChangeAnnotation> {
+    let file = File::open("tests/test_data/processed/annotations.json")
+        .expect("should be able to open annotations file");
+    serde_json::from_reader(BufReader::new(file)).unwrap()
+}
+
+/// Store an annotation the way the pipeline did: one link per path it names.
 ///
 /// There is deliberately no writer convenience for this in the library — two
 /// ways to write one fact means the convenient one is used, and it could only
@@ -377,7 +381,7 @@ fn store_annotation<S: words_to_data::storage::Storage>(
     from: &ExpressionId,
     to: &ExpressionId,
 ) {
-    for link in words_to_data::link::Link::from_annotation(&annotation, from, to) {
+    for link in Link::from_annotation(&annotation, from, to) {
         dataset.add_link(link).expect("the link should be added");
     }
 }
