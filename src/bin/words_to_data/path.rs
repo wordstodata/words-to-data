@@ -127,8 +127,18 @@ pub fn print_classifications(section: &str, rows: &[inspect::OlrcClassification]
             .iter()
             .map(|d| if d.trim().is_empty() { "amended" } else { d.as_str() })
             .collect();
+        let part = match row.classifies {
+            inspect::ClassifiedPart::SectionText => "",
+            inspect::ClassifiedPart::Note => " (a note, not the section's text)",
+            inspect::ClassifiedPart::Heading => {
+                " (a heading before the section, not the section's text)"
+            }
+            inspect::ClassifiedPart::NoteOrHeading => {
+                " (a note or a heading before the section, not the section's text)"
+            }
+        };
         println!(
-            "  classified by the OLRC from Pub. L. {} §{}, {}",
+            "  classified by the OLRC from Pub. L. {} §{}, {}{part}",
             row.public_law,
             row.law_section,
             said.join("; ")

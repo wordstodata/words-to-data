@@ -96,3 +96,36 @@ fn should_show_the_olrc_row_when_path_reads_a_section_the_olrc_classified() {
         "the OLRC's statement that § 70302(a) made § 174A should be shown: {said}"
     );
 }
+
+/// The table puts a note on § 174A too: § 70302(c) of the law, `nt new`. That
+/// row is about a note, and a reviewer must not read it as about the text.
+#[test]
+fn should_say_a_row_classifies_a_note_when_its_descriptions_are_all_notes() {
+    let said = run(&["path", dataset_on_disk(), SECTION_174A]);
+
+    assert!(
+        said.contains(
+            "classified by the OLRC from Pub. L. 119-21 §70302(c), nt new (a note, not the section's text)"
+        ),
+        "a note-only row should say it classifies a note: {said}"
+    );
+    assert!(
+        said.contains("classified by the OLRC from Pub. L. 119-21 §70302(a), new\n"),
+        "and a row about the text should carry no such words: {said}"
+    );
+}
+
+/// Section 161, whose preceding heading § 70302(d) of the law changed: `prec`.
+const SECTION_161: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_161";
+
+#[test]
+fn should_say_a_row_classifies_a_heading_when_its_description_is_prec() {
+    let said = run(&["path", dataset_on_disk(), SECTION_161]);
+
+    assert!(
+        said.contains(
+            "classified by the OLRC from Pub. L. 119-21 §70302(d), prec (a heading before the section, not the section's text)"
+        ),
+        "a prec row should say it classifies a heading: {said}"
+    );
+}
