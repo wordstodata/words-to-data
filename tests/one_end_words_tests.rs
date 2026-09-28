@@ -133,7 +133,10 @@ fn should_stop_at_a_screenful_and_say_what_it_left_out_when_an_added_provision_i
         said.contains("qualified contributions made by the ta…"),
         "where the cut is marked: {said}"
     );
-    assert!(said.contains("--json"), "the reader is told where the rest is: {said}");
+    assert!(
+        said.contains("--json"),
+        "the reader is told where the rest is: {said}"
+    );
 }
 
 #[test]
@@ -166,8 +169,7 @@ fn should_carry_every_field_in_full_when_path_answers_in_json() {
 
 /// The paragraph Public Law 119-21 struck from § 132(f): the suspension of the
 /// bicycle commuting exclusion.
-const PARAGRAPH_132_F_8: &str =
-    "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_132/subsection_f/paragraph_8";
+const PARAGRAPH_132_F_8: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_132/subsection_f/paragraph_8";
 
 #[test]
 fn should_show_the_words_removed_when_path_reads_a_provision_gone_in_the_window() {
@@ -197,7 +199,13 @@ fn link_at(path: &str) -> Link {
 /// `settle --explain` on the committed link at `path`.
 fn explain(path: &str) -> String {
     let id = link_at(path).id();
-    run(&["settle", dataset_on_disk(), "--link", &id[..12], "--explain"])
+    run(&[
+        "settle",
+        dataset_on_disk(),
+        "--link",
+        &id[..12],
+        "--explain",
+    ])
 }
 
 #[test]

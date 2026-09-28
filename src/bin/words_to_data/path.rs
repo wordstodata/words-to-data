@@ -125,7 +125,13 @@ pub fn print_classifications(section: &str, rows: &[inspect::OlrcClassification]
         let said: Vec<&str> = row
             .descriptions
             .iter()
-            .map(|d| if d.trim().is_empty() { "amended" } else { d.as_str() })
+            .map(|d| {
+                if d.trim().is_empty() {
+                    "amended"
+                } else {
+                    d.as_str()
+                }
+            })
             .collect();
         let part = match row.classifies {
             inspect::ClassifiedPart::SectionText => "",

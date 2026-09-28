@@ -49,7 +49,10 @@ fn dataset_on_disk() -> &'static str {
             }
         }
 
-        let unclassified = format!("{}/olrc_reader_unclassified.json", env!("CARGO_TARGET_TMPDIR"));
+        let unclassified = format!(
+            "{}/olrc_reader_unclassified.json",
+            env!("CARGO_TARGET_TMPDIR")
+        );
         let classified = format!("{}/olrc_reader.json", env!("CARGO_TARGET_TMPDIR"));
         dataset
             .save(&unclassified, Format::Compact)
@@ -112,6 +115,29 @@ fn should_say_a_row_classifies_a_note_when_its_descriptions_are_all_notes() {
     assert!(
         said.contains("classified by the OLRC from Pub. L. 119-21 §70302(a), new\n"),
         "and a row about the text should carry no such words: {said}"
+    );
+}
+
+/// A reviewer confirming the link to § 174A reads the OLRC's row beside it.
+#[test]
+fn should_show_the_olrc_row_when_a_reviewer_explains_a_link_to_a_classified_section() {
+    let link = evidence_links()
+        .into_iter()
+        .find(|link| link.subject.name().ends_with(SECTION_174A))
+        .expect("the fixture holds the link to § 174A");
+    let id = link.id();
+
+    let said = run(&[
+        "settle",
+        dataset_on_disk(),
+        "--link",
+        &id[..12],
+        "--explain",
+    ]);
+
+    assert!(
+        said.contains("classified by the OLRC from Pub. L. 119-21 §70302(a), new"),
+        "the OLRC's statement should be beside the link: {said}"
     );
 }
 

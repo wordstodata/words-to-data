@@ -585,9 +585,7 @@ pub fn olrc_classifications<S: Storage>(
         .filter(|link| link.subject.name() == section)
         .filter_map(|link| classification(section, link))
         .collect();
-    rows.sort_by(|a, b| {
-        (&a.public_law, &a.law_section).cmp(&(&b.public_law, &b.law_section))
-    });
+    rows.sort_by(|a, b| (&a.public_law, &a.law_section).cmp(&(&b.public_law, &b.law_section)));
     Ok(rows)
 }
 
