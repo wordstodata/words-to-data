@@ -331,6 +331,67 @@ fn should_leave_the_work_and_show_as_reviewed_when_an_agent_concludes_an_amendme
     );
 }
 
+/// A "no link" conclusion is a record like any review, so a later reviewer
+/// overrides it by publishing over it, and the newest record wins
+/// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+#[test]
+fn should_return_to_the_work_when_a_later_reviewer_refutes_the_no_link_conclusion() {
+    let dataset = writable_copy("residue_after_refuted_no_link");
+    let path = dataset.to_str().expect("a UTF-8 path");
+    let concluded = run(
+        "link-amendment",
+        &[
+            path,
+            "--bill",
+            BILL_ID,
+            "--amendment",
+            &full_id(AMENDS_TITLE_12),
+            "--no-link",
+            "no_change",
+            "--source",
+            "agent:claude",
+            "--method",
+            "resolve-residue@1",
+            "--reason",
+            "An agent that did not look far enough.",
+        ],
+    );
+    assert!(concluded.status.success(), "the conclusion should record");
+    let record = Dataset::open_sqlite(&dataset)
+        .expect("the dataset should open")
+        .links_by_kind("review.no_link")
+        .expect("the records should read")
+        .pop()
+        .expect("one no-link record");
+
+    let refuted = run(
+        "settle",
+        &[
+            path,
+            "--link",
+            &record.id(),
+            "--verdict",
+            "refuted",
+            "--reviewer",
+            "human:jesse",
+            "--reason",
+            "The amendment does change the text; it is in title 12, which is not held.",
+        ],
+    );
+    assert!(
+        refuted.status.success(),
+        "settle should refute the conclusion, stderr: {}",
+        String::from_utf8_lossy(&refuted.stderr)
+    );
+
+    let rows = residue_rows(&dataset);
+    let row = row_of(&rows, AMENDS_TITLE_12).expect("the amendment is listed");
+    assert_eq!(
+        row["category"], "work",
+        "the refuted conclusion no longer stands"
+    );
+}
+
 #[test]
 fn should_report_an_amendment_as_quiet_and_not_as_work_when_nothing_under_its_address_changed() {
     // Section 70116(b)(1) of the law: "Section 25B(a) is amended by striking

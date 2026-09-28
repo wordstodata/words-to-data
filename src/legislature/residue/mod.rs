@@ -43,7 +43,7 @@ use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
 use crate::olrc::law_section::{LawSection, classifications_of};
 use crate::query::LinkQuery;
-use crate::review::{NoLink, newest_no_links};
+use crate::review::{NoLink, standing_no_links};
 use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::amendment_address::AmendmentAddress;
 
@@ -122,7 +122,10 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
 ) -> Result<Vec<Unlinked>, DatasetError> {
     let linked = linked_amendments(dataset, bill)?;
     let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
-    let no_links = newest_no_links(&dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?);
+    let no_links = standing_no_links(
+        &dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?,
+        &dataset.links_by_namespace(LinkKind::REVIEW)?,
+    );
     let found = match_by_evidence(dataset)?;
     let unlinked = found
         .matches

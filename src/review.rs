@@ -401,24 +401,37 @@ impl NoLink {
     }
 }
 
-/// The no-link conclusion a reader reports for each amendment: the newest
-/// record naming it, keyed by its amendment reference.
+/// The no-link conclusion that stands for each amendment, keyed by its
+/// amendment reference.
 ///
-/// Newest by the reviewer's own timestamp, and the reviewer's name breaks a
-/// tie, as [`newest`] does for a review of a link. Nothing here ranks a
-/// reviewer.
-pub fn newest_no_links(records: &[Link]) -> BTreeMap<String, NoLink> {
-    let mut newest: BTreeMap<String, NoLink> = BTreeMap::new();
-    for conclusion in records.iter().filter_map(NoLink::read) {
+/// For each amendment only the **newest** no-link record counts: newest by the
+/// reviewer's own timestamp, with the reviewer's name to break a tie, as
+/// [`newest`] does for a review of a link. It stands unless the newest review
+/// naming that record, out of `reviews`, refutes it. An older conclusion does
+/// not come back when a newer one is refuted, because the refutation is the
+/// newer statement. Nothing here ranks a reviewer.
+pub fn standing_no_links(records: &[Link], reviews: &[Link]) -> BTreeMap<String, NoLink> {
+    let mut newest: BTreeMap<String, (NoLink, &Link)> = BTreeMap::new();
+    for record in records {
+        let Some(conclusion) = NoLink::read(record) else {
+            continue;
+        };
         let key = amendment_reference(&conclusion.bill_id, &conclusion.amendment_id);
-        let newer = newest
-            .get(&key)
-            .is_none_or(|held| (conclusion.at, &conclusion.reviewer) > (held.at, &held.reviewer));
+        let newer = newest.get(&key).is_none_or(|(held, _)| {
+            (conclusion.at, &conclusion.reviewer) > (held.at, &held.reviewer)
+        });
         if newer {
-            newest.insert(key, conclusion);
+            newest.insert(key, (conclusion, record));
         }
     }
     newest
+        .into_iter()
+        .filter(|(_, (_, record))| {
+            newest_naming(&record.id(), reviews)
+                .is_none_or(|review| review.verdict != Verdict::Refuted)
+        })
+        .map(|(key, (conclusion, _))| (key, conclusion))
+        .collect()
 }
 
 /// Why a review was not recorded.

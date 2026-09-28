@@ -14,6 +14,19 @@
 //! recorder writes. So `annotations`, `path`, `settle`, `section-agreement` and
 //! `info` read it with no change, and `settle` reviews it like any other link.
 //!
+//! **It names its method.** `--method name@version` goes on the link's
+//! provenance, and a run of that method over the window is recorded, because
+//! "this reasoning was applied to this window" is what an agent after it can
+//! act on (#179, decisions 10 and 11).
+//!
+//! **It can record that there is no link.** With `--no-link <category>` in place
+//! of a window and paths, it records a [`words_to_data::review::NoLink`]: a
+//! review whose subject is the amendment itself (ADR 0012, addendum of
+//! 2026-09-27). `residue` then reports the amendment as reviewed and not as
+//! work. One command for both outcomes, because they share every other
+//! argument and every refusal, and an agent working the residue reaches one or
+//! the other on each row.
+//!
 //! **It takes either form the dataset comes in.** A database is changed where it
 //! sits; a W2D file is read into memory and written out again (#195).
 

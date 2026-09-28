@@ -441,9 +441,34 @@ the law, when `add-classifications` has run. Each row is in one category:
 - **quiet** — the Code holds the address, and nothing under it changed after
   the law's enactment. Usually the dataset does not yet reach the date the
   amendment takes effect. This is not work.
+- **reviewed: no link** — a reviewer concluded that the amendment has no
+  correct link, and recorded why. The row shows who concluded it, when, and
+  the reason. This is not work.
 
 The human output gives the counts for every row, then a screenful of rows, work
 first, and says how many it did not show. `--json` gives every row.
+
+An agent works the list with `link-amendment`. It records a link to a path that
+changed in the window, or, with `--no-link`, the conclusion that the amendment
+has no correct link. Both need the method the agent applied, as
+`name@version`:
+
+```bash
+words_to_data link-amendment dataset.sqlite --bill 119-hr-1 --amendment <id> \
+  --from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30 \
+  --path <changed path> --source agent:claude --method resolve-residue@1 \
+  --reason "<why>"
+words_to_data link-amendment dataset.sqlite --bill 119-hr-1 --amendment <id> \
+  --no-link not_held --source agent:claude --method resolve-residue@1 \
+  --reason "<why>"
+```
+
+The categories for `--no-link` are `not_held` (the change is in material the
+dataset does not hold), `not_yet_in_corpus` (it takes effect after the newest
+release point held), `no_change` (the text did not change) and `other`. A link
+records a run of the method over its window, and `info` lists it. A no-link
+conclusion names no window, so it records no run. A reviewer who disagrees
+refutes the conclusion with `settle`, and the amendment is work again.
 
 ## Quick Start
 

@@ -658,3 +658,96 @@ fn should_record_a_no_link_review_of_the_amendment_when_an_agent_concludes_it_ha
         "no amended_by link is written"
     );
 }
+
+/// What a reader prints with `--json`.
+fn json_of(command: &str, dataset: &str) -> serde_json::Value {
+    let output = run(command, &[dataset, "--json"]);
+    assert!(
+        output.status.success(),
+        "{command} should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("--json should emit json")
+}
+
+/// Two reviewers who conclude one amendment has no link make two records, as
+/// two reviewers of one link do (ADR 0012). A record about the law is not
+/// itself a statement about the law, so `contradictions` does not call the
+/// pair a disagreement and `info` does not count the records as links waiting
+/// for review.
+#[test]
+fn should_keep_both_records_and_report_no_contradiction_when_two_reviewers_conclude_no_link() {
+    let once = output_for("door_no_link_by_agent");
+    let twice = output_for("door_no_link_by_agent_and_human");
+
+    let first = link_amendment(&concluding_no_link(
+        "not_held",
+        "agent:claude",
+        "A table of sections, which the dataset does not hold.",
+        &once,
+    ));
+    assert!(first.status.success(), "the first conclusion should record");
+    let mut again = concluding_no_link(
+        "other",
+        "human:jesse",
+        "A clerical amendment to an index of the chapter.",
+        &twice,
+    );
+    again[0] = once.clone();
+    let second = link_amendment(&again);
+    assert!(
+        second.status.success(),
+        "the second conclusion should record, stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    assert_eq!(
+        links_of_kind(&twice, "review.no_link").len(),
+        2,
+        "each reviewer's conclusion is its own record"
+    );
+    let contradictions = json_of("contradictions", &twice);
+    assert_eq!(contradictions["totals"]["disagreement"], 0);
+    assert_eq!(contradictions["totals"]["duplication"], 0);
+    let info = json_of("info", &twice);
+    assert_eq!(info["link_counts_by_kind"]["review.no_link"], 2);
+    assert!(
+        info["review_states_by_kind"]
+            .get("review.no_link")
+            .is_none(),
+        "the records are not counted as links waiting for review: {}",
+        info["review_states_by_kind"]
+    );
+}
+
+/// The refusals the door gives a link, it gives a no-link conclusion too.
+#[test]
+fn should_refuse_and_write_nothing_when_a_no_link_run_has_no_reason_no_method_or_an_unknown_amendment()
+ {
+    let written = output_for("door_refuses_no_link");
+    let reason = "A table of sections, which the dataset does not hold.";
+    let complete = concluding_no_link("not_held", "agent:claude", reason, &written);
+    let mut unknown = complete.clone();
+    let at = unknown
+        .iter()
+        .position(|arg| arg == AMENDS_A_TABLE_OF_SECTIONS)
+        .expect("the run names the amendment");
+    unknown[at] = "0".repeat(64);
+
+    for (case, args) in [
+        (
+            "an empty reason",
+            concluding_no_link("not_held", "agent:claude", " ", &written),
+        ),
+        ("no method", without(&complete, "--method")),
+        ("an unknown amendment", unknown),
+    ] {
+        let output = link_amendment(&args);
+
+        assert!(!output.status.success(), "{case} must be refused");
+        assert!(
+            !std::path::Path::new(&written).exists(),
+            "a refusal of {case} writes nothing"
+        );
+    }
+}

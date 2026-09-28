@@ -72,3 +72,19 @@ This is why no new verification state was needed. A human confirming and a machi
 **A wrong verdict is corrected by publishing over it, and there is no way to remove it.** That is the intended trade: the record of a mistake is itself a record.
 
 **Deriving a contested reading is left open.** Where one reviewer confirms and another refutes, a reader today reports the newer one. Pointers between reviews would let a *disputed* reading be derived from the pair instead. The records already hold everything such a rule would read, so this can be added later without touching what is stored. It is deliberately not built: one agent and one human working together do not need it.
+
+## Addendum, 2026-09-27: a review of an amendment that has no link
+
+Some amendments on the residue (`docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`) have no correct link. Their change is in material the dataset does not hold, or it takes effect after the newest release point held, or it changed nothing. The residue is derived, so such an amendment stayed listed as work for ever, and each new agent did the same research again.
+
+That conclusion is a thing someone said, so it is a record, and it takes the shape above with one change. There is no link to copy a subject from, so the amendment is the subject.
+
+| part | value | why |
+| --- | --- | --- |
+| subject | `External { reference: "legislature.amendment:<bill>:<id>" }` | The amendment itself, named as every `amended_by` link names it. No promoted subject column holds an external reference, so this is not an index here; the residue finds the records by kind. |
+| kind | `review.no_link`, with the category in the payload: `not_held`, `not_yet_in_corpus`, `no_change`, `other` | The verdict — this amendment is not work — is the same for every category. The category refines the reason, and a reviewer who corrects it restates their own record, as one who corrects their reason does. One kind keeps one thing for a reader to ask for. |
+| object | `External { reference: "review.amendment:<bill>:<id>:<reviewer>" }` | The identity, with the reviewer in it, so two reviewers of one amendment are two records. It is not `review.argument:`, because an amendment reference holds colons and `review::reference_parts` would read `legislature.amendment` as a link id. |
+
+The record is `MachineSuggested`, and it carries the source, the written reason as its evidence, a timestamp and the method. The newest record for an amendment is the one a reader reports. It stands unless the newest review naming it is a refutation, so a reviewer who disagrees refutes it with `settle` like any other link. A link that names the amendment later takes it off the residue, as any link does.
+
+`SCHEMA_VERSION` does not move: this is a new kind, and a kind is an open string (`docs/adr/0002-links-live-in-the-core.md`).
