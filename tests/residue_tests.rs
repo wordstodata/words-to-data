@@ -253,6 +253,8 @@ fn should_leave_the_list_when_an_agent_records_a_link_through_the_door() {
             &format!("{PARAGRAPH_2036_A_2}/subparagraph_C"),
             "--source",
             "agent:claude",
+            "--method",
+            "resolve-residue@1",
             "--reason",
             "The Code prints section 3(u)(4) of the Act as section 2012(u)(4) of this title, \
              and subparagraph (C) is where that reference changed.",
@@ -267,6 +269,126 @@ fn should_leave_the_list_when_an_agent_records_a_link_through_the_door() {
     assert!(
         row_of(&residue_rows(&dataset), STRIKES_SECTION_3_U_4).is_none(),
         "one link names the amendment, so it is no longer listed"
+    );
+}
+
+/// Section 30001 of the law: "Section 1017(a)(2)(A)(iii) of the Consumer
+/// Financial Protection Act of 2010 (12 U.S.C. 5497(a)(2)(A)(iii)) is amended
+/// ...". The corpus holds no title 12, so the matcher stops at the window and
+/// calls it work, and no change the dataset holds can be its change.
+const AMENDS_TITLE_12: &str = "de4113b510a4";
+
+#[test]
+fn should_leave_the_work_and_show_as_reviewed_when_an_agent_concludes_an_amendment_has_no_link() {
+    let dataset = writable_copy("residue_after_no_link");
+    let before = residue_rows(&dataset);
+    let row = row_of(&before, AMENDS_TITLE_12).expect("the amendment is listed");
+    assert_eq!(row["category"], "work", "it is work before anyone looks");
+
+    let reason = "The amendment changes 12 U.S.C. 5497, and the dataset holds no title 12.";
+    let output = run(
+        "link-amendment",
+        &[
+            dataset.to_str().expect("a UTF-8 path"),
+            "--bill",
+            BILL_ID,
+            "--amendment",
+            &full_id(AMENDS_TITLE_12),
+            "--no-link",
+            "not_held",
+            "--source",
+            "agent:claude",
+            "--method",
+            "resolve-residue@1",
+            "--reason",
+            reason,
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "link-amendment should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let after = residue_rows(&dataset);
+    let row = row_of(&after, AMENDS_TITLE_12).expect("it is still listed, as reviewed");
+    assert_eq!(row["category"], "reviewed_no_link");
+    assert_eq!(row["no_link"]["category"], "not_held");
+    assert_eq!(row["no_link"]["reviewer"], "agent:claude");
+    assert_eq!(row["no_link"]["reasoning"], reason);
+    let work =
+        |rows: &[serde_json::Value]| rows.iter().filter(|row| row["category"] == "work").count();
+    assert_eq!(work(&after), work(&before) - 1, "one less row of work");
+
+    let printed = run(
+        "residue",
+        &[dataset.to_str().expect("a UTF-8 path"), "--bill", BILL_ID],
+    );
+    let stdout = String::from_utf8_lossy(&printed.stdout);
+    assert!(
+        stdout.contains("reviewed: no link"),
+        "a person sees the reviewed count: {stdout}"
+    );
+}
+
+/// A "no link" conclusion is a record like any review, so a later reviewer
+/// overrides it by publishing over it, and the newest record wins
+/// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+#[test]
+fn should_return_to_the_work_when_a_later_reviewer_refutes_the_no_link_conclusion() {
+    let dataset = writable_copy("residue_after_refuted_no_link");
+    let path = dataset.to_str().expect("a UTF-8 path");
+    let concluded = run(
+        "link-amendment",
+        &[
+            path,
+            "--bill",
+            BILL_ID,
+            "--amendment",
+            &full_id(AMENDS_TITLE_12),
+            "--no-link",
+            "no_change",
+            "--source",
+            "agent:claude",
+            "--method",
+            "resolve-residue@1",
+            "--reason",
+            "An agent that did not look far enough.",
+        ],
+    );
+    assert!(concluded.status.success(), "the conclusion should record");
+    let record = Dataset::open_sqlite(&dataset)
+        .expect("the dataset should open")
+        .links_by_kind("review.no_link")
+        .expect("the records should read")
+        .pop()
+        .expect("one no-link record");
+
+    let refuted = run(
+        "settle",
+        &[
+            path,
+            "--link",
+            &record.id(),
+            "--verdict",
+            "refuted",
+            "--reviewer",
+            "human:jesse",
+            "--reason",
+            "The amendment does change the text; it is in title 12, which is not held.",
+        ],
+    );
+    assert!(
+        refuted.status.success(),
+        "settle should refute the conclusion, stderr: {}",
+        String::from_utf8_lossy(&refuted.stderr)
+    );
+
+    let rows = residue_rows(&dataset);
+    let row = row_of(&rows, AMENDS_TITLE_12).expect("the amendment is listed");
+    assert_eq!(
+        row["category"], "work",
+        "the refuted conclusion no longer stands"
     );
 }
 

@@ -25,11 +25,17 @@
 //! reserved to a kind of reviewer and no trust order is configured: a reviewer
 //! overrides by publishing over the earlier record, and every record survives.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::dataset::DatasetError;
-use crate::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
+use crate::link::{
+    Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
+    amendment_reference,
+};
+use crate::method::Method;
 use crate::storage::LinkWriter;
 
 /// How a review names the link it reviews and who reviewed it.
@@ -253,6 +259,179 @@ pub fn reference_parts(reference: &str) -> Option<(&str, &str)> {
 /// returned as a review of link `a1`.
 pub fn reference_prefix(reviewed_id: &str) -> String {
     format!("{REFERENCE}{reviewed_id}:")
+}
+
+/// How a no-link record names the amendment it concludes about and who
+/// concluded it.
+///
+/// Not [`REFERENCE`]: an amendment reference holds colons of its own, so
+/// [`reference_parts`] would read `legislature.amendment` as a link id.
+const NO_LINK_REFERENCE: &str = "review.amendment:";
+
+/// Why an amendment has no correct link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoLinkCategory {
+    /// The change is in material the dataset does not hold: a note, a table
+    /// of sections, a title the dataset lacks.
+    NotHeld,
+    /// The change takes effect after the newest release point the dataset
+    /// holds.
+    NotYetInCorpus,
+    /// The text did not change.
+    NoChange,
+    /// Another reason, which the written reason gives.
+    Other,
+}
+
+impl std::fmt::Display for NoLinkCategory {
+    /// The word the command line and `--json` use.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NotHeld => "not_held",
+            Self::NotYetInCorpus => "not_yet_in_corpus",
+            Self::NoChange => "no_change",
+            Self::Other => "other",
+        })
+    }
+}
+
+/// A reviewer's conclusion that an amendment has no correct link.
+///
+/// **Its own record, shaped as a review is** (ADR 0012, and its addendum of
+/// 2026-09-27). There is no link to copy a subject from, so:
+///
+/// | part | value |
+/// | --- | --- |
+/// | subject | the amendment's own reference, `legislature.amendment:<bill>:<id>`. |
+/// | kind | [`LinkKind::REVIEW_NO_LINK`]. One kind; the category is in the payload. |
+/// | object | `External { reference: "review.amendment:<bill>:<id>:<reviewer>" }`. The **identity**: two reviewers of one amendment make two records. |
+///
+/// The category is in the payload and not in the kind, because the verdict is
+/// the same whatever the category: this amendment is not work. A reviewer who
+/// only corrects the category restates their own record, as a reviewer who
+/// corrects their reason does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NoLink {
+    /// The bill, as the dataset names it: `119-hr-1`.
+    pub bill_id: String,
+    /// The amendment, by its full id.
+    pub amendment_id: String,
+    pub category: NoLinkCategory,
+    /// Who concluded it: `agent:claude`, `human:jesse`.
+    pub reviewer: String,
+    /// The reasoning the reviewer applied, and its version.
+    pub method: Option<Method>,
+    /// Why, in the reviewer's own words.
+    pub reasoning: String,
+    /// When it was concluded. The newest record is the one a reader reports.
+    #[serde(with = "time::serde::rfc3339")]
+    pub at: OffsetDateTime,
+}
+
+impl NoLink {
+    /// The record this conclusion makes. `amending_text` is the amendment's
+    /// words, which a reader shows beside the reference.
+    pub fn record(&self, amending_text: &str) -> Link {
+        Link {
+            subject: Target::External {
+                reference: amendment_reference(&self.bill_id, &self.amendment_id),
+                display: amending_text.to_string(),
+            },
+            kind: LinkKind::new(LinkKind::REVIEW_NO_LINK),
+            object: Target::External {
+                reference: format!(
+                    "{NO_LINK_REFERENCE}{}:{}:{}",
+                    self.bill_id, self.amendment_id, self.reviewer
+                ),
+                display: format!(
+                    "{} found no link for amendment {}",
+                    self.reviewer,
+                    short_id(&self.amendment_id)
+                ),
+            },
+            provenance: Provenance {
+                source: self.reviewer.clone(),
+                method: self.method.clone(),
+                verification: VerificationState::MachineSuggested,
+                evidence: Evidence::from_reasoning(Some(self.reasoning.clone())),
+                raw_score: None,
+                timestamp: Some(self.at),
+                corroboration: None,
+            },
+            payload: Some(KindPayload {
+                namespace: LinkKind::REVIEW.to_string(),
+                value: serde_json::json!({ "category": self.category }),
+            }),
+        }
+    }
+
+    /// The conclusion a record states, and `None` when the link is not a
+    /// no-link record or carries no timestamp.
+    ///
+    /// The amendment is read from the **object**, which is the identity, and
+    /// never from the subject, which is a copy (ADR 0012).
+    pub fn read(record: &Link) -> Option<Self> {
+        if record.kind.0 != LinkKind::REVIEW_NO_LINK {
+            return None;
+        }
+        let Target::External { reference, .. } = &record.object else {
+            return None;
+        };
+        let (bill_id, rest) = reference.strip_prefix(NO_LINK_REFERENCE)?.split_once(':')?;
+        let (amendment_id, reviewer) = rest.split_once(':')?;
+        let category = record
+            .payload
+            .as_ref()
+            .and_then(|payload| serde_json::from_value(payload.value["category"].clone()).ok())?;
+        Some(Self {
+            bill_id: bill_id.to_string(),
+            amendment_id: amendment_id.to_string(),
+            category,
+            reviewer: reviewer.to_string(),
+            method: record.provenance.method.clone(),
+            reasoning: record
+                .provenance
+                .evidence
+                .as_ref()
+                .and_then(|evidence| evidence.reasoning.clone())
+                .unwrap_or_default(),
+            at: record.provenance.timestamp?,
+        })
+    }
+}
+
+/// The no-link conclusion that stands for each amendment, keyed by its
+/// amendment reference.
+///
+/// For each amendment only the **newest** no-link record counts: newest by the
+/// reviewer's own timestamp, with the reviewer's name to break a tie, as
+/// [`newest`] does for a review of a link. It stands unless the newest review
+/// naming that record, out of `reviews`, refutes it. An older conclusion does
+/// not come back when a newer one is refuted, because the refutation is the
+/// newer statement. Nothing here ranks a reviewer.
+pub fn standing_no_links(records: &[Link], reviews: &[Link]) -> BTreeMap<String, NoLink> {
+    let mut newest: BTreeMap<String, (NoLink, &Link)> = BTreeMap::new();
+    for record in records {
+        let Some(conclusion) = NoLink::read(record) else {
+            continue;
+        };
+        let key = amendment_reference(&conclusion.bill_id, &conclusion.amendment_id);
+        let newer = newest.get(&key).is_none_or(|(held, _)| {
+            (conclusion.at, &conclusion.reviewer) > (held.at, &held.reviewer)
+        });
+        if newer {
+            newest.insert(key, (conclusion, record));
+        }
+    }
+    newest
+        .into_iter()
+        .filter(|(_, (_, record))| {
+            newest_naming(&record.id(), reviews)
+                .is_none_or(|review| review.verdict != Verdict::Refuted)
+        })
+        .map(|(key, (conclusion, _))| (key, conclusion))
+        .collect()
 }
 
 /// Why a review was not recorded.

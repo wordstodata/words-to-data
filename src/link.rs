@@ -75,6 +75,12 @@ impl LinkKind {
     /// A reviewer objects to the link they reviewed, and does not settle it.
     pub const REVIEW_DISPUTED: &'static str = "review.disputed";
 
+    /// A reviewer says an amendment has no correct link: its change is in
+    /// material the dataset does not hold, or it is not in the corpus yet, or
+    /// it changed nothing. There is no link to review, so the amendment itself
+    /// is the subject (`crate::review::NoLink`).
+    pub const REVIEW_NO_LINK: &'static str = "review.no_link";
+
     pub fn new(kind: impl Into<String>) -> Self {
         Self(kind.into())
     }

@@ -89,6 +89,7 @@ fn queue_place(category: Category) -> u8 {
         Category::Unwritten => 1,
         Category::NotHeld => 2,
         Category::Quiet => 3,
+        Category::ReviewedNoLink => 4,
     }
 }
 
@@ -121,16 +122,32 @@ fn print_counts(rows: &[Unlinked]) {
         "  {:>4}  quiet: nothing under the address changed after the law's enactment; not work",
         count(Category::Quiet)
     );
+
+    let mut concluded: BTreeMap<String, usize> = BTreeMap::new();
+    for no_link in rows.iter().filter_map(|row| row.no_link.as_ref()) {
+        *concluded.entry(no_link.category.to_string()).or_default() += 1;
+    }
+    println!(
+        "  {:>4}  reviewed: no link: a reviewer concluded the amendment has no correct link; not work",
+        count(Category::ReviewedNoLink)
+    );
+    for (category, count) in &concluded {
+        println!("          {count:>4}  {category}");
+    }
 }
 
 /// One row: the id and where it stopped, then what is known about it.
 fn print_row(row: &Unlinked) {
     let id = &row.amendment_id[..row.amendment_id.len().min(12)];
-    let category = match row.category {
-        Category::Work => "work",
-        Category::Unwritten => "unwritten",
-        Category::NotHeld => "not held",
-        Category::Quiet => "quiet",
+    let category = match (row.category, &row.no_link) {
+        (Category::ReviewedNoLink, Some(no_link)) => {
+            format!("reviewed: no link ({})", no_link.category)
+        }
+        (Category::ReviewedNoLink, None) => "reviewed: no link".to_string(),
+        (Category::Work, _) => "work".to_string(),
+        (Category::Unwritten, _) => "unwritten".to_string(),
+        (Category::NotHeld, _) => "not held".to_string(),
+        (Category::Quiet, _) => "quiet".to_string(),
     };
     println!(
         "  {id}  [{category}] {}: {}",
@@ -150,6 +167,18 @@ fn print_row(row: &Unlinked) {
             .map(|step| format!("({})", step.number))
             .collect();
         println!("    address: {section}{below}");
+    }
+    if let Some(no_link) = &row.no_link {
+        let method = no_link
+            .method
+            .as_ref()
+            .map_or_else(|| "no method recorded".to_string(), ToString::to_string);
+        println!(
+            "    concluded by {} [{method}] on {}: {}",
+            no_link.reviewer,
+            no_link.at.date(),
+            no_link.reasoning
+        );
     }
     if let Some(not_held) = &row.not_held {
         println!("    not held: {not_held}");

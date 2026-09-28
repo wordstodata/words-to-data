@@ -14,7 +14,10 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format, WorkId};
+use words_to_data::link::{Link, LinkKind, Target, VerificationState};
+use words_to_data::method::{Method, MethodRun};
+use words_to_data::storage::LinkReader;
 
 /// The committed public law.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -130,6 +133,8 @@ fn should_list_the_recorded_link_with_its_id_when_an_agent_records_a_path_that_c
             SECTION_174A,
             "--source",
             "agent:claude",
+            "--method",
+            METHOD,
             "--reason",
             "The amendment inserts a new section 174A after section 174, and the diff adds it.",
             "--output",
@@ -240,6 +245,10 @@ fn should_settle_the_recorded_link_when_a_reviewer_names_it_by_its_id() {
 /// change in it.
 const SECTION_61: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_I/section_61";
 
+/// The method an agent names when it works the residue: the reasoning, and
+/// the version of it the agent applied.
+const METHOD: &str = "resolve-residue@1";
+
 /// The arguments of a run that records `path` for the § 174A amendment.
 fn recording(path: &str, reason: &str, written: &str) -> Vec<String> {
     [
@@ -256,6 +265,8 @@ fn recording(path: &str, reason: &str, written: &str) -> Vec<String> {
         path,
         "--source",
         "agent:claude",
+        "--method",
+        METHOD,
         "--reason",
         reason,
         "--output",
@@ -404,4 +415,339 @@ fn should_refuse_and_write_nothing_when_the_reason_is_empty() {
         !std::path::Path::new(&written).exists(),
         "a refusal writes nothing"
     );
+}
+
+/// The arguments of a run, with one flag and the value after it taken out.
+fn without(args: &[String], flag: &str) -> Vec<String> {
+    let at = args
+        .iter()
+        .position(|arg| arg == flag)
+        .unwrap_or_else(|| panic!("the run names {flag}"));
+    let mut left = args.to_vec();
+    left.drain(at..at + 2);
+    left
+}
+
+/// A method says which reasoning made a link and which version of it (#179,
+/// decision 10). An agent's link with no method could not be told apart from
+/// one made by a later, changed version of the same reasoning.
+#[test]
+fn should_refuse_and_write_nothing_when_no_method_is_given() {
+    let written = output_for("door_refuses_no_method");
+    let args = recording(
+        SECTION_174A,
+        "The amendment inserts a new section 174A after section 174.",
+        &written,
+    );
+
+    let output = link_amendment(&without(&args, "--method"));
+
+    assert!(!output.status.success(), "a missing method must be refused");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("--method"),
+        "the refusal names the missing flag: {said}"
+    );
+    assert!(
+        !std::path::Path::new(&written).exists(),
+        "a refusal writes nothing"
+    );
+}
+
+/// The links of one kind a written dataset holds.
+fn links_of_kind(dataset: &str, kind: &str) -> Vec<Link> {
+    Dataset::load(dataset, Format::Compact)
+        .expect("the written dataset should load")
+        .links_by_kind(kind)
+        .expect("the links should read")
+}
+
+#[test]
+fn should_record_the_method_on_the_link_when_an_agent_names_one() {
+    let written = output_for("door_records_its_method");
+
+    let output = link_amendment(&recording(
+        SECTION_174A,
+        "The amendment inserts a new section 174A after section 174.",
+        &written,
+    ));
+    assert!(
+        output.status.success(),
+        "the link should record, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let links = links_of_kind(&written, LinkKind::AMENDED_BY);
+    assert_eq!(links.len(), 1, "one link was recorded");
+    assert_eq!(
+        links[0].provenance.method,
+        Some(Method::new("resolve-residue", 1))
+    );
+}
+
+/// The runs of the door's method a written dataset records.
+fn runs_of_the_method(dataset: &str) -> Vec<MethodRun> {
+    Dataset::load(dataset, Format::Compact)
+        .expect("the written dataset should load")
+        .method_runs()
+        .iter()
+        .filter(|run| run.method == Method::new("resolve-residue", 1))
+        .cloned()
+        .collect()
+}
+
+/// "This reasoning was applied to this window" is what a run says (#179,
+/// decision 11), and a run is identified by what it says, so the same finding
+/// recorded twice leaves one run.
+#[test]
+fn should_record_one_run_of_the_method_over_the_window_when_the_same_link_is_recorded_twice() {
+    let once = output_for("door_runs_once");
+    let twice = output_for("door_runs_twice");
+    let reason = "The amendment inserts a new section 174A after section 174.";
+
+    let first = link_amendment(&recording(SECTION_174A, reason, &once));
+    assert!(first.status.success(), "the first record should write");
+    assert_eq!(
+        runs_of_the_method(&once),
+        vec![MethodRun {
+            method: Method::new("resolve-residue", 1),
+            work: WorkId::new("uscode/title_26"),
+            from_date: "2025-07-18".to_string(),
+            to_date: "2025-07-30".to_string(),
+        }],
+        "the method is recorded as run over the link's window"
+    );
+
+    let mut again = recording(SECTION_174A, reason, &twice);
+    again[0] = once.clone();
+    let second = link_amendment(&again);
+    assert!(second.status.success(), "the second record should write");
+    assert_eq!(
+        runs_of_the_method(&twice).len(),
+        1,
+        "the same run is recorded once"
+    );
+}
+
+/// The version is a whole number a person raises when the reasoning changes,
+/// so a date, a word or a missing version is refused rather than stored
+/// (`src/method.rs`).
+#[test]
+fn should_refuse_and_write_nothing_when_the_method_is_not_a_name_and_a_whole_number() {
+    for malformed in [
+        "resolve-residue",
+        "resolve-residue@one",
+        "resolve-residue@2026-09-27",
+        "@1",
+    ] {
+        let written = output_for("door_refuses_malformed_method");
+        let mut args = recording(
+            SECTION_174A,
+            "The amendment inserts a new section 174A after section 174.",
+            &written,
+        );
+        let at = args
+            .iter()
+            .position(|arg| arg == METHOD)
+            .expect("the run names the method");
+        args[at] = malformed.to_string();
+
+        let output = link_amendment(&args);
+
+        assert!(!output.status.success(), "`{malformed}` must be refused");
+        let said = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            said.contains(malformed) && said.contains("name@version"),
+            "the refusal names the value and the form it must take: {said}"
+        );
+        assert!(
+            !std::path::Path::new(&written).exists(),
+            "a refusal writes nothing"
+        );
+    }
+}
+
+/// Section 70201(g) of the law amends the table of sections for part VII of
+/// subchapter B of chapter 1. The dataset does not hold a table of sections, so
+/// no change it holds can be this amendment's.
+const AMENDS_A_TABLE_OF_SECTIONS: &str =
+    "4010e01c92b0071935b303ad59df08c1f226ce10143dfca31a5924ec92e0e9a9";
+
+/// The arguments of a run that concludes the table-of-sections amendment has
+/// no link.
+fn concluding_no_link(category: &str, source: &str, reason: &str, written: &str) -> Vec<String> {
+    [
+        fixture(),
+        "--bill",
+        BILL_ID,
+        "--amendment",
+        AMENDS_A_TABLE_OF_SECTIONS,
+        "--no-link",
+        category,
+        "--source",
+        source,
+        "--method",
+        METHOD,
+        "--reason",
+        reason,
+        "--output",
+        written,
+    ]
+    .iter()
+    .map(|arg| arg.to_string())
+    .collect()
+}
+
+/// A "no link" conclusion is a record of its own, shaped as a review is
+/// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`):
+/// the amendment is the subject, because there is no link to copy one from,
+/// and the reviewer is in the object, so two reviewers make two records.
+#[test]
+fn should_record_a_no_link_review_of_the_amendment_when_an_agent_concludes_it_has_no_link() {
+    let written = output_for("door_records_no_link");
+    let reason = "Section 70201(g) amends a table of sections, which the dataset does not hold.";
+
+    let output = link_amendment(&concluding_no_link(
+        "not_held",
+        "agent:claude",
+        reason,
+        &written,
+    ));
+    assert!(
+        output.status.success(),
+        "the conclusion should record, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let records = links_of_kind(&written, "review.no_link");
+    assert_eq!(records.len(), 1, "one record: {records:#?}");
+    let record = &records[0];
+    let reference = |target: &Target| match target {
+        Target::External { reference, .. } => reference.clone(),
+        other => panic!("an external reference, not {other:?}"),
+    };
+    assert_eq!(
+        reference(&record.subject),
+        format!("legislature.amendment:{BILL_ID}:{AMENDS_A_TABLE_OF_SECTIONS}")
+    );
+    assert_eq!(
+        reference(&record.object),
+        format!("review.amendment:{BILL_ID}:{AMENDS_A_TABLE_OF_SECTIONS}:agent:claude")
+    );
+    assert_eq!(
+        record
+            .payload
+            .as_ref()
+            .map(|payload| &payload.value["category"]),
+        Some(&serde_json::json!("not_held"))
+    );
+    let provenance = &record.provenance;
+    assert_eq!(provenance.source, "agent:claude");
+    assert_eq!(provenance.method, Some(Method::new("resolve-residue", 1)));
+    assert_eq!(provenance.verification, VerificationState::MachineSuggested);
+    assert_eq!(
+        provenance
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.reasoning.as_deref()),
+        Some(reason)
+    );
+    assert!(provenance.timestamp.is_some(), "newest-wins needs a time");
+    assert!(
+        links_of_kind(&written, LinkKind::AMENDED_BY).is_empty(),
+        "no amended_by link is written"
+    );
+}
+
+/// What a reader prints with `--json`.
+fn json_of(command: &str, dataset: &str) -> serde_json::Value {
+    let output = run(command, &[dataset, "--json"]);
+    assert!(
+        output.status.success(),
+        "{command} should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("--json should emit json")
+}
+
+/// Two reviewers who conclude one amendment has no link make two records, as
+/// two reviewers of one link do (ADR 0012). A record about the law is not
+/// itself a statement about the law, so `contradictions` does not call the
+/// pair a disagreement and `info` does not count the records as links waiting
+/// for review.
+#[test]
+fn should_keep_both_records_and_report_no_contradiction_when_two_reviewers_conclude_no_link() {
+    let once = output_for("door_no_link_by_agent");
+    let twice = output_for("door_no_link_by_agent_and_human");
+
+    let first = link_amendment(&concluding_no_link(
+        "not_held",
+        "agent:claude",
+        "A table of sections, which the dataset does not hold.",
+        &once,
+    ));
+    assert!(first.status.success(), "the first conclusion should record");
+    let mut again = concluding_no_link(
+        "other",
+        "human:jesse",
+        "A clerical amendment to an index of the chapter.",
+        &twice,
+    );
+    again[0] = once.clone();
+    let second = link_amendment(&again);
+    assert!(
+        second.status.success(),
+        "the second conclusion should record, stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    assert_eq!(
+        links_of_kind(&twice, "review.no_link").len(),
+        2,
+        "each reviewer's conclusion is its own record"
+    );
+    let contradictions = json_of("contradictions", &twice);
+    assert_eq!(contradictions["totals"]["disagreement"], 0);
+    assert_eq!(contradictions["totals"]["duplication"], 0);
+    let info = json_of("info", &twice);
+    assert_eq!(info["link_counts_by_kind"]["review.no_link"], 2);
+    assert!(
+        info["review_states_by_kind"]
+            .get("review.no_link")
+            .is_none(),
+        "the records are not counted as links waiting for review: {}",
+        info["review_states_by_kind"]
+    );
+}
+
+/// The refusals the door gives a link, it gives a no-link conclusion too.
+#[test]
+fn should_refuse_and_write_nothing_when_a_no_link_run_has_no_reason_no_method_or_an_unknown_amendment()
+ {
+    let written = output_for("door_refuses_no_link");
+    let reason = "A table of sections, which the dataset does not hold.";
+    let complete = concluding_no_link("not_held", "agent:claude", reason, &written);
+    let mut unknown = complete.clone();
+    let at = unknown
+        .iter()
+        .position(|arg| arg == AMENDS_A_TABLE_OF_SECTIONS)
+        .expect("the run names the amendment");
+    unknown[at] = "0".repeat(64);
+
+    for (case, args) in [
+        (
+            "an empty reason",
+            concluding_no_link("not_held", "agent:claude", " ", &written),
+        ),
+        ("no method", without(&complete, "--method")),
+        ("an unknown amendment", unknown),
+    ] {
+        let output = link_amendment(&args);
+
+        assert!(!output.status.success(), "{case} must be refused");
+        assert!(
+            !std::path::Path::new(&written).exists(),
+            "a refusal of {case} writes nothing"
+        );
+    }
 }

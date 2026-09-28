@@ -193,6 +193,12 @@ A review is **its own Link**. The link reviewed is never changed, so every revie
 Among the reviews of one link, the **newest wins**, and that is the one a reader reports. A reviewer overrides an earlier verdict by publishing over it, and the earlier record is kept. No verdict is reserved to a kind of reviewer, and no reviewer outranks another: how much a reviewer is trusted is a matter of who may write, not a rule in the program.
 _Avoid_: Resolution, correction, override, approval, sign-off
 
+**No-link conclusion**:
+A Review of an Amendment rather than of a Link: the reviewer says the amendment has no correct link, and says why. The change is in material the Dataset does not hold, or it takes effect after the newest Expression held, or it changed nothing. It is its own Link, of kind `review.no_link`, with the amendment as its subject, and it carries who concluded it, the reason, the time and the Method.
+
+The newest one for an amendment is the one a reader reports, and it takes the amendment out of the work the residue lists. A later refutation of it puts the amendment back. A Link that names the amendment takes it off the residue, as any link does.
+_Avoid_: Skip, dismissal, won't-fix
+
 **Evidence**:
 What a statement was based on: the maker's reasoning in their own words, and the verbatim reply that produced it. A machine's claim is only checkable if the party receiving the Dataset can see what the machine actually said, so evidence is what stops a Verification state being a label with nothing behind it.
 _Avoid_: Proof, justification, backing

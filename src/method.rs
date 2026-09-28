@@ -51,6 +51,38 @@ impl std::fmt::Display for Method {
     }
 }
 
+impl std::str::FromStr for Method {
+    type Err = String;
+
+    /// Read `name@version` back, which is how a person names a method on a
+    /// command line.
+    ///
+    /// The version must be a whole number, for the reason this module gives: a
+    /// date or a revision in its place is the number that moves for no reason.
+    ///
+    /// ```
+    /// use words_to_data::method::Method;
+    ///
+    /// let method: Method = "resolve-residue@1".parse().unwrap();
+    /// assert_eq!(method, Method::new("resolve-residue", 1));
+    /// assert!("resolve-residue@2026-09-27".parse::<Method>().is_err());
+    /// ```
+    fn from_str(said: &str) -> Result<Self, Self::Err> {
+        let refuse = || {
+            format!(
+                "`{said}` is not a method. Write it as name@version, where the version is a \
+                 whole number: `resolve-residue@1`"
+            )
+        };
+        let (name, version) = said.rsplit_once('@').ok_or_else(refuse)?;
+        if name.trim().is_empty() {
+            return Err(refuse());
+        }
+        let version = version.parse().map_err(|_| refuse())?;
+        Ok(Self::new(name, version))
+    }
+}
+
 /// One method, at one version, applied to one window.
 ///
 /// A dataset used to keep no list of what had been done to it, so a missing
