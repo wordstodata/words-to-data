@@ -565,6 +565,18 @@ impl RedesignationReport {
         self.unplaced_names().len()
     }
 
+    /// How many statements this run did not place again, because each already
+    /// holds a link in an earlier window (#273).
+    ///
+    /// Counted by clause, as [`Self::statements_unplaced`] is.
+    pub fn statements_placed_earlier(&self) -> usize {
+        self.placed_earlier
+            .iter()
+            .map(|placed| (placed.amendment_id.as_str(), placed.text.as_str()))
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    }
+
     /// Every statement this report is about, each named once.
     ///
     /// A statement is named by the amendment it came from and the words it was

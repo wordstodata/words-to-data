@@ -419,6 +419,56 @@ fn should_record_no_second_placement_when_a_grown_dataset_is_read_over_a_later_w
 }
 
 #[test]
+fn should_say_how_many_statements_are_placed_earlier_when_the_command_runs_over_a_later_window() {
+    // The command as `add-release-points` tells an operator to run it, over a
+    // SQLite dataset that it changes in place.
+    let path = format!(
+        "{}/renumbering_placed_earlier.sqlite",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let _ = std::fs::remove_file(&path);
+    let mut dataset = title_7_and_the_bill();
+    record_over_every_window(&mut dataset);
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the dataset should save");
+    let before = renumbering_link_ids(&dataset);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "redesignations",
+            &path,
+            "--bill-id",
+            BILL_ID,
+            "--between",
+            DATES[0],
+            DATES[2],
+        ])
+        .output()
+        .expect("the binary should run");
+
+    let printed = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "redesignations should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        printed.contains("already placed in an earlier window"),
+        "the run should say why it placed nothing again, got:\n{printed}"
+    );
+    let after = Dataset::open_sqlite(&path).expect("the dataset should open");
+    let mut ids: Vec<String> = after
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read")
+        .iter()
+        .map(|link| link.id())
+        .collect();
+    ids.sort();
+    assert_eq!(ids, before, "the run records no second placement");
+}
+
+#[test]
 fn should_report_a_statement_as_placed_and_not_as_unplaced_when_its_link_is_in_an_earlier_window() {
     let mut grown = title_7_and_the_bill_at(&DATES[..2]);
     record_over_every_window(&mut grown);
