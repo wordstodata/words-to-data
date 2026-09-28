@@ -20,7 +20,7 @@
 
 use clap::{Args as ClapArgs, ValueEnum};
 use words_to_data::dataset::{Dataset, Format};
-use words_to_data::inspect;
+use words_to_data::inspect::{self, EvidenceWords};
 use words_to_data::link::{Link, Named};
 use words_to_data::review::{self, Review, Verdict};
 use words_to_data::storage::{LinkReader, Storage};
@@ -212,7 +212,7 @@ fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
         "Error reading the words at the link's ends",
     );
     let Some(evidence) = evidence else {
-        println!("\n  This dataset does not hold both ends, so there are no words to show.");
+        println!("\n  This dataset holds the provision at neither end, so there are no words to show.");
         return;
     };
     // What the bill instructed, where the object carries it. Said before the
@@ -224,15 +224,32 @@ fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
             println!("  {}", line.join(" "));
         }
     }
+    match &evidence.words {
+        EvidenceWords::BothEnds { from, to, changes } => print_changes(from, to, changes),
+        // A provision at one end only has nothing to compare against, so its
+        // words are the evidence (#259).
+        EvidenceWords::Added { at, words } => {
+            println!("\nThe provision is new in the window. It is at {at}.");
+            crate::path::print_words("added", words, "  ");
+        }
+        EvidenceWords::Removed { at, words } => {
+            println!("\nThe provision is gone in the window. It was at {at}.");
+            crate::path::print_words("removed", words, "  ");
+        }
+    }
+}
+
+/// How the fields differ between a link's two ends.
+fn print_changes(from: &str, to: &str, changes: &[inspect::PathFieldChange]) {
     println!("\nThe words at its two ends:");
-    println!("  {}", evidence.from);
-    println!("  {}", evidence.to);
-    if evidence.changes.is_empty() {
+    println!("  {from}");
+    println!("  {to}");
+    if changes.is_empty() {
         println!("  No field differs on this provision itself.");
         println!("  Only this provision is compared, so a change beneath it is not read here.");
         return;
     }
-    for change in &evidence.changes {
+    for change in changes {
         println!(
             "  {}: {:?} -> {:?}",
             change.field, change.old_value, change.new_value

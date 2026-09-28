@@ -98,3 +98,73 @@ fn should_show_the_words_added_when_path_reads_a_provision_new_in_the_window() {
         "and the words of (d)(3): {said}"
     );
 }
+
+/// The paragraph Public Law 119-21 struck from § 132(f): the suspension of the
+/// bicycle commuting exclusion.
+const PARAGRAPH_132_F_8: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_III/section_132/subsection_f/paragraph_8";
+
+#[test]
+fn should_show_the_words_removed_when_path_reads_a_provision_gone_in_the_window() {
+    let said = path_over(PARAGRAPH_132_F_8);
+
+    assert!(
+        said.contains("The words removed"),
+        "the reader should say the words shown are the words removed: {said}"
+    );
+    assert!(
+        said.contains("Suspension of qualified bicycle commuting reimbursement exclusion"),
+        "and show them: {said}"
+    );
+}
+
+/// The committed evidence link whose subject is `path`.
+fn link_at(path: &str) -> Link {
+    let json = std::fs::read_to_string("tests/test_data/processed/evidence_links.json")
+        .expect("the evidence links fixture should be readable");
+    let links: Vec<Link> = serde_json::from_str(&json).expect("the fixture should parse as links");
+    links
+        .into_iter()
+        .find(|link| link.subject.name().ends_with(path))
+        .unwrap_or_else(|| panic!("the fixture holds a link at {path}"))
+}
+
+/// `settle --explain` on the committed link at `path`.
+fn explain(path: &str) -> String {
+    let id = link_at(path).id();
+    run(&["settle", dataset_on_disk(), "--link", &id[..12], "--explain"])
+}
+
+#[test]
+fn should_show_the_words_added_when_a_reviewer_explains_a_link_to_a_new_provision() {
+    let said = explain(SECTION_174A);
+
+    assert!(
+        !said.contains("does not hold both ends"),
+        "the dataset holds the end that matters: {said}"
+    );
+    assert!(
+        said.contains("The words added"),
+        "the reader should say the words shown are the words added: {said}"
+    );
+    assert!(
+        said.contains(
+            "any amount paid or incurred in connection with the development of any software"
+        ),
+        "and show the words of (d)(3): {said}"
+    );
+}
+
+#[test]
+fn should_show_the_words_removed_when_a_reviewer_explains_a_link_to_a_struck_provision() {
+    let said = explain(PARAGRAPH_132_F_8);
+
+    assert!(
+        said.contains("The words removed"),
+        "the reader should say the words shown are the words removed: {said}"
+    );
+    assert!(
+        said.contains("Paragraph (1)(D) shall not apply to any taxable year"),
+        "and show them: {said}"
+    );
+}

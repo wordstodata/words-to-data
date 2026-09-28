@@ -844,13 +844,8 @@ fn kin_at<'a>(parent: &'a DocumentNode, path: &str) -> Vec<&'a DocumentNode> {
 /// ends are unrelated provisions (#230).
 #[derive(Debug, Clone, Serialize)]
 pub struct LinkEvidence {
-    /// The older end, as `work@date` and a path.
-    pub from: String,
-    /// The newer end.
-    pub to: String,
-    /// How the fields differ, measured **across** the move, so a renumbering
-    /// that changed nothing else reports an empty list rather than a rewrite.
-    pub changes: Vec<PathFieldChange>,
+    /// The words the window holds, at both ends or at one.
+    pub words: EvidenceWords,
     /// What the object carries in words, where it is external and carries any.
     ///
     /// For an amendment link this is the amending text the bill wrote, which is
@@ -860,8 +855,44 @@ pub struct LinkEvidence {
     pub object_text: Option<String>,
 }
 
-/// The words at a link's two ends, or `None` when the link does not name two
-/// provisions this dataset holds.
+/// The words at a link's ends, as the window holds them.
+///
+/// A provision new in the window has no older end, so there is nothing to
+/// compare. Its words are the evidence instead, and which way they went is part
+/// of the variant: the same words mean the opposite when they were removed
+/// (#259).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceWords {
+    /// Both ends hold the provision.
+    BothEnds {
+        /// The older end, as `work@date` and a path.
+        from: String,
+        /// The newer end.
+        to: String,
+        /// How the fields differ, measured **across** the move, so a
+        /// renumbering that changed nothing else reports an empty list rather
+        /// than a rewrite.
+        changes: Vec<PathFieldChange>,
+    },
+    /// Only the newer end holds the provision. These are the words added.
+    Added {
+        /// The newer end, as `work@date` and a path.
+        at: String,
+        /// Every text field of the provision and of everything beneath it.
+        words: Vec<ProvisionField>,
+    },
+    /// Only the older end holds the provision. These are the words removed.
+    Removed {
+        /// The older end, as `work@date` and a path.
+        at: String,
+        /// Every text field of the provision and of everything beneath it.
+        words: Vec<ProvisionField>,
+    },
+}
+
+/// The words at a link's ends, or `None` when the link does not name a
+/// provision this dataset holds at either end.
 ///
 /// `None` rather than an error: a link whose **subject** is not a change to a
 /// provision is a perfectly good link — an opinion citation names a node — and a
@@ -902,19 +933,27 @@ pub fn link_evidence<S: Storage>(
     let from_id = ExpressionId::new(work.clone(), from_date.clone());
     let to_id = ExpressionId::new(work.clone(), to_date.clone());
 
-    let Some(from) = node_at(dataset, &from_id, from_path)? else {
-        return Ok(None);
-    };
-    let Some(to) = node_at(dataset, &to_id, to_path)? else {
-        return Ok(None);
+    let words = match (
+        node_at(dataset, &from_id, from_path)?,
+        node_at(dataset, &to_id, to_path)?,
+    ) {
+        (Some(from), Some(to)) => EvidenceWords::BothEnds {
+            from: format!("{from_id} {from_path}"),
+            to: format!("{to_id} {to_path}"),
+            changes: field_changes(&from, &to),
+        },
+        (None, Some(to)) => EvidenceWords::Added {
+            at: format!("{to_id} {to_path}"),
+            words: provision_words(&to),
+        },
+        (Some(from), None) => EvidenceWords::Removed {
+            at: format!("{from_id} {from_path}"),
+            words: provision_words(&from),
+        },
+        (None, None) => return Ok(None),
     };
 
-    Ok(Some(LinkEvidence {
-        from: format!("{from_id} {from_path}"),
-        to: format!("{to_id} {to_path}"),
-        changes: field_changes(&from, &to),
-        object_text,
-    }))
+    Ok(Some(LinkEvidence { words, object_text }))
 }
 
 /// The first provision one expression holds at a path.
