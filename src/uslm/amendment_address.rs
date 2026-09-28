@@ -264,7 +264,7 @@ impl<'a> Scope<'a> {
             return Err(Reason::TableOfSections);
         }
         let Some((line, holder)) = &self.amending_line else {
-            return Err(Reason::NoSectionNamed);
+            return Err(Reason::NoAmendingLine);
         };
         let cited = cite(line).ok_or(Reason::NoSectionNamed)?;
         let (section, trail) =
@@ -494,9 +494,16 @@ pub(crate) fn collapse_spaces(text: &str) -> String {
 ///
 /// This is where a bill names what it is about to change. Everything after it is
 /// the instruction, which can mention any number of other provisions.
+///
+/// A line that names several provisions says *are each amended*:
+/// *"Subparagraphs (A) and (B) of section 1202(d)(1) are each amended"*. A
+/// line that names a provision an earlier instruction of the same law changed
+/// says *is further amended*: *"Section 6213(g)(2), as amended by this Act, is
+/// further amended"* (#259).
 pub(crate) fn amending_line_of(text: &str) -> Option<String> {
-    static AMENDED: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"\b(?:is|are)\s+amended").unwrap());
+    static AMENDED: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\b(?:is|are)\s+(?:each\s+|further\s+)?amended").unwrap()
+    });
     let found = AMENDED.find(text)?;
     Some(text[..found.start()].to_string())
 }

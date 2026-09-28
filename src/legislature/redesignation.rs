@@ -142,8 +142,13 @@ pub enum Reason {
     /// Both sides read, and they name different numbers of provisions. Pairing
     /// them would invent a correspondence the bill did not state.
     CountsDiffer { from: usize, to: usize },
-    /// No section under amendment was named anywhere above the clause.
+    /// The amending line names no section: it names a chapter, a title of an
+    /// Act, or nothing the resolver reads as a section.
     NoSectionNamed,
+    /// No level from the clause upwards says what it amends: none carries the
+    /// words *is amended* or *are amended*. A repeal, *"Section 50263 … is
+    /// repealed"*, is one (#259).
+    NoAmendingLine,
     /// The amendment changes a table of sections, which is an index of the law
     /// rather than law.
     TableOfSections,
@@ -217,6 +222,7 @@ impl fmt::Display for Reason {
                 write!(f, "{from} old designations against {to} new ones")
             }
             Self::NoSectionNamed => write!(f, "no section under amendment was named"),
+            Self::NoAmendingLine => write!(f, "no level above the clause says what it amends"),
             Self::TableOfSections => write!(f, "a table of sections, not a provision"),
             Self::NoTitleForSection(section) => {
                 write!(f, "nothing says which title holds section {section}")

@@ -13,6 +13,7 @@ use std::process::Command;
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 use words_to_data::document::DocumentNode;
+use words_to_data::legislature::redesignation::Reason;
 use words_to_data::uslm::UslmFacts;
 use words_to_data::uslm::amendment_address::{AmendmentAddress, addresses_in};
 use words_to_data::uslm::bill_parser::{amendment_paths, bill_expression};
@@ -343,4 +344,70 @@ fn should_show_only_that_amendment_when_the_command_is_given_its_id() {
     assert_eq!(rows.len(), 1, "one amendment was asked for, found {rows:?}");
     assert_eq!(rows[0]["amendment_id"], new_section.amendment_id.as_str());
     assert_eq!(rows[0]["section"], "/us/usc/t26/s174A");
+}
+
+// --- Why an instruction has no address (#259) -------------------------------
+
+/// Two different gaps, which a reviewer works in different ways.
+///
+/// > SEC. 50103. ROYALTIES ON EXTRACTED METHANE. Section 50263 of Public Law
+/// > 117–169 (30 U.S.C. 1727) is repealed.
+///
+/// No level says *is amended*, so the resolver found no amending line at all.
+///
+/// > Chapter 509 of title 51, United States Code, is amended by adding at the
+/// > end the following new section: "§ 50924. …
+///
+/// Here the amending line is there, and it names a chapter and no section.
+#[test]
+fn should_tell_no_amending_line_apart_from_no_section_named_when_an_instruction_has_no_address() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let repeal = address_saying(&addresses, "Section 50263 of Public Law 117–169");
+    let chapter = address_saying(&addresses, "Chapter 509 of title 51, United States Code");
+
+    assert_eq!(repeal.unresolved, Some(Reason::NoAmendingLine));
+    assert_eq!(chapter.unresolved, Some(Reason::NoSectionNamed));
+}
+
+/// > Subparagraphs (A) and (B) of section 1202(d)(1) are each amended by
+/// > striking "$50,000,000" and inserting "$75,000,000".
+///
+/// The designations come before *of section N*, and the line says *are each
+/// amended*. Both subparagraphs sit in § 1202(d)(1), so that is the address,
+/// and the words the bill quotes tell the two changes there apart.
+#[test]
+fn should_address_the_cited_section_when_designations_before_it_are_each_amended() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Subparagraphs (A) and (B) of section 1202(d)(1) are each amended",
+    );
+
+    assert_eq!(address.unresolved, None);
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s1202"));
+    assert_eq!(step_numbers(&address), ["d", "1"]);
+}
+
+/// > Section 6213(g)(2), as amended by this Act, is further amended by
+/// > striking "and" at the end of subparagraph (V), …
+///
+/// A section an earlier instruction of the same law amended is *further
+/// amended*, and the line before those words names it all the same.
+#[test]
+fn should_address_the_cited_section_when_the_line_says_further_amended() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Section 6213(g)(2), as amended by this Act, is further amended",
+    );
+
+    assert_eq!(address.unresolved, None);
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s6213"));
+    assert_eq!(step_numbers(&address), ["g", "2"]);
 }
