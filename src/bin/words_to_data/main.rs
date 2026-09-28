@@ -78,7 +78,7 @@ enum Command {
     SectionAgreement(section_agreement::Args),
     /// Show the Code address each amendment of a public law acts on, or why it is not known
     AmendmentAddresses(amendment_addresses::Args),
-    /// List the amendments of public laws that no link names, with the stage and reason each stopped
+    /// List the amendments of public laws that no standing link names, with the stage and reason each stopped
     Residue(residue::Args),
 
     /// Show a bill's amendments

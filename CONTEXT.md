@@ -196,7 +196,7 @@ _Avoid_: Resolution, correction, override, approval, sign-off
 **No-link conclusion**:
 A Review of an Amendment rather than of a Link: the reviewer says the amendment has no correct link, and says why. The change is in material the Dataset does not hold, or it takes effect after the newest Expression held, or it changed nothing. It is its own Link, of kind `review.no_link`, with the amendment as its subject, and it carries who concluded it, the reason, the time and the Method.
 
-The newest one for an amendment is the one a reader reports, and it takes the amendment out of the work the residue lists. A later refutation of it puts the amendment back. A Link that names the amendment takes it off the residue, as any link does.
+The newest one for an amendment is the one a reader reports, and it takes the amendment out of the work the residue lists. A later refutation of it puts the amendment back. A standing Link that names the amendment takes it off the residue. A Link stands unless its newest Review refutes it, so an amendment whose every Link is refuted is work again.
 _Avoid_: Skip, dismissal, won't-fix
 
 **Evidence**:
