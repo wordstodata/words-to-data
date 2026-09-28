@@ -401,9 +401,19 @@ For each amendment it reads three things the dataset already holds:
 Each change becomes one `legislature.amended_by` link, in the shape
 `match-amendments` wrote before it was removed (#252), with the method `address, window and quoted
 words@3`. Its evidence says the address and which source gave it, the window,
-the words that placed it, and what the OLRC classification (if
+how many changes the window holds under the address, how the change was chosen
+and the words that placed it, and what the OLRC classification (if
 `add-classifications` has run) says of the section. A note in the
 classification never counts.
+
+`settle <dataset> --link <id> --explain` prints these parts one to a line, and
+says when the link is one of several causes of one change. `annotations --json`
+gives each link the same parts under `links`, so an agent can pick out one kind
+of decision: `recorded.chosen` is `quoted_words`, `inside_placed_provision`,
+`renumbering` or `elimination`, `recorded.address_source` is `markup` or
+`olrc`, and `causes` counts the amendments linked to the change. A link made
+another way, by a model or by an agent through `link-amendment`, shows its
+source and its reasoning as it was written.
 
 An amendment it cannot link is not stored. The stage it stopped at, and why, is
 worked out again whenever it is asked for, because a stored reason goes false

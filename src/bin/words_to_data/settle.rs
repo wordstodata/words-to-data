@@ -21,6 +21,7 @@
 use clap::{Args as ClapArgs, ValueEnum};
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::inspect::{self, EvidenceWords};
+use words_to_data::legislature::evidence_matching::{Recorded, RecordedSource};
 use words_to_data::link::{Link, Named, Target};
 use words_to_data::review::{self, Review, Verdict};
 use words_to_data::storage::{LinkReader, Storage};
@@ -197,9 +198,78 @@ fn describe(reviewed: &Link) {
     println!("  -> {}", reviewed.object.name());
 }
 
-/// What a verdict rests on: the words at the link's ends, and the OLRC's
-/// classification of the section they sit in.
+/// How the link was made: who made it, by which method at which version.
+///
+/// A reviewer weighs a link by how it was decided, so this is said before the
+/// words at its ends.
+fn print_how_made<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
+    let made = crate::fail::or_exit(
+        inspect::how_made(dataset, reviewed),
+        "Error reading how the link was made",
+    );
+    println!("\nHow it was made:");
+    println!("  Source: {}", made.source);
+    println!(
+        "  Method: {}",
+        made.method.as_deref().unwrap_or("not recorded")
+    );
+    match (&made.recorded, &made.reasoning) {
+        (Some(recorded), _) => print_recorded(recorded),
+        // Evidence another method wrote: a model's reasoning, or an agent's
+        // reason. It has no parts to show, so it is shown as it was written.
+        (None, Some(text)) => {
+            println!("  Reasoning:");
+            print_wrapped(text, "    ");
+        }
+        (None, None) => println!("  Reasoning: not recorded"),
+    }
+    // A model's link names the model that answered, and the reply it answered
+    // with, which the dataset keeps once under the hash of its text (#58).
+    if let Some(model) = &made.model {
+        println!("  Model: {model}");
+    }
+    if let Some(reply) = &made.reply {
+        println!("  Reply: {reply}");
+    }
+    if made.causes > 1 {
+        println!(
+            "  Causes: one of {} amendments linked to this change",
+            made.causes
+        );
+    }
+}
+
+/// The parts of the evidence `link-by-evidence` records: the address and its
+/// source, the window, and how the change was chosen.
+fn print_recorded(recorded: &Recorded) {
+    println!(
+        "  Address: {}, from {}",
+        recorded.address,
+        recorded.address_source.name()
+    );
+    if recorded.address_source == RecordedSource::Olrc {
+        print_wrapped(&recorded.address_source_said, "    ");
+    }
+    println!("  Window: {}", recorded.window);
+    print_wrapped(&recorded.window_said, "    ");
+    if let Some(count) = recorded.changes_under_address {
+        println!("  Changes under the address: {count}");
+    }
+    println!("  Chosen: {}", recorded.chosen.name());
+    print_wrapped(&recorded.chosen_said, "    ");
+}
+
+/// `text` in lines of fourteen words, each after `indent`.
+fn print_wrapped(text: &str, indent: &str) {
+    for line in text.split_whitespace().collect::<Vec<_>>().chunks(14) {
+        println!("{indent}{}", line.join(" "));
+    }
+}
+
+/// What a verdict rests on: how the link was made, the words at its ends,
+/// and the OLRC's classification of the section they sit in.
 fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
+    print_how_made(dataset, reviewed);
     print_words_at_the_ends(dataset, reviewed);
     print_olrc(dataset, reviewed);
 }
@@ -240,9 +310,7 @@ fn print_words_at_the_ends<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
     // words moved the way it said.
     if let Some(instructed) = &evidence.object_text {
         println!("\nWhat the object says:");
-        for line in instructed.split_whitespace().collect::<Vec<_>>().chunks(14) {
-            println!("  {}", line.join(" "));
-        }
+        print_wrapped(instructed, "  ");
     }
     match &evidence.words {
         EvidenceWords::BothEnds { from, to, changes } => print_changes(from, to, changes),

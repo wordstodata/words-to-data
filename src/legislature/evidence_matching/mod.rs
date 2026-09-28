@@ -64,10 +64,12 @@ use resolve::{Change, Contender, Resolution, resolve};
 
 mod olrc;
 mod quoted_words;
+mod recorded;
 
 pub(crate) use olrc::is_a_note;
 use olrc::olrc_address;
 pub use olrc::{OlrcClassification, olrc_classification};
+pub use recorded::{Chosen, Recorded, RecordedSource};
 mod resolve;
 
 /// What the matcher found for one amendment.
@@ -128,6 +130,10 @@ pub struct Linked {
     pub to: ExpressionId,
     /// Each change the amendment caused, in document order.
     pub changes: Vec<CausedChange>,
+    /// How many changes under the address the window holds: the changes the
+    /// amendment's own were told apart from, its own among them. One means
+    /// the matcher had nothing to choose between.
+    pub changes_under_address: usize,
     /// Every later window in which something under the address changed too.
     ///
     /// Never a second link. The law landed in the first window after its
@@ -301,6 +307,10 @@ impl AmendmentMatch {
             linked.to.at,
             self.enacted
         );
+        reasoning.push_str(&format!(
+            "The address holds {} change(s) in this window. ",
+            linked.changes_under_address
+        ));
         for later in &linked.later_windows {
             reasoning.push_str(&format!(
                 "The address changed again from {} to {}, and that window is not linked. ",
@@ -719,6 +729,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 Resolution::Caused(caused) => Outcome::Linked(Linked {
                     from: view.from.clone(),
                     to: view.to.clone(),
+                    changes_under_address: placed[at][0].candidates.len(),
                     changes: one_for_each_path(
                         caused
                             .iter()
