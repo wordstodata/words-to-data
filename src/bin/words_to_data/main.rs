@@ -29,6 +29,7 @@ mod redesignation_report;
 mod redesignations;
 mod release_points;
 mod report;
+mod residue;
 mod score_amendments;
 mod search;
 mod section_agreement;
@@ -88,6 +89,8 @@ enum Command {
     SectionAgreement(section_agreement::Args),
     /// Show the Code address each amendment of a public law acts on, or why it is not known
     AmendmentAddresses(amendment_addresses::Args),
+    /// List the amendments of public laws that no link names, with the stage and reason each stopped
+    Residue(residue::Args),
 
     /// Show a bill's amendments
     ShowBill(show_bill::Args),
@@ -131,6 +134,7 @@ fn main() {
         Command::Contradictions(args) => contradictions::run(args),
         Command::SectionAgreement(args) => section_agreement::run(args),
         Command::AmendmentAddresses(args) => amendment_addresses::run(args),
+        Command::Residue(args) => residue::run(args),
         Command::ShowBill(args) => show_bill::run(args),
         Command::Votes(args) => votes::run(args),
         Command::Search(args) => search::run(args),

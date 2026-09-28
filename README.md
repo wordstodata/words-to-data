@@ -502,6 +502,36 @@ the moment someone links the amendment. The quoted strings are read from the
 stored bill, so a dataset built before this command existed must be rebuilt to
 carry them.
 
+### What is left — `residue`
+
+This command lists every amendment of a public law that no
+`legislature.amended_by` link names, from any source: `link-by-evidence`,
+`match-amendments`, or an agent through `link-amendment`. It stores nothing, so
+an amendment leaves the list as soon as a link names it.
+
+```bash
+words_to_data residue dataset.sqlite --bill 119-hr-1
+words_to_data residue dataset.sqlite --json
+```
+
+Each row gives the stage the evidence method stopped at (`address`, `window` or
+`resolve`), the reason, the address, the window and the changes under the
+address. It also gives the OLRC's classification of the amendment's section of
+the law, when `add-classifications` has run. Each row is in one category:
+
+- **work** — something is left to resolve. An agent starts here.
+- **unwritten** — the method links the amendment, and `link-by-evidence` has
+  not written the link.
+- **not held** — the amendment changes a table of sections, or the OLRC
+  classifies its section of the law only as a note or as the heading before a
+  section. The dataset holds none of these, so this is not a miss.
+- **quiet** — the Code holds the address, and nothing under it changed after
+  the law's enactment. Usually the dataset does not yet reach the date the
+  amendment takes effect. This is not work.
+
+The human output gives the counts for every row, then a screenful of rows, work
+first, and says how many it did not show. `--json` gives every row.
+
 ## Quick Start
 
 ### Dataset Workflow
