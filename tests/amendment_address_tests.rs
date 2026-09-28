@@ -411,3 +411,69 @@ fn should_address_the_cited_section_when_the_line_says_further_amended() {
     assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s6213"));
     assert_eq!(step_numbers(&address), ["g", "2"]);
 }
+
+// --- Citations that are not the Code's own numbers (#259) -------------------
+
+/// > Section 11026(a) of Public Law 115–97 26 USC 112 note. is amended by
+/// > striking ", with respect to the applicable period".
+///
+/// § 11026 is a section of the Tax Cuts and Jobs Act, and the publisher
+/// places it only as a note under 26 U.S.C. 112. It is not 26 U.S.C. 11026,
+/// which does not exist. The bill's References clause speaks of a bare
+/// section, and this one is a section of another law.
+#[test]
+fn should_not_address_a_code_section_when_the_line_cites_a_section_of_a_public_law() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(&addresses, "Section 11026(a) of Public Law 115–97");
+
+    assert_eq!(address.section, None);
+    assert_eq!(
+        address.unresolved,
+        Some(Reason::SectionOfAnotherLaw("11026".to_string()))
+    );
+}
+
+/// > Section 321(a)(2) of such Act (19 U.S.C. 1321(a)(2)) is amended by
+/// > striking …
+///
+/// *Such Act* is the Tariff Act of 1930, and the publisher's reference beside
+/// the citation places § 321 at 19 U.S.C. 1321. It sits in title VII of the
+/// bill, whose References clause would read a bare § 321 as 26 U.S.C. 321.
+#[test]
+fn should_address_the_codified_section_when_the_line_cites_a_section_of_such_act() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(&addresses, "Section 321(a)(2) of such Act");
+
+    assert_eq!(address.unresolved, None);
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t19/s1321"));
+    assert_eq!(step_numbers(&address), ["a", "2"]);
+}
+
+/// > Title XVIII of the Social Security Act (42 U.S.C. 1395 et seq.) is
+/// > amended by adding at the end the following new section: "SEC. 1899C. …
+///
+/// `42 U.S.C. 1395 et seq.` places the whole title of the Act, starting at
+/// § 1395, and says nothing of where its new § 1899C goes. Read as a section,
+/// it gave the address `t42/s1395(etseq)`. § 1899C is the Act's number, not
+/// the Code's, so the bill's References clause for the Internal Revenue Code
+/// cannot place it either.
+#[test]
+fn should_not_address_a_section_when_the_act_is_placed_only_as_a_range() {
+    let bill = committed_bill();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Title XVIII of the Social Security Act (42 U.S.C. 1395 et seq.)",
+    );
+
+    assert_eq!(address.section, None);
+    assert_eq!(
+        address.unresolved,
+        Some(Reason::SectionOfAnotherLaw("1899C".to_string()))
+    );
+}

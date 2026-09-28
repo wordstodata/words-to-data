@@ -159,6 +159,11 @@ pub enum Reason {
     /// reference confirms the title, and reports it otherwise, rather than
     /// asserting a title nobody told us.
     NoTitleForSection(String),
+    /// The line cites a section of another law — `Section 11026 of Public Law
+    /// 115–97`, `Section 2408 of the Agriculture Improvement Act of 2018` —
+    /// and no reference beside it places that section in the Code. The number
+    /// is the other law's, so it is not read as a section of the Code (#259).
+    SectionOfAnotherLaw(String),
     /// The dataset does not hold the section under amendment, so nothing here
     /// can be checked against law that is really there.
     SectionNotHeld(String),
@@ -227,6 +232,10 @@ impl fmt::Display for Reason {
             Self::NoTitleForSection(section) => {
                 write!(f, "nothing says which title holds section {section}")
             }
+            Self::SectionOfAnotherLaw(section) => write!(
+                f,
+                "section {section} is a section of another law, and nothing places it in the Code"
+            ),
             Self::SectionNotHeld(id) => write!(f, "the dataset does not hold {id}"),
             Self::NoWindowHeld => write!(
                 f,

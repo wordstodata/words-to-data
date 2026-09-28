@@ -365,10 +365,12 @@ fn stored_usc_references(node: &DocumentNode) -> Vec<UscReference> {
 ///
 /// 1. `Section 2881a of title 10, United States Code` — the bill says which
 ///    title, so nothing has to be inferred.
-/// 2. `Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o))` —
-///    the citation numbers a section of an Act, and the publisher's own `<ref>`
-///    beside it gives the place in the Code. A reference whose text says `note`
-///    is refused: the Act is *not* codified at that section.
+/// 2. `Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o))`,
+///    or `Section 321(a)(2) of such Act (19 U.S.C. 1321(a)(2))` — the citation
+///    numbers a section of an Act, and the publisher's own `<ref>` beside it
+///    gives the place in the Code. A reference whose text says `note` or `et
+///    seq.` is refused ([`places_a_section`]): the Act is *not* codified at
+///    that section.
 /// 3. A bare `Section 898(c)`, first against the publisher's own marginal
 ///    reference to the same section number — `26 USC 898` — found by climbing
 ///    the enclosing levels, and then against the bill's References clause,
@@ -378,6 +380,13 @@ fn stored_usc_references(node: &DocumentNode) -> Vec<UscReference> {
 /// Where none of the three answers, [`Reason::NoTitleForSection`]. A title
 /// nobody told us is a confident guess, and this is the one place a wrong guess
 /// would silently move a provision between titles of the Code.
+///
+/// A citation of a section **of another law** — `Section 11026(a) of Public
+/// Law 115–97`, `Section 2408(g)(1) of the Agriculture Improvement Act of
+/// 2018` — is not bare, so form 3 never reads it. Its number is the other
+/// law's, and only form 2 can place it in the Code. Where form 2 does not, the
+/// answer is [`Reason::SectionOfAnotherLaw`], never a Code section with the
+/// other law's number (#259).
 fn stored_section_under_amendment(
     cited: (String, Vec<String>),
     line: &str,
@@ -391,17 +400,28 @@ fn stored_section_under_amendment(
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
-    let names_an_act = line.contains(" of the ");
+    let names_an_act = line.contains(" of the ") || cites_a_section_of_another_law(line);
     if names_an_act {
-        let codified = stored_usc_references(holder).into_iter().find(|reference| {
-            line.contains(reference.display.trim()) && !reference.display.contains("note")
-        });
-        if let Some(reference) = codified {
+        let in_line: Vec<UscReference> = stored_usc_references(holder)
+            .into_iter()
+            .filter(|reference| line.contains(reference.display.trim()))
+            .collect();
+        if let Some(reference) = in_line.iter().find(|reference| places_a_section(reference)) {
             return Ok((
                 uslm_section_id(&reference.title, &reference.section),
-                reference.trail,
+                reference.trail.clone(),
             ));
         }
+        // The publisher placed the Act, and only as a note or as a range. The
+        // number cited is the Act's own, which no bare-section reading can
+        // turn into the Code's.
+        if !in_line.is_empty() {
+            return Err(Reason::SectionOfAnotherLaw(number));
+        }
+    }
+
+    if cites_a_section_of_another_law(line) {
+        return Err(Reason::SectionOfAnotherLaw(number));
     }
 
     // A bare section: the title must come from the publisher, not from us. The
@@ -437,6 +457,17 @@ fn stored_section_under_amendment(
     }
 
     Err(Reason::NoTitleForSection(number))
+}
+
+/// Whether a reference to the Code names one section of it.
+///
+/// `7 U.S.C. 8351 note` names a note, which the dataset does not hold, and
+/// `42 U.S.C. 1395 et seq.` names a run of sections starting at § 1395. An Act
+/// placed that way is *not* codified at the section the reference starts
+/// from.
+fn places_a_section(reference: &UscReference) -> bool {
+    let display = &reference.display;
+    !display.contains("note") && !display.contains("et seq")
 }
 
 /// The number of the whole new section an instruction inserts, when it inserts
@@ -536,21 +567,43 @@ pub(crate) fn leading_in_phrase(text: &str) -> Option<Step> {
 /// publisher's identifiers write `s1400Z-2`, and a number cut at the dash names
 /// § 1400Z, which is a different section (#135, #141).
 pub(crate) fn citation_in(line: &str) -> Option<(String, Vec<String>)> {
-    static CITATION: LazyLock<Regex> = LazyLock::new(|| {
-        let dashes: String = crate::citation::usc::DASHES
-            .iter()
-            .map(|dash| regex::escape(&dash.to_string()))
-            .collect();
-        Regex::new(&format!(
-            r"(?i)section\s+([0-9][0-9A-Za-z{dashes}]*)\s*((?:\([0-9A-Za-z]{{1,6}}\))*)"
-        ))
-        .unwrap()
-    });
     let cited = CITATION.captures(line)?;
     Some((
         crate::citation::usc::fold_dashes(&cited[1]),
         designations_in(&cited[2]),
     ))
+}
+
+/// `section 898(c)`: a section number, and the designations that follow it.
+static CITATION: LazyLock<Regex> = LazyLock::new(|| {
+    let dashes: String = crate::citation::usc::DASHES
+        .iter()
+        .map(|dash| regex::escape(&dash.to_string()))
+        .collect();
+    Regex::new(&format!(
+        r"(?i)section\s+([0-9][0-9A-Za-z{dashes}]*)\s*((?:\([0-9A-Za-z]{{1,6}}\))*)"
+    ))
+    .unwrap()
+});
+
+/// Whether the section an amending line cites is a section of another law:
+/// the citation is followed at once by `of Public Law`, `of such Act`, or `of
+/// the` and the name of an Act.
+///
+/// Only the words right after the citation count. *"Section 274(o), as added
+/// by section 13304 of Public Law 115-97, is amended"* cites § 274(o) of the
+/// Code, and the public law is only where that subsection came from. *"of the
+/// Internal Revenue Code of 1986"* names the Code itself.
+fn cites_a_section_of_another_law(line: &str) -> bool {
+    let Some(citation) = CITATION.find(line) else {
+        return false;
+    };
+    let Some(named) = line[citation.end()..].trim_start().strip_prefix("of ") else {
+        return false;
+    };
+    named.starts_with("Public Law")
+        || named.starts_with("such Act")
+        || (named.starts_with("the ") && !named.starts_with("the Internal Revenue Code"))
 }
 
 /// The title of the US Code an amending line names outright: `of title 10`.
