@@ -338,12 +338,20 @@ impl<S: Storage> Dataset<S> {
 
         // Each statement lands in the one window that can hold it
         // (`crate::legislature::redesignation_window`, #172). The method ran
-        // over every window named, including one nothing landed in.
-        let placement = crate::legislature::redesignation_window::place(
+        // over every window named, including one nothing landed in. A
+        // statement the dataset already holds a link for in an earlier window
+        // is not placed again, so a dataset that grows one window at a time
+        // holds what a build over every window holds (#273).
+        let links = self
+            .storage
+            .links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
+        let placed = crate::legislature::redesignation_window::placements_in(bill_id, &links);
+        let placement = crate::legislature::redesignation_window::place_beside(
             &self.storage,
             &stated,
             &bill.id.at,
             windows,
+            &placed,
         )?;
         for ((from, to), report) in &placement.windows {
             for resolved in &report.resolved {
