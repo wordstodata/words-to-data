@@ -98,7 +98,7 @@ fn record_over_every_window(dataset: &mut Dataset<InMemoryStorage>) -> Redesigna
         .expect("the dataset should hold the bill as a document");
     let windows = adjacent_expressions(dataset).expect("the windows should list");
     dataset
-        .record_redesignations_over(BILL_ID, &bill.root, &windows)
+        .record_redesignations_over(BILL_ID, &bill, &windows)
         .expect("the step should run")
 }
 
@@ -411,23 +411,26 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
     // out of the dataset rather than out of the bill's XML.
     assert_eq!(report.totals.bills, 1);
     assert_eq!(report.totals.statements, 57);
-    assert_eq!(report.totals.unplaced, 17);
+    // 17 statements no reader can place, and two more that nothing in the
+    // window changed under: 20 U.S.C. 1087tt(b)(1)(B) and 1088(b) read the
+    // same on both dates, so the window cannot hold their moves (#172).
+    assert_eq!(report.totals.unplaced, 19);
 
-    // 80 links, where the resolver made 81 renumberings. A link is identified
+    // 77 links. The resolver makes 81 renumberings, and a link is identified
     // by what it says, so two statements that renumber one provision the same
     // way between the same two dates are one link
     // (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
-    // The report counts what the dataset holds, so it says 80.
+    // Three more are the two statements above, which hold no link (#172).
     let held = dataset
         .links_by_kind(LinkKind::REDESIGNATED_AS)
         .expect("the links should read");
-    assert_eq!(held.len(), 80);
-    assert_eq!(report.totals.links, 80);
+    assert_eq!(held.len(), 77);
+    assert_eq!(report.totals.links, 77);
 
-    // Not one statement is dropped. 80 placed renumberings and 17 statements
+    // Not one statement is dropped. 77 placed renumberings and 19 statements
     // nothing placed, each of them a row an agent can act on.
-    assert_eq!(report.rows.len(), 97);
-    assert_eq!(report.rows.iter().filter(|row| !row.placed).count(), 17);
+    assert_eq!(report.rows.len(), 96);
+    assert_eq!(report.rows.iter().filter(|row| !row.placed).count(), 19);
 
     // Every reason is a phrase that says what to do next, and the counts add up
     // to the statements nothing placed.
@@ -450,6 +453,8 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
             "section 4 / 101 is a section of another law"
         } else if reason.ends_with("names more than one provision") {
             "names more than one provision"
+        } else if reason.starts_with("nothing under") {
+            "nothing under <path> changed in any window after 2025-07-04"
         } else {
             reason.as_str()
         };
@@ -469,6 +474,10 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
             ("no provision at <path> before/after the bill", 5),
             ("the numbers of a paragraph do not run in a known series", 1),
             ("names more than one provision", 1),
+            (
+                "nothing under <path> changed in any window after 2025-07-04",
+                2,
+            ),
         ])
     );
 

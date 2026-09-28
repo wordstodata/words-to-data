@@ -1601,7 +1601,16 @@ fn unresolved_redesignations<S: Storage + LegislatureReader>(
             continue;
         }
 
-        for (from, to) in &windows {
+        // The windows the step itself would record each statement in, and no
+        // others. A window the law could not have acted in holds no work, and
+        // naming it would ask for a step that records nothing (#172).
+        let placement = crate::legislature::redesignation_window::place(
+            dataset,
+            &stated,
+            &document.id.at,
+            &windows,
+        )?;
+        for ((from, to), report) in &placement.windows {
             if holds_a_redesignation(dataset, &bill_id, from, to)? {
                 continue;
             }
@@ -1612,9 +1621,7 @@ fn unresolved_redesignations<S: Storage + LegislatureReader>(
             // ([`redesignation::Reason::NoLinkRecorded`]). A statement no
             // reader could place is finished work, and it carries its own
             // reason — reporting it here would cry wolf (#183).
-            let (earlier, later) = crate::storage::memory::require_same_work(dataset, from, to)?;
-            let report = redesignation::resolve(&stated, &earlier.root, &later.root);
-            let statements = statements_placeable(&report);
+            let statements = statements_placeable(report);
             if statements == 0 {
                 continue;
             }
@@ -2250,7 +2257,7 @@ pub fn redesignation_report<S: Storage>(
         let Some(document) = bill_document(dataset, legislature, &bill)? else {
             continue;
         };
-        report.add_bill(dataset, &bill, &document.root, &windows)?;
+        report.add_bill(dataset, &bill, &document, &windows)?;
     }
     report.sort_weakest_first();
     Ok(report)
@@ -2262,10 +2269,10 @@ impl RedesignationRows {
         &mut self,
         dataset: &S,
         bill_id: &str,
-        bill: &DocumentNode,
+        bill: &crate::dataset::Expression,
         windows: &[crate::dataset::ExpressionPair],
     ) -> Result<(), DatasetError> {
-        let stated = crate::uslm::bill_redesignation::redesignations_stated_in(bill_id, bill);
+        let stated = crate::uslm::bill_redesignation::redesignations_stated_in(bill_id, &bill.root);
         if stated.is_empty() {
             return Ok(());
         }
@@ -2316,7 +2323,7 @@ impl RedesignationRows {
         self.totals.unplaced += unplaced.len();
 
         if !unplaced.is_empty() {
-            self.add_reasons(dataset, bill_id, &unplaced, windows)?;
+            self.add_reasons(dataset, bill_id, &bill.id.at, &unplaced, windows)?;
         }
         Ok(())
     }
@@ -2330,6 +2337,7 @@ impl RedesignationRows {
         &mut self,
         dataset: &S,
         bill_id: &str,
+        enacted: &str,
         unplaced: &[&redesignation::StatedRedesignation],
         windows: &[crate::dataset::ExpressionPair],
     ) -> Result<(), DatasetError> {
@@ -2338,25 +2346,16 @@ impl RedesignationRows {
             .map(|&statement| statement.clone())
             .collect();
 
-        // A statement resolves in the one work that holds its section and fails
-        // in every other, so the reports are folded rather than concatenated.
-        // With no window at all there is nothing to fold, and every statement
-        // is unplaced for want of one.
-        let folded = if windows.is_empty() {
-            RedesignationReport::without_a_window(&statements)
-        } else {
-            let mut per_work = Vec::new();
-            for (from, to) in windows {
-                let (earlier, later) =
-                    crate::storage::memory::require_same_work(dataset, from, to)?;
-                per_work.push(redesignation::resolve(
-                    &statements,
-                    &earlier.root,
-                    &later.root,
-                ));
-            }
-            RedesignationReport::across_works(per_work)
-        };
+        // The windows the step itself would record each statement in, so a
+        // statement no window can hold gives that as its reason, and is not
+        // mistaken for a step that has not run (#172).
+        let folded = crate::legislature::redesignation_window::place(
+            dataset,
+            &statements,
+            enacted,
+            windows,
+        )?
+        .report();
 
         // `across_works` keeps only the statements no work could place, so a
         // statement missing from it is one the resolver *can* place and the
@@ -2810,8 +2809,9 @@ pub fn info<S: Storage>(dataset: &S) -> Result<DatasetInfo, DatasetError> {
 //
 // The subjects a dataset holds more than one link about. Decision 12 of #179 is
 // settled: contradicting links coexist, the contradiction is **computed**, and
-// nothing here writes, stamps, prefers or deletes a link. Which link to keep is
-// #172 and is left open on purpose.
+// nothing here writes, stamps, prefers or deletes a link. No rule here says
+// which link to keep. Since #172 the redesignation step records a statement in
+// one window, so a duplicated renumbering is in a dataset built before that.
 
 /// One link, as a contradiction report names it.
 ///

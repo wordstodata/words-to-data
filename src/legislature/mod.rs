@@ -12,6 +12,7 @@
 
 pub mod evidence_matching;
 pub mod redesignation;
+pub mod redesignation_window;
 pub mod residue;
 pub mod section_agreement;
 

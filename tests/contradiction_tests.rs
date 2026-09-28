@@ -31,6 +31,7 @@ use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, adjacent_expressions, work_roots,
 };
 use words_to_data::storage::{InMemoryStorage, LinkReader};
+use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
 use words_to_data::uslm::parser::parse;
 
 /// The committed public law, as the Congress client leaves it in the cache.
@@ -85,7 +86,7 @@ fn committed_bill_download() -> BillDownload {
 ///
 /// The order a build takes (#181): the windows exist before the step runs over
 /// them, because loading a bill records nothing.
-fn dataset_over(dates: &[&str], titles: &[&str]) -> Dataset<InMemoryStorage> {
+fn dataset_over(dates: &[&str], titles: &[&str], recorded: Recorded) -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for date in dates {
         for name in titles {
@@ -111,10 +112,34 @@ fn dataset_over(dates: &[&str], titles: &[&str]) -> Dataset<InMemoryStorage> {
         .expect("the dataset should answer for the bill")
         .expect("the dataset should hold the bill as a document");
     let windows = adjacent_expressions(&dataset).expect("the windows should list");
+    match recorded {
+        Recorded::ByTheStep => {
+            dataset
+                .record_redesignations_over(BILL_ID, &bill, &windows)
+                .expect("the step should run");
+        }
+        Recorded::InEveryWindow => {
+            let stated = redesignations_stated_in(BILL_ID, &bill.root);
+            for (from, to) in &windows {
+                dataset
+                    .record_redesignations(BILL_ID, &stated, from, to)
+                    .expect("the window should record");
+            }
+        }
+    }
     dataset
-        .record_redesignations_over(BILL_ID, &bill.root, &windows)
-        .expect("the step should run");
-    dataset
+}
+
+/// How a fixture's renumbering links were recorded.
+#[derive(Clone, Copy)]
+enum Recorded {
+    /// By the step a build runs, which records each statement in the one
+    /// window the law acted in (#172).
+    ByTheStep,
+    /// In every window a statement resolves in, as every dataset built before
+    /// #172 holds them. The duplication this command exists to find is in
+    /// such a dataset, and the maintainer's own dataset is one.
+    InEveryWindow,
 }
 
 /// Write a dataset once and hand back its path, so the CLI tests below share
@@ -123,10 +148,10 @@ fn dataset_over(dates: &[&str], titles: &[&str]) -> Dataset<InMemoryStorage> {
 /// SQLite rather than compact JSON: a SQLite dataset is the one a command can
 /// grow in place, so it is the form in which "no link was written" is worth
 /// proving.
-fn dataset_file(name: &str, dates: &[&str], titles: &[&str]) -> String {
+fn dataset_file(name: &str, dates: &[&str], titles: &[&str], recorded: Recorded) -> String {
     let path = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
     let _ = std::fs::remove_file(&path);
-    dataset_over(dates, titles)
+    dataset_over(dates, titles, recorded)
         .save_to_sqlite(&path)
         .expect("the fixture should save");
     path
@@ -135,14 +160,42 @@ fn dataset_file(name: &str, dates: &[&str], titles: &[&str]) -> String {
 /// The committed corpus: two release points, so exactly one window.
 fn one_window_file() -> &'static str {
     static FIXTURE: OnceLock<String> = OnceLock::new();
-    FIXTURE.get_or_init(|| dataset_file("contradictions_one_window.sqlite", &DATES[..2], &TITLE_26))
+    FIXTURE.get_or_init(|| {
+        dataset_file(
+            "contradictions_one_window.sqlite",
+            &DATES[..2],
+            &TITLE_26,
+            Recorded::ByTheStep,
+        )
+    })
 }
 
 /// Three release points, so two adjacent windows, which is the least a
-/// duplicated pair can be found in.
+/// duplicated pair can be found in, with the links recorded in every window as
+/// a dataset built before #172 holds them.
 fn two_window_file() -> &'static str {
     static FIXTURE: OnceLock<String> = OnceLock::new();
-    FIXTURE.get_or_init(|| dataset_file("contradictions_two_windows.sqlite", &DATES, &FIVE_TITLES))
+    FIXTURE.get_or_init(|| {
+        dataset_file(
+            "contradictions_two_windows.sqlite",
+            &DATES,
+            &FIVE_TITLES,
+            Recorded::InEveryWindow,
+        )
+    })
+}
+
+/// The same corpus, with the links recorded by the step a build runs now.
+fn two_window_step_file() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        dataset_file(
+            "contradictions_two_windows_by_the_step.sqlite",
+            &DATES,
+            &FIVE_TITLES,
+            Recorded::ByTheStep,
+        )
+    })
 }
 
 /// The two windows the three release points give.
@@ -312,7 +365,7 @@ fn should_find_and_categorise_the_duplicated_pairs_when_the_dataset_holds_two_wi
             // Method and version, so a reader can tell a statement this build
             // would make again from one it would not (#182).
             assert_eq!(
-                link["method"], "amendingAction type=redesignate@1",
+                link["method"], "amendingAction type=redesignate@2",
                 "every link names its method with its version, got:\n{link:#}"
             );
             assert!(
@@ -333,8 +386,33 @@ fn should_find_and_categorise_the_duplicated_pairs_when_the_dataset_holds_two_wi
         );
     }
     assert!(
-        text.contains("amendingAction type=redesignate@1"),
+        text.contains("amendingAction type=redesignate@2"),
         "human output should name the method with its version, got:\n{text}"
+    );
+}
+
+#[test]
+fn should_find_no_duplication_when_the_step_recorded_each_statement_in_one_window() {
+    // #172. The same corpus as above, recorded by the step a build runs now.
+    // Every one of these titles reads the same on 2025-07-30 and 2025-08-14,
+    // so the later window cannot hold a move, and no pair is duplicated.
+    let output = run(&["contradictions", two_window_step_file(), "--json"]);
+
+    assert!(
+        output.status.success(),
+        "contradictions should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("the command should emit json");
+    assert_eq!(
+        report["totals"]["duplication"].as_u64(),
+        Some(0),
+        "the step records each statement in one window, got:\n{report:#}"
+    );
+    assert!(
+        report["totals"]["links_read"].as_u64().unwrap_or(0) > 0,
+        "the command read the links, got:\n{report:#}"
     );
 }
 

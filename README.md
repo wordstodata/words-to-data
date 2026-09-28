@@ -183,14 +183,14 @@ that no write was lost. A count that falls with no word about why reads as a los
 write, and a merge and a lost write need different work
 ([#220](https://github.com/wordstodata/words-to-data/issues/220)).
 
-**Which two release points a redesignation is checked against is an open
-question.** This command is told, with `--between` or `--from`/`--to`. Step 1
-names every window the dataset holds. Nothing compares the bill's date with
-those dates. Each work in the corpus holds three release points, so each work
-offers two windows, and running the step over both places many of the same moves
-twice. `contradictions` finds those, and it does not choose between them: the
-choice is [#172](https://github.com/wordstodata/words-to-data/issues/172). Do not
-read this document as an answer to it.
+**A statement is recorded in one window.** This command is told which windows
+to try, with `--between` or `--from`/`--to`, and step 1 names every window the
+dataset holds. Of those, a statement is recorded in the first that ends after
+the law's enactment and in which the text under the statement's container
+changed ([#172](https://github.com/wordstodata/words-to-data/issues/172)). A
+later window that shows a change too is named for review and holds no link. A
+dataset built before that rule places many moves twice, and `contradictions`
+finds those.
 
 ### Step 5 — `convert-dataset`
 

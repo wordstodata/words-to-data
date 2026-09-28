@@ -74,7 +74,7 @@ fn built() -> Dataset<words_to_data::storage::InMemoryStorage> {
         .expect("the dataset should answer for the bill")
         .expect("the bill is held as a document");
     dataset
-        .record_redesignations_over(BILL_ID, &bill.root, &windows)
+        .record_redesignations_over(BILL_ID, &bill, &windows)
         .expect("the renumberings should record");
     for link in olrc_links(&dataset) {
         dataset.add_link(link).expect("the link should add");

@@ -57,7 +57,7 @@ fn dataset_with_title(file: &str) -> Dataset<InMemoryStorage> {
         .expect("the dataset should answer for the bill")
         .expect("the bill is held as a document");
     dataset
-        .record_redesignations_over(BILL_ID, &bill.root, &windows)
+        .record_redesignations_over(BILL_ID, &bill, &windows)
         .expect("the renumberings should record");
     dataset
 }

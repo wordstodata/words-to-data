@@ -142,7 +142,7 @@ fn record_the_redesignation_step(dataset: &mut Dataset<InMemoryStorage>) {
         .expect("the dataset should hold the bill as a document");
     let windows = adjacent_expressions(dataset).expect("the windows should list");
     dataset
-        .record_redesignations_over(BILL_ID, &bill.root, &windows)
+        .record_redesignations_over(BILL_ID, &bill, &windows)
         .expect("the step should run");
 }
 
