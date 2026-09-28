@@ -26,6 +26,7 @@ use words_to_data::diff::TreeDiff;
 use words_to_data::inspect;
 use words_to_data::legislature::redesignation_window::place;
 use words_to_data::link::{LinkKind, Target};
+use words_to_data::review::{Review, Verdict};
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
 use words_to_data::uslm::parser::parse;
@@ -415,6 +416,73 @@ fn should_record_no_second_placement_when_a_grown_dataset_is_read_over_a_later_w
         renumbering_link_ids(&grown),
         renumbering_link_ids(&rebuilt),
         "a grown dataset holds the renumbering links a build over all three dates holds"
+    );
+}
+
+#[test]
+fn should_place_a_statement_again_when_every_link_of_it_in_the_earlier_window_is_refuted() {
+    // A refuted link was checked and found wrong, so it is no placement. A
+    // statement whose every link is refuted is work again, as an amendment is
+    // (#268), and a later window that qualifies can hold it.
+    let mut grown = title_7_and_the_bill_at(&DATES[..2]);
+    record_over_every_window(&mut grown);
+    let links = grown
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read");
+    let statement_of = |link: &words_to_data::link::Link| {
+        let amendment = link.payload.as_ref().expect("a renumbering has a payload").value
+            ["amendment_id"]
+            .as_str()
+            .expect("the payload names the amendment")
+            .to_string();
+        let words = link
+            .provenance
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.reasoning.clone())
+            .expect("a renumbering carries the words it was read out of");
+        (amendment, words)
+    };
+    let refuted = statement_of(&links[0]);
+    let refutation = Review {
+        verdict: Verdict::Refuted,
+        reviewer: "human:test".to_string(),
+        reasoning: Some("The move is not in this window.".to_string()),
+        at: time::OffsetDateTime::UNIX_EPOCH,
+    };
+    for link in links.iter().filter(|link| statement_of(link) == refuted) {
+        grown
+            .add_link(refutation.about(link))
+            .expect("the review should record");
+    }
+    add_title_7_at(&mut grown, DATES[2]);
+
+    let bill = grown
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+    let work = WorkId::new("uscode/title_7");
+    let wide = (
+        ExpressionId::new(work.clone(), DATES[0]),
+        ExpressionId::new(work, DATES[2]),
+    );
+    grown
+        .record_redesignations_over(BILL_ID, &bill, &[wide])
+        .expect("the step should run");
+
+    let placed_again = grown
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read")
+        .iter()
+        .filter(|link| statement_of(link) == refuted)
+        .any(|link| {
+            matches!(&link.subject, Target::Change { from_date, to_date, .. }
+                if from_date == DATES[0] && to_date == DATES[2])
+        });
+    assert!(
+        placed_again,
+        "a statement whose every earlier link is refuted is placed in the later window: {}",
+        refuted.1
     );
 }
 

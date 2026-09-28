@@ -41,7 +41,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dataset::{DatasetError, ExpressionId, ExpressionPair, WorkId};
-use crate::link::{Link, LinkKind, Target};
+use crate::link::{Link, LinkKind, Target, VerificationState};
+use crate::review::{Verdict, newest_naming};
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::legislature::evidence_matching::window_can_hold;
@@ -80,15 +81,22 @@ pub struct Placed {
     pub to: ExpressionId,
 }
 
-/// Every window in which a statement of `bill_id` holds a renumbering link.
+/// Every window in which a statement of `bill_id` holds a standing renumbering
+/// link.
 ///
 /// Reads the links this step writes: the bill and the amendment are in the
 /// payload, and the words of the statement are the evidence's reasoning. A link
 /// of another kind or another bill is skipped.
-pub fn placements_in(bill_id: &str, links: &[Link]) -> Vec<Placed> {
+///
+/// A refuted link is skipped too. It was checked and found wrong, so it places
+/// nothing, and a statement whose every link is refuted is work again, as an
+/// amendment is (#268). A link is refuted by its own state or by the newest
+/// review of it out of `reviews`, the two readings `inspect` refuses on.
+pub fn placements_in(bill_id: &str, links: &[Link], reviews: &[Link]) -> Vec<Placed> {
     links
         .iter()
         .filter(|link| link.kind.0 == LinkKind::REDESIGNATED_AS)
+        .filter(|link| !is_refuted(link, reviews))
         .filter_map(|link| {
             let payload = &link.payload.as_ref()?.value;
             if payload["bill_id"].as_str()? != bill_id {
@@ -111,6 +119,12 @@ pub fn placements_in(bill_id: &str, links: &[Link]) -> Vec<Placed> {
             })
         })
         .collect()
+}
+
+/// Whether a link is refuted, by its own state or by its newest review.
+fn is_refuted(link: &Link, reviews: &[Link]) -> bool {
+    link.provenance.verification == VerificationState::Refuted
+        || newest_naming(&link.id(), reviews).is_some_and(|review| review.verdict == Verdict::Refuted)
 }
 
 /// Where each statement of one law lands, window by window.

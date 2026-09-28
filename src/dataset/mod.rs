@@ -345,7 +345,11 @@ impl<S: Storage> Dataset<S> {
         let links = self
             .storage
             .links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
-        let placed = crate::legislature::redesignation_window::placements_in(bill_id, &links);
+        let reviews = self
+            .storage
+            .links_by_namespace(crate::link::LinkKind::REVIEW)?;
+        let placed =
+            crate::legislature::redesignation_window::placements_in(bill_id, &links, &reviews);
         let placement = crate::legislature::redesignation_window::place_beside(
             &self.storage,
             &stated,
