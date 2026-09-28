@@ -877,15 +877,19 @@ pub enum EvidenceWords {
     },
     /// Only the newer end holds the provision. These are the words added.
     Added {
-        /// The newer end, as `work@date` and a path.
-        at: String,
+        /// The newer end, as `work@date`.
+        expression: String,
+        /// Where the provision is at that end.
+        path: String,
         /// Every text field of the provision and of everything beneath it.
         words: Vec<ProvisionField>,
     },
     /// Only the older end holds the provision. These are the words removed.
     Removed {
-        /// The older end, as `work@date` and a path.
-        at: String,
+        /// The older end, as `work@date`.
+        expression: String,
+        /// Where the provision was at that end.
+        path: String,
         /// Every text field of the provision and of everything beneath it.
         words: Vec<ProvisionField>,
     },
@@ -943,11 +947,13 @@ pub fn link_evidence<S: Storage>(
             changes: field_changes(&from, &to),
         },
         (None, Some(to)) => EvidenceWords::Added {
-            at: format!("{to_id} {to_path}"),
+            expression: to_id.to_string(),
+            path: to_path.clone(),
             words: provision_words(&to),
         },
         (Some(from), None) => EvidenceWords::Removed {
-            at: format!("{from_id} {from_path}"),
+            expression: from_id.to_string(),
+            path: from_path.clone(),
             words: provision_words(&from),
         },
         (None, None) => return Ok(None),

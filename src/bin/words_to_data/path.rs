@@ -4,8 +4,12 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
+use words_to_data::query::DEFAULT_LIMIT;
 
 use crate::load::{self, with_dataset};
+
+/// Where a reader of `path` finds the words a screen left out.
+const EVERY_WORD: &str = "--json carries every field in full.";
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -80,8 +84,12 @@ pub fn run(args: Args) {
                 println!("      {}: {:?} -> {:?}", c.field, c.old_value, c.new_value);
             }
             match p.presence {
-                inspect::Presence::Added => print_words("added", &p.words, "      "),
-                inspect::Presence::Removed => print_words("removed", &p.words, "      "),
+                inspect::Presence::Added => {
+                    print_words("added", &report.path, &p.words, "      ", EVERY_WORD)
+                }
+                inspect::Presence::Removed => {
+                    print_words("removed", &report.path, &p.words, "      ", EVERY_WORD)
+                }
                 _ => {}
             }
         }
@@ -221,6 +229,13 @@ fn positions(p: &inspect::ProvisionAtPath) -> String {
     }
 }
 
+/// How many characters of one field a person is shown before it is cut.
+///
+/// A field is one node's text, and one node can hold a whole section: a real
+/// search hit carried 10,228 characters (#235). Wide enough for a sentence of
+/// the law, short enough that a screenful of fields is still a screenful.
+const FIELD_WIDTH: usize = 300;
+
 /// The words of a provision the window holds at one end only, and which way
 /// they went.
 ///
@@ -229,27 +244,60 @@ fn positions(p: &inspect::ProvisionAtPath) -> String {
 /// plainly whether they were added or removed, because the same words mean the
 /// opposite in the two cases.
 ///
-/// Each field is named by its path from the provision down, so the reader can
-/// see where in the provision the words sit.
-pub fn print_words(change: &str, words: &[inspect::ProvisionField], indent: &str) {
-    let Some(first) = words.first() else {
+/// Each field is named by its path from `provision` down, so the reader can see
+/// where in the provision the words sit.
+///
+/// A screenful, and no more: at most [`DEFAULT_LIMIT`] fields, each cut at
+/// [`FIELD_WIDTH`] characters with the cut marked `…`. What was left out is said,
+/// and `rest` tells the reader where to read all of it. A reader that stopped
+/// in silence would read as the whole provision.
+pub fn print_words(
+    change: &str,
+    provision: &str,
+    words: &[inspect::ProvisionField],
+    indent: &str,
+    rest: &str,
+) {
+    if words.is_empty() {
         println!("{indent}The words {change}: none. The provision holds no text.");
         return;
-    };
-    // The provision's own path is the first field's. Its parent is cut off, so
-    // every line starts at the provision itself.
-    let parent = first
-        .path
-        .rsplit_once('/')
-        .map_or("", |(parent, _)| parent);
+    }
+    // The provision's parent is cut off, so every line starts at the
+    // provision itself.
+    let parent = provision.rsplit_once('/').map_or("", |(parent, _)| parent);
     println!("{indent}The words {change} ({}):", fields(words.len()));
-    for word in words {
+    for word in words.iter().take(DEFAULT_LIMIT) {
         let at = word
             .path
             .strip_prefix(parent)
-            .map_or(word.path.as_str(), |rest| rest.trim_start_matches('/'));
-        println!("{indent}  {at} [{}] {}", word.field, word.text);
+            .map_or(word.path.as_str(), |below| below.trim_start_matches('/'));
+        println!("{indent}  {at} [{}] {}", word.field, cut(&word.text));
     }
+    let dropped = words.len().saturating_sub(DEFAULT_LIMIT);
+    if dropped > 0 {
+        let noun = if dropped == 1 { "field" } else { "fields" };
+        println!("{indent}  … {dropped} more {noun} not shown.");
+    }
+    let any_cut = words
+        .iter()
+        .take(DEFAULT_LIMIT)
+        .any(|word| word.text.chars().count() > FIELD_WIDTH);
+    if dropped > 0 || any_cut {
+        println!("{indent}  {rest}");
+    }
+}
+
+/// The first [`FIELD_WIDTH`] characters of a field, with `…` where it was cut.
+///
+/// Counted in characters and not bytes. The corpus holds `§`, and a byte slice
+/// through a character panics.
+fn cut(text: &str) -> String {
+    if text.chars().count() <= FIELD_WIDTH {
+        return text.to_string();
+    }
+    let mut shown: String = text.chars().take(FIELD_WIDTH).collect();
+    shown.push('…');
+    shown
 }
 
 fn fields(n: usize) -> String {

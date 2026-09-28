@@ -99,6 +99,71 @@ fn should_show_the_words_added_when_path_reads_a_provision_new_in_the_window() {
     );
 }
 
+/// The scholarship credit Public Law 119-21 added: 65 text fields, the longest
+/// 392 characters. Too large for a screen, so it is what a bound is tested on.
+const SECTION_25F: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25F";
+
+#[test]
+fn should_stop_at_a_screenful_and_say_what_it_left_out_when_an_added_provision_is_large() {
+    let said = path_over(SECTION_25F);
+
+    assert!(
+        said.contains("The words added (65 fields)"),
+        "the reader should say how many fields the provision holds: {said}"
+    );
+    assert!(
+        said.contains("45 more fields not shown"),
+        "and how many it did not print, after a screenful of 20: {said}"
+    );
+    assert!(
+        !said.contains("for purposes of administering the requirements of this section"),
+        "the last field is past the screenful: {said}"
+    );
+    // Subsection (a) runs to 331 characters. It is cut, and the cut is marked.
+    assert!(
+        said.contains("In the case of an individual who is a citizen or resident"),
+        "a long field starts as written: {said}"
+    );
+    assert!(
+        !said.contains("aggregate amount of qualified contributions made by the taxpayer"),
+        "and is cut before its end: {said}"
+    );
+    assert!(
+        said.contains("qualified contributions made by the ta…"),
+        "where the cut is marked: {said}"
+    );
+    assert!(said.contains("--json"), "the reader is told where the rest is: {said}");
+}
+
+#[test]
+fn should_carry_every_field_in_full_when_path_answers_in_json() {
+    let said = run(&[
+        "path",
+        dataset_on_disk(),
+        SECTION_25F,
+        "--from",
+        &format!("uscode/title_26@{BEFORE}"),
+        "--to",
+        &format!("uscode/title_26@{AFTER}"),
+        "--json",
+    ]);
+    let report: serde_json::Value = serde_json::from_str(&said).expect("--json emits json");
+    let words = report["provisions"][0]["words"]
+        .as_array()
+        .expect("an added provision carries its words");
+
+    assert_eq!(words.len(), 65, "every field is carried: {said}");
+    assert!(
+        words.iter().any(|w| w["text"]
+            .as_str()
+            .is_some_and(|t| t.ends_with(
+                "aggregate amount of qualified contributions made by the taxpayer during the taxable year."
+            ))),
+        "and each field is carried whole"
+    );
+}
+
 /// The paragraph Public Law 119-21 struck from § 132(f): the suspension of the
 /// bicycle commuting exclusion.
 const PARAGRAPH_132_F_8: &str =

@@ -21,7 +21,7 @@
 use clap::{Args as ClapArgs, ValueEnum};
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::inspect::{self, EvidenceWords};
-use words_to_data::link::{Link, Named};
+use words_to_data::link::{Link, Named, Target};
 use words_to_data::review::{self, Review, Verdict};
 use words_to_data::storage::{LinkReader, Storage};
 
@@ -228,15 +228,43 @@ fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
         EvidenceWords::BothEnds { from, to, changes } => print_changes(from, to, changes),
         // A provision at one end only has nothing to compare against, so its
         // words are the evidence (#259).
-        EvidenceWords::Added { at, words } => {
-            println!("\nThe provision is new in the window. It is at {at}.");
-            crate::path::print_words("added", words, "  ");
+        EvidenceWords::Added {
+            expression,
+            path,
+            words,
+        } => {
+            println!("\nThe provision is new in the window. It is at {expression} {path}.");
+            let rest = every_word(path, reviewed);
+            crate::path::print_words("added", path, words, "  ", &rest);
         }
-        EvidenceWords::Removed { at, words } => {
-            println!("\nThe provision is gone in the window. It was at {at}.");
-            crate::path::print_words("removed", words, "  ");
+        EvidenceWords::Removed {
+            expression,
+            path,
+            words,
+        } => {
+            println!("\nThe provision is gone in the window. It was at {expression} {path}.");
+            let rest = every_word(path, reviewed);
+            crate::path::print_words("removed", path, words, "  ", &rest);
         }
     }
+}
+
+/// Where a reviewer reads every word a screen left out: `path` over the
+/// link's own window, which carries them all in `--json`.
+///
+/// Only a link whose subject is a change has words at one end, so the window is
+/// always there to name.
+fn every_word(path: &str, reviewed: &Link) -> String {
+    let window = match &reviewed.subject {
+        Target::Change {
+            work,
+            from_date,
+            to_date,
+            ..
+        } => format!(" --from {work}@{from_date} --to {work}@{to_date}"),
+        _ => String::new(),
+    };
+    format!("`words_to_data path <dataset> {path}{window} --json` carries every field in full.")
 }
 
 /// How the fields differ between a link's two ends.
