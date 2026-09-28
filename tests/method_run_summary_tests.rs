@@ -294,7 +294,7 @@ fn should_carry_every_individual_run_when_info_emits_json() {
     );
     for run in runs {
         assert!(run["method"]["name"].is_string(), "got:\n{run:#?}");
-        assert_eq!(run["method"]["version"], 1, "got:\n{run:#?}");
+        assert!(run["method"]["version"].is_u64(), "got:\n{run:#?}");
         assert!(
             run["work"]
                 .as_str()

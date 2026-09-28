@@ -39,8 +39,8 @@ use crate::io::load_xml_file;
 use crate::legislature::redesignation::{Reason, StatedRedesignation, Step, read_clause};
 use crate::uslm::amendment_address::{
     INTERNAL_REVENUE_CODE, Scope, amending_line_of, citation_in, collapse_spaces, element_type_of,
-    is_stored_level, leading_in_phrase, stored_titles_declaring_the_1986_code, title_named_in,
-    uslm_section_id,
+    is_stored_level, leading_in_phrase, section_of_an_act, stored_titles_declaring_the_1986_code,
+    title_named_in, uslm_section_id,
 };
 use crate::uslm::parser::{ParseError, normalize_quotes};
 use crate::uslm::{ElementType, UscReference, UslmFacts};
@@ -455,9 +455,11 @@ fn own_text(level: &Node) -> String {
 ///    the citation numbers a section of an Act, and the publisher's own `<ref>`
 ///    beside it gives the place in the Code. The reference is the authority, so
 ///    the trail comes from it and not from the Act's numbering. A reference whose
-///    text says `note` is refused: the Act is *not* codified at that section,
-///    and treating the note's home as the provision would point a link at
-///    somebody else's law.
+///    text says `note` or `et seq.` is refused: the Act is *not* codified at
+///    that section, and treating the note's home as the provision would point a
+///    link at somebody else's law. Both readers read this form through
+///    [`section_of_an_act`], which also refuses a section of another law that
+///    nothing places in the Code (#259).
 /// 3. A bare `Section 898(c)`, first against the publisher's own marginal
 ///    reference to the same section number — `26 USC 898` — and then against the
 ///    bill's References clause, which declares for a whole bill title that a
@@ -479,12 +481,8 @@ fn section_under_amendment(
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
-    let names_an_act = line.contains(" of the ");
-    if names_an_act && let Some(reference) = codified_reference(holder, line) {
-        return Ok((
-            uslm_section_id(&reference.title, &reference.section),
-            reference.trail,
-        ));
+    if let Some(placed) = section_of_an_act(line, &number, usc_references(holder)) {
+        return placed;
     }
 
     // A bare section: the title must come from the publisher, not from us.
@@ -515,17 +513,6 @@ fn section_under_amendment(
     }
 
     Err(Reason::NoTitleForSection(number))
-}
-
-/// The reference in an amending line that gives the codified home of the Act it
-/// names.
-///
-/// Taken from the line's own words rather than from the whole element: an
-/// instruction quotes the text it enacts, and that text cites other statutes.
-fn codified_reference(holder: Node, line: &str) -> Option<UscReference> {
-    usc_references(holder).into_iter().find(|reference| {
-        line.contains(reference.display.trim()) && !reference.display.contains("note")
-    })
 }
 
 /// Every US Code reference in a subtree.
