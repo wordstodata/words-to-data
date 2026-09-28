@@ -111,3 +111,84 @@ mod dataset_integration {
         assert!(unknown.is_empty());
     }
 }
+
+/// An offline client reads the cache and nothing else (#272).
+///
+/// A bill the cache has not got is named, with the place the client looked,
+/// instead of a request to the network. A test can then run without an API
+/// key, and a run that was told to stay offline cannot spend the quota.
+#[test]
+fn should_name_the_missing_cache_entry_when_an_offline_client_is_asked_for_a_bill_it_has_not_got() {
+    let client = CongressClient::cached_only(Some(TEST_CONGRESS_CACHE_DIR.to_string()));
+
+    let error = client
+        .download_bill("119-hr-2")
+        .expect_err("the committed cache does not hold 119-hr-2");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("bill/119/hr/2") && message.contains("cache"),
+        "the error should name the entry it did not find in the cache: {message}"
+    );
+}
+
+/// An offline client does not drop a part of a bill it has not got.
+///
+/// Online, a member the API does not answer for is left out, as before. Offline,
+/// a member missing from the cache is a gap in the cache, and a bill loaded
+/// without that member would differ from the bill a build loads. So the client
+/// names it. The cache is the committed one, less the sponsor's record.
+#[test]
+fn should_name_the_missing_member_when_an_offline_client_reads_a_bill_whose_member_is_not_cached() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let cache = dir.path().join("cache");
+    copy_tree(std::path::Path::new(TEST_CONGRESS_CACHE_DIR), &cache);
+    std::fs::remove_file(cache.join("member/A000375.json")).expect("the sponsor is cached");
+    let client = CongressClient::cached_only(Some(cache.to_string_lossy().to_string()));
+
+    let error = client
+        .download_bill("119-hr-1")
+        .expect_err("the cache does not hold the sponsor");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("member/A000375") && message.contains("cache"),
+        "the error should name the member the cache has not got: {message}"
+    );
+}
+
+/// An offline client does not drop a House vote it has not got, for the same
+/// reason as a member. The cache is the committed one, less the vote's members.
+#[test]
+fn should_name_the_missing_vote_when_an_offline_client_reads_a_bill_whose_vote_is_not_cached() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let cache = dir.path().join("cache");
+    copy_tree(std::path::Path::new(TEST_CONGRESS_CACHE_DIR), &cache);
+    std::fs::remove_file(cache.join("house-vote/119/1/190/members.json"))
+        .expect("the vote is cached");
+    let client = CongressClient::cached_only(Some(cache.to_string_lossy().to_string()));
+
+    let error = client
+        .download_bill("119-hr-1")
+        .expect_err("the cache does not hold the vote's members");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("house-vote/119/1/190/members") && message.contains("cache"),
+        "the error should name the vote the cache has not got: {message}"
+    );
+}
+
+/// Copy a folder and everything under it.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).expect("the copy's folder should be creatable");
+    for entry in std::fs::read_dir(from).expect("the folder should be readable") {
+        let entry = entry.expect("the entry should be readable");
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("the file should copy");
+        }
+    }
+}

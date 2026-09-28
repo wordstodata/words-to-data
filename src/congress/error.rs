@@ -5,6 +5,11 @@ pub enum CongressError {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    /// An offline client was asked for an entry its cache has not got. It
+    /// names the file it looked for, so the reader knows what to fetch.
+    #[error("{0} is not in the cache, and this client reads only the cache")]
+    NotCached(String),
+
     #[error("HTTP error: {0}")]
     Http(String),
 

@@ -14,6 +14,9 @@ pub struct CongressClient {
     api_key: String,
     cache: ResponseCache,
     http: crate::http::Http,
+    /// Read only the cache, and never reach the network. See
+    /// [`CongressClient::cached_only`].
+    offline: bool,
 }
 
 impl CongressClient {
@@ -34,7 +37,25 @@ impl CongressClient {
             api_key,
             cache,
             http: crate::http::Http::new(),
+            offline: false,
         }
+    }
+
+    /// Build a client that reads only the cache and never reaches the network.
+    ///
+    /// It needs no API key. An entry the cache has not got is an error that
+    /// names the file, [`CongressError::NotCached`], and not a request. A
+    /// cached entry never expires here, because the network cannot replace it.
+    pub fn cached_only(cache_dir: Option<String>) -> Self {
+        Self {
+            offline: true,
+            ..Self::with_ttl(String::new(), cache_dir, None)
+        }
+    }
+
+    /// The error for an entry an offline client has not got.
+    fn not_cached(&self, key: &str) -> CongressError {
+        CongressError::NotCached(self.cache.directory().join(key).display().to_string())
     }
 
     pub fn api_key(&self) -> &str {
@@ -56,6 +77,9 @@ impl CongressClient {
 
         if let Some(cached) = self.cache.get(&key) {
             return Ok(cached);
+        }
+        if self.offline {
+            return Err(self.not_cached(&key));
         }
 
         let url = format!("{}/{}", BASE_URL, endpoint);
@@ -178,36 +202,49 @@ impl CongressClient {
             }
         }
 
-        // Fetch House votes (dedupe by roll number)
-        let votes_json = match self.get_bill_house_votes(congress, &bill_type, number) {
-            Ok(refs) if !refs.is_empty() => {
-                let mut seen_rolls = std::collections::HashSet::new();
-                let mut roll_calls = Vec::new();
-                for r in &refs {
-                    if seen_rolls.insert(r.roll_number)
-                        && let Ok(vote) = self.get_house_vote(r.congress, r.session, r.roll_number)
-                    {
-                        vote.member_votes.iter().for_each(|member_vote| {
-                            member_ids.insert(member_vote.bioguide_id.clone());
-                        });
-                        roll_calls.push(vote);
-                    }
-                }
-                if !roll_calls.is_empty() {
-                    Some(serde_json::to_string(&roll_calls).unwrap_or_default())
-                } else {
-                    None
-                }
+        // Fetch House votes (dedupe by roll number). As with members below, a
+        // vote the API does not answer for is left out, and a vote an offline
+        // client has not got stops the download.
+        let refs = match self.get_bill_house_votes(congress, &bill_type, number) {
+            Ok(refs) => refs,
+            Err(error @ CongressError::NotCached(_)) => return Err(error),
+            Err(_) => Vec::new(),
+        };
+        let mut seen_rolls = std::collections::HashSet::new();
+        let mut roll_calls = Vec::new();
+        for r in &refs {
+            if !seen_rolls.insert(r.roll_number) {
+                continue;
             }
-            _ => None,
+            match self.get_house_vote(r.congress, r.session, r.roll_number) {
+                Ok(vote) => {
+                    vote.member_votes.iter().for_each(|member_vote| {
+                        member_ids.insert(member_vote.bioguide_id.clone());
+                    });
+                    roll_calls.push(vote);
+                }
+                Err(error @ CongressError::NotCached(_)) => return Err(error),
+                Err(_) => {}
+            }
+        }
+        let votes_json = if roll_calls.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&roll_calls).unwrap_or_default())
         };
 
-        // Fetch member details
+        // Fetch member details. A member the API does not answer for is left
+        // out, but a member an offline client has not got is a gap in the
+        // cache, and it stops the download.
         let mut member_jsons = HashMap::new();
         for id in member_ids {
             let endpoint = format!("member/{}", id);
-            if let Ok(json) = self.fetch(&endpoint, "json", None) {
-                member_jsons.insert(id, json);
+            match self.fetch(&endpoint, "json", None) {
+                Ok(json) => {
+                    member_jsons.insert(id, json);
+                }
+                Err(error @ CongressError::NotCached(_)) => return Err(error),
+                Err(_) => {}
             }
         }
 
@@ -291,6 +328,9 @@ impl CongressClient {
 
         if let Some(xml) = self.cache.get(&cache_key) {
             return Ok(xml);
+        }
+        if self.offline {
+            return Err(self.not_cached(&cache_key));
         }
 
         // Get text versions list from Congress API
