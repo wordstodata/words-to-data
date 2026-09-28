@@ -313,6 +313,11 @@ impl<S: Storage> Dataset<S> {
     /// the report for review and holds no link. See
     /// [`crate::legislature::redesignation_window`].
     ///
+    /// **A statement is placed once, however the dataset grew (#273).** A
+    /// statement that already holds a standing link in an earlier window is not
+    /// placed in a later one named here, so running the step over each new
+    /// window gives the links a build over every window gives.
+    ///
     /// Takes the bill's own document, not its XML. Which provision a clause is
     /// about comes from where the words sat in the bill, and the stored document
     /// holds that nesting — which is the whole of what the second parse used to
@@ -338,12 +343,24 @@ impl<S: Storage> Dataset<S> {
 
         // Each statement lands in the one window that can hold it
         // (`crate::legislature::redesignation_window`, #172). The method ran
-        // over every window named, including one nothing landed in.
-        let placement = crate::legislature::redesignation_window::place(
+        // over every window named, including one nothing landed in. A
+        // statement the dataset already holds a link for in an earlier window
+        // is not placed again, so a dataset that grows one window at a time
+        // holds what a build over every window holds (#273).
+        let links = self
+            .storage
+            .links_by_kind(crate::link::LinkKind::REDESIGNATED_AS)?;
+        let reviews = self
+            .storage
+            .links_by_namespace(crate::link::LinkKind::REVIEW)?;
+        let placed =
+            crate::legislature::redesignation_window::placements_in(bill_id, &links, &reviews);
+        let placement = crate::legislature::redesignation_window::place_beside(
             &self.storage,
             &stated,
             &bill.id.at,
             windows,
+            &placed,
         )?;
         for ((from, to), report) in &placement.windows {
             for resolved in &report.resolved {

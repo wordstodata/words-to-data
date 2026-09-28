@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::citation::usc::fold_dashes;
 use crate::document::DocumentNode;
-use crate::legislature::redesignation_window::LaterWindow;
+use crate::legislature::redesignation_window::{LaterWindow, Placed};
 use crate::link::{
     Corroboration, Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
     amendment_reference,
@@ -504,6 +504,13 @@ pub struct RedesignationReport {
     /// reviewer can look.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub later_windows: Vec<LaterWindow>,
+    /// Every statement this run did not place because the dataset already
+    /// holds a link for it in an earlier window, with that window (#273).
+    ///
+    /// Placed, not unplaced: the link is there, and this run did not write it
+    /// a second time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placed_earlier: Vec<Placed>,
 }
 
 impl RedesignationReport {
@@ -558,6 +565,18 @@ impl RedesignationReport {
         self.unplaced_names().len()
     }
 
+    /// How many statements this run did not place again, because each already
+    /// holds a link in an earlier window (#273).
+    ///
+    /// Counted by clause, as [`Self::statements_unplaced`] is.
+    pub fn statements_placed_earlier(&self) -> usize {
+        self.placed_earlier
+            .iter()
+            .map(|placed| (placed.amendment_id.as_str(), placed.text.as_str()))
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    }
+
     /// Every statement this report is about, each named once.
     ///
     /// A statement is named by the amendment it came from and the words it was
@@ -569,6 +588,11 @@ impl RedesignationReport {
         self.resolved
             .iter()
             .map(|resolved| (resolved.amendment_id.as_str(), resolved.text.as_str()))
+            .chain(
+                self.placed_earlier
+                    .iter()
+                    .map(|placed| (placed.amendment_id.as_str(), placed.text.as_str())),
+            )
             .chain(self.unplaced_names())
             .collect()
     }
@@ -639,6 +663,7 @@ impl RedesignationReport {
             resolved: Vec::new(),
             links: 0,
             later_windows: Vec::new(),
+            placed_earlier: Vec::new(),
             unplaced: stated
                 .iter()
                 .map(|statement| UnplacedStatement {
@@ -662,6 +687,7 @@ impl RedesignationReport {
         self.unplaced.extend(other.unplaced);
         self.links += other.links;
         self.later_windows.extend(other.later_windows);
+        self.placed_earlier.extend(other.placed_earlier);
     }
 
     /// One view of a corpus, from one report per work.
@@ -688,6 +714,12 @@ impl RedesignationReport {
             .resolved
             .iter()
             .map(|resolved| name_of(&resolved.amendment_id, &resolved.text))
+            .chain(
+                folded
+                    .placed_earlier
+                    .iter()
+                    .map(|placed| name_of(&placed.amendment_id, &placed.text)),
+            )
             .collect();
 
         let mut best: std::collections::BTreeMap<(String, String), UnplacedStatement> =
@@ -710,6 +742,7 @@ impl RedesignationReport {
             unplaced: best.into_values().collect(),
             links: folded.links,
             later_windows: folded.later_windows,
+            placed_earlier: folded.placed_earlier,
         }
     }
 }
@@ -1379,8 +1412,13 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// Version 2 (#172): a statement is recorded in one window only, the first
 /// after the law's enactment in which the text under its container changed.
 /// Version 1 recorded it in every window it resolved in.
+///
+/// Version 3 (#273): a statement that already holds a standing link in an
+/// earlier window is not placed in a later one. Version 2 saw only the windows
+/// it was given, so a dataset that grew one window at a time recorded a move a
+/// second time.
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 2)
+    Method::new("amendingAction type=redesignate", 3)
 }
 
 /// How far the words at a redesignation's two ends agree.

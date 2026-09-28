@@ -21,6 +21,17 @@
 //! also meets both conditions is named for review as a [`LaterWindow`] and is
 //! never written as a link.
 //!
+//! # A dataset that grows
+//!
+//! A step over every window at once places each statement in the earliest
+//! window that qualifies. A dataset that grows is read one new window at a
+//! time, and a step that sees only the new window cannot know on its own that a
+//! statement is already placed before it (#273). So the caller names each
+//! window a statement already holds a link in, as a [`Placed`], and a statement
+//! placed in an earlier window is not placed again: a later window that
+//! qualifies is a [`LaterWindow`], as it is when the step sees every window. A
+//! build from scratch and a grown dataset then hold the same links.
+//!
 //! **The text is compared without the links.** The diff a dataset gives pairs a
 //! renumbered provision with what it became, from the links this step writes,
 //! so asking it whether a window changed would read this step's own answer
@@ -37,6 +48,8 @@ use crate::legislature::redesignation::{
     Reader, Reason, RedesignationReport, SectionIndex, StatedRedesignation, UnplacedStatement,
     resolve, walk_down,
 };
+use crate::link::{Link, LinkKind, Target, VerificationState};
+use crate::review::{Verdict, newest_naming};
 use crate::storage::DocumentReader;
 
 /// A later window in which the text under a statement's container changed too.
@@ -55,6 +68,66 @@ pub struct LaterWindow {
     pub to: ExpressionId,
 }
 
+/// A window in which a statement already holds a renumbering link.
+///
+/// Read out of the links a dataset holds with [`placements_in`]. A statement is
+/// named by the amendment it came from and the words it was read out of, as
+/// everywhere in the report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Placed {
+    pub amendment_id: String,
+    pub text: String,
+    pub from: ExpressionId,
+    pub to: ExpressionId,
+}
+
+/// Every window in which a statement of `bill_id` holds a standing renumbering
+/// link.
+///
+/// Reads the links this step writes: the bill and the amendment are in the
+/// payload, and the words of the statement are the evidence's reasoning. A link
+/// of another kind or another bill is skipped.
+///
+/// A refuted link is skipped too. It was checked and found wrong, so it places
+/// nothing, and a statement whose every link is refuted is work again, as an
+/// amendment is (#268). A link is refuted by its own state or by the newest
+/// review of it out of `reviews`, the two readings `inspect` refuses on.
+pub fn placements_in(bill_id: &str, links: &[Link], reviews: &[Link]) -> Vec<Placed> {
+    links
+        .iter()
+        .filter(|link| link.kind.0 == LinkKind::REDESIGNATED_AS)
+        .filter(|link| !is_refuted(link, reviews))
+        .filter_map(|link| {
+            let payload = &link.payload.as_ref()?.value;
+            if payload["bill_id"].as_str()? != bill_id {
+                return None;
+            }
+            let Target::Change {
+                work,
+                from_date,
+                to_date,
+                ..
+            } = &link.subject
+            else {
+                return None;
+            };
+            Some(Placed {
+                amendment_id: payload["amendment_id"].as_str()?.to_string(),
+                text: link.provenance.evidence.as_ref()?.reasoning.clone()?,
+                from: ExpressionId::new(work.clone(), from_date),
+                to: ExpressionId::new(work.clone(), to_date),
+            })
+        })
+        .collect()
+}
+
+/// Whether a link is refuted, by its own state or by its newest review.
+fn is_refuted(link: &Link, reviews: &[Link]) -> bool {
+    link.provenance.verification == VerificationState::Refuted
+        || newest_naming(&link.id(), reviews)
+            .is_some_and(|review| review.verdict == Verdict::Refuted)
+}
+
 /// Where each statement of one law lands, window by window.
 #[derive(Debug, Default)]
 pub struct Placement {
@@ -65,6 +138,10 @@ pub struct Placement {
     /// and found nothing to record.
     pub windows: Vec<(ExpressionPair, RedesignationReport)>,
     /// The statements no window can hold, with the reason for each.
+    ///
+    /// A statement placed before every window named is here too, in
+    /// `placed_earlier` and not as unplaced: no window named holds it, and the
+    /// dataset already does.
     pub unplaced: RedesignationReport,
     /// Every later window that could also hold a statement.
     pub later_windows: Vec<LaterWindow>,
@@ -101,6 +178,22 @@ pub fn place<R: DocumentReader + ?Sized>(
     enacted: &str,
     windows: &[ExpressionPair],
 ) -> Result<Placement, DatasetError> {
+    place_beside(reader, stated, enacted, windows, &[])
+}
+
+/// [`place`], for a dataset that already holds some of the law's links.
+///
+/// `placed` names the windows the law's statements already hold a link in. A
+/// statement placed in a window earlier than one of `windows` is not placed in
+/// it again, and that window is a [`LaterWindow`] if it qualifies. This is
+/// what keeps a grown dataset equal to a build from scratch (#273).
+pub fn place_beside<R: DocumentReader + ?Sized>(
+    reader: &R,
+    stated: &[StatedRedesignation],
+    enacted: &str,
+    windows: &[ExpressionPair],
+    placed: &[Placed],
+) -> Result<Placement, DatasetError> {
     let mut placement = Placement::default();
     // A law named against no window has nothing to be checked against. Every
     // statement it makes is unplaced, and saying nothing would read as a law
@@ -124,10 +217,15 @@ pub fn place<R: DocumentReader + ?Sized>(
         }
         // Oldest first, so the first window that qualifies is the earliest.
         // Two windows that open on one date are ordered by where they end.
-        views.sort_by(|left, right| {
-            (&left.from.at, &left.to.at).cmp(&(&right.from.at, &right.to.at))
-        });
-        place_in_work(stated, enacted, &views, &mut placement, &mut reports);
+        views.sort_by(|left, right| left.order().cmp(&right.order()));
+        place_in_work(
+            stated,
+            enacted,
+            &views,
+            placed,
+            &mut placement,
+            &mut reports,
+        );
     }
     placement.windows = windows
         .iter()
@@ -151,6 +249,37 @@ struct WindowView {
     later: DocumentNode,
 }
 
+impl WindowView {
+    /// Where the window sorts: by the date it opens on, then by the date it
+    /// ends on.
+    fn order(&self) -> (&str, &str) {
+        (&self.from.at, &self.to.at)
+    }
+}
+
+impl Placed {
+    /// Where the window sorts, as [`WindowView::order`] sorts one.
+    fn order(&self) -> (&str, &str) {
+        (&self.from.at, &self.to.at)
+    }
+}
+
+/// The earliest window of `work` in which a statement already holds a link.
+fn earliest_placement<'a>(
+    statement: &StatedRedesignation,
+    work: &WorkId,
+    placed: &'a [Placed],
+) -> Option<&'a Placed> {
+    placed
+        .iter()
+        .filter(|held| {
+            held.from.work == *work
+                && held.amendment_id == statement.amendment_id
+                && held.text == statement.text
+        })
+        .min_by(|left, right| left.order().cmp(&right.order()))
+}
+
 /// The works the windows are of, each once, in the order first named.
 fn works_of(windows: &[ExpressionPair]) -> Vec<WorkId> {
     let mut works: Vec<WorkId> = Vec::new();
@@ -167,6 +296,7 @@ fn place_in_work(
     stated: &[StatedRedesignation],
     enacted: &str,
     views: &[WindowView],
+    placed: &[Placed],
     placement: &mut Placement,
     reports: &mut Vec<(ExpressionPair, RedesignationReport)>,
 ) {
@@ -191,20 +321,40 @@ fn place_in_work(
                 container_changed(statement, earlier, later, &views[at].later)
             })
             .collect();
-        match can_hold.split_first() {
-            Some((&first, later)) => {
+        // A window after the one the statement is already placed in is a later
+        // window, whatever it shows (#273).
+        let held = earliest_placement(statement, &views[0].from.work, placed);
+        let (open, after): (Vec<usize>, Vec<usize>) = match held {
+            Some(held) => can_hold
+                .into_iter()
+                .partition(|&at| views[at].order() <= held.order()),
+            None => (can_hold, Vec::new()),
+        };
+        let later: Vec<usize> = match (open.split_first(), held) {
+            (Some((&first, later)), _) => {
                 landed[first].push(statement.clone());
-                placement
-                    .later_windows
-                    .extend(later.iter().map(|&at| LaterWindow {
-                        amendment_id: statement.amendment_id.clone(),
-                        text: statement.text.clone(),
-                        from: views[at].from.clone(),
-                        to: views[at].to.clone(),
-                    }));
+                later.iter().chain(&after).copied().collect()
             }
-            None => held_by_none.push(statement.clone()),
-        }
+            // No window named up to the one it is placed in can hold it. The
+            // link is there already, so the statement is placed, and no window
+            // here is where the law acted.
+            (None, Some(held)) => {
+                placement.unplaced.placed_earlier.push(held.clone());
+                after
+            }
+            (None, None) => {
+                held_by_none.push(statement.clone());
+                after
+            }
+        };
+        placement
+            .later_windows
+            .extend(later.iter().map(|&at| LaterWindow {
+                amendment_id: statement.amendment_id.clone(),
+                text: statement.text.clone(),
+                from: views[at].from.clone(),
+                to: views[at].to.clone(),
+            }));
     }
 
     for (view, statements) in views.iter().zip(&landed) {

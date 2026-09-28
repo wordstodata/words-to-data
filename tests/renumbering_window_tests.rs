@@ -26,6 +26,7 @@ use words_to_data::diff::TreeDiff;
 use words_to_data::inspect;
 use words_to_data::legislature::redesignation_window::place;
 use words_to_data::link::{LinkKind, Target};
+use words_to_data::review::{Review, Verdict};
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
 use words_to_data::uslm::parser::parse;
@@ -62,25 +63,47 @@ fn committed_bill_download() -> BillDownload {
 
 /// Title 7 at each committed release point, then the bill.
 fn title_7_and_the_bill() -> Dataset<InMemoryStorage> {
+    title_7_and_the_bill_at(&DATES)
+}
+
+/// Title 7 at the release points named, then the bill.
+fn title_7_and_the_bill_at(dates: &[&str]) -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata::default());
-    for date in DATES {
-        let parsed = parse(&format!("tests/test_data/usc/{date}/usc07.xml"), date)
-            .expect("title 7 should parse");
-        for root in work_roots(parsed) {
-            let work = WorkId::new(root.data.path.to_string());
-            dataset
-                .add_expression(Expression {
-                    id: ExpressionId::new(work, date),
-                    label: None,
-                    root,
-                })
-                .expect("the expression should store");
-        }
+    for date in dates {
+        add_title_7_at(&mut dataset, date);
     }
     dataset
         .load_bill_download(&committed_bill_download())
         .expect("the committed bill should load");
     dataset
+}
+
+/// Put title 7 as it read on one date into a dataset, as a release point.
+fn add_title_7_at(dataset: &mut Dataset<InMemoryStorage>, date: &str) {
+    let parsed = parse(&format!("tests/test_data/usc/{date}/usc07.xml"), date)
+        .expect("title 7 should parse");
+    for root in work_roots(parsed) {
+        let work = WorkId::new(root.data.path.to_string());
+        dataset
+            .add_expression(Expression {
+                id: ExpressionId::new(work, date),
+                label: None,
+                root,
+            })
+            .expect("the expression should store");
+    }
+}
+
+/// The ids of every renumbering link a dataset holds, sorted.
+fn renumbering_link_ids(dataset: &Dataset<InMemoryStorage>) -> Vec<String> {
+    let mut ids: Vec<String> = dataset
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read")
+        .iter()
+        .map(|link| link.id())
+        .collect();
+    ids.sort();
+    ids
 }
 
 /// The step as `build-dataset` runs it: every window the dataset holds.
@@ -359,4 +382,206 @@ fn should_report_no_change_under_2015_o_when_its_text_is_identical_at_both_ends_
         DATES[2],
         diff.find(SUBSECTION_2015_O)
     );
+}
+
+#[test]
+fn should_record_no_second_placement_when_a_grown_dataset_is_read_over_a_later_window_only() {
+    // A dataset built over two release points, with the step run over the
+    // window it holds. Then it grows to the third, and the step runs again as
+    // `add-release-points` says: over the new windows only (#273).
+    let mut grown = title_7_and_the_bill_at(&DATES[..2]);
+    record_over_every_window(&mut grown);
+    add_title_7_at(&mut grown, DATES[2]);
+
+    let bill = grown
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+    let work = WorkId::new("uscode/title_7");
+    let at = |date: &str| ExpressionId::new(work.clone(), date);
+    // Title 7 reads the same on 2025-07-30 and 2025-08-14, so the adjacent new
+    // window cannot hold a move. An operator's span from the first date to the
+    // new one shows the law's change again: it is a later window that
+    // qualifies, and the statements are already placed in an earlier one.
+    for window in [(at(DATES[1]), at(DATES[2])), (at(DATES[0]), at(DATES[2]))] {
+        grown
+            .record_redesignations_over(BILL_ID, &bill, &[window])
+            .expect("the step should run");
+    }
+
+    let mut rebuilt = title_7_and_the_bill();
+    record_over_every_window(&mut rebuilt);
+
+    assert_eq!(
+        renumbering_link_ids(&grown),
+        renumbering_link_ids(&rebuilt),
+        "a grown dataset holds the renumbering links a build over all three dates holds"
+    );
+}
+
+#[test]
+fn should_place_a_statement_again_when_every_link_of_it_in_the_earlier_window_is_refuted() {
+    // A refuted link was checked and found wrong, so it is no placement. A
+    // statement whose every link is refuted is work again, as an amendment is
+    // (#268), and a later window that qualifies can hold it.
+    let mut grown = title_7_and_the_bill_at(&DATES[..2]);
+    record_over_every_window(&mut grown);
+    let links = grown
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read");
+    let statement_of = |link: &words_to_data::link::Link| {
+        let amendment = link
+            .payload
+            .as_ref()
+            .expect("a renumbering has a payload")
+            .value["amendment_id"]
+            .as_str()
+            .expect("the payload names the amendment")
+            .to_string();
+        let words = link
+            .provenance
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.reasoning.clone())
+            .expect("a renumbering carries the words it was read out of");
+        (amendment, words)
+    };
+    let refuted = statement_of(&links[0]);
+    let refutation = Review {
+        verdict: Verdict::Refuted,
+        reviewer: "human:test".to_string(),
+        reasoning: Some("The move is not in this window.".to_string()),
+        at: time::OffsetDateTime::UNIX_EPOCH,
+    };
+    for link in links.iter().filter(|link| statement_of(link) == refuted) {
+        grown
+            .add_link(refutation.about(link))
+            .expect("the review should record");
+    }
+    add_title_7_at(&mut grown, DATES[2]);
+
+    let bill = grown
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+    let work = WorkId::new("uscode/title_7");
+    let wide = (
+        ExpressionId::new(work.clone(), DATES[0]),
+        ExpressionId::new(work, DATES[2]),
+    );
+    grown
+        .record_redesignations_over(BILL_ID, &bill, &[wide])
+        .expect("the step should run");
+
+    let placed_again = grown
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read")
+        .iter()
+        .filter(|link| statement_of(link) == refuted)
+        .any(|link| {
+            matches!(&link.subject, Target::Change { from_date, to_date, .. }
+                if from_date == DATES[0] && to_date == DATES[2])
+        });
+    assert!(
+        placed_again,
+        "a statement whose every earlier link is refuted is placed in the later window: {}",
+        refuted.1
+    );
+}
+
+#[test]
+fn should_say_how_many_statements_are_placed_earlier_when_the_command_runs_over_a_later_window() {
+    // The command as `add-release-points` tells an operator to run it, over a
+    // SQLite dataset that it changes in place.
+    let path = format!(
+        "{}/renumbering_placed_earlier.sqlite",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let _ = std::fs::remove_file(&path);
+    let mut dataset = title_7_and_the_bill();
+    record_over_every_window(&mut dataset);
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the dataset should save");
+    let before = renumbering_link_ids(&dataset);
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args([
+            "redesignations",
+            &path,
+            "--bill-id",
+            BILL_ID,
+            "--between",
+            DATES[0],
+            DATES[2],
+        ])
+        .output()
+        .expect("the binary should run");
+
+    let printed = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "redesignations should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        printed.contains("already placed in an earlier window"),
+        "the run should say why it placed nothing again, got:\n{printed}"
+    );
+    let after = Dataset::open_sqlite(&path).expect("the dataset should open");
+    let mut ids: Vec<String> = after
+        .links_by_kind(LinkKind::REDESIGNATED_AS)
+        .expect("the links should read")
+        .iter()
+        .map(|link| link.id())
+        .collect();
+    ids.sort();
+    assert_eq!(ids, before, "the run records no second placement");
+}
+
+#[test]
+fn should_report_a_statement_as_placed_and_not_as_unplaced_when_its_link_is_in_an_earlier_window() {
+    let mut grown = title_7_and_the_bill_at(&DATES[..2]);
+    record_over_every_window(&mut grown);
+    add_title_7_at(&mut grown, DATES[2]);
+
+    let mut rebuilt = title_7_and_the_bill();
+    let bill = rebuilt
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+    let windows = adjacent_expressions(&rebuilt).expect("the windows should list");
+    let every_window = rebuilt
+        .record_redesignations_over(BILL_ID, &bill, &windows)
+        .expect("the step should run");
+
+    let work = WorkId::new("uscode/title_7");
+    let at = |date: &str| ExpressionId::new(work.clone(), date);
+    // The adjacent new window, in which title 7 is identical, and the span from
+    // the first date to the new one, in which the law's change shows again.
+    for window in [(at(DATES[1]), at(DATES[2])), (at(DATES[0]), at(DATES[2]))] {
+        let report = grown
+            .record_redesignations_over(BILL_ID, &bill, std::slice::from_ref(&window))
+            .expect("the step should run");
+
+        assert_eq!(
+            report.statements(),
+            every_window.statements(),
+            "over {} -> {}, the report names every statement the bill makes",
+            window.0,
+            window.1.at
+        );
+        for unplaced in &report.unplaced {
+            assert!(
+                !every_window.resolved.iter().any(|row| {
+                    row.amendment_id == unplaced.amendment_id && row.text == unplaced.text
+                }),
+                "over {} -> {}, a statement placed in an earlier window is reported as \
+                 not placed: {}",
+                window.0,
+                window.1.at,
+                unplaced.reason
+            );
+        }
+    }
 }

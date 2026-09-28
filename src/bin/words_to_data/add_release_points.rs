@@ -167,9 +167,8 @@ fn report_windows<S: Storage>(dataset: &Dataset<S>, before: &[ExpressionPair], w
          found nothing: a dataset does not record which. To run the steps over a \
          new window:"
     );
-    if crate::load::is_sqlite(written) {
-        println!("  words_to_data convert-dataset {written}    (both steps need compact JSON)");
-    }
+    // Both steps take either form, and change a SQLite dataset in place, so
+    // the steps run on the dataset just written (#273).
     for (from, to) in spans_of(&new) {
         println!(
             "  words_to_data redesignations {written} --bill-id <bill> \

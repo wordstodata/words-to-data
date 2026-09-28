@@ -119,6 +119,17 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
         pairs.len()
     );
 
+    // A dataset that grows is read one new window at a time. A statement with a
+    // link in an earlier window is not placed again, and a count of 0 links
+    // with no word about why reads as a step that found nothing (#273).
+    if report.statements_placed_earlier() > 0 {
+        println!(
+            "{} statement(s) are already placed in an earlier window, and were not \
+             placed again.",
+            report.statements_placed_earlier()
+        );
+    }
+
     // A merge and a lost write look the same in a number, and a reader must act
     // differently on each one. A count that falls with no word about why reads
     // as a fault to hunt (#220).
