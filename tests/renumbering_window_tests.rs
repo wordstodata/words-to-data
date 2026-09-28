@@ -430,8 +430,11 @@ fn should_place_a_statement_again_when_every_link_of_it_in_the_earlier_window_is
         .links_by_kind(LinkKind::REDESIGNATED_AS)
         .expect("the links should read");
     let statement_of = |link: &words_to_data::link::Link| {
-        let amendment = link.payload.as_ref().expect("a renumbering has a payload").value
-            ["amendment_id"]
+        let amendment = link
+            .payload
+            .as_ref()
+            .expect("a renumbering has a payload")
+            .value["amendment_id"]
             .as_str()
             .expect("the payload names the amendment")
             .to_string();

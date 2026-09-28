@@ -41,8 +41,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dataset::{DatasetError, ExpressionId, ExpressionPair, WorkId};
-use crate::link::{Link, LinkKind, Target, VerificationState};
-use crate::review::{Verdict, newest_naming};
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::legislature::evidence_matching::window_can_hold;
@@ -50,6 +48,8 @@ use crate::legislature::redesignation::{
     Reader, Reason, RedesignationReport, SectionIndex, StatedRedesignation, UnplacedStatement,
     resolve, walk_down,
 };
+use crate::link::{Link, LinkKind, Target, VerificationState};
+use crate::review::{Verdict, newest_naming};
 use crate::storage::DocumentReader;
 
 /// A later window in which the text under a statement's container changed too.
@@ -124,7 +124,8 @@ pub fn placements_in(bill_id: &str, links: &[Link], reviews: &[Link]) -> Vec<Pla
 /// Whether a link is refuted, by its own state or by its newest review.
 fn is_refuted(link: &Link, reviews: &[Link]) -> bool {
     link.provenance.verification == VerificationState::Refuted
-        || newest_naming(&link.id(), reviews).is_some_and(|review| review.verdict == Verdict::Refuted)
+        || newest_naming(&link.id(), reviews)
+            .is_some_and(|review| review.verdict == Verdict::Refuted)
 }
 
 /// Where each statement of one law lands, window by window.
@@ -137,6 +138,10 @@ pub struct Placement {
     /// and found nothing to record.
     pub windows: Vec<(ExpressionPair, RedesignationReport)>,
     /// The statements no window can hold, with the reason for each.
+    ///
+    /// A statement placed before every window named is here too, in
+    /// `placed_earlier` and not as unplaced: no window named holds it, and the
+    /// dataset already does.
     pub unplaced: RedesignationReport,
     /// Every later window that could also hold a statement.
     pub later_windows: Vec<LaterWindow>,

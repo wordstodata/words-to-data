@@ -313,6 +313,11 @@ impl<S: Storage> Dataset<S> {
     /// the report for review and holds no link. See
     /// [`crate::legislature::redesignation_window`].
     ///
+    /// **A statement is placed once, however the dataset grew (#273).** A
+    /// statement that already holds a standing link in an earlier window is not
+    /// placed in a later one named here, so running the step over each new
+    /// window gives the links a build over every window gives.
+    ///
     /// Takes the bill's own document, not its XML. Which provision a clause is
     /// about comes from where the words sat in the bill, and the stored document
     /// holds that nesting — which is the whole of what the second parse used to
