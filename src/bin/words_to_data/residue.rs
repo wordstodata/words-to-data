@@ -1,6 +1,6 @@
-//! `words_to_data residue` — every amendment of a public law that no
+//! `words_to_data residue` — every amendment of a public law that no standing
 //! `legislature.amended_by` link names, with the stage and the reason it
-//! stopped (#251).
+//! stopped (#251). A link stands unless its newest review refutes it (#268).
 //!
 //! See [`words_to_data::legislature::residue`] for what counts as unlinked,
 //! where the reasons come from and what each category means.
@@ -19,6 +19,7 @@ use serde::Serialize;
 use words_to_data::legislature::evidence_matching::Stage;
 use words_to_data::legislature::residue::{Category, Unlinked, unlinked_amendments};
 use words_to_data::query::{Answer, DEFAULT_LIMIT};
+use words_to_data::review::short_id;
 
 use crate::load::{self, with_dataset};
 
@@ -97,13 +98,13 @@ fn queue_place(category: Category) -> u8 {
 /// for which reason.
 fn print_counts(rows: &[Unlinked]) {
     let count = |category: Category| rows.iter().filter(|row| row.category == category).count();
-    println!("{} amendment(s) that no link names", rows.len());
+    println!("{} amendment(s) that no standing link names", rows.len());
     println!("  {:>4}  work", count(Category::Work));
 
     let mut reasons: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     for row in rows.iter().filter(|row| row.category == Category::Work) {
         *reasons
-            .entry((stage_name(row.stage), row.reason.as_str()))
+            .entry((stage_name(row), row.reason.as_str()))
             .or_default() += 1;
     }
     for ((stage, reason), count) in &reasons {
@@ -149,11 +150,7 @@ fn print_row(row: &Unlinked) {
         (Category::NotHeld, _) => "not held".to_string(),
         (Category::Quiet, _) => "quiet".to_string(),
     };
-    println!(
-        "  {id}  [{category}] {}: {}",
-        stage_name(row.stage),
-        row.reason
-    );
+    println!("  {id}  [{category}] {}: {}", stage_name(row), row.reason);
     println!(
         "    {} § {}",
         row.public_law,
@@ -178,6 +175,15 @@ fn print_row(row: &Unlinked) {
             no_link.reviewer,
             no_link.at.date(),
             no_link.reasoning
+        );
+    }
+    for refuted in &row.refuted {
+        println!(
+            "    refuted link {} by {} on {}: {}",
+            short_id(&refuted.link_id),
+            refuted.reviewer,
+            refuted.at.date(),
+            refuted.reasoning.as_deref().unwrap_or("no reason recorded")
         );
     }
     if let Some(not_held) = &row.not_held {
@@ -207,9 +213,13 @@ fn print_row(row: &Unlinked) {
     }
 }
 
-/// The stage, as the output names it.
-fn stage_name(stage: Option<Stage>) -> &'static str {
-    match stage {
+/// Where the row stopped, as the output names it: the stage of the method, or
+/// `review` when a refutation made the row work again.
+fn stage_name(row: &Unlinked) -> &'static str {
+    if row.category == Category::Work && !row.refuted.is_empty() {
+        return "review";
+    }
+    match row.stage {
         Some(Stage::Address) => "address",
         Some(Stage::Window) => "window",
         Some(Stage::Resolve) => "resolve",

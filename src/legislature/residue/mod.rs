@@ -1,16 +1,24 @@
-//! Every amendment of a public law that no `legislature.amended_by` link names,
-//! with the stage and the reason it stopped (#251).
+//! Every amendment of a public law that no standing `legislature.amended_by`
+//! link names, with the stage and the reason it stopped (#251).
 //!
 //! Stage 5 of
 //! `docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`.
 //! This is the list an agent works from.
 //!
-//! **An amendment is unlinked when no link names it, from any source.** A link
-//! names an amendment by its object reference,
+//! **An amendment is unlinked when no standing link names it, from any
+//! source.** A link names an amendment by its object reference,
 //! `legislature.amendment:<bill>:<amendment id>`
 //! ([`crate::link::amendment_reference`]). The batch, the older model route and
-//! the agent door all write that reference, so one link from any of them takes
-//! the amendment off the list.
+//! the agent door all write that reference, so one standing link from any of
+//! them takes the amendment off the list.
+//!
+//! **A link stands unless its newest review refutes it** (#268). The newest
+//! review wins, whoever wrote it
+//! (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+//! A refutation says that a link is wrong. It does not say where the
+//! amendment's change is, so an amendment whose every link is refuted is work
+//! again, and its row names each refuted link with the reviewer and the
+//! reason. A newer review that confirms the link takes it off the list again.
 //!
 //! **What it knows comes from the matcher.** Each unlinked amendment is
 //! described by the answer [`crate::legislature::evidence_matching`] gives for
@@ -24,16 +32,18 @@
 //! **A "no link" conclusion is a record, and the list is not.** A reviewer who
 //! finds that an amendment has no correct link records a
 //! [`crate::review::NoLink`]. The newest such record for an amendment takes it
-//! out of the work, and the row still shows who concluded it and why. A link
-//! that names the amendment later takes it off the list, as any link does.
+//! out of the work, and the row still shows who concluded it and why. It takes
+//! precedence over refuted links. A link that names the amendment later takes
+//! it off the list, as any standing link does.
 //!
 //! **Nothing is stored.** The list is derived every time it is asked for,
 //! because a stored list goes false the moment someone links an amendment
 //! (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
+use time::OffsetDateTime;
 
 use crate::dataset::{Dataset, DatasetError, ExpressionId};
 use crate::legislature::evidence_matching::{
@@ -43,13 +53,13 @@ use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
 use crate::olrc::law_section::{LawSection, classifications_of};
 use crate::query::LinkQuery;
-use crate::review::{NoLink, standing_no_links};
+use crate::review::{NoLink, Verdict, newest_naming, standing_no_links};
 use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::amendment_address::AmendmentAddress;
 
 pub use crate::olrc::law_section::Classification;
 
-/// One amendment no link names, and what is known about it.
+/// One amendment no standing link names, and what is known about it.
 #[derive(Debug, Clone, Serialize)]
 pub struct Unlinked {
     /// The bill, as the dataset names it: `119-hr-1`.
@@ -76,6 +86,10 @@ pub struct Unlinked {
     /// The newest conclusion that the amendment has no correct link, when the
     /// category is [`Category::ReviewedNoLink`].
     pub no_link: Option<NoLink>,
+    /// Each `amended_by` link that names the amendment. A row is listed only
+    /// when no link of it stands, so each of these was refuted. Empty when no
+    /// link names it.
+    pub refuted: Vec<RefutedLink>,
     /// The stage of the method it stopped at. `None` when the method links it
     /// ([`Category::Unwritten`]).
     pub stage: Option<Stage>,
@@ -89,6 +103,21 @@ pub struct Unlinked {
     /// The changes under the address in that window, in document order: where
     /// a reviewer starts to look.
     pub changes: Vec<String>,
+}
+
+/// A link that names an amendment, and the refutation that is its newest
+/// review.
+#[derive(Debug, Clone, Serialize)]
+pub struct RefutedLink {
+    /// The refuted link, by its full id.
+    pub link_id: String,
+    /// Who refuted it.
+    pub reviewer: String,
+    /// Why, in the reviewer's own words, where the record carries a reason.
+    pub reasoning: Option<String>,
+    /// When it was refuted.
+    #[serde(with = "time::serde::rfc3339")]
+    pub at: OffsetDateTime,
 }
 
 /// Whether an unlinked amendment is work.
@@ -113,49 +142,47 @@ pub enum Category {
 }
 
 /// Every amendment of the public law `bill` became, or of every public law the
-/// dataset holds when `bill` is `None`, that no `amended_by` link names.
+/// dataset holds when `bill` is `None`, that no standing `amended_by` link
+/// names.
 ///
 /// In the order each bill states its amendments.
 pub fn unlinked_amendments<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     bill: Option<&str>,
 ) -> Result<Vec<Unlinked>, DatasetError> {
-    let linked = linked_amendments(dataset, bill)?;
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
+    let links = amendment_links(dataset, bill, &reviews)?;
     let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
-    let no_links = standing_no_links(
-        &dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?,
-        &dataset.links_by_namespace(LinkKind::REVIEW)?,
-    );
+    let no_links = standing_no_links(&dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?, &reviews);
     let found = match_by_evidence(dataset)?;
     let unlinked = found
         .matches
         .into_iter()
         .filter(|amendment| bill.is_none_or(|bill| bill == amendment.bill_id))
         .filter(|amendment| {
-            !linked.contains(&amendment_reference(
+            !links.standing.contains(&amendment_reference(
                 &amendment.bill_id,
                 &amendment.amendment_id,
             ))
         })
         .map(|amendment| {
-            let no_link = no_links
-                .get(&amendment_reference(
-                    &amendment.bill_id,
-                    &amendment.amendment_id,
-                ))
-                .cloned();
-            unlinked(amendment, &classified, no_link)
+            let reference = amendment_reference(&amendment.bill_id, &amendment.amendment_id);
+            let no_link = no_links.get(&reference).cloned();
+            let refuted = links.refuted.get(&reference).cloned().unwrap_or_default();
+            unlinked(amendment, &classified, no_link, refuted)
         })
         .collect();
     Ok(unlinked)
 }
 
-/// One row, from the matcher's answer for an amendment no link names, and the
-/// newest conclusion that it has no link, if a reviewer recorded one.
+/// One row, from the matcher's answer for an amendment no standing link
+/// names, the newest conclusion that it has no link, if a reviewer recorded
+/// one, and the links that name it and were refuted.
 fn unlinked(
     amendment: AmendmentMatch,
     classified: &[crate::link::Link],
     no_link: Option<NoLink>,
+    refuted: Vec<RefutedLink>,
 ) -> Unlinked {
     let place = LawSection::of_path(&amendment.address.path);
     let olrc = place.as_ref().map_or_else(Vec::new, |place| {
@@ -190,12 +217,16 @@ fn unlinked(
             linked.paths(),
         ),
     };
-    // A reviewer's conclusion outranks what the matcher derives: the matcher
-    // says where it stopped, and the reviewer looked further.
-    let category = if no_link.is_some() {
-        Category::ReviewedNoLink
+    // A reviewer's statement outranks what the matcher derives: the matcher
+    // says where it stopped, and the reviewer looked further. A conclusion that
+    // the amendment has no link settles it. A refutation only says that a link
+    // is wrong, so the amendment is work again.
+    let (category, reason) = if no_link.is_some() {
+        (Category::ReviewedNoLink, reason)
+    } else if !refuted.is_empty() {
+        (Category::Work, "its every link was refuted".to_string())
     } else {
-        category
+        (category, reason)
     };
     Unlinked {
         bill_id: amendment.bill_id,
@@ -208,6 +239,7 @@ fn unlinked(
         category,
         not_held,
         no_link,
+        refuted,
         stage,
         reason,
         from,
@@ -235,19 +267,51 @@ fn not_held(address: &AmendmentAddress, olrc: &[Classification]) -> Option<Strin
     })
 }
 
-/// The object reference of every amendment an `amended_by` link names.
-fn linked_amendments<S: Storage>(
+/// What the `amended_by` links say about each amendment they name, by its
+/// object reference.
+#[derive(Default)]
+struct AmendmentLinks {
+    /// Every amendment that at least one standing link names.
+    standing: BTreeSet<String>,
+    /// The refuted links of each amendment, whether or not a link of it
+    /// stands.
+    refuted: BTreeMap<String, Vec<RefutedLink>>,
+}
+
+/// Every `amended_by` link, sorted into standing and refuted.
+///
+/// A link stands unless its newest review, out of `reviews`, refutes it
+/// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+/// [`newest_naming`] picks that review, as it does for every reader.
+fn amendment_links<S: Storage>(
     dataset: &Dataset<S>,
     bill: Option<&str>,
-) -> Result<BTreeSet<String>, DatasetError> {
+    reviews: &[crate::link::Link],
+) -> Result<AmendmentLinks, DatasetError> {
     let mut query = LinkQuery::new().of_kind(LinkKind::AMENDED_BY);
     if let Some(bill) = bill {
         query = query.with_object_prefix(bill_reference_prefix(bill));
     }
-    Ok(dataset
-        .links_matching(&query)?
-        .rows
-        .into_iter()
-        .map(|link| link.object.name())
-        .collect())
+    let mut links = AmendmentLinks::default();
+    for link in dataset.links_matching(&query)?.rows {
+        let link_id = link.id();
+        match newest_naming(&link_id, reviews) {
+            Some(review) if review.verdict == Verdict::Refuted => {
+                links
+                    .refuted
+                    .entry(link.object.name())
+                    .or_default()
+                    .push(RefutedLink {
+                        link_id,
+                        reviewer: review.reviewer,
+                        reasoning: review.reasoning,
+                        at: review.at,
+                    });
+            }
+            _ => {
+                links.standing.insert(link.object.name());
+            }
+        }
+    }
+    Ok(links)
 }

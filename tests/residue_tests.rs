@@ -1,4 +1,4 @@
-//! `residue`: every amendment of a public law that no `legislature.amended_by`
+//! `residue`: every amendment of a public law that no standing `amended_by`
 //! link names, with the stage and the reason it stopped (#251).
 //!
 //! Stage 5 of
@@ -574,4 +574,202 @@ fn should_print_at_most_a_screenful_and_say_how_many_rows_it_left_out_when_the_o
         )),
         "the output says what it left out: {stdout}"
     );
+}
+
+/// "Section 359l(a) of the Agricultural Adjustment Act of 1938 (7 U.S.C.
+/// 1359ll(a)) is amended by striking "2023" and inserting "2031"."
+/// `link-by-evidence` names it with one link, to § 1359ll(a).
+const EXTENDS_1359LL_A: &str = "0c620652089127d0";
+
+/// Every `amended_by` link that names one amendment, by the start of its id.
+fn links_naming(dataset: &Path, id_start: &str) -> Vec<Link> {
+    Dataset::open_sqlite(dataset)
+        .expect("the dataset should open")
+        .links_for_object_prefix(&format!("legislature.amendment:{BILL_ID}:{id_start}"))
+        .expect("the links should read")
+        .into_iter()
+        .filter(|link| link.kind.0 == "legislature.amended_by")
+        .collect()
+}
+
+/// Record one review of a link through `settle`.
+fn settle(dataset: &Path, link_id: &str, verdict: &str, reviewer: &str, reason: &str) {
+    let output = run(
+        "settle",
+        &[
+            dataset.to_str().expect("a UTF-8 path"),
+            "--link",
+            link_id,
+            "--verdict",
+            verdict,
+            "--reviewer",
+            reviewer,
+            "--reason",
+            reason,
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "settle should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A refutation says that a link is wrong. It does not say where the
+/// amendment's change is. So an amendment whose every link is refuted is work
+/// again (#268).
+#[test]
+fn should_list_an_amendment_as_work_and_name_the_refuted_link_when_its_only_link_is_refuted() {
+    let dataset = writable_copy("residue_after_refuted_link");
+    assert!(
+        row_of(&residue_rows(&dataset), EXTENDS_1359LL_A).is_none(),
+        "a link names the amendment, so it is not listed"
+    );
+    let links = links_naming(&dataset, EXTENDS_1359LL_A);
+    assert_eq!(links.len(), 1, "one link names the amendment");
+    let link_id = links[0].id();
+
+    let reason = "The change at subsection (a) is not this amendment's change.";
+    settle(&dataset, &link_id, "refuted", "agent:claude", reason);
+
+    let rows = residue_rows(&dataset);
+    let row = row_of(&rows, EXTENDS_1359LL_A).expect("the amendment is listed again");
+    assert_eq!(row["category"], "work");
+    assert_eq!(row["reason"], "its every link was refuted");
+    assert_eq!(row["refuted"].as_array().map(Vec::len), Some(1));
+    assert_eq!(row["refuted"][0]["link_id"], link_id);
+    assert_eq!(row["refuted"][0]["reviewer"], "agent:claude");
+    assert_eq!(row["refuted"][0]["reasoning"], reason);
+
+    let printed = run(
+        "residue",
+        &[dataset.to_str().expect("a UTF-8 path"), "--bill", BILL_ID],
+    );
+    let stdout = String::from_utf8_lossy(&printed.stdout);
+    assert!(
+        stdout.contains(&format!("refuted link {} by agent:claude", &link_id[..12]))
+            && stdout.contains(reason),
+        "a person sees the refuted link, its reviewer and the reason: {stdout}"
+    );
+    assert!(
+        stdout.contains("   1  review: its every link was refuted"),
+        "the work count says a review put it there, not the method: {stdout}"
+    );
+}
+
+/// The newest review of a link wins, whoever wrote it
+/// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
+#[test]
+fn should_leave_the_list_when_a_newer_review_confirms_the_refuted_link() {
+    let dataset = writable_copy("residue_after_confirmed_again");
+    let links = links_naming(&dataset, EXTENDS_1359LL_A);
+    assert_eq!(links.len(), 1, "one link names the amendment");
+    let link_id = links[0].id();
+    settle(
+        &dataset,
+        &link_id,
+        "refuted",
+        "agent:claude",
+        "The change at subsection (a) is not this amendment's change.",
+    );
+    assert!(
+        row_of(&residue_rows(&dataset), EXTENDS_1359LL_A).is_some(),
+        "the amendment is listed while its only link is refuted"
+    );
+
+    settle(
+        &dataset,
+        &link_id,
+        "confirmed",
+        "human:jesse",
+        "Subsection (a) is where \"2023\" became \"2031\".",
+    );
+
+    assert!(
+        row_of(&residue_rows(&dataset), EXTENDS_1359LL_A).is_none(),
+        "the newest review confirms the link, so the link stands"
+    );
+}
+
+/// Section 10102(c) of the law renumbers paragraph (7) of 7 U.S.C. 2015(o) as
+/// (8) and inserts a new (7). `link-by-evidence` names it with two links.
+const RENUMBERS_2015_O_7: &str = "d624331f459d";
+
+#[test]
+fn should_not_list_an_amendment_when_one_of_its_links_is_refuted_and_another_stands() {
+    let dataset = writable_copy("residue_after_one_of_two_refuted");
+    let links = links_naming(&dataset, RENUMBERS_2015_O_7);
+    assert_eq!(links.len(), 2, "two links name the amendment");
+
+    settle(
+        &dataset,
+        &links[0].id(),
+        "refuted",
+        "agent:claude",
+        "This path is not where the amendment acts.",
+    );
+
+    assert!(
+        row_of(&residue_rows(&dataset), RENUMBERS_2015_O_7).is_none(),
+        "the other link stands, so the amendment is linked"
+    );
+}
+
+/// A conclusion that an amendment has no link settles it. A refutation only
+/// says that one link is wrong, so the conclusion takes precedence.
+#[test]
+fn should_show_as_reviewed_and_not_as_work_when_its_links_are_refuted_and_a_no_link_conclusion_stands()
+ {
+    let dataset = writable_copy("residue_after_refuted_then_no_link");
+    let links = links_naming(&dataset, EXTENDS_1359LL_A);
+    assert_eq!(links.len(), 1, "one link names the amendment");
+    let link_id = links[0].id();
+    settle(
+        &dataset,
+        &link_id,
+        "refuted",
+        "agent:claude",
+        "The change at subsection (a) is not this amendment's change.",
+    );
+
+    let output = run(
+        "link-amendment",
+        &[
+            dataset.to_str().expect("a UTF-8 path"),
+            "--bill",
+            BILL_ID,
+            "--amendment",
+            &full_id_in(&dataset, EXTENDS_1359LL_A),
+            "--no-link",
+            "no_change",
+            "--source",
+            "agent:claude",
+            "--method",
+            "resolve-residue@1",
+            "--reason",
+            "The text at the address did not change in any window the dataset holds.",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "link-amendment should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let rows = residue_rows(&dataset);
+    let row = row_of(&rows, EXTENDS_1359LL_A).expect("the amendment is listed, as reviewed");
+    assert_eq!(row["category"], "reviewed_no_link");
+    assert_eq!(row["no_link"]["category"], "no_change");
+    assert_eq!(
+        row["refuted"][0]["link_id"], link_id,
+        "the row still names the refuted link"
+    );
+}
+
+/// An amendment's full id, from the listing of one dataset, by the start of it.
+fn full_id_in(dataset: &Path, id_start: &str) -> String {
+    row_of(&residue_rows(dataset), id_start)
+        .and_then(|row| row["amendment_id"].as_str())
+        .expect("the amendment is listed")
+        .to_string()
 }
