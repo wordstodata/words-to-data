@@ -573,6 +573,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
             .iter()
             .map(|at| Contender {
                 amendment_id: &stated[*at].address.amendment_id,
+                public_law: &stated[*at].public_law,
                 evidence: &stated[*at].evidence,
                 candidates: placed[at][0].candidates.clone(),
             })

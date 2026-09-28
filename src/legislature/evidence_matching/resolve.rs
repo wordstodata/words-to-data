@@ -53,10 +53,28 @@ impl Change {
 
 /// One amendment addressed to the section: what it states, and the changes
 /// under its own address, by their place in the window's list.
+///
+/// Contenders are given in the order their law states them, which is the
+/// order its amendments act in.
 pub(super) struct Contender<'a> {
     pub amendment_id: &'a str,
+    /// The public law that makes the amendment: `119-21`.
+    pub public_law: &'a str,
     pub evidence: &'a QuotedWords,
     pub candidates: Vec<usize>,
+}
+
+impl Contender<'_> {
+    /// The words this amendment states that a change shows, read with the
+    /// amendments its law makes after it in `contenders`.
+    fn shown(&self, change: &Change, contenders: &[Contender], who: usize) -> Vec<Shown> {
+        let later: Vec<&QuotedWords> = contenders[who + 1..]
+            .iter()
+            .filter(|other| other.public_law == self.public_law)
+            .map(|other| other.evidence)
+            .collect();
+        self.evidence.shown(&change.before, &change.after, &later)
+    }
 }
 
 /// What resolving gave one amendment.
@@ -153,7 +171,7 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
             .iter()
             .enumerate()
             .filter(|(_, contender)| contender.candidates.contains(&at))
-            .map(|(who, contender)| (who, contender.evidence.shown(&change.before, &change.after)))
+            .map(|(who, contender)| (who, contender.shown(change, contenders, who)))
             .filter(|(_, shown)| !shown.is_empty())
             .collect();
         // A provision edited in place can carry the edits of several
@@ -271,10 +289,8 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
         }
     }
 
-    contenders
-        .iter()
-        .enumerate()
-        .map(|(who, contender)| {
+    (0..contenders.len())
+        .map(|who| {
             let caused: Vec<(usize, Found)> = cause
                 .iter()
                 .flat_map(|(&at, causes)| {
@@ -287,7 +303,7 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
             if !caused.is_empty() {
                 return Resolution::Caused(caused);
             }
-            Resolution::Stopped(why_stopped(changes, contender, &held_back))
+            Resolution::Stopped(why_stopped(changes, contenders, who, &held_back))
         })
         .collect()
 }
@@ -326,19 +342,23 @@ fn rank_by_overlap(change: &Change, contenders: &[Contender], tied: &[usize]) ->
     }
 }
 
-fn why_stopped(changes: &[Change], contender: &Contender, held_back: &BTreeSet<usize>) -> String {
+fn why_stopped(
+    changes: &[Change],
+    contenders: &[Contender],
+    who: usize,
+    held_back: &BTreeSet<usize>,
+) -> String {
+    let contender = &contenders[who];
     let count = contender.candidates.len();
     if contender.candidates.iter().any(|at| held_back.contains(at)) {
         return "another amendment's words fit a change under its address as well as its own, and \
                 nothing breaks the tie"
             .to_string();
     }
-    let shows_its_words = contender.candidates.iter().any(|&at| {
-        contender
-            .evidence
-            .strength(&changes[at].before, &changes[at].after)
-            > 0
-    });
+    let shows_its_words = contender
+        .candidates
+        .iter()
+        .any(|&at| !contender.shown(&changes[at], contenders, who).is_empty());
     if contender.evidence.quotes_anything() && !shows_its_words {
         return format!(
             "the words it quotes show in none of the {count} change(s) under its address"

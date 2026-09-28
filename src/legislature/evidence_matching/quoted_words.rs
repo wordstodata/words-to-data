@@ -13,6 +13,15 @@
 //! - **An enacted block** (`<quotedContent>`). The after text of an added or
 //!   rewritten provision is a run of the block's words.
 //!
+//! A law's amendments act in order, and a later one can insert words inside
+//! the words an earlier one inserted. 26 U.S.C. 6041(a) prints "…receiving
+//! such tips and a separate accounting of any amount of qualified overtime
+//! compensation…)", where the earlier amendment quotes "…receiving such
+//! tips)". So a quoted string is also tested with the later amendments'
+//! inserted words taken out of the change. Only inserted words are taken out:
+//! words a later amendment struck are gone, and nothing in the change says
+//! where they stood.
+//!
 //! The words are compared as tokens: runs of letters and digits, lower case,
 //! and each other mark on its own. Curly quotation marks and every dash are
 //! folded first, because the bill and the Code print them differently.
@@ -103,19 +112,30 @@ impl QuotedWords {
         !self.quoted.is_empty() || !self.enacted.is_empty()
     }
 
-    /// How many of the amendment's quoted strings and enacted blocks this
-    /// change shows. Zero is no evidence.
-    pub(super) fn strength(&self, before: &str, after: &str) -> usize {
-        self.shown(before, after).len()
-    }
-
     /// The amendment's quoted strings and enacted blocks this change shows.
-    pub(super) fn shown(&self, before: &str, after: &str) -> Vec<Shown> {
+    ///
+    /// `later` are the amendments the same law makes after this one, to the
+    /// same section. A later amendment can insert words inside words this
+    /// one inserted, so the Code never prints this one's words as the bill
+    /// quotes them. A quoted string is also shown when it shows with the
+    /// words the later amendments inserted in this change taken out of it.
+    pub(super) fn shown(&self, before: &str, after: &str, later: &[&QuotedWords]) -> Vec<Shown> {
         let (before_tokens, after_tokens) = (tokens_of(before), tokens_of(after));
+        let later_insertions: Vec<&[String]> = later
+            .iter()
+            .flat_map(|amendment| amendment.inserted_in(&before_tokens, &after_tokens))
+            .collect();
+        let (before_undone, after_undone) = (
+            without(&before_tokens, &later_insertions),
+            without(&after_tokens, &later_insertions),
+        );
         let strings = self
             .quoted
             .iter()
-            .filter(|quoted| quoted.is_shown(&before_tokens, &after_tokens))
+            .filter(|quoted| {
+                quoted.is_shown(&before_tokens, &after_tokens)
+                    || quoted.is_shown(&before_undone, &after_undone)
+            })
             .map(|quoted| Shown {
                 said: quoted.described(),
                 words: quoted.tokens.clone(),
@@ -131,6 +151,16 @@ impl QuotedWords {
                 words: block.clone(),
             });
         strings.chain(blocks).collect()
+    }
+
+    /// The strings this amendment inserts that a change shows inserted.
+    fn inserted_in<'a>(&'a self, before: &[String], after: &[String]) -> Vec<&'a [String]> {
+        self.quoted
+            .iter()
+            .filter(|quoted| quoted.direction == Direction::Inserted)
+            .filter(|quoted| quoted.is_shown(before, after))
+            .map(|quoted| quoted.tokens.as_slice())
+            .collect()
     }
 
     /// The share of the words that differ between `before` and `after` that
@@ -250,6 +280,25 @@ fn occurrences(tokens: &[String], run: &[String]) -> usize {
         return 0;
     }
     tokens.windows(run.len()).filter(|at| *at == run).count()
+}
+
+/// `tokens` with every appearance of each of `runs` taken out.
+fn without(tokens: &[String], runs: &[&[String]]) -> Vec<String> {
+    let mut left: Vec<String> = tokens.to_vec();
+    for run in runs.iter().filter(|run| !run.is_empty()) {
+        let mut kept = Vec::with_capacity(left.len());
+        let mut at = 0;
+        while at < left.len() {
+            if left[at..].starts_with(run) {
+                at += run.len();
+            } else {
+                kept.push(left[at].clone());
+                at += 1;
+            }
+        }
+        left = kept;
+    }
+    left
 }
 
 fn contains_run(tokens: &[String], run: &[String]) -> bool {

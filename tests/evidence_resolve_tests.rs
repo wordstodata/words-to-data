@@ -133,3 +133,27 @@ fn should_not_count_words_as_an_amendments_own_when_another_amendment_quotes_the
         "the heading amendment is not a cause of the paragraph"
     );
 }
+
+#[test]
+fn should_link_an_amendment_whose_inserted_words_a_later_amendment_of_the_law_inserted_into() {
+    // 26 U.S.C. 6041(a). Section 70201(f)(1)(A) of the law inserts
+    // "(including a separate accounting of any such amounts reasonably
+    // designated as cash tips and the occupation described in section
+    // 224(d)(1) of the person receiving such tips)". Section 70202(c)(2)(A),
+    // later in the same law, inserts "and a separate accounting of any amount
+    // of qualified overtime compensation (as defined in section 225(c))"
+    // inside those words, before the closing parenthesis.
+    //
+    // So the Code never prints the first amendment's words as it quotes them.
+    // With the later amendment's words taken out, it does.
+    let matches = title_26_matches();
+
+    assert_eq!(
+        linked_paths(matches, "b5ef6d4dfa56"),
+        vec![SECTION_6041_A.to_string()]
+    );
+    assert_eq!(
+        linked_paths(matches, "fe5357110b54"),
+        vec![SECTION_6041_A.to_string()]
+    );
+}
