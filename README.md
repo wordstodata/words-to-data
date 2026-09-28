@@ -137,8 +137,8 @@ This step links each amendment of every public law to the change it made, from
 the address the bill's markup names, the window after the law's enactment, and
 the words the bill quotes. It writes each link as `legislature.amended_by`. It
 takes no span: it reads every window after each law's enactment. Over the
-committed corpus it links **449** of the **603** amendments of `119-hr-1`, as
-**1195** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
+committed corpus it links **458** of the **603** amendments of `119-hr-1`, as
+**1185** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
 below, and `residue` for the amendments it did not link.
 
 ### Step 4 — `redesignations` (for a grown dataset, or a re-run)
@@ -213,7 +213,7 @@ gives three kinds:
 
 - `legislature.redesignated_as`, from step 1. The committed corpus gives 80.
 - `olrc.classified_from`, from step 2. The three committed release points give 673.
-- `legislature.amended_by`, from step 3. The three committed release points give 1195.
+- `legislature.amended_by`, from step 3. The three committed release points give 1185.
 
 A count of zero for `legislature.redesignated_as` says that step 1 did not record
 them. A count of zero for `olrc.classified_from` says that step 2 did not run. A
