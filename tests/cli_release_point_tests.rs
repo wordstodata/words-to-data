@@ -235,6 +235,16 @@ fn should_name_the_new_window_and_what_it_holds_when_a_dataset_grows() {
         printed.contains("--between 2025-07-18 2025-07-30"),
         "with the span the next steps take, got:\n{printed}"
     );
+    // The matching step names no span: it reads every window after each law's
+    // enactment. `match-amendments` was removed (#252), so it is not named.
+    assert!(
+        printed.contains(&format!("words_to_data link-by-evidence {dataset}")),
+        "and the matching step that runs now, got:\n{printed}"
+    );
+    assert!(
+        !printed.contains("match-amendments"),
+        "and no command that no longer exists, got:\n{printed}"
+    );
 }
 
 /// The promise of the ticket: growing is not a lesser way of building.

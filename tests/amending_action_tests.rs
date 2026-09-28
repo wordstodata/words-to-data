@@ -168,3 +168,55 @@ fn should_keep_the_meaning_when_a_stored_annotation_holds_the_drafters_word() {
     // would show up here as a surplus.
     assert_eq!(counted.get("Amend"), Some(&357), "got {counted:?}");
 }
+
+/// Real output a model recorded, kept because a dataset keeps the replies its
+/// model links were made from (`docs/adr/0005`).
+const MODEL_REPLIES: &str = "tests/test_data/processed/model_replies.json";
+
+/// Moved here from the reply parser's tests when the parser was removed with
+/// the model pipeline (#252). What it pins is how a stored word is read, and a
+/// stored model link still carries the word the model wrote.
+#[test]
+fn should_map_the_drafters_word_onto_the_schema_when_a_model_answers_in_prose() {
+    // Real recorded output: models answered `strikeandinsert` in the first
+    // sweep, and `tests/test_data/processed/annotations.json` holds 110
+    // `strike_and_insert` and 40 `strike` from that pipeline. None of the three
+    // is a value of `AmendingActionTypeEnum`, so the word has to land on the
+    // publisher's word for the same act.
+    let recorded =
+        std::fs::read_to_string(MODEL_REPLIES).expect("the recorded replies should be readable");
+    assert!(
+        recorded.contains("strikeandinsert"),
+        "the recorded replies should hold a prose word"
+    );
+
+    // Striking text is the schema's `delete`, and striking text and putting other
+    // text in its place is its `substitute`: "replaces an existing provision".
+    assert_eq!(
+        AmendingAction::from_prose("strike").expect("a drafter's word for delete"),
+        AmendingAction::Delete
+    );
+    for written in ["strikeandinsert", "strike_and_insert"] {
+        assert_eq!(
+            AmendingAction::from_prose(written).expect("a drafter's word for substitute"),
+            AmendingAction::Substitute,
+            "{written:?} must read as the schema's word"
+        );
+    }
+
+    // The schema's own words still read, because a model was asked for an
+    // action and often named one.
+    assert_eq!(
+        AmendingAction::from_prose("redesignate").expect("the schema's word"),
+        AmendingAction::Redesignate
+    );
+
+    // `move` is refused rather than mapped. The schema has no action for a
+    // relocation, and `redesignate` is a different fact: it renumbers a provision
+    // that stays where it is. Mapping the two together would record something the
+    // model did not say.
+    assert!(
+        AmendingAction::from_prose("move").is_err(),
+        "no word of the schema means relocation"
+    );
+}

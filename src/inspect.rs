@@ -195,8 +195,9 @@ pub struct BillListing {
     pub amendment_count: usize,
     /// How many of those carry extracted word-level changes.
     ///
-    /// Zero across the board means `extract-changes` has not run, which is the
-    /// difference between a dataset that can be scored and one that cannot.
+    /// Only a dataset built before #252 holds any: `extract-changes` wrote
+    /// them, and it was removed with the rest of the model pipeline. A dataset
+    /// keeps what it was given (`docs/adr/0005`), so the count is still read.
     pub amendments_with_changes: usize,
 }
 
@@ -204,7 +205,7 @@ pub struct BillListing {
 ///
 /// Without this a bill id could only be learned from outside the tool:
 /// `show-bill` demands one, `info` reports a count, and annotations carry ids
-/// but a dataset has none until `match-amendments` has run (#83).
+/// but a dataset has none until a matching step has run (#83).
 pub fn bills<S: Storage + LegislatureReader>(
     dataset: &S,
 ) -> Result<Vec<BillListing>, DatasetError> {
@@ -1220,15 +1221,8 @@ impl std::fmt::Display for UncoveredAmendments {
         write!(
             f,
             "{} states {} amendment(s) no matching run has covered against {} {} -> {}: \
-             run `words_to_data match-amendments <dataset> --bills {} --between {} {}`",
-            self.bill_id,
-            self.amendments,
-            self.work,
-            self.from,
-            self.to,
-            self.bill_id,
-            self.from,
-            self.to
+             run `words_to_data link-by-evidence <dataset>`",
+            self.bill_id, self.amendments, self.work, self.from, self.to
         )
     }
 }
@@ -1339,11 +1333,22 @@ struct AmendmentCoverage {
 /// reasoning's answers changed, which is a reason to re-run a window and not a
 /// reason to call it untouched, and a list that named every window of a corpus
 /// the day somebody raised a version would be ignored by the second day.
+///
+/// Two names count. The evidence method is the one a build runs now
+/// (`link-by-evidence`). The other is the model method `match-amendments`
+/// recorded before that command was removed (#252): a dataset built then keeps
+/// its runs, and a window one of them covered was worked on.
 fn a_matching_run_covers(runs: &[MethodRun], work: &WorkId, from: &str, to: &str) -> bool {
-    let matching = crate::matching::matching_method();
-    runs.iter()
-        .any(|run| run.method.name == matching.name && run.covers(work, from, to))
+    let evidence = crate::legislature::evidence_matching::evidence_method();
+    runs.iter().any(|run| {
+        (run.method.name == evidence.name || run.method.name == REMOVED_MODEL_METHOD)
+            && run.covers(work, from, to)
+    })
 }
+
+/// The name of the method `match-amendments` recorded, before the command was
+/// removed (#252). Kept so that a dataset built then still reads as covered.
+const REMOVED_MODEL_METHOD: &str = "llm choice among scored candidates";
 
 /// Every bill and window no amendment-matching run has covered.
 ///

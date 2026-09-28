@@ -553,52 +553,47 @@ fn should_name_the_window_its_link_came_from_when_a_redesignation_report_row_is_
     );
 }
 
-/// Real annotations from one matching run over the real corpus.
+/// Real annotations from one matching run over the real corpus, by the model
+/// method `match-amendments` ran before it was removed (#252).
 ///
-/// 530 paths, and **132 of them carry more than one amendment**. Every
-/// annotation names the same annotator, `model:deepseek-v4-pro`, so the whole
-/// fixture is the work of **one maker**.
+/// Every annotation names the same annotator, `model:deepseek-v4-pro`. A
+/// dataset built then keeps these links (`docs/adr/0005`), so they are still
+/// what a reader of such a dataset meets.
 const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+
+/// The `legislature.amended_by` links `link-by-evidence` wrote over the
+/// committed corpus (#252).
+///
+/// 1195 links over 1190 paths, and **5 of the paths carry more than one
+/// amendment**, all of them in title 26. Every link names the same source,
+/// `rule:evidence_matching`, so the whole fixture is the work of **one maker**.
+const EVIDENCE_LINKS: &str = "tests/test_data/processed/evidence_links.json";
 
 /// The work most of the fixture's annotations belong to.
 const TITLE_26_WORK: &str = "uscode/title_26";
 
-/// Every fixture annotation whose paths all sit under title 26, stored as links
-/// over one window.
+/// Every link one run of the evidence method wrote.
 ///
-/// One work, one window, one annotator: whatever this dataset holds, it holds
+/// One method, one window, one source: whatever this dataset holds, it holds
 /// one maker's single answer.
-fn one_makers_annotations() -> Dataset<InMemoryStorage> {
-    let json = std::fs::read_to_string(REAL_ANNOTATIONS).expect("the fixture should be readable");
-    let annotations: Vec<words_to_data::annotation::ChangeAnnotation> =
-        serde_json::from_str(&json).expect("the fixture should parse as annotations");
-
-    let from = ExpressionId::new(WorkId::new(TITLE_26_WORK), "2025-07-18");
-    let to = ExpressionId::new(WorkId::new(TITLE_26_WORK), "2025-07-30");
+fn one_makers_links() -> Dataset<InMemoryStorage> {
+    let json = std::fs::read_to_string(EVIDENCE_LINKS).expect("the fixture should be readable");
+    let links: Vec<words_to_data::link::Link> =
+        serde_json::from_str(&json).expect("the fixture should parse as links");
 
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "One matching run".to_string(),
         ..Default::default()
     });
-    for annotation in &annotations {
-        if annotation.paths.is_empty()
-            || !annotation
-                .paths
-                .iter()
-                .all(|path| path.starts_with(TITLE_26_WORK))
-        {
-            continue;
-        }
-        for link in words_to_data::link::Link::from_annotation(annotation, &from, &to) {
-            dataset.add_link(link).expect("the link should be added");
-        }
+    for link in links {
+        dataset.add_link(link).expect("the link should be added");
     }
     dataset
 }
 
 #[test]
 fn should_report_no_disagreement_when_one_maker_names_several_amendments_at_one_provision() {
-    let dataset = one_makers_annotations();
+    let dataset = one_makers_links();
 
     // Guard, so the assertion below cannot pass on an empty dataset: the
     // fixture must really hold a provision that two amendments changed.

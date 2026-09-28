@@ -17,47 +17,34 @@
 //! therefore **grow** as reviewing proceeds, and a progress report that goes up
 //! as you make progress is worse than no report.
 //!
-//! The links here are real: the committed output of one matching run over the
+//! The links here are real: the committed output of `link-by-evidence` over the
 //! real corpus, so no model runs and nothing is invented.
 
 use time::{Date, Month, OffsetDateTime, Time};
-use words_to_data::annotation::ChangeAnnotation;
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 use words_to_data::inspect;
 use words_to_data::link::{Link, LinkKind};
 use words_to_data::query::LinkQuery;
 use words_to_data::review::{self, Review, Verdict};
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 
-/// The committed output of one real matching run.
-const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
+/// The `legislature.amended_by` links `link-by-evidence` wrote over the
+/// committed corpus: the public law `119-hr-1`, every title at the three
+/// committed release points, and the committed OLRC table (#252).
+const EVIDENCE_LINKS: &str = "tests/test_data/processed/evidence_links.json";
 const TITLE_26: &str = "uscode/title_26";
-const BEFORE: &str = "2025-07-18";
-const AFTER: &str = "2025-07-30";
 
-/// Every amendment link the run recorded over title 26, and no documents.
+/// Every amendment link the method wrote in title 26, and no documents.
 ///
 /// `info` counts links, so the text is not needed and parsing two release
 /// points of title 26 would cost 112 MB of XML for nothing.
 fn amendment_links() -> Dataset<InMemoryStorage> {
-    let json = std::fs::read_to_string(REAL_ANNOTATIONS).expect("the fixture should be readable");
-    let annotations: Vec<ChangeAnnotation> =
-        serde_json::from_str(&json).expect("the fixture should parse as annotations");
-
-    let work = WorkId::new(TITLE_26);
-    let from = ExpressionId::new(work.clone(), BEFORE);
-    let to = ExpressionId::new(work, AFTER);
+    let json = std::fs::read_to_string(EVIDENCE_LINKS).expect("the fixture should be readable");
+    let links: Vec<Link> = serde_json::from_str(&json).expect("the fixture should parse as links");
 
     let mut dataset = Dataset::new(DatasetMetadata::default());
-    for annotation in &annotations {
-        if !annotation
-            .paths
-            .iter()
-            .all(|path| path.starts_with(TITLE_26))
-        {
-            continue;
-        }
-        for link in Link::from_annotation(annotation, &from, &to) {
+    for link in links {
+        if link.subject.name().contains(TITLE_26) {
             dataset.add_link(link).expect("the link should be added");
         }
     }

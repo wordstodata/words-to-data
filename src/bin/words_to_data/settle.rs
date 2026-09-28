@@ -1,8 +1,8 @@
 //! `words_to_data settle` — say whether a link is right, and record it.
 //!
 //! Until this existed nothing could set a verdict on a link a dataset already
-//! held. `match-amendments` mentions `AnnotationStatus` once, to hard-code
-//! `Pending`, so every stored link read *machine suggested, unconfirmed* for
+//! held. `match-amendments` (removed in #252) mentioned `AnnotationStatus` once,
+//! to hard-code `Pending`, so every stored link read *machine suggested, unconfirmed* for
 //! ever, and roughly fifty links in the real corpus were known to be wrong with
 //! no way to say so (#227).
 //!

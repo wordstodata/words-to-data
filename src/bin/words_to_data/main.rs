@@ -8,7 +8,6 @@ mod add_opinions;
 mod add_release_points;
 mod amendment_addresses;
 mod annotations;
-mod bill_selection;
 mod bills;
 mod build_dataset;
 mod cases_citing;
@@ -17,20 +16,16 @@ mod convert_dataset;
 mod coverage;
 mod diff;
 mod expressions;
-mod extract_changes;
 mod fail;
 mod info;
 mod link_amendment;
 mod link_by_evidence;
 mod load;
-mod match_amendments;
 mod path;
 mod redesignation_report;
 mod redesignations;
 mod release_points;
-mod report;
 mod residue;
-mod score_amendments;
 mod search;
 mod section_agreement;
 mod settle;
@@ -53,12 +48,6 @@ enum Command {
     BuildDataset(build_dataset::Args),
     /// Convert a dataset between compact JSON and SQLite (either direction)
     ConvertDataset(convert_dataset::Args),
-    /// Extract word-level amendment changes for every bill via an LLM (writes into the dataset)
-    ExtractChanges(extract_changes::Args),
-    /// Score amendment changes against the US Code diff (deterministic, no LLM)
-    ScoreAmendments(score_amendments::Args),
-    /// Match bill amendments to US Code changes via an LLM and annotate the dataset
-    MatchAmendments(match_amendments::Args),
     /// Link each amendment of every public law to its change from address, window and quoted words (no LLM)
     LinkByEvidence(link_by_evidence::Args),
     /// Record the provisions a bill renumbered, as links (deterministic, no LLM)
@@ -116,9 +105,6 @@ fn main() {
     match Cli::parse().command {
         Command::BuildDataset(args) => build_dataset::run(args),
         Command::ConvertDataset(args) => convert_dataset::run(args),
-        Command::ExtractChanges(args) => extract_changes::run(args),
-        Command::ScoreAmendments(args) => score_amendments::run(args),
-        Command::MatchAmendments(args) => match_amendments::run(args),
         Command::LinkByEvidence(args) => link_by_evidence::run(args),
         Command::Redesignations(args) => redesignations::run(args),
         Command::Settle(args) => settle::run(args),

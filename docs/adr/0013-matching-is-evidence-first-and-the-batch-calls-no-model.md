@@ -2,6 +2,8 @@
 
 Status: accepted. Not yet built — the tickets under #179 build it.
 
+The removal in **What this removes** was made in #252.
+
 Matching asks which change to the US Code each amendment of a public law made. Until now it was answered by content. `extract-changes` asked a model for the words each amendment removes and adds. `score-amendments` scored those words against every changed path in a title with a precision-weighted F1 and dropped scores at or below a cutoff. `match-amendments` asked a model to choose among what was left. `scan_for_mentions` added paths whose section a regex found anywhere in the amendment's text.
 
 The method was chosen arbitrarily, and #179 said so from the start. On 2026-09-27 it was measured against the maintainer's real dataset, which holds `119-hr-1` (Public Law 119-21, 603 amendments), and it failed in two ways.

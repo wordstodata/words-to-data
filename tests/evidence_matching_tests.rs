@@ -22,7 +22,6 @@ use words_to_data::legislature::evidence_matching::{
     olrc_classification,
 };
 use words_to_data::link::{Link, LinkKind, Target, VerificationState, amendment_reference};
-use words_to_data::matching::matching_method;
 use words_to_data::olrc::{ClassificationTable, classify};
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::storage::LinkReader;
@@ -199,9 +198,10 @@ fn should_write_one_amended_by_link_per_changed_path_in_the_shape_every_reader_k
     );
 
     // The method has its own name and a version a person chose, and it is
-    // not the model method it replaces (#179, decision 10).
+    // not the model method it replaces (#179, decision 10). That method was
+    // removed (#252); its name is what a dataset built before still records.
     assert_eq!(link.provenance.method, Some(evidence_method()));
-    assert_ne!(Some(evidence_method()), Some(matching_method()));
+    assert_ne!(evidence_method().name, "llm choice among scored candidates");
     assert_eq!(
         link.provenance.verification,
         VerificationState::MachineSuggested
@@ -231,7 +231,7 @@ fn should_write_one_amended_by_link_per_changed_path_in_the_shape_every_reader_k
     let evidence = link.provenance.evidence.as_ref().unwrap();
     assert_eq!((&evidence.reply, &evidence.model), (&None, &None));
 
-    // The payload is the one `match-amendments` writes, so every reader of it
+    // The payload is the one `match-amendments` wrote before #252, so every reader of it
     // works unchanged.
     let payload = link.payload.as_ref().expect("the link carries its payload");
     assert_eq!(payload.namespace, "legislature");

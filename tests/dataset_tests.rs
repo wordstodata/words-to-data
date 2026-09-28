@@ -1,11 +1,11 @@
 use std::fs::File;
 use std::io::BufReader;
 
-use words_to_data::annotation::ChangeAnnotation;
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
 };
 use words_to_data::diff::TreeDiff;
+use words_to_data::link::Link;
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
 use words_to_data::uslm::parser::parse;
@@ -51,14 +51,8 @@ fn should_serialize_roundtrip_json() {
         )
         .expect("failed to load USLM doc");
 
-    let annotations = make_annotations();
-    for annotation in annotations.into_iter() {
-        store_annotation(
-            &mut dataset,
-            annotation,
-            &at("2025-07-18"),
-            &at("2025-07-30"),
-        );
+    for link in evidence_links() {
+        dataset.add_link(link).expect("the link should be added");
     }
 
     // Save and load via Compact format (JSON with tuple keys requires file-based roundtrip)
@@ -74,12 +68,10 @@ fn should_serialize_roundtrip_json() {
     assert_eq!(expressions[0].id, at("2025-07-18"));
     assert_eq!(expressions[0].label, Some("test".to_string()));
     // Links are what is stored now, and they regroup: one record carries every
-    // path one amendment touched, per asserter. So the record count is no
-    // longer the fixture's 753. What must survive is the *facts* — the distinct
-    // (amendment, path) statements. The fixture's 753 single-path records hold
-    // 718 of them; the other 35 restate one already there, and a link is
-    // identified by what it says, so a restatement updates rather than adds
-    // (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+    // path one amendment touched, per asserter. What must survive is the
+    // *facts* — the distinct (amendment, path) statements. The fixture holds
+    // 251 links in title 7, the work this dataset holds, and they name 81
+    // amendments (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
     let annotations = roundtripped
         .get_annotations(&at("2025-07-18"), &at("2025-07-30"))
         .unwrap()
@@ -94,12 +86,12 @@ fn should_serialize_roundtrip_json() {
         .collect();
     assert_eq!(
         facts.len(),
-        718,
+        251,
         "every distinct (amendment, path) statement must survive the round trip"
     );
     assert_eq!(
         annotations.len(),
-        317,
+        81,
         "one record per amendment per asserter, not one per path"
     );
     assert!(
@@ -339,42 +331,39 @@ fn should_list_all_bill_ids_when_iterating_dataset() {
     assert_eq!(ids, vec!["119-21".to_string()]);
 }
 
-fn make_annotations() -> Vec<ChangeAnnotation> {
-    let file = File::open("tests/test_data/processed/annotations.json")
-        .expect("should be able to open annotations file");
-    let annotations: Vec<ChangeAnnotation> = serde_json::from_reader(BufReader::new(file)).unwrap();
-    annotations
+/// The `legislature.amended_by` links `link-by-evidence` wrote over the
+/// committed corpus: the public law `119-hr-1`, every title at the three
+/// committed release points, and the committed OLRC table (#252).
+fn evidence_links() -> Vec<Link> {
+    let file = File::open("tests/test_data/processed/evidence_links.json")
+        .expect("should be able to open the evidence links file");
+    serde_json::from_reader(BufReader::new(file)).expect("the fixture should parse as links")
 }
 
 #[test]
 fn should_query_annotations_by_path() {
     let mut dataset = make_test_dataset();
 
-    for annotation in make_annotations().into_iter() {
-        store_annotation(
-            &mut dataset,
-            annotation,
-            &at("2025-07-18"),
-            &at("2025-07-30"),
-        );
+    for link in evidence_links() {
+        dataset.add_link(link).expect("the link should be added");
     }
 
-    // Query by path
-    let found = dataset.annotations_for_path("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_8/subparagraph_A/clause_v").unwrap();
+    // Query by path. Two amendments of the bill renumber § 163(j)(11).
+    let found = dataset.annotations_for_path("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_11").unwrap();
     assert_eq!(found.len(), 2);
-    assert_eq!(found[0].source_bill.bill_id, "119-21");
+    assert_eq!(found[0].source_bill.bill_id, "119-hr-1");
 
     // Query by bill. Answered from the link's object reference, which now
     // names the bill as well as the amendment, so the `bill_id` column that
     // predates the core/extension split is gone.
-    let found = dataset.annotations_for_bill("119-21").unwrap();
+    let found = dataset.annotations_for_bill("119-hr-1").unwrap();
     assert_eq!(
         found.len(),
-        317,
+        449,
         "records regroup by amendment and asserter; the whole fixture is one bill"
     );
     let paths: usize = found.iter().map(|a| a.paths.len()).sum();
-    assert_eq!(paths, 718, "every distinct statement is still reachable");
+    assert_eq!(paths, 1195, "every distinct statement is still reachable");
 
     // No matches
     let found = dataset
@@ -429,20 +418,4 @@ fn should_search_text_across_expressions() {
     // A hit names the expression it was found in, not a bare date: the date
     // alone cannot say which document the text belongs to.
     assert_eq!(results[0].expression, at("2025-07-18"));
-}
-
-/// Store an annotation the way the pipeline does: one link per path it names.
-///
-/// There is deliberately no writer convenience for this in the library — two
-/// ways to write one fact means the convenient one is used, and it could only
-/// express the single kind we own (`docs/adr/0004`).
-fn store_annotation<S: words_to_data::storage::Storage>(
-    dataset: &mut Dataset<S>,
-    annotation: ChangeAnnotation,
-    from: &ExpressionId,
-    to: &ExpressionId,
-) {
-    for link in words_to_data::link::Link::from_annotation(&annotation, from, to) {
-        dataset.add_link(link).expect("the link should be added");
-    }
 }

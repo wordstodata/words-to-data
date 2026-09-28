@@ -13,7 +13,7 @@
 //! (#186).
 //!
 //! **It adds release points and runs no step over them.** A window is made here
-//! and resolved by `redesignations` and `match-amendments`, which is why the run
+//! and resolved by `redesignations` and `link-by-evidence`, which is why the run
 //! ends by naming the windows it made and what each one holds.
 
 use std::collections::BTreeMap;
@@ -127,9 +127,9 @@ fn grow<S: Storage>(
 
 /// Name the windows this run made, and say what each one holds.
 ///
-/// A window is made here and resolved elsewhere: `redesignations` and
-/// `match-amendments` are their own commands over a named span (decision 9 of
-/// #179). A run that added a release point and said nothing more would read as
+/// A window is made here and resolved elsewhere: `redesignations` is its own
+/// command over a named span (decision 9 of #179), and `link-by-evidence` reads
+/// every window after each law's enactment. A run that added a release point and said nothing more would read as
 /// a finished job.
 ///
 /// What a window holds is read from its links, and **nothing is stored**. A
@@ -175,8 +175,8 @@ fn report_windows<S: Storage>(dataset: &Dataset<S>, before: &[ExpressionPair], w
             "  words_to_data redesignations {written} --bill-id <bill> \
              --between {from} {to}"
         );
-        println!("  words_to_data match-amendments {written} --between {from} {to}");
     }
+    println!("  words_to_data link-by-evidence {written}");
 }
 
 /// What a window holds, counted by link kind.

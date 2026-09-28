@@ -19,16 +19,18 @@ env:
   # one list keeps the two halves from drifting apart.
   #
   # The groups are balanced against measured times, not file counts: before this
-  # change five of 53 binaries were 59% of the run. `cli_llm_tests` alone is 88 s
-  # and is the floor — no sharding beats the slowest single binary, because cargo
-  # cannot split one binary across jobs.
+  # change five of 53 binaries were 59% of the run. The slowest single binary is
+  # the floor — no sharding beats it, because cargo cannot split one binary
+  # across jobs.
   #
-  # Measured locally: one 77 s, two 88 s, three 81 s, four 76 s, rest 56 s.
-  # Those shards pass 41, 13, 28, 76 and 345 tests, which is 503 — the count the
-  # unsharded suite gives, so the split drops nothing.
+  # `cli_llm_tests` and `matching_tests` were removed with the model pipeline
+  # (#252). `residue_tests` is now the slowest binary (126 s in one local run
+  # under load), so it takes shard two alone, and `evidence_matching_tests`
+  # (37 s) takes the place `matching_tests` had in shard three. The shard times
+  # have not been measured again since.
   SHARD_1: redesignation_tests duplicate_path_tests website_example_tests
-  SHARD_2: cli_llm_tests
-  SHARD_3: matching_tests path_redesignation_tests diff_tests
+  SHARD_2: residue_tests
+  SHARD_3: evidence_matching_tests path_redesignation_tests diff_tests
   SHARD_4: readme_example_tests sqlite_tests no_regression_tests utils_tests usc_citation_link_tests court_opinion_citation_tests dataset_tests
 
 jobs:

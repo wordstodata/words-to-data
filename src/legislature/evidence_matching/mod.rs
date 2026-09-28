@@ -182,8 +182,9 @@ pub enum Stage {
 
 /// The reasoning this module applies, at the version it is at now.
 ///
-/// A different reasoning from [`crate::matching::matching_method`], so a new
-/// name and not a new version of that one (#179, decision 10). Raise the
+/// A different reasoning from the model method `match-amendments` ran before it
+/// was removed (#252), so a new name and not a new version of that one (#179,
+/// decision 10). Raise the
 /// version when this method's answers change — a new rule for telling changes
 /// apart, a different window rule. Tidying the code that gives the same answers
 /// is not such a change (`crate::method::Method`).
@@ -198,7 +199,7 @@ impl AmendmentMatch {
     /// One `legislature.amended_by` link for each change this amendment
     /// caused, or none when it is residue.
     ///
-    /// The shape `match-amendments` writes, so every reader of those links
+    /// The shape `match-amendments` wrote before its removal (#252), so every reader of those links
     /// reads these unchanged: the subject is the change, the object is the
     /// amendment, and the payload is the legislature's. The address, the
     /// window and the words that placed the change are the link's evidence.

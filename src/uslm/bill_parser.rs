@@ -614,8 +614,8 @@ pub fn parse_bill_amendments_with_report(
 /// (#219). Nothing has been measured about a printing outside this corpus.
 ///
 /// What an id does not survive is a change to the fold itself. Each one rewrote
-/// every id in every dataset, and `extract-changes` keys its cache by
-/// `amendment_id`, so a rebuild buys every model call again.
+/// every id in every dataset, and every `legislature.amended_by` link names its
+/// amendment by this id, so a stored link would stop naming anything.
 pub(crate) fn compute_amendment_id(bill_id: &str, amending_text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!("{}:{}", bill_id, amending_text));
