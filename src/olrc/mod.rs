@@ -132,6 +132,7 @@ use crate::storage::DocumentReader;
 use crate::uslm::ElementType;
 
 pub mod client;
+pub(crate) mod law_section;
 pub mod links;
 pub mod table;
 

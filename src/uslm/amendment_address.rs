@@ -29,13 +29,16 @@
 //! tool's silence read as the bill's silence, which is the rule #110 set for
 //! unknown elements.
 //!
-//! # The OLRC is not read yet
+//! # The OLRC is read by the matcher, not here
 //!
-//! ADR 0013 says the Office of Law Revision Counsel's classification
-//! (`olrc.classified_from` links, #247) corroborates or contradicts an address.
-//! No dataset holds those links yet, so this resolver reads the markup alone and
-//! works the same with or without them. The comparison is a follow-up, and it
-//! reads the links as #247 specifies them:
+//! This resolver reads the markup alone, and works the same with or without the
+//! Office of Law Revision Counsel's classification (`olrc.classified_from`
+//! links, #247). The matcher reads those links
+//! ([`crate::legislature::evidence_matching`]): where this resolver gives an
+//! instruction no section, the one section the OLRC classifies the
+//! instruction's place in the law to becomes its address (#259). **The markup
+//! wins**: an instruction addressed here is never readdressed by the table.
+//! The links are read as #247 specifies them:
 //!
 //! - the subject is the Code **section**'s structural path, never lower;
 //! - the object is `olrc.classification:<public law>:<law section>`, such as
@@ -45,13 +48,16 @@
 //! - the payload, in the `olrc` namespace, is `{"descriptions": [...]}`, a list,
 //!   because two rows of a table can give one link.
 //!
-//! **A note does not corroborate an address.** A link whose descriptions are
-//! all note forms — `nt`, `nts`, `nt [tbl]`, `nt new`, `nt …` — classifies a
-//! note under the section, and the dataset holds no notes. It sits on the
-//! section's path and says nothing about the section's own text. `prec`, the
-//! heading before a section, is the same. For Public Law 119-21, 175 of 635
-//! rows are `nt new` and 10 more are `nt`, so counting them would corroborate
-//! addresses nothing supports.
+//! **A note neither corroborates nor gives an address.** A link whose
+//! descriptions are all note forms — `nt`, `nts`, `nt [tbl]`, `nt new`,
+//! `nt …` — classifies a note under the section, and the dataset holds no
+//! notes. It sits on the section's path and says nothing about the section's
+//! own text. `prec`, the heading before a section, is the same, and so is
+//! `prec new`. For Public Law 119-21, 175 of 635 rows are `nt new` and 10 more
+//! are `nt`, so counting them would corroborate addresses nothing supports, and
+//! reading them as an address would point a link at a section whose text the
+//! instruction never touched: § 70118(a) amends § 11026 of Public Law 115-97,
+//! which the table places only as a note under 26 U.S.C. 112.
 
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -532,9 +538,8 @@ pub(crate) fn collapse_spaces(text: &str) -> String {
 /// says *is further amended*: *"Section 6213(g)(2), as amended by this Act, is
 /// further amended"* (#259).
 pub(crate) fn amending_line_of(text: &str) -> Option<String> {
-    static AMENDED: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\b(?:is|are)\s+(?:each\s+|further\s+)?amended").unwrap()
-    });
+    static AMENDED: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\b(?:is|are)\s+(?:each\s+|further\s+)?amended").unwrap());
     let found = AMENDED.find(text)?;
     Some(text[..found.start()].to_string())
 }

@@ -373,7 +373,11 @@ words_to_data link-by-evidence dataset.json --output dataset-linked.json
 For each amendment it reads three things the dataset already holds:
 
 1. **The address.** The section, and the provision below it, that the bill's
-   markup names (`amendment-addresses` prints them).
+   markup names (`amendment-addresses` prints them). Where the markup names no
+   section, and `add-classifications` has run, the address is the one section
+   the OLRC's table classifies the amendment's section of the law to. A row
+   that classifies only a note, or the heading before a section, never gives
+   an address, and the markup's own address always wins.
 2. **The window.** The first window after the law's enactment date in which
    something under the address changed. A later window that changed too is
    named in the evidence, and is never a second link.
@@ -385,9 +389,10 @@ For each amendment it reads three things the dataset already holds:
 
 Each change becomes one `legislature.amended_by` link, in the shape
 `match-amendments` wrote before it was removed (#252), with the method `address, window and quoted
-words@1`. Its evidence says the address, the window, the words that placed it,
-and what the OLRC classification (if `add-classifications` has run) says of the
-section. A note in the classification never counts.
+words@2`. Its evidence says the address and which source gave it, the window,
+the words that placed it, and what the OLRC classification (if
+`add-classifications` has run) says of the section. A note in the
+classification never counts.
 
 An amendment it cannot link is not stored. The stage it stopped at, and why, is
 worked out again whenever it is asked for, because a stored reason goes false

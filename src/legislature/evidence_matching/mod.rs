@@ -6,7 +6,9 @@
 //!
 //! 1. **Address.** The markup resolver ([`crate::uslm::amendment_address`])
 //!    says which section, and which provision below it, an instruction acts
-//!    on. No address, and the amendment stops here.
+//!    on. Where it names no section, the one section the OLRC's classification
+//!    gives the instruction's place in the law is the address (#259). Neither,
+//!    and the amendment stops here.
 //! 2. **Window.** The first window of the Code after the law's enactment date
 //!    in which something under the address changed. The enactment date is the
 //!    date of the law's stored expression, such as
@@ -44,6 +46,7 @@ use crate::dataset::{Dataset, DatasetError, ExpressionId, WorkId};
 use crate::diff::{FieldChangeEvent, TreeDiff};
 use crate::document::{DocumentNode, NodeData};
 use crate::legislature::AmendingAction;
+use crate::legislature::redesignation::Reason;
 use crate::legislature::redesignation::{SectionIndex, walk_down};
 use crate::link::{
     Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
@@ -61,6 +64,7 @@ mod olrc;
 mod quoted_words;
 
 pub(crate) use olrc::is_a_note;
+use olrc::olrc_address;
 pub use olrc::{OlrcClassification, olrc_classification};
 mod resolve;
 
@@ -79,10 +83,30 @@ pub struct AmendmentMatch {
     pub operation: AmendingAction,
     /// The law's enactment date: the date of its stored expression.
     pub enacted: String,
-    /// Where the bill's markup says the amendment acts.
+    /// Where the amendment acts: the bill's markup says so or, when it names
+    /// no section, the OLRC's classification does ([`Self::address_source`]).
     pub address: AmendmentAddress,
+    /// Which evidence gave the address.
+    pub address_source: AddressSource,
     /// Linked, or stopped with a reason.
     pub outcome: Outcome,
+}
+
+/// Which evidence gave an amendment its address.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AddressSource {
+    /// The bill's markup names the section.
+    Markup,
+    /// The markup names none, and the OLRC's classification table classifies
+    /// the amendment's place in the law to one section of the Code.
+    Olrc {
+        /// The sections of the law the table's rows name, as it writes them:
+        /// `70204(a)(1)`.
+        law_sections: Vec<String>,
+        /// Why the markup gave no section.
+        markup_gave_none: Reason,
+    },
 }
 
 /// Linked to changes, or residue.
@@ -189,7 +213,7 @@ pub enum Stage {
 /// apart, a different window rule. Tidying the code that gives the same answers
 /// is not such a change (`crate::method::Method`).
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 1)
+    Method::new("address, window and quoted words", 2)
 }
 
 /// Who a link this method writes says made it.
@@ -250,8 +274,24 @@ impl AmendmentMatch {
 
     /// The link's evidence: where, when, and by which words.
     fn reasoning(&self, linked: &Linked, change: &CausedChange) -> String {
+        let source = match &self.address_source {
+            AddressSource::Markup => "read from the bill's markup".to_string(),
+            AddressSource::Olrc {
+                law_sections,
+                markup_gave_none,
+            } => format!(
+                "read from the OLRC classification table, which classifies Pub. L. {} {} to \
+                 this section; the bill's markup gives none, because {markup_gave_none}",
+                self.public_law,
+                law_sections
+                    .iter()
+                    .map(|section| format!("§ {section}"))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            ),
+        };
         let mut reasoning = format!(
-            "Address: {}, read from the bill's markup. \
+            "Address: {}, {source}. \
              Window: {} to {}, the first window after the law's enactment on {} \
              in which something under the address changed. ",
             address_text(&self.address),
@@ -292,7 +332,7 @@ pub struct EvidenceMatching {
 pub fn match_by_evidence<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
 ) -> Result<EvidenceMatching, DatasetError> {
-    let stated = stated_amendments(dataset)?;
+    let mut stated = stated_amendments(dataset)?;
     let classifications = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
     let mut outcomes: Vec<Option<Outcome>> = vec![None; stated.len()];
     let mut windows = Vec::new();
@@ -300,7 +340,8 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
     // Stage 1: the address. Each addressed amendment is sent on to the work of
     // the Code its section sits in.
     let mut by_work: BTreeMap<WorkId, Vec<usize>> = BTreeMap::new();
-    for (at, amendment) in stated.iter().enumerate() {
+    for (at, amendment) in stated.iter_mut().enumerate() {
+        address_by_olrc_where_the_markup_gives_none(amendment, &classifications);
         match addressed_work(&amendment.address) {
             Ok(work) => by_work.entry(work).or_default().push(at),
             Err(reason) => outcomes[at] = Some(residue(Stage::Address, reason)),
@@ -330,6 +371,7 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
             operation: amendment.operation,
             enacted: amendment.enacted,
             address: amendment.address,
+            address_source: amendment.address_source,
             outcome: outcome.expect("every amendment is answered for"),
         })
         .collect();
@@ -346,6 +388,7 @@ struct Stated {
     amending_text: String,
     operation: AmendingAction,
     address: AmendmentAddress,
+    address_source: AddressSource,
     /// The words the bill quotes for it.
     evidence: QuotedWords,
 }
@@ -393,11 +436,44 @@ fn stated_amendments<S: Storage + LegislatureReader>(
                     stated_operation(&amendment.action_types)
                 }),
                 address,
+                address_source: AddressSource::Markup,
                 evidence,
             });
         }
     }
     Ok(stated)
+}
+
+/// Give an amendment the section the OLRC's classification gives it, when the
+/// markup gives none.
+///
+/// **The markup wins.** An amendment the markup addresses is never changed
+/// here, and neither is one that changes a table of sections: the OLRC
+/// classifies the law's section that holds it, which also holds the provision
+/// the table lists, so its row names a section the table amendment does not
+/// act on. The scope phrases the markup did read (*"in paragraph (87)"*) stay
+/// the container below the section. Each names its level, so a wrong one finds
+/// no provision and links nothing.
+fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classifications: &[Link]) {
+    let Some(markup_gave_none) = amendment.address.unresolved.clone() else {
+        return;
+    };
+    if markup_gave_none == Reason::TableOfSections {
+        return;
+    }
+    let Some(found) = olrc_address(
+        classifications,
+        &amendment.public_law,
+        &amendment.address.path,
+    ) else {
+        return;
+    };
+    amendment.address.section = Some(found.section);
+    amendment.address.unresolved = None;
+    amendment.address_source = AddressSource::Olrc {
+        law_sections: found.law_sections,
+        markup_gave_none,
+    };
 }
 
 /// The action a link records: the one the bill's markup states.

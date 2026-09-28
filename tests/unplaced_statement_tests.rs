@@ -445,7 +445,8 @@ fn should_show_a_row_for_every_statement_when_it_reports_the_corpus() {
             "no provision at <path> before/after the bill"
         } else if reason.starts_with("nothing says which title") {
             "nothing says which title holds section 4"
-        } else if reason.ends_with("is a section of another law, and nothing places it in the Code") {
+        } else if reason.ends_with("is a section of another law, and nothing places it in the Code")
+        {
             "section 4 / 101 is a section of another law"
         } else if reason.ends_with("names more than one provision") {
             "names more than one provision"
