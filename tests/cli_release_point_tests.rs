@@ -247,6 +247,41 @@ fn should_name_the_new_window_and_what_it_holds_when_a_dataset_grows() {
     );
 }
 
+/// Both steps change a SQLite dataset in place, so the next steps name no
+/// conversion to compact JSON (#273).
+#[test]
+fn should_name_no_conversion_when_a_sqlite_dataset_grows() {
+    let dataset = sqlite_dataset("grow_no_conversion", &["2025-07-18"]);
+    let cache = cache_holding("grow_no_conversion", &["2025-07-30"]);
+
+    let output = run(&[
+        "add-release-points",
+        &dataset,
+        "--uslm-dates",
+        "2025-07-30",
+        "--offline",
+        "--cache-dir",
+        &cache,
+    ]);
+
+    assert!(
+        output.status.success(),
+        "add-release-points should exit zero, stderr: {}",
+        stderr_of(&output)
+    );
+    let printed = stdout_of(&output);
+    assert!(
+        !printed.contains("convert-dataset") && !printed.contains("compact JSON"),
+        "the steps run on SQLite in place, got:\n{printed}"
+    );
+    assert!(
+        printed.contains(&format!(
+            "words_to_data redesignations {dataset} --bill-id <bill> --between 2025-07-18 2025-07-30"
+        )),
+        "the step runs on the dataset itself, got:\n{printed}"
+    );
+}
+
 /// The promise of the ticket: growing is not a lesser way of building.
 ///
 /// A dataset that took its two printings one at a time is the same file as a
