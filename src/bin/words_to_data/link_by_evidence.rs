@@ -16,6 +16,14 @@
 //! **It takes either form the dataset comes in.** A database is changed where
 //! it sits. A W2D file is read into memory and written whole, so it must be
 //! told where to write and is never written back over its input (#186).
+//!
+//! **It warns when a public law was stored without its quoted strings.** A
+//! dataset whose bills were stored before #257 kept none, and the matcher
+//! then links fewer amendments with nothing to say why. It warns, names the
+//! law and says to rebuild. It does not refuse: the store cannot say that a
+//! string is missing, only that the law's own words quote one and none is
+//! stored, and every other law in the dataset is still matched as it should
+//! be.
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::{Dataset, Format, adjacent_expressions};
@@ -73,6 +81,13 @@ pub fn run(args: Args) {
 /// Find, write and report.
 fn link<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>) {
     let found = crate::fail::or_exit(match_by_evidence(dataset), "Error matching amendments");
+    for (bill_id, public_law) in &found.laws_quoting_no_strings {
+        eprintln!(
+            "warning: Pub. L. {public_law} ({bill_id}) is stored with no quoted strings. A \
+             dataset built before #257 did not keep them, and without them fewer of the law's \
+             amendments are linked. Rebuild the dataset with build-dataset to store them."
+        );
+    }
     let mut written = 0;
     for amendment in &found.matches {
         for link in amendment.links() {

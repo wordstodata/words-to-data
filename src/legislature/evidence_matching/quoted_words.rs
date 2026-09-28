@@ -141,6 +141,12 @@ impl QuotedWords {
         !self.quoted.is_empty() || !self.enacted.is_empty()
     }
 
+    /// Whether the bill quotes any short string (`<quotedText>`) for this
+    /// amendment.
+    pub(super) fn quotes_strings(&self) -> bool {
+        !self.quoted.is_empty()
+    }
+
     /// The amendment's quoted strings and enacted blocks this change shows.
     ///
     /// `later` are the amendments the same law makes after this one, to the
