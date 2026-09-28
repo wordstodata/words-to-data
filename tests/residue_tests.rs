@@ -253,6 +253,8 @@ fn should_leave_the_list_when_an_agent_records_a_link_through_the_door() {
             &format!("{PARAGRAPH_2036_A_2}/subparagraph_C"),
             "--source",
             "agent:claude",
+            "--method",
+            "resolve-residue@1",
             "--reason",
             "The Code prints section 3(u)(4) of the Act as section 2012(u)(4) of this title, \
              and subparagraph (C) is where that reference changed.",

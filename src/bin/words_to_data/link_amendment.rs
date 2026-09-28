@@ -25,6 +25,7 @@ use words_to_data::link::{
     Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
     amendment_reference,
 };
+use words_to_data::method::Method;
 use words_to_data::storage::{LegislatureReader, Storage};
 
 #[derive(ClapArgs)]
@@ -56,6 +57,11 @@ pub struct Args {
     /// Who is recording the link: `agent:claude`, `human:jesse`
     #[arg(long)]
     pub source: String,
+
+    /// The reasoning the recorder applied, and its version, as `name@version`:
+    /// `resolve-residue@1`. Raise the version when the reasoning changes
+    #[arg(long)]
+    pub method: Method,
 
     /// Why the amendment caused these changes, in the recorder's own words
     #[arg(long)]
@@ -131,6 +137,17 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
             words_to_data::review::short_id(&id)
         );
     }
+    // "This reasoning was applied to this window" (#179, decision 11). A run is
+    // identified by what it says, so recording the same finding again adds no
+    // second run.
+    crate::fail::or_exit(
+        dataset.record_method_run(args.method.clone(), &args.from, &args.to),
+        "Error recording what ran",
+    );
+    println!(
+        "Recorded a run of {} over {} -> {}",
+        args.method, args.from, args.to.at
+    );
 }
 
 /// The amendment a run names, or a refusal that says how to name one.
@@ -273,7 +290,7 @@ fn link_for(amendment: &BillAmendment, path: &str, args: &Args) -> Link {
         },
         provenance: Provenance {
             source: args.source.clone(),
-            method: None,
+            method: Some(args.method.clone()),
             verification: VerificationState::MachineSuggested,
             evidence: Evidence::from_reasoning(Some(args.reason.clone())),
             raw_score: None,
