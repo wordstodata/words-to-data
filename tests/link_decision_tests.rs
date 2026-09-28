@@ -163,7 +163,7 @@ fn should_print_the_source_and_the_method_with_its_version_when_a_reviewer_expla
         "the source is named: {said}"
     );
     assert!(
-        said.contains("Method: address, window and quoted words@3"),
+        said.contains("Method: address, window and quoted words@4"),
         "the method and its version are named: {said}"
     );
 }
@@ -320,7 +320,7 @@ fn should_carry_how_each_link_was_made_when_annotations_answer_in_json() {
         );
         assert_eq!(link["path"], SECTION_6041_A);
         assert_eq!(link["source"], "rule:evidence_matching");
-        assert_eq!(link["method"], "address, window and quoted words@3");
+        assert_eq!(link["method"], "address, window and quoted words@4");
         assert_eq!(link["causes"], 5, "one of five causes: {link}");
         assert_eq!(link["recorded"]["address_source"], "markup");
         assert_eq!(link["recorded"]["changes_under_address"], 1);
@@ -344,7 +344,7 @@ fn should_print_the_method_and_each_links_kind_of_decision_when_annotations_answ
     assert_eq!(headers.len(), 5, "five records: {said}");
     for header in &headers {
         assert!(
-            header.ends_with("by rule:evidence_matching, address, window and quoted words@3)"),
+            header.ends_with("by rule:evidence_matching, address, window and quoted words@4)"),
             "the method follows the maker: {header}"
         );
     }

@@ -642,6 +642,70 @@ pub(crate) fn uslm_section_id(title: &str, section: &str) -> String {
     format!("/us/usc/t{title}/s{section}")
 }
 
+/// The units an instruction's words name after its amending line, each as the
+/// steps down to it: the level the words name, then the designations below it.
+///
+/// *"is amended by striking subsection (g)"* names subsection (g).
+/// *"by striking subparagraphs (B)(i)(I) and (C)(i)"* names two units, and each
+/// starts at a subparagraph. The scope phrases count as well: *"in clause (i),
+/// by striking subclause (II)"* names clause (i) and subclause (II), and the
+/// change is in one of them.
+///
+/// Read these only from words that quote nothing. A quoted string or an
+/// enacted block can hold *"paragraph (2)"* as words of the Code, and the
+/// bill's text does not say where a quotation ends when one is nested in
+/// another.
+///
+/// Empty when the words name a run, *"subparagraphs (C) through (F)"*: the
+/// units between the two ends are named too, and the words do not say which
+/// they are. An empty answer names nothing, so nothing is narrowed.
+///
+/// ```
+/// use words_to_data::uslm::amendment_address::units_named_in;
+///
+/// let units = units_named_in(
+///     "Section 115a of title 10, United States Code, is amended by striking subsection (g).",
+/// );
+/// assert_eq!(units.len(), 1);
+/// assert_eq!(units[0][0].number, "g");
+/// ```
+pub fn units_named_in(words: &str) -> Vec<Vec<Step>> {
+    static UNITS: LazyLock<Regex> = LazyLock::new(|| {
+        let designation = r"(?:\([0-9A-Za-z]{1,8}\))+";
+        Regex::new(&format!(
+            r"(?i)\b(subsection|paragraph|subparagraph|clause|subclause|item|subitem)s?\s+({designation}(?:\s*(?:,|,?\s*and|,?\s*or)\s*{designation})*)"
+        ))
+        .expect("the named-unit pattern must compile")
+    });
+    static RUN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\)\s*through\s+(?:[a-z]+\s+)?\(").expect("the run pattern must compile")
+    });
+    static ONE_UNIT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?:\([0-9A-Za-z]{1,8}\))+").expect("the designation pattern must compile")
+    });
+    let instruction = match amending_line_of(words) {
+        Some(line) => &words[line.len()..],
+        None => words,
+    };
+    if RUN.is_match(instruction) {
+        return Vec::new();
+    }
+    let mut units = Vec::new();
+    for named in UNITS.captures_iter(instruction) {
+        let level = element_type_of(&named[1].to_lowercase());
+        for unit in ONE_UNIT.find_iter(&named[2]) {
+            let mut designations = designations_in(unit.as_str()).into_iter();
+            let Some(first) = designations.next() else {
+                continue;
+            };
+            let mut steps = vec![Step::named(level, first)];
+            steps.extend(designations.map(Step::numbered));
+            units.push(steps);
+        }
+    }
+    units
+}
+
 /// The numbers in a run of parentheses: `(c)(1)(A)` becomes `c`, `1`, `A`.
 fn designations_in(parenthesised: &str) -> Vec<String> {
     parenthesised

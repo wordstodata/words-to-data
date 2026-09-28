@@ -49,7 +49,7 @@ use crate::diff::{FieldChangeEvent, TreeDiff};
 use crate::document::{DocumentNode, NodeData};
 use crate::legislature::AmendingAction;
 use crate::legislature::redesignation::Reason;
-use crate::legislature::redesignation::{SectionIndex, walk_down};
+use crate::legislature::redesignation::{SectionIndex, Step, walk_down};
 use crate::link::{
     Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
     amendment_reference,
@@ -57,7 +57,7 @@ use crate::link::{
 use crate::method::Method;
 use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::UslmFacts;
-use crate::uslm::amendment_address::{AmendmentAddress, addresses_in};
+use crate::uslm::amendment_address::{AmendmentAddress, addresses_in, units_named_in};
 
 use quoted_words::QuotedWords;
 use resolve::{Change, Contender, Resolution, resolve};
@@ -220,8 +220,13 @@ pub enum Stage {
 /// version when this method's answers change — a new rule for telling changes
 /// apart, a different window rule. Tidying the code that gives the same answers
 /// is not such a change (`crate::method::Method`).
+///
+/// Version 4 (#274): elimination gives an amendment only a change its own
+/// words can have made. The change must be in a unit its words name, and of a
+/// kind its action makes: a strike brings no new words, and an addition removes
+/// no provision.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 3)
+    Method::new("address, window and quoted words", 4)
 }
 
 /// Who a link this method writes says made it.
@@ -443,6 +448,8 @@ struct Stated {
     enacted: String,
     amending_text: String,
     operation: AmendingAction,
+    /// Every action the markup states for it and the levels nested in it.
+    actions: Vec<AmendingAction>,
     address: AmendmentAddress,
     address_source: AddressSource,
     /// The words the bill quotes for it.
@@ -491,6 +498,9 @@ fn stated_amendments<S: Storage + LegislatureReader>(
                 operation: amendment.map_or(AmendingAction::Amend, |amendment| {
                     stated_operation(&amendment.action_types)
                 }),
+                actions: amendment
+                    .map(|amendment| amendment.action_types.clone())
+                    .unwrap_or_default(),
                 address,
                 address_source: AddressSource::Markup,
                 evidence,
@@ -713,6 +723,9 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 amendment_id: &stated[*at].address.amendment_id,
                 public_law: &stated[*at].public_law,
                 only_renumbers: stated[*at].operation == AmendingAction::Redesignate,
+                units_named: units_its_words_name(&stated[*at]),
+                only_strikes: only_strikes(&stated[*at]),
+                only_inserts: only_inserts(&stated[*at]),
                 evidence: &stated[*at].evidence,
                 candidates: placed[at][0].candidates.clone(),
             })
@@ -775,6 +788,53 @@ fn match_in_work<S: Storage + LegislatureReader>(
         .into_iter()
         .map(|view| (view.from, view.to))
         .collect())
+}
+
+/// The units an amendment's words name, read only when it quotes nothing
+/// ([`units_named_in`] says why).
+///
+/// An amendment that quotes words takes at most one change by elimination
+/// already, so only one that quotes nothing needs narrowing.
+fn units_its_words_name(amendment: &Stated) -> Vec<Vec<Step>> {
+    if amendment.evidence.quotes_anything() {
+        return Vec::new();
+    }
+    units_named_in(&amendment.amending_text)
+}
+
+/// Whether an amendment only adds and inserts: the markup states `add` or
+/// `insert` and nothing else beside the umbrella `amend`.
+fn only_inserts(amendment: &Stated) -> bool {
+    let actions = specific_actions(amendment);
+    !actions.is_empty()
+        && actions
+            .iter()
+            .all(|action| matches!(action, AmendingAction::Add | AmendingAction::Insert))
+}
+
+/// The actions the markup states for an amendment, without the umbrella
+/// `amend` most instructions carry beside them.
+fn specific_actions(amendment: &Stated) -> Vec<AmendingAction> {
+    amendment
+        .actions
+        .iter()
+        .copied()
+        .filter(|action| *action != AmendingAction::Amend)
+        .collect()
+}
+
+/// Whether an amendment only strikes and repeals.
+///
+/// The markup states `delete` or `repeal` and nothing else beside the umbrella
+/// `amend`, and the bill quotes no words it inserts or enacts. *"Repeal and
+/// reserve"* is not a strike alone: it leaves a `[Reserved]` in its place.
+fn only_strikes(amendment: &Stated) -> bool {
+    let actions = specific_actions(amendment);
+    !actions.is_empty()
+        && actions
+            .iter()
+            .all(|action| matches!(action, AmendingAction::Delete | AmendingAction::Repeal))
+        && amendment.evidence.only_strikes()
 }
 
 /// The caused changes with each path once, in the order first met.

@@ -394,13 +394,20 @@ For each amendment it reads three things the dataset already holds:
    read with the words that later amendments of the same law inserted taken
    out.
 
+   A change no amendment's words place goes, by elimination, to the one
+   amendment whose address covers it, and only when that amendment's own
+   words can have made it (#274). It must be in a unit the words name —
+   *"by striking subsection (g)"* names subsection (g) — and of a kind the
+   action makes: a strike brings no new words, and an addition removes no
+   provision. A change elimination cannot place stays residue.
+
    Common words alone — `"and"`, `", or"`, `"the"` — decide nothing, unless
    they are all the change struck or inserted. A struck "and" shows in every
    list whose end moved.
 
 Each change becomes one `legislature.amended_by` link, in the shape
 `match-amendments` wrote before it was removed (#252), with the method `address, window and quoted
-words@3`. Its evidence says the address and which source gave it, the window,
+words@4`. Its evidence says the address and which source gave it, the window,
 how many changes the window holds under the address, how the change was chosen
 and the words that placed it, and what the OLRC classification (if
 `add-classifications` has run) says of the section. A note in the
