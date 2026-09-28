@@ -20,6 +20,7 @@ use crate::dataset::{
 };
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
+use crate::legislature::evidence_matching::{Recorded, evidence_method};
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
 use crate::link::{
     Link, LinkKind, ProvisionHistory, RedesignationStep, Target, VerificationState, Window,
@@ -1024,6 +1025,82 @@ pub enum EvidenceWords {
     },
 }
 
+/// How a link was made, as its provenance records it and the dataset
+/// counts it.
+#[derive(Debug, Clone, Serialize)]
+pub struct HowMade {
+    /// Who or what made it: `rule:evidence_matching`, `agent:claude`.
+    pub source: String,
+    /// The method and its version, `name@version`, when one was recorded.
+    pub method: Option<String>,
+    /// How many amendments the dataset links as causes of the same change,
+    /// this link's own among them ([`causes_of`]).
+    pub causes: usize,
+    /// The parts of the evidence `link-by-evidence` records: the address and
+    /// its source, the window, and how the change was chosen. `None` for a
+    /// link another method made.
+    pub recorded: Option<Recorded>,
+    /// The reasoning as it was stored: the whole text the parts above were
+    /// read from, a model's reasoning, or an agent's reason.
+    pub reasoning: Option<String>,
+    /// The model that answered, for a link a model made.
+    pub model: Option<String>,
+    /// The id of the reply the model answered with, which the dataset keeps
+    /// once under the hash of its text (#58).
+    pub reply: Option<String>,
+}
+
+/// How `link` was made.
+///
+/// The recorded parts are read only for a link the evidence method made, at
+/// any version of it: another maker's reasoning is its own words, and a
+/// reason that happened to read like the method's text is still not its
+/// evidence.
+pub fn how_made<S: Storage>(dataset: &S, link: &Link) -> Result<HowMade, DatasetError> {
+    let provenance = &link.provenance;
+    let evidence = provenance.evidence.as_ref();
+    let reasoning = evidence.and_then(|evidence| evidence.reasoning.clone());
+    let by_evidence_method = provenance
+        .method
+        .as_ref()
+        .is_some_and(|method| method.name == evidence_method().name);
+    Ok(HowMade {
+        source: provenance.source.clone(),
+        method: provenance.method.as_ref().map(Method::to_string),
+        causes: causes_of(dataset, link)?,
+        recorded: reasoning
+            .as_deref()
+            .filter(|_| by_evidence_method)
+            .and_then(Recorded::read),
+        reasoning,
+        model: evidence.and_then(|evidence| evidence.model.clone()),
+        reply: evidence.and_then(|evidence| evidence.reply.clone()),
+    })
+}
+
+/// How many things the dataset links as the cause of the change `link` is
+/// about, `link`'s own object among them.
+///
+/// Several amendments can edit one provision in place, and the diff reports
+/// that as one change: 26 U.S.C. § 6041(a) has five. A reviewer of one of those
+/// links must know the others are there. Counted from the dataset every time,
+/// because it depends on every link, not on this one
+/// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+/// A link whose subject is not a change is its own only cause.
+pub fn causes_of<S: Storage>(dataset: &S, link: &Link) -> Result<usize, DatasetError> {
+    let Some(path) = link.subject.path() else {
+        return Ok(1);
+    };
+    let causes: BTreeSet<String> = dataset
+        .links_for_path(path)?
+        .into_iter()
+        .filter(|other| other.kind == link.kind && other.subject == link.subject)
+        .map(|other| other.object.name())
+        .chain(std::iter::once(link.object.name()))
+        .collect();
+    Ok(causes.len())
+}
+
 /// The words at a link's ends, or `None` when the link does not name a
 /// provision this dataset holds at either end.
 ///
@@ -1773,6 +1850,24 @@ pub struct AnnotationSummary {
     /// prefix is reproducible across a rebuild (ADR 0004), and `review`
     /// chooses how much of it a report prints.
     pub link_ids: Vec<String>,
+    /// Each link, in the same order as `paths`, with how it was made.
+    ///
+    /// Per link and not per record, because each path was decided on its
+    /// own: one amendment's changes can be placed by quoted words and by
+    /// elimination. An agent reads the kind of decision here, and picks the
+    /// links to review first without explaining each one (#179).
+    pub links: Vec<LinkMade>,
+}
+
+/// One link of an annotation, and how it was made.
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkMade {
+    /// The link's short id, as in `link_ids`.
+    pub id: String,
+    /// The path the link states.
+    pub path: String,
+    #[serde(flatten)]
+    pub made: HowMade,
 }
 
 /// Build a summary for `ann`, tagging it with the expression pair it was found
@@ -1782,6 +1877,7 @@ fn summarize(
     to: &ExpressionId,
     ann: &ChangeAnnotation,
     link_ids: &[String],
+    links: Vec<LinkMade>,
 ) -> AnnotationSummary {
     AnnotationSummary {
         work: from.work.to_string(),
@@ -1801,6 +1897,7 @@ fn summarize(
             .iter()
             .map(|id| crate::review::short_id(id).to_string())
             .collect(),
+        links,
     }
 }
 
@@ -1845,8 +1942,18 @@ pub fn annotations<S: Storage>(
         // The links are read back with their ids, not without them: the id a
         // reviewer settles by is in hand here, and looking it up again after
         // dropping it could only guess which link a path came from (#232).
+        let by_id: BTreeMap<String, &crate::link::Link> =
+            group.iter().map(|link| (link.id(), link)).collect();
         for (ann, link_ids) in crate::link::annotations_with_their_links(&group) {
-            out.push(summarize(&from, &to, &ann, &link_ids));
+            let mut links = Vec::new();
+            for (id, path) in link_ids.iter().zip(&ann.paths) {
+                links.push(LinkMade {
+                    id: crate::review::short_id(id).to_string(),
+                    path: path.clone(),
+                    made: how_made(dataset, by_id[id])?,
+                });
+            }
+            out.push(summarize(&from, &to, &ann, &link_ids, links));
         }
     }
 

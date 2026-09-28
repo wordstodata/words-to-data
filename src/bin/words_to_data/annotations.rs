@@ -9,6 +9,7 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect::{self, PathMatch};
+use words_to_data::legislature::evidence_matching::RecordedSource;
 use words_to_data::query::{LinkQuery, Locator};
 
 use crate::load::{self, with_dataset};
@@ -145,8 +146,16 @@ pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
         .map(|c| format!("{c:.2}"))
         .unwrap_or_else(|| "-".to_string());
     let short_id: String = a.amendment_id.chars().take(12).collect();
+    // The method, where the links record one. Every link of a record has one
+    // maker, and a maker runs one method at a time.
+    let method = a
+        .links
+        .iter()
+        .find_map(|link| link.made.method.as_deref())
+        .map(|method| format!(", {method}"))
+        .unwrap_or_default();
     println!(
-        "  [{}] {} {} -> {}  {} {} amd {} (conf {}, by {})",
+        "  [{}] {} {} -> {}  {} {} amd {} (conf {}, by {}{method})",
         a.status,
         a.work,
         a.from_date,
@@ -164,9 +173,40 @@ pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
     // One line per path, each beside the id of the link that states it. Printed
     // here rather than by the caller so that `path` names its annotations too:
     // both commands are doors into a review, and the id is what opens it.
-    for (id, path) in a.link_ids.iter().zip(&a.paths) {
-        println!("      link {id}  {path}");
+    for link in &a.links {
+        println!(
+            "      link {}  {}{}",
+            link.id,
+            link.path,
+            decision(&link.made)
+        );
     }
+}
+
+/// How a link was decided, in a few words: `  [elimination, address from
+/// olrc, 1 of 5 causes]`. The kind is the word `--json` gives as `chosen`, so
+/// what a person reads is what an agent filters on. Empty for a link with
+/// nothing of the kind to say.
+fn decision(made: &words_to_data::inspect::HowMade) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(recorded) = &made.recorded {
+        parts.push(
+            serde_json::to_value(recorded.chosen)
+                .ok()
+                .and_then(|kind| kind.as_str().map(str::to_string))
+                .unwrap_or_default(),
+        );
+        if recorded.address_source == RecordedSource::Olrc {
+            parts.push("address from olrc".to_string());
+        }
+    }
+    if made.causes > 1 {
+        parts.push(format!("1 of {} causes", made.causes));
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!("  [{}]", parts.join(", "))
 }
 
 /// Shorten `text` to `max` characters, adding an ellipsis when clipped.
