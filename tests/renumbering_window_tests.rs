@@ -417,3 +417,50 @@ fn should_record_no_second_placement_when_a_grown_dataset_is_read_over_a_later_w
         "a grown dataset holds the renumbering links a build over all three dates holds"
     );
 }
+
+#[test]
+fn should_report_a_statement_as_placed_and_not_as_unplaced_when_its_link_is_in_an_earlier_window() {
+    let mut grown = title_7_and_the_bill_at(&DATES[..2]);
+    record_over_every_window(&mut grown);
+    add_title_7_at(&mut grown, DATES[2]);
+
+    let mut rebuilt = title_7_and_the_bill();
+    let bill = rebuilt
+        .bill_document(BILL_ID)
+        .expect("the dataset should answer for the bill")
+        .expect("the dataset should hold the bill as a document");
+    let windows = adjacent_expressions(&rebuilt).expect("the windows should list");
+    let every_window = rebuilt
+        .record_redesignations_over(BILL_ID, &bill, &windows)
+        .expect("the step should run");
+
+    let work = WorkId::new("uscode/title_7");
+    let at = |date: &str| ExpressionId::new(work.clone(), date);
+    // The adjacent new window, in which title 7 is identical, and the span from
+    // the first date to the new one, in which the law's change shows again.
+    for window in [(at(DATES[1]), at(DATES[2])), (at(DATES[0]), at(DATES[2]))] {
+        let report = grown
+            .record_redesignations_over(BILL_ID, &bill, std::slice::from_ref(&window))
+            .expect("the step should run");
+
+        assert_eq!(
+            report.statements(),
+            every_window.statements(),
+            "over {} -> {}, the report names every statement the bill makes",
+            window.0,
+            window.1.at
+        );
+        for unplaced in &report.unplaced {
+            assert!(
+                !every_window.resolved.iter().any(|row| {
+                    row.amendment_id == unplaced.amendment_id && row.text == unplaced.text
+                }),
+                "over {} -> {}, a statement placed in an earlier window is reported as \
+                 not placed: {}",
+                window.0,
+                window.1.at,
+                unplaced.reason
+            );
+        }
+    }
+}

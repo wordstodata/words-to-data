@@ -72,7 +72,7 @@ pub struct LaterWindow {
 /// Read out of the links a dataset holds with [`placements_in`]. A statement is
 /// named by the amendment it came from and the words it was read out of, as
 /// everywhere in the report.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Placed {
     pub amendment_id: String,
     pub text: String,
@@ -238,12 +238,19 @@ impl WindowView {
     }
 }
 
+impl Placed {
+    /// Where the window sorts, as [`WindowView::order`] sorts one.
+    fn order(&self) -> (&str, &str) {
+        (&self.from.at, &self.to.at)
+    }
+}
+
 /// The earliest window of `work` in which a statement already holds a link.
 fn earliest_placement<'a>(
     statement: &StatedRedesignation,
     work: &WorkId,
     placed: &'a [Placed],
-) -> Option<(&'a str, &'a str)> {
+) -> Option<&'a Placed> {
     placed
         .iter()
         .filter(|held| {
@@ -251,8 +258,7 @@ fn earliest_placement<'a>(
                 && held.amendment_id == statement.amendment_id
                 && held.text == statement.text
         })
-        .map(|held| (held.from.at.as_str(), held.to.at.as_str()))
-        .min()
+        .min_by(|left, right| left.order().cmp(&right.order()))
 }
 
 /// The works the windows are of, each once, in the order first named.
@@ -298,22 +304,27 @@ fn place_in_work(
             .collect();
         // A window after the one the statement is already placed in is a later
         // window, whatever it shows (#273).
-        let (open, after): (Vec<usize>, Vec<usize>) =
-            match earliest_placement(statement, &views[0].from.work, placed) {
-                Some(held) => can_hold
-                    .into_iter()
-                    .partition(|&at| views[at].order() <= held),
-                None => (can_hold, Vec::new()),
-            };
-        let later: Vec<usize> = match open.split_first() {
-            Some((&first, later)) => {
+        let held = earliest_placement(statement, &views[0].from.work, placed);
+        let (open, after): (Vec<usize>, Vec<usize>) = match held {
+            Some(held) => can_hold
+                .into_iter()
+                .partition(|&at| views[at].order() <= held.order()),
+            None => (can_hold, Vec::new()),
+        };
+        let later: Vec<usize> = match (open.split_first(), held) {
+            (Some((&first, later)), _) => {
                 landed[first].push(statement.clone());
                 later.iter().chain(&after).copied().collect()
             }
-            None => {
-                if after.is_empty() {
-                    held_by_none.push(statement.clone());
-                }
+            // Placed before every window named. The link is there already, so
+            // the statement is placed, and no window here is where the law
+            // acted.
+            (None, Some(held)) => {
+                placement.unplaced.placed_earlier.push(held.clone());
+                after
+            }
+            (None, None) => {
+                held_by_none.push(statement.clone());
                 after
             }
         };
