@@ -335,9 +335,9 @@ fn place_in_work(
                 landed[first].push(statement.clone());
                 later.iter().chain(&after).copied().collect()
             }
-            // Placed before every window named. The link is there already, so
-            // the statement is placed, and no window here is where the law
-            // acted.
+            // No window named up to the one it is placed in can hold it. The
+            // link is there already, so the statement is placed, and no window
+            // here is where the law acted.
             (None, Some(held)) => {
                 placement.unplaced.placed_earlier.push(held.clone());
                 after
