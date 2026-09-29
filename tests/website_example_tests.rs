@@ -2,6 +2,8 @@
 //!
 //! These tests replicate the examples shown on wordstodata.com
 //! If any of these tests fail, the website examples at w2d_site/index.html need to be updated.
+mod common;
+
 use words_to_data::{
     dataset::{Dataset, DatasetMetadata},
     diff::TreeDiff,
@@ -46,8 +48,7 @@ fn website_example_parse_usc_document() {
 /// If this fails, update the JSON output section in the "Parse a US Code Document" example.
 #[test]
 fn website_example_parse_usc_json_structure() {
-    let title_26 = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-        .expect("Failed to parse USC Title 26");
+    let title_26 = common::parsed("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
 
     let s174a_path =
         "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a";
@@ -96,10 +97,8 @@ fn website_example_parse_usc_json_structure() {
 /// If this fails, update the "Compute a Diff Between Versions" section in index.html.
 #[test]
 fn website_example_compute_diff() {
-    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-        .expect("Failed to parse old document");
-    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Failed to parse new document");
+    let doc_old = common::parsed("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
+    let doc_new = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
@@ -143,8 +142,8 @@ fn website_example_compute_diff() {
 /// If this fails, update the JSON output section in the "Compute a Diff" example.
 #[test]
 fn website_example_diff_json_structure() {
-    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18").unwrap();
-    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30").unwrap();
+    let doc_old = common::parsed("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
+    let doc_new = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
     let s174a_path =

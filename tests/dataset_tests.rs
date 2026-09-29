@@ -1,3 +1,5 @@
+mod common;
+
 use std::fs::File;
 use std::io::BufReader;
 
@@ -8,7 +10,6 @@ use words_to_data::diff::TreeDiff;
 use words_to_data::link::Link;
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
-use words_to_data::uslm::parser::parse;
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 /// Title 7 is Agriculture. It is the work every expression below belongs to.
@@ -119,7 +120,7 @@ fn make_test_dataset() -> Dataset<InMemoryStorage> {
 /// 7; the date is a label on it, which is what lets these tests pin ordering
 /// without needing three real releases on disk.
 fn make_expression(date: &str, label: Option<&str>) -> Expression {
-    let parsed = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
+    let parsed = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
     let root = work_roots(parsed).pop().expect("the file holds one title");
     Expression {
         id: at(date),
@@ -376,20 +377,16 @@ fn should_query_annotations_by_path() {
 fn should_find_element_across_expressions() {
     let mut dataset = make_test_dataset();
 
-    dataset
-        .add_uslm_xml(
-            "tests/test_data/usc/2025-07-18/usc07.xml",
-            "2025-07-18",
-            None,
-        )
-        .unwrap();
-    dataset
-        .add_uslm_xml(
-            "tests/test_data/usc/2025-07-30/usc07.xml",
-            "2025-07-30",
-            None,
-        )
-        .unwrap();
+    common::add_uslm_xml(
+        &mut dataset,
+        "tests/test_data/usc/2025-07-18/usc07.xml",
+        "2025-07-18",
+    );
+    common::add_uslm_xml(
+        &mut dataset,
+        "tests/test_data/usc/2025-07-30/usc07.xml",
+        "2025-07-30",
+    );
 
     let results = dataset.find_nodes(TITLE_7).unwrap();
 
@@ -402,13 +399,11 @@ fn should_find_element_across_expressions() {
 fn should_search_text_across_expressions() {
     let mut dataset = make_test_dataset();
 
-    dataset
-        .add_uslm_xml(
-            "tests/test_data/usc/2025-07-18/usc07.xml",
-            "2025-07-18",
-            None,
-        )
-        .unwrap();
+    common::add_uslm_xml(
+        &mut dataset,
+        "tests/test_data/usc/2025-07-18/usc07.xml",
+        "2025-07-18",
+    );
 
     // Search for text that exists in Title 7 (Agriculture)
     let results = dataset.search_text("Agriculture").unwrap();

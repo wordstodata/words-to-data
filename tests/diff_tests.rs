@@ -1,19 +1,19 @@
+mod common;
+
 use rstest::rstest;
 use words_to_data::{
     diff::{Redesignations, TreeDiff},
     document::{DocumentNode, TextContentField},
     legislature::redesignation::resolve,
-    uslm::{bill_redesignation::redesignations_stated_in_file, parser::parse},
+    uslm::bill_redesignation::redesignations_stated_in_file,
 };
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 
 #[test]
 fn test_diff_generation_26() {
-    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-        .expect("Error running parser");
-    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Error running parser");
+    let doc_old = common::parsed("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
+    let doc_new = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
@@ -44,11 +44,9 @@ fn test_diff_generation_across_titles(#[case] title: &str) {
     let path1 = format!("tests/test_data/usc/2025-07-18/usc{}.xml", title);
     let path2 = format!("tests/test_data/usc/2025-07-30/usc{}.xml", title);
 
-    let tree1 = parse(&path1, "2025-07-18")
-        .unwrap_or_else(|_| panic!("Failed to parse {} from 2025-07-18", title));
+    let tree1 = common::parsed(&path1, "2025-07-18");
 
-    let tree2 = parse(&path2, "2025-07-30")
-        .unwrap_or_else(|_| panic!("Failed to parse {} from 2025-07-30", title));
+    let tree2 = common::parsed(&path2, "2025-07-30");
 
     // Generate diff
     let diff = TreeDiff::from_nodes(&tree1, &tree2);
@@ -83,10 +81,8 @@ fn ordered_paths(diff: &TreeDiff) -> Vec<String> {
 
 #[test]
 fn should_order_diff_children_identically_when_the_same_diff_is_built_twice() {
-    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-        .expect("Error running parser");
-    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Error running parser");
+    let doc_old = common::parsed("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
+    let doc_new = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let first = ordered_paths(&TreeDiff::from_nodes(&doc_old, &doc_new));
     let second = ordered_paths(&TreeDiff::from_nodes(&doc_old, &doc_new));
@@ -202,10 +198,8 @@ fn assert_document_order(diff: &TreeDiff, from: &DocumentNode, to: &DocumentNode
 
 #[test]
 fn should_order_diff_children_by_document_position_when_diffing_a_title() {
-    let doc_old = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-        .expect("Error running parser");
-    let doc_new = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Error running parser");
+    let doc_old = common::parsed("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
+    let doc_new = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let diff = TreeDiff::from_nodes(&doc_old, &doc_new);
 
@@ -241,10 +235,8 @@ fn redesignations_stated_by_the_public_law(
 #[test]
 fn should_report_a_rewrite_inside_a_renumbered_subsection_at_its_new_path_when_a_bill_renumbered_it()
  {
-    let before = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18")
-        .expect("title 7 should parse");
-    let after = parse("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30")
-        .expect("title 7 should parse");
+    let before = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
+    let after = common::parsed("tests/test_data/usc/2025-07-30/usc07.xml", "2025-07-30");
     let known = redesignations_stated_by_the_public_law(&before, &after);
 
     let diff = TreeDiff::from_nodes_with(&before, &after, &known);

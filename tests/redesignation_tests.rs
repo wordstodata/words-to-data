@@ -4,6 +4,8 @@
 //! `119-hr-1`: "Section 898(c) is amended by striking paragraph (2) and
 //! redesignating paragraph (3) as paragraph (2)."
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::process::Command;
 use std::sync::OnceLock;
@@ -15,7 +17,7 @@ use words_to_data::dataset::{
 };
 use words_to_data::diff::{Redesignations, TreeDiff};
 use words_to_data::legislature::redesignation::{
-    Reason, RedesignationReport, Step, read_clause, resolve,
+    Reason, RedesignationReport, StatedRedesignation, Step, read_clause, resolve,
 };
 use words_to_data::link::{LinkKind, Target, VerificationState};
 use words_to_data::storage::{InMemoryStorage, LinkReader};
@@ -78,8 +80,8 @@ fn should_name_the_section_under_amendment_when_the_bill_states_a_redesignation(
 #[test]
 fn should_resolve_the_paragraph_898_c_renumbered_when_title_26_is_in_hand() {
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let before = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
-    let after = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+    let before = common::parsed(TITLE_26_BEFORE, BEFORE);
+    let after = common::parsed(TITLE_26_AFTER, AFTER);
 
     let report = resolve(&stated, &before, &after);
 
@@ -100,8 +102,8 @@ fn should_report_a_redesignation_when_the_new_path_is_absent_after_the_bill() {
     // have. Before this check the build recorded the link anyway, because it
     // looked at the earlier document only.
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let earlier = parse(TITLE_7_BEFORE, BEFORE).expect("title 7 should parse");
-    let later = parse(TITLE_7_AFTER, AFTER).expect("title 7 should parse");
+    let earlier = common::parsed(TITLE_7_BEFORE, BEFORE);
+    let later = common::parsed(TITLE_7_AFTER, AFTER);
 
     let report = resolve(&stated, &earlier, &later);
 
@@ -164,8 +166,8 @@ fn should_corroborate_a_link_with_the_words_at_its_two_ends() {
     // and that identity is the evidence
     // (`docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let earlier = parse(TITLE_42_BEFORE, BEFORE).expect("title 42 should parse");
-    let later = parse(TITLE_42_AFTER, AFTER).expect("title 42 should parse");
+    let earlier = common::parsed(TITLE_42_BEFORE, BEFORE);
+    let later = common::parsed(TITLE_42_AFTER, AFTER);
 
     let report = resolve(&stated, &earlier, &later);
     let link = link_for(&format!("{PARAGRAPH_1397GG_E_1}/subparagraph_M"), &report);
@@ -202,8 +204,8 @@ fn should_still_record_the_link_when_the_bill_renumbered_and_rewrote_at_once() {
     // said. `MachineSuggested` beside a low figure is the honest account: the
     // bill said this, and the words do not back it up.
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let earlier = parse(TITLE_42_BEFORE, BEFORE).expect("title 42 should parse");
-    let later = parse(TITLE_42_AFTER, AFTER).expect("title 42 should parse");
+    let earlier = common::parsed(TITLE_42_BEFORE, BEFORE);
+    let later = common::parsed(TITLE_42_AFTER, AFTER);
 
     let report = resolve(&stated, &earlier, &later);
     let link = link_for(&format!("{PARAGRAPH_1397GG_E_1}/subparagraph_S"), &report);
@@ -248,8 +250,8 @@ fn should_report_a_renumbered_paragraph_as_rewritten_when_no_redesignation_is_kn
     // redesignation in hand. Old (2) was struck and old (3) took its number, so
     // pairing by position reads old (2) against a paragraph that is really old
     // (3): a large rewrite, plus children appearing out of nowhere.
-    let before = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
-    let after = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+    let before = common::parsed(TITLE_26_BEFORE, BEFORE);
+    let after = common::parsed(TITLE_26_AFTER, AFTER);
 
     let diff = TreeDiff::from_nodes(&before, &after);
     let at = diff.find(SUBSECTION_898_C).expect("§ 898(c) changed");
@@ -275,8 +277,8 @@ fn should_report_a_renumbered_paragraph_as_rewritten_when_no_redesignation_is_kn
 #[test]
 fn should_report_a_renumbered_paragraph_as_moved_when_the_bill_said_so() {
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let before = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
-    let after = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+    let before = common::parsed(TITLE_26_BEFORE, BEFORE);
+    let after = common::parsed(TITLE_26_AFTER, AFTER);
     let known = Redesignations::from_pairs(
         resolve(&stated, &before, &after)
             .resolved
@@ -323,8 +325,8 @@ fn should_pair_by_position_when_no_bill_redesignated_the_path() {
     // known elsewhere in the title
     // (`docs/adr/0001-structural-paths-locate-not-identify.md`).
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let before = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
-    let after = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+    let before = common::parsed(TITLE_26_BEFORE, BEFORE);
+    let after = common::parsed(TITLE_26_AFTER, AFTER);
     let known = Redesignations::from_pairs(
         resolve(&stated, &before, &after)
             .resolved
@@ -363,7 +365,7 @@ fn find_section(diff: &TreeDiff, segment: &str) -> String {
 /// redesignations recorded as links.
 /// Put title 26, as it read on one date, into the dataset.
 fn add_title_26_at(dataset: &mut Dataset<InMemoryStorage>, path: &str, date: &str, work: &WorkId) {
-    let parsed = parse(path, date).expect("title 26 should parse");
+    let parsed = common::parsed(path, date);
     let root = work_roots(parsed).pop().expect("the file holds one title");
     dataset
         .add_expression(Expression {
@@ -548,9 +550,7 @@ fn should_print_the_statements_it_could_not_place_when_the_command_runs() {
     let path = format!("{}/redesignations.json", env!("CARGO_TARGET_TMPDIR"));
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
-        dataset
-            .add_uslm_xml(file, date, None)
-            .expect("title 26 should load");
+        common::add_uslm_xml(&mut dataset, file, date);
     }
     // The bill as well, because the command reads it from the dataset rather
     // than from a file beside it (#196).
@@ -613,9 +613,7 @@ fn merging_run() -> &'static (String, String) {
         );
         let mut dataset = Dataset::new(DatasetMetadata::default());
         for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
-            dataset
-                .add_uslm_xml(file, date, None)
-                .expect("title 26 should load");
+            common::add_uslm_xml(&mut dataset, file, date);
         }
         dataset
             .load_bill_download(&committed_bill_download())
@@ -754,9 +752,7 @@ fn should_change_the_database_in_place_when_redesignations_is_given_sqlite() {
 
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
-        dataset
-            .add_uslm_xml(file, date, None)
-            .expect("title 26 should load");
+        common::add_uslm_xml(&mut dataset, file, date);
     }
     dataset
         .load_bill_download(&committed_bill_download())
@@ -872,22 +868,33 @@ fn release_pair(
     (read(BEFORE), read(AFTER))
 }
 
+/// The whole corpus's redesignations, resolved against every title they name,
+/// once for the whole file: what the bill states, and the report.
+///
+/// Two cases read the sweep, and it parses seven titles at two release points.
+/// Only the report is kept, so the parsed titles do not stay in memory.
+fn corpus_sweep() -> &'static (Vec<StatedRedesignation>, RedesignationReport) {
+    static SWEEP: OnceLock<(Vec<StatedRedesignation>, RedesignationReport)> = OnceLock::new();
+    SWEEP.get_or_init(|| {
+        let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
+        let per_work: Vec<RedesignationReport> = TITLES_NAMED
+            .iter()
+            .map(|file| {
+                let (earlier, later) = release_pair(file);
+                resolve(&stated, &earlier, &later)
+            })
+            .collect();
+        (stated, RedesignationReport::across_works(per_work))
+    })
+}
+
 /// The whole corpus's redesignations, resolved against every title they name.
 ///
 /// This is the number the issue asks for: how many of the statements in the
 /// corpus become links, and how many are reported instead.
 #[test]
 fn should_resolve_most_of_the_corpus_and_report_the_rest() {
-    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-
-    let per_work: Vec<RedesignationReport> = TITLES_NAMED
-        .iter()
-        .map(|file| {
-            let (earlier, later) = release_pair(file);
-            resolve(&stated, &earlier, &later)
-        })
-        .collect();
-    let report = RedesignationReport::across_works(per_work);
+    let (stated, report) = corpus_sweep();
 
     // What the sweep found, printed so the numbers in the pull request can be
     // read straight off a run.
@@ -933,7 +940,7 @@ fn should_resolve_most_of_the_corpus_and_report_the_rest() {
         .iter()
         .map(|u| (u.amendment_id.as_str(), u.text.as_str()))
         .collect();
-    for statement in &stated {
+    for statement in stated {
         let key = (statement.amendment_id.as_str(), statement.text.as_str());
         assert!(
             placed.contains(&key) || named.contains(&key),
@@ -961,16 +968,7 @@ fn should_resolve_most_of_the_corpus_and_report_the_rest() {
 /// move are one link, so the links are the renumberings less what merged (#220).
 #[test]
 fn should_count_statements_links_and_unplaced_statements_when_it_sweeps_the_corpus() {
-    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-
-    let per_work: Vec<RedesignationReport> = TITLES_NAMED
-        .iter()
-        .map(|file| {
-            let (earlier, later) = release_pair(file);
-            resolve(&stated, &earlier, &later)
-        })
-        .collect();
-    let report = RedesignationReport::across_works(per_work);
+    let (_, report) = corpus_sweep();
 
     assert_eq!(
         report.statements(),
@@ -1161,8 +1159,8 @@ fn should_shorten_the_clause_when_it_reports_a_statement_it_could_not_place() {
     // `119-hr-1` runs past six thousand characters. Printed in full, nineteen of
     // these buried the ten real lines of a rebuild's output.
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let earlier = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
-    let later = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+    let earlier = common::parsed(TITLE_26_BEFORE, BEFORE);
+    let later = common::parsed(TITLE_26_AFTER, AFTER);
 
     let report = resolve(&stated, &earlier, &later);
 
@@ -1201,8 +1199,8 @@ fn should_name_the_bill_and_all_three_counts_when_it_summarises_a_sweep() {
     // was recorded (#164). The count of statements is the third number, which
     // the type could not give until #166.
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let earlier = parse(TITLE_26_BEFORE, BEFORE).expect("title 26 should parse");
-    let later = parse(TITLE_26_AFTER, AFTER).expect("title 26 should parse");
+    let earlier = common::parsed(TITLE_26_BEFORE, BEFORE);
+    let later = common::parsed(TITLE_26_AFTER, AFTER);
 
     let report = resolve(&stated, &earlier, &later);
 

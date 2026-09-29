@@ -13,17 +13,15 @@
 //! Every case here is read out of the committed corpus: the public law
 //! `119-hr-1` and the two committed release points.
 
+mod common;
+
 use std::collections::HashMap;
 use std::process::Command;
 
 use words_to_data::congress::BillDownload;
-use words_to_data::dataset::{
-    Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, adjacent_expressions,
-    work_roots,
-};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format, adjacent_expressions};
 use words_to_data::inspect;
 use words_to_data::storage::InMemoryStorage;
-use words_to_data::uslm::parser::parse;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -59,17 +57,7 @@ fn committed_bill_download() -> BillDownload {
 
 /// Put one release-point file, as it read on one date, into the dataset.
 fn add_release_point(dataset: &mut Dataset<InMemoryStorage>, file: &str, date: &str) {
-    let parsed = parse(file, date).expect("the release point should parse");
-    for root in work_roots(parsed) {
-        let work = WorkId::new(root.data.path.to_string());
-        dataset
-            .add_expression(Expression {
-                id: ExpressionId::new(work, date),
-                label: None,
-                root,
-            })
-            .expect("the expression should store");
-    }
+    common::add_uslm_xml(dataset, file, date);
 }
 
 /// A dataset grown in the organic order: a release point, the bill, and then

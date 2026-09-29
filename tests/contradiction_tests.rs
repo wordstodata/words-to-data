@@ -22,17 +22,18 @@
 //! committed release points. The two-window cases need the third release point,
 //! `2025-08-14`, which is why it is vendored.
 
+mod common;
+
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::OnceLock;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
-    Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, adjacent_expressions, work_roots,
+    Dataset, DatasetMetadata, ExpressionId, WorkId, adjacent_expressions,
 };
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
-use words_to_data::uslm::parser::parse;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -90,17 +91,9 @@ fn dataset_over(dates: &[&str], titles: &[&str], recorded: Recorded) -> Dataset<
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for date in dates {
         for name in titles {
-            let parsed = parse(&title(name, date), date).expect("the title should parse");
-            for root in work_roots(parsed) {
-                let work = WorkId::new(root.data.path.to_string());
-                dataset
-                    .add_expression(Expression {
-                        id: ExpressionId::new(work, *date),
-                        label: None,
-                        root,
-                    })
-                    .expect("the expression should store");
-            }
+            // Parsed once for the file: both two-window fixtures read the same
+            // fifteen files.
+            common::add_uslm_xml(&mut dataset, &title(name, date), date);
         }
     }
     dataset

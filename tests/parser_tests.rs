@@ -1,4 +1,6 @@
 use rstest::rstest;
+mod common;
+
 use words_to_data::document::DocumentNode;
 use words_to_data::uslm::UslmFacts;
 use words_to_data::uslm::parser::{parse, parse_from_str, parse_with_report};
@@ -171,8 +173,7 @@ fn test_parse_from_str_should_produce_same_result_as_parse() {
 
 #[test]
 fn test_parse_text_fields() {
-    let result = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("failed to load XML");
+    let result = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
     let s174b = result
         .find("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_b")
         .expect("Failed to find S174(b)");
@@ -190,8 +191,7 @@ fn walk<'a>(element: &'a DocumentNode, out: &mut Vec<&'a DocumentNode>) {
 
 #[test]
 fn should_exclude_quoted_amendment_text_when_it_carries_no_quoted_content_wrapper() {
-    let doc = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Error running parser");
+    let doc = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let mut all = Vec::new();
     walk(&doc, &mut all);
@@ -220,8 +220,7 @@ fn should_exclude_quoted_amendment_text_when_it_carries_no_quoted_content_wrappe
 
 #[test]
 fn should_keep_the_real_provision_when_quoted_text_shares_its_number() {
-    let doc = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Error running parser");
+    let doc = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let mut all = Vec::new();
     walk(&doc, &mut all);
@@ -264,8 +263,7 @@ fn should_drop_a_real_provision_the_publisher_nested_inside_a_quoted_block() {
     //
     // If this test starts failing, the parser has begun keeping it. That may be
     // right, but it is a change of decision and wants saying out loud.
-    let doc = parse("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30")
-        .expect("Error running parser");
+    let doc = common::parsed("tests/test_data/usc/2025-07-30/usc26.xml", "2025-07-30");
 
     let mut all = Vec::new();
     walk(&doc, &mut all);
