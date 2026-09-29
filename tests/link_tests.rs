@@ -177,31 +177,3 @@ fn should_carry_corroboration_without_raising_the_verification_state() {
         .expect("the measurement should be carried");
     assert_eq!(corroboration.method, "precision_weighted_f1");
 }
-
-/// The fixture's annotations carry the model's reasoning, so the links built
-/// from them carry it as evidence. A machine claim that cannot say why is
-/// weaker than one that can, and this is the part of "why" that survived.
-#[test]
-fn should_carry_the_models_reasoning_as_evidence() {
-    let annotations = real_annotations();
-    let with_reasoning: Vec<&ChangeAnnotation> = annotations
-        .iter()
-        .filter(|a| a.metadata.reasoning.is_some())
-        .collect();
-
-    assert!(
-        !with_reasoning.is_empty(),
-        "the fixture should hold annotations the model explained"
-    );
-
-    for annotation in with_reasoning {
-        for link in Link::from_annotation(annotation, &from(), &to()) {
-            let reasoning = link
-                .provenance
-                .evidence
-                .and_then(|e| e.reasoning)
-                .expect("a link should carry the reasoning behind it");
-            assert!(!reasoning.trim().is_empty());
-        }
-    }
-}

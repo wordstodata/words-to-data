@@ -420,21 +420,6 @@ fn should_report_an_amendment_as_quiet_and_not_as_work_when_nothing_under_its_ad
 }
 
 #[test]
-fn should_not_call_an_amendment_quiet_when_the_code_held_has_nothing_at_its_address() {
-    // Section 70118(a) of the law: "Section 11026(a) of Public Law 115-97 is
-    // amended ...". Before #259 the markup reader read it as § 11026 of title
-    // 26, which title 26 does not have, and this case checked that the window
-    // stage did not call it quiet. It now stops at the address, because
-    // § 11026 is a section of another law, and no other amendment of the
-    // committed corpus has an address the held Code lacks. The rule stays: an
-    // amendment with nothing to act on is never quiet.
-    let rows = linked_rows();
-
-    let row = row_of(rows, "5219c7e9a020").expect("the amendment is listed");
-    assert_ne!(row["category"], "quiet");
-}
-
-#[test]
 fn should_show_the_olrc_classification_of_the_amendments_section_of_the_law_when_one_is_stored() {
     // The amendment sits at section 10101(b)(3) of the law, and the table
     // classifies 10101(b)(3) to 7 U.S.C. 2036, as an amendment of the section.

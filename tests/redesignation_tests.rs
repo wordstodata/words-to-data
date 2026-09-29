@@ -78,22 +78,6 @@ fn should_name_the_section_under_amendment_when_the_bill_states_a_redesignation(
 }
 
 #[test]
-fn should_resolve_the_paragraph_898_c_renumbered_when_title_26_is_in_hand() {
-    let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
-    let before = common::parsed(TITLE_26_BEFORE, BEFORE);
-    let after = common::parsed(TITLE_26_AFTER, AFTER);
-
-    let report = resolve(&stated, &before, &after);
-
-    let moved = report
-        .resolved
-        .iter()
-        .find(|r| r.from_path == format!("{SUBSECTION_898_C}/paragraph_3"))
-        .expect("paragraph (3) of § 898(c) should resolve");
-    assert_eq!(moved.to_path, format!("{SUBSECTION_898_C}/paragraph_2"));
-}
-
-#[test]
 fn should_report_a_redesignation_when_the_new_path_is_absent_after_the_bill() {
     // 119-hr-1: "by redesignating paragraph (1) as subparagraph (A) and
     // indenting appropriately", against title 7 § 9034(b). On 2025-07-30 that

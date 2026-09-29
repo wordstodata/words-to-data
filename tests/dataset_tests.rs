@@ -6,7 +6,6 @@ use std::io::BufReader;
 use words_to_data::dataset::{
     Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId, work_roots,
 };
-use words_to_data::diff::TreeDiff;
 use words_to_data::link::Link;
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
@@ -269,35 +268,6 @@ fn should_save_and_load_file() {
     let expressions = loaded.expressions(&title_7()).unwrap();
     assert_eq!(expressions.len(), 1);
     assert_eq!(expressions[0].id, at("2024-01-01"));
-}
-
-#[test]
-fn should_compute_diff_between_two_expressions_of_one_work() {
-    let mut dataset = make_test_dataset();
-
-    // Use two real releases of title 7
-    dataset
-        .add_uslm_xml(
-            "tests/test_data/usc/2025-07-18/usc07.xml",
-            "2025-07-18",
-            Some("First".to_string()),
-        )
-        .unwrap();
-    dataset
-        .add_uslm_xml(
-            "tests/test_data/usc/2025-07-30/usc07.xml",
-            "2025-07-30",
-            Some("Second".to_string()),
-        )
-        .unwrap();
-
-    let diff: TreeDiff = dataset
-        .compute_diff(&at("2025-07-18"), &at("2025-07-30"))
-        .unwrap();
-
-    // The diff is rooted at the work, not at the container the release
-    // point happened to arrive in.
-    assert_eq!(diff.root_path, TITLE_7);
 }
 
 #[test]

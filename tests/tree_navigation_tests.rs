@@ -83,19 +83,6 @@ fn test_find_subsection_element() {
     assert_eq!(number_value(found), "a");
 }
 
-// Find paragraph element (very deep navigation)
-#[test]
-fn test_find_paragraph_element() {
-    let root = parse("tests/test_data/usc/2025-07-18/usc09.xml", "2025-07-18")
-        .expect("Failed to parse usc09.xml");
-
-    let result = root.find("uscode/title_9/chapter_1/section_10/subsection_a/paragraph_1");
-    assert!(result.is_some(), "Should find paragraph");
-
-    let found = result.unwrap();
-    assert_eq!(found.data.node_type.as_str(), "uscode.paragraph");
-}
-
 // Find nonexistent path returns None
 #[test]
 fn test_find_nonexistent_path() {

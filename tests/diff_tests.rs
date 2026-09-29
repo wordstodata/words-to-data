@@ -10,6 +10,8 @@ use words_to_data::{
 
 const PL_XML_PATH: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 
+/// The website shows this diff of § 174(a) in its "Compute a Diff Between
+/// Versions" example. If this fails, update that section in index.html.
 #[test]
 fn test_diff_generation_26() {
     let doc_old = common::parsed("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18");
