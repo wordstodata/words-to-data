@@ -1,738 +1,194 @@
-# Words To Data - Convert Legal Documents Into Diffable Data Structures
+# words-to-data
 
-[![CI](https://github.com/Scronkfinkle/words-to-data/actions/workflows/ci.yml/badge.svg)](https://github.com/Scronkfinkle/words-to-data/actions/workflows/ci.yml)
+**The U.S. Code, and the laws that change it, as a dataset with evidence behind every link.**
 
-## Overview
+words-to-data reads the Code as the Office of the Law Revision Counsel publishes it,
+release point by release point, and the public laws that amend it. It records
+**which amendment made which change**, and it keeps the reason for each record. Then
+a person or an agent can ask what a law did, check the answer against the words,
+and correct it.
 
-`words_to_data` parses US Code titles and Public Laws (bills) from USLM XML format, providing structured access to legislative text, the ability to track what changed between two readings of one document, and tools for annotating how bills amend existing law.
-
-Written in Rust.
-
-## Features
-
-- **Dataset-centric workflow** - Manage legal documents, bills, and annotations in a single structure
-- **Work-scoped storage** - A document is keyed by what it is and when it was published, so documents that share no release cycle can sit in one dataset
-- **Parse USC and Public Law documents** - Extract hierarchical structure from USLM XML files
-- **Rich text content** - Capture heading, chapeau, proviso, content, and continuation fields
-- **Bill amendment extraction** - Identify USC references and amending actions from bills
-- **Hierarchical diffing** - Compute word-level differences between two expressions of one work
-- **Congress data integration** - Fetch bill metadata and text from Congress.gov API
-- **Court opinions** - Store an opinion from CourtListener beside the statutes it construes, as one node, with the field its text came from recorded
-- **U.S. Code citations as links** - Read the citations out of an opinion's text and record each as a `judicial.cites` link, with the matched text as evidence
-
-## Installation
-
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-words-to-data = "0.3.0"
-```
-
-## Getting Data
-- Title data: https://uscode.house.gov/download/download.shtml
-- Bill data: https://congress.gov
-
-## Build a Dataset: The Five Steps
-
-Five commands turn an empty directory into a finished dataset. Run them in this
-order:
+No language model decides anything in the pipeline. An amendment is placed from
+the publisher's own markup, the OLRC's classification tables, and the words the law
+quotes. What the rules cannot place is listed as work with the reason it stopped,
+and an agent or a person finishes it through commands that refuse a change that
+did not happen.
 
 ```
-build-dataset → add-classifications → link-by-evidence → [redesignations] → convert-dataset
+$ words_to_data search dataset.sqlite "software development" --work uscode/title_26 --at 2025-07-30
+uscode/title_26@2025-07-30  …/part_VI/section_174A/subsection_d/paragraph_3  [heading]
+    Software development
+
+$ words_to_data annotations dataset.sqlite --bill 119-hr-1 --path …/part_VI/section_174A
+  [Pending] uscode/title_26 2025-07-18 -> 2025-07-30  insert 119-hr-1 amd 2841e731435d
+      (a) In General.-Part VI of subchapter B of chapter 1 is amended by inserting after section 174 …
+      link 7cdb05c5323a  …/part_VI/section_174A  [quoted_words]
 ```
 
-**No step calls a model.** The old pipeline had three more commands:
-`extract-changes`, `score-amendments` and `match-amendments`. Two of them sent
-requests to a model. They were removed in #252, and `link-by-evidence` does
-their work from the bill's own markup
-(`docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`). A
-dataset built before #252 keeps the model links and the model replies it holds,
-and every reader still reads them (`docs/adr/0005`).
+## Install
 
-A dataset that missed a step used to look complete. One rebuild wrote 889
-`legislature.amended_by` links and no redesignation links at all, and nothing
-reported it (#150).
-
-The file now records **which method, at which version, ran over which window**,
-for the two steps that write statements into a window — step 3 and step 4
-(#182). It records the method and not the command: "`redesignations` has run
-here" stays true for ever while the reading behind it changes underneath. `info`
-prints it under **Methods run**, one line for each method and window, with the
-number of works that line covers. A run is recorded once per work, so the record
-holds one entry per work: `info --json` carries every one of them as
-`method_runs`, and a reader that wants the works by name reads them there.
-
-Build the CLI first:
-
-```bash
-cargo build --release
-# The binary is target/release/words_to_data
+```
+cargo install words-to-data
 ```
 
-### What each step costs
+This installs one binary, `words_to_data`. Every tool is a subcommand. The library
+is the same crate; use `default-features = false` for the library alone.
 
-| Step | Calls a model | Cache | A second run costs |
-| --- | --- | --- | --- |
-| 1. `build-dataset` | no | `<user cache dir>/words_to_data` | bandwidth, on a cache miss |
-| 2. `add-classifications` | no | `<user cache dir>/words_to_data` | nothing, while the cache holds the pages |
-| 3. `link-by-evidence` | no | not applicable | nothing |
-| 4. `redesignations` (for a re-run only) | no | not applicable | nothing |
-| 5. `convert-dataset` | no | not applicable | nothing |
+Two keys are read from the environment when they are needed:
 
-### Step 1 — `build-dataset`
+| variable | needed for |
+| --- | --- |
+| `CONGRESS_API_KEY` | loading bills, votes and members (`build-dataset --bills`, `add-bills`). Get one at <https://api.congress.gov/sign-up/> |
+| `COURTLISTENER_API_KEY` | loading court opinions (`add-opinions`) |
 
-```bash
-words_to_data build-dataset \
-  --uslm-dates 2025-07-18,2025-07-30 \
-  --bills 119-hr-1 \
-  dataset.json
+Everything fetched is cached, by default under your user cache directory, so a
+second build reads from disk. `--offline` reads only the cache.
+
+## Build a dataset
+
 ```
+# 1. Release points of the Code, and the laws you care about.
+#    build-dataset writes compact JSON; convert it to SQLite to work on it.
+words_to_data build-dataset dataset.json \
+    --uslm-dates 2025-07-18,2025-07-30,2025-08-14 \
+    --bills 119-hr-1
+words_to_data convert-dataset dataset.json          # writes dataset.sqlite
 
-The output path is positional, and it is the last argument here. `--bills` needs
-the `CONGRESS_API_KEY` environment variable. Get a key from
-https://api.congress.gov/sign-up/. `--offline` reads the release points and the
-Congress responses only from the cache, and needs no key.
-
-This step downloads each release point and keeps it in a cache. The default cache
-directory is `<user cache dir>/words_to_data`, which is `~/.cache/words_to_data`
-on Linux. Use `--cache-dir` for a different directory. The extracted files of one
-release point use approximately 660 MB of disk. A later build reads the cache and
-downloads nothing.
-
-**This step records redesignations, after it has loaded everything.** Loading a
-bill loads a bill; the renumberings it states are recorded by an explicit step
-over a named window, and this command runs that step itself once every release
-point and every bill is in (#181). At that point it knows every window it made,
-which is the knowledge it did not have while it was loading. Over the two
-committed release points, `build-dataset` writes **80**
-`legislature.redesignated_as` links. Check the number with
-`words_to_data info dataset.json`.
-
-A dataset that **grew** instead of being built has to be given that step by
-hand, with step 4. `words_to_data validate` names each bill and window that is
-waiting for it.
-
-### Step 2 — `add-classifications`
-
-```bash
-words_to_data add-classifications dataset.json --output dataset-classified.json
-```
-
-This step stores the OLRC's classification of each public law the dataset holds,
-as `olrc.classified_from` links. Step 3 reads them as evidence, and never as the
-reason for a link. See [What the OLRC classified](#what-the-olrc-classified--add-classifications)
-below.
-
-### Step 3 — `link-by-evidence`
-
-```bash
-# A SQLite dataset is changed in place.
-words_to_data link-by-evidence dataset.sqlite
-
-# A compact JSON dataset must be told where to write.
-words_to_data link-by-evidence dataset.json --output dataset-linked.json
-```
-
-This step links each amendment of every public law to the change it made, from
-the address the bill's markup names, the window after the law's enactment, and
-the words the bill quotes. It writes each link as `legislature.amended_by`. It
-takes no span: it reads every window after each law's enactment. Over the
-committed corpus it links **480** of the **603** amendments of `119-hr-1`, as
-**1214** links. See [Matching with no model](#matching-with-no-model--link-by-evidence)
-below, and `residue` for the amendments it did not link.
-
-### Step 4 — `redesignations` (for a grown dataset, or a re-run)
-
-Step 1 runs this same step over every window it made, so the ordinary build path
-does not include this command. Run it when the dataset **grew**: a release point
-added after a bill makes a window nothing has been resolved against, and
-`words_to_data validate` names each bill and window that is waiting. Run it also
-to record the redesignations again without a rebuild — after a change to the
-reader, for example — or to see the report for one named bill.
-
-```bash
-# A SQLite dataset is changed in place.
-words_to_data redesignations dataset.sqlite \
-  --bill-id 119-hr-1 \
-  --between 2025-07-18 2025-07-30
-
-# A compact JSON dataset must be told where to write.
-words_to_data redesignations dataset.json \
-  --bill-id 119-hr-1 \
-  --between 2025-07-18 2025-07-30 \
-  --output dataset-redesignated.json
-```
-
-This step takes either form as well, under the same rule as step 3.
-
-`--bill-id` names which bill in the dataset to read. The command reads that
-bill's own document, which step 1 stored, so nothing opens the Congress cache a
-second time. A clause inside "in subsection (a)--" is about a different
-provision from the same clause outside it, and the stored bill holds that
-nesting. `docs/adr/0009-a-source-is-parsed-once-a-bill-is-a-document.md` records
-the decision.
-
-The command prints each statement that it cannot place. A statement that no
-reader can turn into two paths is recorded, and never dropped.
-
-**The link total it prints is the total the dataset holds.** One bill can state
-one move in two clauses — `119-hr-1` does at 26 U.S.C. 163(j), in § 70341(a) and
-§ 70341(c) — and a link is identified by what it says, so the two statements are
-one link. Where that happens the command says how many renumberings merged, and
-that no write was lost. A count that falls with no word about why reads as a lost
-write, and a merge and a lost write need different work
-([#220](https://github.com/wordstodata/words-to-data/issues/220)).
-
-**A statement is recorded in one window.** This command is told which windows
-to try, with `--between` or `--from`/`--to`, and step 1 names every window the
-dataset holds. Of those, a statement is recorded in the first that ends after
-the law's enactment and in which the text under the statement's container
-changed ([#172](https://github.com/wordstodata/words-to-data/issues/172)). A
-later window that shows a change too is named for review and holds no link. A
-dataset built before that rule places many moves twice, and `contradictions`
-finds those.
-
-### Step 5 — `convert-dataset`
-
-```bash
-words_to_data convert-dataset dataset.json dataset.sqlite
-```
-
-The output argument is positional and optional. Without it, the command swaps the
-extension of the input. The direction comes from the two extensions.
-
-**Every step takes either form now** (#180, #195, #199). Step 1 always writes
-compact JSON, whatever the output name. Steps 2, 3 and 4 read or write either
-form, and a dataset they change is changed in place. So convert as soon as step
-1 is done, and let the rest of the pipeline work on the database.
-
-### What the finished dataset holds
-
-`words_to_data info dataset.json` reports the links of each kind. A complete run
-gives three kinds:
-
-- `legislature.redesignated_as`, from step 1. The committed corpus gives 80.
-- `olrc.classified_from`, from step 2. The three committed release points give 673.
-- `legislature.amended_by`, from step 3. The three committed release points give 1214.
-
-A count of zero for `legislature.redesignated_as` says that step 1 did not record
-them. A count of zero for `olrc.classified_from` says that step 2 did not run. A
-count of zero for `legislature.amended_by` says that step 3 did not run.
-
-`info` also carries one line of renumbering counts, in this shape:
-
-```text
-Renumbering: 57 statement(s), 80 link(s), 17 not placed
-```
-
-Three numbers that measure three different things, and a reader adds none of
-them: one clause can state fourteen renumberings. The last one is what the
-corpus said and this build could not turn into two paths. The figures above are
-`119-hr-1` measured over the seven titles it renumbers provisions in.
-
-### What this build could not place — `redesignation-report`
-
-```bash
-words_to_data redesignation-report dataset.json
-words_to_data redesignation-report dataset.json --bill-id 119-hr-1 --json
-```
-
-Read-only, and it takes either form. One row for each link, and one row for each
-statement no reader placed. The weakest come first: the statements nothing
-placed at all, then the placed ones from the least corroborated upwards, so a
-reviewer reads the doubtful handful first.
-
-Each row says which bill, where in the bill the words sit, which amendment, the
-clause, which reader read it, whether it was placed, the reason when it was not,
-the two paths when it was, the window the link came from, and the corroboration
-figure. `--json` is what an agent reads, and the rows are stable, so two runs
-over one dataset give one answer.
-
-The window matters as soon as a dataset holds more than one. One method run over
-two windows can place one move twice, and without the window the two rows are the
-same row with two scores.
-
-**It reads the dataset and nothing else** — no XML, and no model call. Nothing
-about an unplaced statement is stored beside the links, because the words and
-the path are already in the bill's own document and a stored row would go stale:
-the same bill leaves 31 statements unplaced against title 26 alone and 17
-against the whole Code.
-
-### More than one link about one thing — `contradictions`
-
-```bash
-words_to_data contradictions dataset.sqlite
-words_to_data contradictions dataset.sqlite --json
-```
-
-Read-only. It lists every subject the dataset holds more than one link about, in
-two categories, because they are two different facts:
-
-* **Duplication** — same subject, same object, links in **more than one window**.
-  One method, run over two windows, placed one move twice.
-* **Disagreement** — same subject, a **different** object. Two links that cannot
-  both be true.
-
-```text
-Links read:   111
-Duplication:  47 subject(s)
-Disagreement: 0 subject(s)
-
-Duplication — one subject, one object, links in more than one window:
-  uscode/title_26/…/section_45X/subsection_c/paragraph_6/subparagraph_R [legislature.redesignated_as]
-    2025-07-18 -> 2025-07-30  rule:bill_redesignation [amendingAction type=redesignate@1]  corroboration 1.00
-      -> uscode/title_26/…/section_45X/subsection_c/paragraph_6/subparagraph_S
-    2025-07-30 -> 2025-08-14  rule:bill_redesignation [amendingAction type=redesignate@1]  corroboration 0.48
-      -> uscode/title_26/…/section_45X/subsection_c/paragraph_6/subparagraph_S
-```
-
-Every kind is grouped by the same rule, including a kind this build has never
-seen. Grouping happens within one kind: an opinion citing a section and a bill
-renumbering it say different things about one path.
-
-**It writes nothing.** The contradiction is computed from what the dataset
-already says, the links coexist, and none is stamped, preferred or deleted.
-Which link to keep is a separate and open question, so nothing is ordered by the
-corroboration figure — on a measured corpus the false link scored higher in five
-pairs out of 64, worst case 0.22 against 0.71.
-
-### Growing a dataset — `add-release-points`
-
-A dataset does not have to be built again when one more release point comes out.
-
-```bash
-# A SQLite dataset grows in place.
-words_to_data add-release-points dataset.sqlite --uslm-dates 2025-08-13
-
-# A compact JSON dataset must be told where to write.
-words_to_data add-release-points dataset.json --uslm-dates 2025-08-13 \
-  --output dataset-2025-08-13.json
-```
-
-**A compact JSON dataset is never written back over its input.** The file is
-written whole, so a write that stopped part way would destroy the dataset it was
-growing, together with every model call in it. A run without `--output` therefore
-refuses and says so. A SQLite dataset grows in place, under a transaction, which
-is the store giving the guarantee the JSON form cannot. `add-opinions` follows
-the same rule.
-
-The command reads the same mirror and the same cache as step 1, and `--offline`
-reads only the cache. It adds release points and runs no step over them, so it
-ends by naming each window it made and what that window holds. A window holding
-no link has had no step run over it, **or** had one that found nothing. The two
-are now told apart by the record of what ran: a window that a method covered
-holds a `method_runs` entry naming that method and its version, whether or not
-the method found anything to write (#182).
-
-**Run the window steps again after the dataset grows.** Step 4 takes a
-`--between` span, and the run names the span to give it. Step 3 takes no span,
-and the run names it too. A redesignation is recorded by a step over a named
-window, so a bill in a dataset that grew holds no link into the new window until
-step 4 runs over it (#181).
-
-**`validate` says which of those steps is outstanding, for redesignations.** It
-names each bill and window where the bill states renumberings, the window could
-hold them, and the dataset holds no link — and it prints the command that closes
-the gap. It says nothing about a statement no reader could place, because that is
-finished work with a reason rather than a step nobody has run (#183). The list is
-read out of the links the dataset holds, and nothing is stored.
-
-### Adding a law — `add-bills`
-
-A dataset does not have to be built again when a new law is enacted.
-
-```bash
-# A SQLite dataset changes in place.
-words_to_data add-bills dataset.sqlite --bills 119-s-1071,119-hr-998
-
-# A compact JSON dataset must be told where to write.
-words_to_data add-bills dataset.json --bills 119-s-1071 --output dataset-ndaa.json
-```
-
-Each bill is loaded as `build-dataset --bills` loads it, because both commands
-use one function. The bill, its public-law document, its sponsors, its House
-votes and their members are stored, and the renumbering statements of the bill
-are recorded over every window the dataset holds. A dataset built with a bill and
-a dataset that took the bill afterwards are the same dataset.
-
-`--bills` needs `CONGRESS_API_KEY`. `--offline` reads only the cache and needs no
-key. A bill, vote or member that the cache has not got stops the run by name.
-Every bill is fetched before any is stored, so a run that stops does not change
-the dataset. A bill that the dataset holds already is not added again, and the
-run says so.
-
-`add-bills` runs no other step. It ends by naming `add-classifications`,
-`link-by-evidence` and `residue --bill <id>` for the bills it added.
-
-### What the OLRC classified — `add-classifications`
-
-The Office of the Law Revision Counsel publishes, for each session of Congress,
-which Code section each section of a public law was classified to, and the kind
-of change. This command stores that table for every public law a dataset holds,
-as `olrc.classified_from` links. It calls no model.
-
-```bash
+# 2. The OLRC's classification of each law it holds.
 words_to_data add-classifications dataset.sqlite
-```
 
-Each link says: this Code section (the subject, as its structural path) was
-classified from this section of the law (`olrc.classification:119-21:71301(a)`).
-It is `Asserted`, its source names the table page, and its payload holds the
-table's description (`new`, `nt new`, blank for amended, and the rest). The table
-stops at the section, and a law it does not list is not a law that changed
-nothing. A row the dataset cannot address is printed with its reason.
-
-The tables are fetched from the OLRC and cached. A page the cache holds is never
-fetched again, and `--offline` reads only the cache. What the table says, and how
-each row is read, is in the `words_to_data::olrc` module documentation.
-
-### Matching with no model — `link-by-evidence`
-
-This command links each amendment of every public law the dataset holds to the
-change it made, and calls no model
-(`docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`).
-
-```bash
+# 3. Link each amendment to the change it made.
 words_to_data link-by-evidence dataset.sqlite
-words_to_data link-by-evidence dataset.json --output dataset-linked.json
-```
 
-For each amendment it reads three things the dataset already holds:
-
-1. **The address.** The section, and the provision below it, that the bill's
-   markup names (`amendment-addresses` prints them). Where the markup names no
-   section, and `add-classifications` has run, the address is the one section
-   the OLRC's table classifies the amendment's section of the law to. A row
-   that classifies only a note, or the heading before a section, never gives
-   an address, and the markup's own address always wins.
-2. **The window.** The first window after the law's enactment date in which
-   something under the address changed. A later window that changed too is
-   named in the evidence, and is never a second link.
-3. **The words the bill quotes.** A struck string is in a change's before text,
-   an inserted string is in its after text, and an enacted block is the text of
-   an added provision. The changes under one section are given to the
-   amendments addressed there all together, so one amendment does not take
-   another's change. A provision edited in place can carry the edits of
-   several amendments, and each that shows words of its own there is linked
-   to it. A tie that the words cannot break is left alone.
-
-   A law's amendments act in order, and a later one can insert words inside
-   an earlier one's words. So a quoted string, or an enacted block, is also
-   read with the words that later amendments of the same law inserted taken
-   out.
-
-   A change no amendment's words place goes, by elimination, to the one
-   amendment whose address covers it, and only when that amendment's own
-   words can have made it (#274). It must be in a unit the words name —
-   *"by striking subsection (g)"* names subsection (g) — and of a kind the
-   action makes: a strike brings no new words, and an addition removes no
-   provision. A change elimination cannot place stays residue.
-
-   Common words alone — `"and"`, `", or"`, `"the"` — decide nothing, unless
-   they are all the change struck or inserted. A struck "and" shows in every
-   list whose end moved.
-
-Each change becomes one `legislature.amended_by` link, in the shape
-`match-amendments` wrote before it was removed (#252), with the method `address, window and quoted
-words@4`. Its evidence says the address and which source gave it, the window,
-how many changes the window holds under the address, how the change was chosen
-and the words that placed it, and what the OLRC classification (if
-`add-classifications` has run) says of the section. A note in the
-classification never counts.
-
-`settle <dataset> --link <id> --explain` prints these parts one to a line, and
-says when the link is one of several causes of one change. `annotations --json`
-gives each link the same parts under `links`, so an agent can pick out one kind
-of decision: `recorded.chosen` is `quoted_words`, `inside_placed_provision`,
-`renumbering` or `elimination`, `recorded.address_source` is `markup` or
-`olrc`, and `causes` counts the amendments linked to the change. A link made
-another way, by a model or by an agent through `link-amendment`, shows its
-source and its reasoning as it was written.
-
-An amendment it cannot link is not stored. The stage it stopped at, and why, is
-worked out again whenever it is asked for, because a stored reason goes false
-the moment someone links the amendment. The quoted strings are read from the
-stored bill, so a dataset built before this command existed must be rebuilt to
-carry them. When a law's own words strike or insert quoted strings and none is
-stored, the command prints a warning that names the law and says to rebuild
-the dataset with `build-dataset`. It still links, and it links fewer of that
-law's amendments.
-
-### What is left — `residue`
-
-This command lists every amendment of a public law that no
-`legislature.amended_by` link names, from any source: `link-by-evidence`, an
-agent through `link-amendment`, or `match-amendments` in a dataset built before
-that command was removed (#252). It stores nothing, so
-an amendment leaves the list as soon as a link names it.
-
-```bash
+# 4. See what is left, and check the file.
 words_to_data residue dataset.sqlite --bill 119-hr-1
-words_to_data residue dataset.sqlite --json
+words_to_data validate dataset.sqlite
 ```
 
-Each row gives the stage the evidence method stopped at (`address`, `window` or
-`resolve`), the reason, the address, the window and the changes under the
-address. It also gives the OLRC's classification of the amendment's section of
-the law, when `add-classifications` has run. Each row is in one category:
-
-- **work** — something is left to resolve. An agent starts here.
-- **unwritten** — the method links the amendment, and `link-by-evidence` has
-  not written the link.
-- **not held** — the amendment changes a table of sections, or the OLRC
-  classifies its section of the law only as a note or as the heading before a
-  section. The dataset holds none of these, so this is not a miss.
-- **quiet** — the Code holds the address, and nothing under it changed after
-  the law's enactment. Usually the dataset does not yet reach the date the
-  amendment takes effect. This is not work.
-- **reviewed: no link** — a reviewer concluded that the amendment has no
-  correct link, and recorded why. The row shows who concluded it, when, and
-  the reason. This is not work.
-
-The human output gives the counts for every row, then a screenful of rows, work
-first, and says how many it did not show. `--json` gives every row.
-
-An agent works the list with `link-amendment`. It records a link to a path that
-changed in the window, or, with `--no-link`, the conclusion that the amendment
-has no correct link. Both need the method the agent applied, as
-`name@version`:
-
-```bash
-words_to_data link-amendment dataset.sqlite --bill 119-hr-1 --amendment <id> \
-  --from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30 \
-  --path <changed path> --source agent:claude --method resolve-residue@1 \
-  --reason "<why>"
-words_to_data link-amendment dataset.sqlite --bill 119-hr-1 --amendment <id> \
-  --no-link not_held --source agent:claude --method resolve-residue@1 \
-  --reason "<why>"
-```
-
-The categories for `--no-link` are `not_held` (the change is in material the
-dataset does not hold), `not_yet_in_corpus` (it takes effect after the newest
-release point held), `no_change` (the text did not change) and `other`. A link
-records a run of the method over its window, and `info` lists it. A no-link
-conclusion names no window, so it records no run. A reviewer who disagrees
-refutes the conclusion with `settle`, and the amendment is work again.
-
-## Quick Start
-
-### Dataset Workflow
-
-The `Dataset` is the primary abstraction for working with legal documents over time. It holds expressions, bills, and annotations together.
-
-A **work** is a document as a concept, with no date: `uscode/title_26`. An **expression** is that work as it read on one date, written `uscode/title_26@2025-07-18`. A dataset is keyed by expression, so documents that share no release cycle — court opinions, state codes — sit side by side without pretending to.
-
-```rust
-use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
-use words_to_data::uslm::bill_parser::parse_bill_amendments;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let metadata = DatasetMetadata {
-        name: "Tax Code Changes".to_string(),
-        description: "Tracking Title 26 changes".to_string(),
-        author: "Author".to_string(),
-        source_urls: vec![],
-        license: "MIT".to_string(),
-        version: "1.0.0".to_string(),
-    };
-    let mut dataset = Dataset::new(metadata);
-
-    // Add documents. Each file becomes one expression per work it holds.
-    dataset.add_uslm_xml("path/to/old.xml", "2025-07-18", Some("Before".into()))?;
-    dataset.add_uslm_xml("path/to/new.xml", "2025-07-30", Some("After".into()))?;
-
-    // Add bill
-    let bill = parse_bill_amendments("119-21", "path/to/bill.xml")?;
-    dataset.add_bill(bill)?;
-
-    // Diff two expressions of one work
-    let title_26 = WorkId::new("uscode/title_26");
-    let before = ExpressionId::new(title_26.clone(), "2025-07-18");
-    let after = ExpressionId::new(title_26, "2025-07-30");
-    let diff = dataset.compute_diff(&before, &after)?;
-
-    // Navigate to specific section
-    if let Some(s174a) = diff.find("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a") {
-        for change in &s174a.changes {
-            println!("{:?}: {} → {}", change.field_name, change.old_value, change.new_value);
-        }
-    }
-
-    // Save dataset
-    dataset.save("my_dataset.json", Format::Compact)?;
-    Ok(())
-}
-```
-
-An `ExpressionId` parses from the same form it prints, so it can come straight off a command line or out of a citation:
-
-```rust
-use words_to_data::dataset::ExpressionId;
-
-let id: ExpressionId = "uscode/title_26@2025-07-18".parse()?;
-assert_eq!(id.to_string(), "uscode/title_26@2025-07-18");
-```
-
-### Download from Congress API
-
-Bills can be automatically fetched with additional metadata from the congress.gov API
-
-```rust
-use words_to_data::congress::CongressClient;
-use words_to_data::dataset::{Dataset, DatasetMetadata};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create client with API key (get from https://api.congress.gov/sign-up/)
-    let client = CongressClient::new(std::env::var("CONGRESS_API_KEY")?);
-
-    // Download bill data (XML + sponsors + members)
-    let download = client.download_bill("119-hr-1")?;
-
-    // Create dataset and load bill
-    let metadata = DatasetMetadata {
-        name: "HR 1 Analysis".to_string(),
-        description: "Tracking HR 1 amendments".to_string(),
-        author: "Author".to_string(),
-        source_urls: vec![],
-        license: "MIT".to_string(),
-        version: "1.0.0".to_string(),
-    };
-    let mut dataset = Dataset::new(metadata);
-
-    // Load bill into dataset (parses XML, stores sponsors/members)
-    let bill_id = dataset.load_bill_download(&download)?;
-    println!("Loaded bill: {}", bill_id);
-
-    // Access bill data
-    let bill = dataset.get_bill(&bill_id).unwrap();
-    println!("Amendments: {}", bill.amendments.len());
-
-    Ok(())
-}
-```
-
-## Core Concepts
-
-### Dataset
-
-The `Dataset` is the primary abstraction for working with versioned legal documents:
-
-- **DatasetMetadata**: Name, description, author, license, version
-- **WorkId**: A document as a concept, with no date — `uscode/title_26`
-- **ExpressionId**: That work as it read on one date — `uscode/title_26@2025-07-18`
-- **Expression**: One expression's tree, plus an optional label
-- **Bills**: Parsed bill data with extracted amendments
-- **Annotations**: Links diff paths to bill amendments with verification status
-
-Use `Dataset` to load documents, compute diffs, and track which amendment caused each change. Ask `works()` what documents it holds and `expressions(&work)` when each was published; `scope()` reports both together, so an empty result can be answered with "out of scope" rather than "not found".
-
-### Document nodes
-
-Documents are represented as trees of `DocumentNode` structures. Each node contains:
-
-- **NodeData**: Its path, its type, its date, its text, and where the text came from
-- **Children**: Nested child nodes forming the document hierarchy
-
-A node says nothing about which class of document it belongs to beyond its type,
-which is an open namespaced string — `uscode.section`, `judicial.opinion`. The
-facts only one class understands travel beside it in a payload the core stores and
-never reads: `words_to_data::uslm::UslmFacts` reads the US Code's,
-`words_to_data::judicial::OpinionFacts` reads a court opinion's. A whole document
-is one node where nothing has taken it apart, which is how a court opinion is
-stored. See `docs/adr/0006-a-document-node-is-class-neutral.md`.
-
-The library uses two types of paths:
-
-1. **Structural Path**: Full hierarchy including all nodes
-   Example: `uscode/title_26/subtitle_A/chapter_1/section_174`
-
-2. **USLM ID**: Official USLM identifier (excludes structural-only elements), in
-   the `uscode` payload rather than in a core field
-   Example: `/us/usc/t26/s174/a/1`
-
-### Court opinions, and the question they answer
-
-A court opinion goes into the same dataset as the statutes it construes. It is one
-work with one expression, dated the day the court filed it, holding one node. Two
-commands do the work:
-
-```bash
-# Fetch opinions from CourtListener and record their U.S. Code citations as links.
-# Needs COURTLISTENER_API_KEY; --offline reads only what is already cached.
-words_to_data add-opinions dataset.sqlite --opinions 109019,122262,406879
-
-# Which cases cite a provision, and has it moved under them since?
-words_to_data cases-citing dataset.sqlite --cites "26 U.S.C. § 174" --chain
-```
-
-The second is statutory research run backwards: not "what controls this point" but
-"Congress amended this provision — which cases construing the old text can no
-longer be relied on?" It reports the verification state of each citation link, the
-printings it can compare, and — the part that makes it honest — the period between
-the opinion and the earliest printing held, which it says nothing about:
+A dataset **grows** in place. It never needs a rebuild to take in new material:
 
 ```
-Snow v. Commissioner (judicial/opinion_109019@1974-05-13)
-  opinion text: courtlistener:opinion/109019:html_lawbox / markup / Asserted
-  cites …/section_174 — link is MachineSuggested, matched "26 U. S. C. § 174"
-    2025-07-18 → 2025-07-30: CHANGED, at 4 path(s): …
-    1974-05-13 → 2025-07-18: OUT OF SCOPE. This dataset holds no printing of the
-    cited work in that period, so it cannot say whether the provision changed in
-    it. It is not a statement that nothing changed.
+words_to_data add-release-points dataset.sqlite --uslm-dates 2026-01-23,2026-07-12
+words_to_data add-bills dataset.sqlite --bills 119-s-1071,119-hr-998
 ```
 
-With `--chain` it carries on through `legislature.amended_by` to the amendment,
-the bill, its sponsor and the roll call. See
-`docs/research/a-court-opinion-in-the-core.md` and
-`docs/adr/0008-an-opinions-text-is-one-named-field-chosen-for-fidelity.md`.
+Each command prints the steps to run next. A grown dataset gives the same links as
+a dataset built from scratch with the same material.
 
-The opinion records come from [CourtListener](https://www.courtlistener.com/),
-by Free Law Project, read through its API under its terms. The analysis above is
-ours; Free Law Project has not produced, endorsed or verified it.
+## Ask it things
 
-### Text Content Fields
+| to find | use |
+| --- | --- |
+| words anywhere in the Code, at a date, under a path | `search <ds> "<words>" --work … --at … --path …` (an empty query prints every field under a path) |
+| what changed between two release points | `diff <ds> --from <work@date> --to <work@date> [--path …]` |
+| one provision: its words, its changes, and the links on it | `path <ds> <path> --from … --to …` |
+| which amendment made a change | `annotations <ds> --bill … --path …` |
+| why a link says what it says | `settle <ds> --link <id> --explain` |
+| a law's amendments, and where each one acts | `show-bill`, `amendment-addresses` |
+| how the House voted on a bill | `votes <ds> <bill>` |
+| which court opinions cite a provision, and whether it changed after each | `cases-citing` |
+| the law's own text, such as effective dates | `search <ds> "shall apply" --work publiclawdocument_119-21` |
 
-Each node can contain up to five distinct text fields:
+Every listing is bounded to 20 rows by default and says how many it did not show.
+`--json` gives every row.
 
-- **Heading**: Section or subsection title
-- **Chapeau**: Opening text before enumerated items
-- **Proviso**: Conditional or qualifying clauses
-- **Content**: Main body text
-- **Continuation**: Text appearing after child elements
+## How a change is linked
 
-### Diffs
+A **link** is a stored statement: *this change to the Code was made by this
+amendment*. It records who made it, by which method at which version, and the
+evidence. `link-by-evidence` makes links in five stages:
 
-The `TreeDiff` structure mirrors the node hierarchy and tracks:
+1. **Classify.** The OLRC's classification tables say which Code section each part
+   of a law was classified to. `add-classifications` stores each row as a link.
+2. **Address.** The bill's own markup resolves the section each instruction acts
+   on, through the publisher's references and the enclosing clauses. The OLRC row is
+   the fallback.
+3. **Window.** The first pair of release points after the law's enactment in which
+   something under that address changed.
+4. **Resolve.** One change under the address is linked. Several are told apart by the
+   words the law quotes: struck, inserted, or enacted. A change goes to an amendment
+   only if that amendment's own words can have made it.
+5. **Residue.** Every amendment that is not linked is listed with the stage and the
+   reason it stopped. The list is derived, never stored.
 
-- **Field changes**: Word-level differences in text content fields
-- **Added nodes**: New child nodes in the newer version
-- **Removed nodes**: Nodes that existed in the older version
-- **Child diffs**: Recursive diffs for matching child nodes
+The reasons are in [`docs/adr/0013`](docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md).
 
-Diffs are computed using word-level granularity via the `similar` crate.
+## Resolving facts
 
-### Amending Actions
+A link from the pipeline is a **suggestion**. The dataset keeps the record of who
+checked it:
 
-The publisher's schema defines twelve amending actions (`uslm-2.0.17.xsd`, `AmendingActionTypeEnum`):
+- `residue <ds> --bill <bill>` is the work list:
+  - amendments that no link names;
+  - amendments whose every link was refuted;
+  - links that the current version of a method no longer makes.
+- `settle <ds> --link <id> --verdict confirmed|refuted|disputed --reviewer … --reason …`
+  records a review. A review is its own record. The link is never rewritten, and the
+  newest review stands.
+- `link-amendment` records a link that a person or an agent found. It refuses any path
+  that did not change in the window. With `--no-link` it records that an amendment
+  has no correct link, and why.
+- `info` counts every kind of link as unreviewed, confirmed, refuted or disputed.
 
-`enact`, `add`, `amend`, `substitute`, `redesignate`, `repeal`, `repealAndReserve`, `insert`, `delete`, `conform`, `noChange`, `unknown`
+Nothing is deleted. Evidence is kept once and for ever
+([`docs/adr/0005`](docs/adr/0005-evidence-is-stored-once-and-never-deleted.md)).
 
-The five public laws in the cache use six of them: `insert`, `delete`, `amend`, `add`, `redesignate`, `repeal`.
+## For agents
 
-`AmendingAction` is that list: one variant for each of the twelve values, and no value the publisher cannot emit. An action type this build does not know is reported, never dropped (#156).
+[`docs/agents/working-a-dataset.md`](docs/agents/working-a-dataset.md) is a playbook
+that any agent can follow with the command alone. It covers how to answer a question,
+how to work the residue, and how to review links. Agents that were given only this
+playbook, the binary and a dataset answered questions about recent law correctly,
+with evidence, in about twenty tool calls. The same agents worked a law's residue
+down from 55 open items to 3.
 
-## API Documentation
+## Commands
 
-Generate and view the full API documentation:
+| command | does |
+| --- | --- |
+| `build-dataset` | build a dataset from release points and, optionally, bills |
+| `add-release-points` | add release points to an existing dataset |
+| `add-bills` | add laws to an existing dataset |
+| `add-classifications` | store the OLRC's classification of each law as links |
+| `link-by-evidence` | link each amendment to the change it made |
+| `redesignations` | record the renumberings a law states |
+| `add-opinions` | add court opinions and the U.S.C. citations they make |
+| `residue` | the work list: what is not linked, what was refuted, what is outdated |
+| `settle` | review a link, or explain it with `--explain` |
+| `link-amendment` | record a link, or a no-link conclusion, that a reviewer found |
+| `search`, `diff`, `path` | read the Code's text and its changes |
+| `annotations`, `show-bill`, `amendment-addresses`, `bills`, `votes` | read laws and their links |
+| `section-agreement`, `contradictions`, `redesignation-report`, `coverage` | find links worth a second look |
+| `cases-citing` | court opinions that cite a provision |
+| `info`, `expressions`, `validate` | what a dataset holds, and whether it is consistent |
+| `convert-dataset` | compact JSON to SQLite, or the reverse |
 
-```bash
-cargo doc --open
+`words_to_data <command> --help` describes each command in full.
+
+## Concepts
+
+[`CONTEXT.md`](CONTEXT.md) is the glossary: work, expression, path, link, review,
+residue, outdated link, and the others. [`docs/adr/`](docs/adr/) records each design
+decision and why it was made. Start with
+[`0001`](docs/adr/0001-structural-paths-locate-not-identify.md) (a path locates, it
+does not identify),
+[`0004`](docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md) (a link is
+identified by what it says),
+[`0012`](docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md)
+(a review is its own record) and
+[`0013`](docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md).
+
+## Development
+
+```
+cd tests/test_data && tar xf test_files.tar.xz && cd ../..   # the test corpus is an archive
+cargo test --no-fail-fast
 ```
 
-### Development
+Without the archive extracted, about 190 tests fail on missing files. Tests use real
+committed data only. [`CLAUDE.md`](CLAUDE.md) holds the working rules, including the
+merge queue that lands every pull request.
 
-```bash
-# Run tests
-cargo test
-```
+## License
+
+MIT or Apache-2.0, at your option.
