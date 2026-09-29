@@ -1,3 +1,5 @@
+mod common;
+
 use std::fs::File;
 use std::io::BufReader;
 
@@ -10,7 +12,6 @@ use words_to_data::storage::{
     DocumentReader, InMemoryStorage, LegislatureReader, LinkReader, SqliteStorage,
 };
 use words_to_data::uslm::bill_parser::parse_bill_amendments;
-use words_to_data::uslm::parser::parse;
 
 const TEST_PATH: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_8/subparagraph_A/clause_v";
 /// Title 7 is Agriculture. It is the work every expression below belongs to.
@@ -39,7 +40,7 @@ fn make_test_dataset() -> Dataset<InMemoryStorage> {
 
 /// Title 7's tree, labelled with `date`.
 fn make_expression(date: &str, label: Option<&str>) -> Expression {
-    let parsed = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18").unwrap();
+    let parsed = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
     let root = work_roots(parsed).pop().expect("the file holds one title");
     Expression {
         id: at(date),

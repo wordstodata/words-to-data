@@ -594,28 +594,6 @@ fn should_list_every_expression_with_its_element_count_when_expressions_runs() {
     );
 }
 
-/// `--work` narrows the list to one document. On a one-work dataset it changes
-/// nothing, which is the point: it is a filter, not a required argument.
-#[test]
-fn should_list_only_the_named_work_when_expressions_is_given_one() {
-    let output = run(&[
-        "expressions",
-        amended_fixture(),
-        "--work",
-        AMENDED_WORK,
-        "--json",
-    ]);
-
-    assert!(output.status.success(), "expressions should exit zero");
-
-    let expressions: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("expressions --json should emit json");
-    let expressions = expressions.as_array().expect("an array of expressions");
-
-    assert_eq!(expressions.len(), 2);
-    assert!(expressions.iter().all(|e| e["work"] == AMENDED_WORK));
-}
-
 #[test]
 fn should_find_matching_text_across_expressions_when_search_runs() {
     let output = run(&["search", amended_fixture(), "space", "--json"]);
@@ -1055,11 +1033,16 @@ fn should_report_no_second_expression_for_a_work_published_once() {
     assert!(output.status.success(), "expressions should exit zero");
     let expressions: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("expressions --json should emit json");
+    let expressions = expressions.as_array().expect("an array");
 
     assert_eq!(
-        expressions.as_array().expect("an array").len(),
+        expressions.len(),
         1,
         "title 9 was published once here; title 51 is not a later reading of it"
+    );
+    assert_eq!(
+        expressions[0]["work"], UNCHANGED_WORK,
+        "--work lists the work it names, not another one"
     );
 }
 

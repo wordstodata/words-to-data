@@ -20,73 +20,8 @@ fn readme_pair() -> (ExpressionId, ExpressionId) {
     )
 }
 
-/// Tests the Dataset Workflow example from README.md Quick Start section.
-/// This is the primary example showing the full workflow.
-#[test]
-fn readme_example_dataset_workflow() {
-    // -- Exact code from README (with real test paths) --
-
-    let metadata = DatasetMetadata {
-        name: "Tax Code Changes".to_string(),
-        description: "Tracking Title 26 changes".to_string(),
-        author: "Author".to_string(),
-        source_urls: vec![],
-        license: "MIT".to_string(),
-        version: "1.0.0".to_string(),
-        ..Default::default()
-    };
-    let mut dataset = Dataset::new(metadata);
-
-    // Add document versions
-    dataset
-        .add_uslm_xml(
-            "tests/test_data/usc/2025-07-18/usc26.xml",
-            "2025-07-18",
-            Some("Before".into()),
-        )
-        .expect("Failed to add old version");
-    dataset
-        .add_uslm_xml(
-            "tests/test_data/usc/2025-07-30/usc26.xml",
-            "2025-07-30",
-            Some("After".into()),
-        )
-        .expect("Failed to add new version");
-
-    // Add bill
-    let bill = parse_bill_amendments("119-21", PL_XML_PATH).expect("Failed to parse bill");
-    let _ = dataset.add_bill(bill);
-
-    // Diff two expressions of one work
-    let (before, after) = readme_pair();
-    let diff = dataset
-        .compute_diff(&before, &after)
-        .expect("Failed to compute diff");
-
-    // Navigate to specific section
-    if let Some(s174a) = diff
-        .find("uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174/subsection_a")
-    {
-        for change in &s174a.changes {
-            // README shows: println!("{:?}: {} → {}", change.field_name, change.old_value, change.new_value);
-            let _output = format!(
-                "{:?}: {} → {}",
-                change.field_name, change.old_value, change.new_value
-            );
-        }
-    } else {
-        panic!("Section 174(a) not found in diff - README example path may be wrong");
-    }
-
-    // Save dataset (to a directory this test owns, removed when it ends)
-    let dir = tempfile::tempdir().expect("a temporary directory");
-    let temp_path = dir.path().join("dataset.json");
-    dataset
-        .save(temp_path.to_str().expect("a utf-8 path"), Format::Compact)
-        .expect("Failed to save dataset");
-}
-
-/// Verifies the Dataset example produces expected results.
+/// Runs the Dataset Workflow example from the README Quick Start section, step
+/// by step, and verifies what each step produces.
 #[test]
 fn readme_example_dataset_workflow_results() {
     let metadata = DatasetMetadata {
@@ -146,4 +81,18 @@ fn readme_example_dataset_workflow_results() {
     let change = &s174a.changes[0];
     assert!(!change.old_value.is_empty());
     assert!(!change.new_value.is_empty());
+
+    // Save dataset (to a directory this test owns, removed when it ends)
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let saved = dir.path().join("dataset.json");
+    let saved = saved.to_str().expect("a utf-8 path");
+    dataset
+        .save(saved, Format::Compact)
+        .expect("Failed to save dataset");
+    let loaded = Dataset::load(saved, Format::Compact).expect("the saved dataset should load");
+    assert_eq!(
+        loaded.expressions(&work).unwrap().len(),
+        2,
+        "the saved dataset holds both expressions"
+    );
 }

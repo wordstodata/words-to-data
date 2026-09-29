@@ -5,9 +5,10 @@
 //! site renders both. Code that assumes a path is unique within an expression
 //! does not fail loudly — it picks one and discards the other.
 
+mod common;
+
 use words_to_data::document::DocumentNode;
 use words_to_data::inspect::PathMatch;
-use words_to_data::uslm::parser::parse;
 
 const USC26_18: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
 const USC26_30: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
@@ -16,7 +17,7 @@ const USC26_30: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
 const DUPLICATED: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_45X/subsection_d/paragraph_4";
 
 fn title_26() -> DocumentNode {
-    parse(USC26_30, "2025-07-30").expect("Error running parser")
+    common::parsed(USC26_30, "2025-07-30")
 }
 
 #[test]
@@ -108,8 +109,7 @@ fn added_paths(diff: &words_to_data::diff::TreeDiff, out: &mut Vec<String>) {
 fn should_report_a_new_provision_that_shares_a_path_with_an_existing_one() {
     use words_to_data::diff::TreeDiff;
 
-    let before = parse("tests/test_data/usc/2025-07-18/usc26.xml", "2025-07-18")
-        .expect("Error running parser");
+    let before = common::parsed(USC26_18, "2025-07-18");
     let after = title_26();
 
     // The earlier expression holds one paragraph (4) at 45X(d); the later holds
@@ -150,12 +150,8 @@ fn title_26_both_expressions()
         version: "1.0".to_string(),
         ..Default::default()
     });
-    dataset
-        .add_uslm_xml(USC26_18, "2025-07-18", None)
-        .expect("the earlier fixture should parse");
-    dataset
-        .add_uslm_xml(USC26_30, "2025-07-30", None)
-        .expect("the later fixture should parse");
+    common::add_uslm_xml(&mut dataset, USC26_18, "2025-07-18");
+    common::add_uslm_xml(&mut dataset, USC26_30, "2025-07-30");
     dataset
 }
 
@@ -382,9 +378,7 @@ fn dataset_both_backends() -> (
         version: "1.0".to_string(),
         ..Default::default()
     });
-    memory
-        .add_uslm_xml(USC26_30, "2025-07-30", None)
-        .expect("the fixture should parse");
+    common::add_uslm_xml(&mut memory, USC26_30, "2025-07-30");
 
     let dir = tempfile::tempdir().expect("a temporary directory");
     let file = dir.path().join("dataset.sqlite");

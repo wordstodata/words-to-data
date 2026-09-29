@@ -12,6 +12,8 @@
 //! title 26 holds 57,391 of them, and a digest fails on any single one moving
 //! while staying short enough to read.
 
+mod common;
+
 use rstest::rstest;
 use words_to_data::diff::TreeDiff;
 use words_to_data::document::DocumentNode;
@@ -23,7 +25,7 @@ const LATER: &str = "2025-07-30";
 
 fn release_point(file: &str, date: &str) -> DocumentNode {
     let path = format!("tests/test_data/usc/{date}/{file}");
-    parse(&path, date).unwrap_or_else(|e| panic!("{file} at {date} should parse: {e}"))
+    common::parsed(&path, date)
 }
 
 /// Every node of a tree, root included.

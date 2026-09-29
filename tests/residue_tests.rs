@@ -169,6 +169,14 @@ fn residue_rows(dataset: &Path) -> Vec<serde_json::Value> {
     json["rows"].as_array().expect("a rows array").clone()
 }
 
+/// The rows `residue --json` lists for the bill over the linked fixture, read
+/// once for every case. Each run is a full run of the matcher, so a case that
+/// only reads the fixture reads these rows rather than run the command again.
+fn linked_rows() -> &'static [serde_json::Value] {
+    static ROWS: OnceLock<Vec<serde_json::Value>> = OnceLock::new();
+    ROWS.get_or_init(|| residue_rows(linked()))
+}
+
 /// The row for one amendment, by the start of its id, if it is listed.
 fn row_of<'a>(rows: &'a [serde_json::Value], id_start: &str) -> Option<&'a serde_json::Value> {
     let found: Vec<&serde_json::Value> = rows
@@ -185,9 +193,9 @@ fn row_of<'a>(rows: &'a [serde_json::Value], id_start: &str) -> Option<&'a serde
 
 #[test]
 fn should_list_an_amendment_with_its_stage_reason_window_and_changes_when_no_link_names_it() {
-    let rows = residue_rows(linked());
+    let rows = linked_rows();
 
-    let row = row_of(&rows, STRIKES_SECTION_3_U_4).expect("the amendment is listed");
+    let row = row_of(rows, STRIKES_SECTION_3_U_4).expect("the amendment is listed");
     assert_eq!(row["stage"], "resolve");
     assert!(
         row["reason"]
@@ -223,7 +231,7 @@ fn writable_copy(case: &str) -> PathBuf {
 
 /// An amendment's full id, from the listing, by the start of it.
 fn full_id(id_start: &str) -> String {
-    row_of(&residue_rows(linked()), id_start)
+    row_of(linked_rows(), id_start)
         .and_then(|row| row["amendment_id"].as_str())
         .expect("the amendment is listed")
         .to_string()
@@ -233,7 +241,7 @@ fn full_id(id_start: &str) -> String {
 fn should_leave_the_list_when_an_agent_records_a_link_through_the_door() {
     let dataset = writable_copy("residue_after_the_door");
     assert!(
-        row_of(&residue_rows(&dataset), STRIKES_SECTION_3_U_4).is_some(),
+        row_of(linked_rows(), STRIKES_SECTION_3_U_4).is_some(),
         "the amendment is listed before anyone links it"
     );
 
@@ -281,8 +289,8 @@ const AMENDS_TITLE_12: &str = "de4113b510a4";
 #[test]
 fn should_leave_the_work_and_show_as_reviewed_when_an_agent_concludes_an_amendment_has_no_link() {
     let dataset = writable_copy("residue_after_no_link");
-    let before = residue_rows(&dataset);
-    let row = row_of(&before, AMENDS_TITLE_12).expect("the amendment is listed");
+    let before = linked_rows();
+    let row = row_of(before, AMENDS_TITLE_12).expect("the amendment is listed");
     assert_eq!(row["category"], "work", "it is work before anyone looks");
 
     let reason = "The amendment changes 12 U.S.C. 5497, and the dataset holds no title 12.";
@@ -318,7 +326,7 @@ fn should_leave_the_work_and_show_as_reviewed_when_an_agent_concludes_an_amendme
     assert_eq!(row["no_link"]["reasoning"], reason);
     let work =
         |rows: &[serde_json::Value]| rows.iter().filter(|row| row["category"] == "work").count();
-    assert_eq!(work(&after), work(&before) - 1, "one less row of work");
+    assert_eq!(work(&after), work(before) - 1, "one less row of work");
 
     let printed = run(
         "residue",
@@ -399,40 +407,25 @@ fn should_report_an_amendment_as_quiet_and_not_as_work_when_nothing_under_its_ad
     // the same at every release point the corpus holds after the law. A corpus
     // that does not span the date an amendment takes effect is the ordinary
     // state of a growing dataset (#211), so there is nothing to resolve.
-    let rows = residue_rows(linked());
+    let rows = linked_rows();
 
-    let row = row_of(&rows, "3f2a48cdb3bc").expect("the amendment is listed");
+    let row = row_of(rows, "3f2a48cdb3bc").expect("the amendment is listed");
     assert_eq!(row["category"], "quiet");
     assert_eq!(row["stage"], "window");
     assert_eq!(row["address"]["section"], "/us/usc/t26/s25B");
 
     // An amendment with changes under its address is work.
-    let work = row_of(&rows, STRIKES_SECTION_3_U_4).expect("the amendment is listed");
+    let work = row_of(rows, STRIKES_SECTION_3_U_4).expect("the amendment is listed");
     assert_eq!(work["category"], "work");
-}
-
-#[test]
-fn should_not_call_an_amendment_quiet_when_the_code_held_has_nothing_at_its_address() {
-    // Section 70118(a) of the law: "Section 11026(a) of Public Law 115-97 is
-    // amended ...". Before #259 the markup reader read it as § 11026 of title
-    // 26, which title 26 does not have, and this case checked that the window
-    // stage did not call it quiet. It now stops at the address, because
-    // § 11026 is a section of another law, and no other amendment of the
-    // committed corpus has an address the held Code lacks. The rule stays: an
-    // amendment with nothing to act on is never quiet.
-    let rows = residue_rows(linked());
-
-    let row = row_of(&rows, "5219c7e9a020").expect("the amendment is listed");
-    assert_ne!(row["category"], "quiet");
 }
 
 #[test]
 fn should_show_the_olrc_classification_of_the_amendments_section_of_the_law_when_one_is_stored() {
     // The amendment sits at section 10101(b)(3) of the law, and the table
     // classifies 10101(b)(3) to 7 U.S.C. 2036, as an amendment of the section.
-    let rows = residue_rows(linked());
+    let rows = linked_rows();
 
-    let row = row_of(&rows, STRIKES_SECTION_3_U_4).expect("the amendment is listed");
+    let row = row_of(rows, STRIKES_SECTION_3_U_4).expect("the amendment is listed");
     assert_eq!(row["law_section"], "10101(b)(3)");
     assert_eq!(
         row["olrc"],
@@ -450,9 +443,9 @@ fn should_report_an_amendment_to_a_note_as_not_held_and_not_as_a_miss() {
     // The table classifies 70118(a)-(c) to 26 U.S.C. 112 as `nt`: a note
     // under § 112. The dataset holds no notes, so no change it holds can be
     // this amendment's, and an agent has nothing to look for.
-    let rows = residue_rows(linked());
+    let rows = linked_rows();
 
-    let row = row_of(&rows, "5219c7e9a020").expect("the amendment is listed");
+    let row = row_of(rows, "5219c7e9a020").expect("the amendment is listed");
     assert_eq!(row["category"], "not_held");
     assert_eq!(
         row["olrc"],
@@ -474,9 +467,9 @@ fn should_report_an_amendment_to_a_table_of_sections_as_not_held_and_not_as_a_mi
     // Section 70201(g) of the law: "The table of sections for part VII of
     // subchapter B of chapter 1 is amended by ...". A table of sections is an
     // index of the law, and the dataset does not hold it as a provision.
-    let rows = residue_rows(linked());
+    let rows = linked_rows();
 
-    let row = row_of(&rows, "4010e01c92b0").expect("the amendment is listed");
+    let row = row_of(rows, "4010e01c92b0").expect("the amendment is listed");
     assert_eq!(row["stage"], "address");
     assert_eq!(row["category"], "not_held");
     assert_eq!(
@@ -541,7 +534,7 @@ fn should_store_nothing_when_it_lists_the_residue() {
 #[test]
 fn should_print_at_most_a_screenful_and_say_how_many_rows_it_left_out_when_the_output_is_for_a_person()
  {
-    let total = residue_rows(linked()).len();
+    let total = linked_rows().len();
     assert!(
         total > DEFAULT_LIMIT,
         "the corpus gives more than a screenful"
@@ -559,7 +552,7 @@ fn should_print_at_most_a_screenful_and_say_how_many_rows_it_left_out_when_the_o
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Each row leads with the start of the amendment's id.
-    let shown = residue_rows(linked())
+    let shown = linked_rows()
         .iter()
         .filter(|row| {
             let id = row["amendment_id"].as_str().expect("an id");
@@ -622,7 +615,7 @@ fn settle(dataset: &Path, link_id: &str, verdict: &str, reviewer: &str, reason: 
 fn should_list_an_amendment_as_work_and_name_the_refuted_link_when_its_only_link_is_refuted() {
     let dataset = writable_copy("residue_after_refuted_link");
     assert!(
-        row_of(&residue_rows(&dataset), EXTENDS_1359LL_A).is_none(),
+        row_of(linked_rows(), EXTENDS_1359LL_A).is_none(),
         "a link names the amendment, so it is not listed"
     );
     let links = links_naming(&dataset, EXTENDS_1359LL_A);

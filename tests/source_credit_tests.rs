@@ -1,8 +1,10 @@
 //! Source credits are a USLM fact, so they read out of a node's class
 //! payload rather than out of a core field (#129).
 
+mod common;
+
 use words_to_data::document::DocumentNode;
-use words_to_data::uslm::{SourceCredit, UslmFacts, parser::parse};
+use words_to_data::uslm::{SourceCredit, UslmFacts};
 
 /// The source credits of a node, out of its USLM payload.
 fn source_credits(node: &DocumentNode) -> Vec<SourceCredit> {
@@ -13,8 +15,7 @@ fn source_credits(node: &DocumentNode) -> Vec<SourceCredit> {
 
 #[test]
 fn should_parse_single_source_credit_with_one_ref() {
-    let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18")
-        .expect("Failed to parse USC 7");
+    let element = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
 
     // Find section 1 which has a simple source credit
     let section_1 = element
@@ -46,8 +47,7 @@ fn should_parse_single_source_credit_with_one_ref() {
 
 #[test]
 fn should_parse_multiple_refs_without_semicolons() {
-    let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18")
-        .expect("Failed to parse USC 7");
+    let element = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
 
     // Find a section with multiple refs in a single source credit (no semicolons)
     let section_1b = element
@@ -71,8 +71,7 @@ fn should_parse_multiple_refs_without_semicolons() {
 
 #[test]
 fn should_split_source_credits_by_semicolons() {
-    let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18")
-        .expect("Failed to parse USC 7");
+    let element = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
 
     // Section 1a has amendments separated by semicolons
     let section_1a = element
@@ -97,8 +96,7 @@ fn should_split_source_credits_by_semicolons() {
 
 #[test]
 fn should_handle_element_with_no_source_credits() {
-    let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18")
-        .expect("Failed to parse USC 7");
+    let element = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
 
     // The root element should not have source credits
     assert!(
@@ -109,8 +107,7 @@ fn should_handle_element_with_no_source_credits() {
 
 #[test]
 fn should_extract_href_as_ref_id() {
-    let element = parse("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18")
-        .expect("Failed to parse USC 7");
+    let element = common::parsed("tests/test_data/usc/2025-07-18/usc07.xml", "2025-07-18");
 
     let section_1 = element
         .find("uscode/title_7/chapter_1/section_1")

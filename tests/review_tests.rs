@@ -12,6 +12,8 @@
 //! `docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`
 //! holds the shape and why each part of it is where it is.
 
+mod common;
+
 use std::process::Command;
 
 use words_to_data::congress::BillDownload;
@@ -58,9 +60,7 @@ fn committed_bill_download() -> BillDownload {
 fn dataset_with_real_links() -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
-        dataset
-            .add_uslm_xml(file, date, None)
-            .expect("title 26 should load");
+        common::add_uslm_xml(&mut dataset, file, date);
     }
     dataset
         .load_bill_download(&committed_bill_download())
@@ -794,9 +794,7 @@ fn should_show_the_words_at_both_ends_when_a_reviewer_asks_to_see_a_link_without
 fn dataset_with_amendment_links() -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for (file, date) in [(TITLE_26_BEFORE, BEFORE), (TITLE_26_AFTER, AFTER)] {
-        dataset
-            .add_uslm_xml(file, date, None)
-            .expect("title 26 should load");
+        common::add_uslm_xml(&mut dataset, file, date);
     }
     let json = std::fs::read_to_string("tests/test_data/processed/evidence_links.json")
         .expect("the evidence links fixture should be readable");
