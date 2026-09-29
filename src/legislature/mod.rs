@@ -11,6 +11,7 @@
 //! none of them at all.
 
 pub mod evidence_matching;
+pub mod outdated;
 pub mod redesignation;
 pub mod redesignation_window;
 pub mod residue;

@@ -176,7 +176,7 @@ What produced a statement, named and given a version: `{name, version}`. The nam
 
 A person chooses the version, and raises it when the method's answers change. A build never raises it. A hash of the method's parameters was refused, because it moves on a cosmetic edit and a number that moves for no reason is a number everybody ignores (#179, decision 10).
 
-Without the version, a method's name stays the same while its answers change underneath, and a reader cannot tell a statement this build would make again from one it would not. Comparing two methods that disagree is #184; declaring one superseded is #185, and it belongs in the Declaration.
+Without the version, a method's name stays the same while its answers change underneath, and a reader cannot tell a statement this build would make again from one it would not. Comparing two methods that disagree is #184. A Link that a newer version of a batch method no longer makes is an Outdated link, and it is derived (#185). A method retired with no newer run is not derived, and a declaration of it is deferred until someone needs it.
 
 A Corroboration names its method as a plain word, and that is deliberate. A corroboration is an arithmetic a receiver repeats for themselves, and the figure beside it is the check; if the arithmetic changes, the figure means something else and the method takes a new name, not a later version.
 _Avoid_: Algorithm, strategy, technique, model
@@ -312,6 +312,16 @@ It is stored, and it passes the test that decides what may be. "Method M at vers
 
 It carries no clock reading. The same method, at the same version, over the same window is one record, which is what keeps a rebuild idempotent. It sits in the Dataset's metadata, beside the Declaration, so both stored forms carry it without a table of its own.
 _Avoid_: Log, history, audit trail, run id
+
+**Outdated link**:
+A Link that the current version of its batch Method no longer makes. Group the Links of one batch method by Bill and by Window. In a group whose Links carry more than one version of the method, each Link below the group's newest version is outdated: the Bill was re-run at the newest version over that Window, and the re-run did not make this Link (#185).
+
+It is **derived** and never stored. A re-run re-stamps every Link it makes again with its own version, because a Link is identified by what it says, and it keeps every Link it does not make again, because evidence is never deleted. So the versions on the Links already say it (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
+
+Only a **batch** method has outdated Links: the evidence matcher and the redesignation step, which run over every Amendment of a Bill. An agent covers only the items it chose, so a newer version of an agent's method says nothing about the Links it did not make. The grouping is by Bill because a run for one Bill never touches another Bill's Links.
+
+Nothing refutes, hides or deletes an outdated Link. `residue --bill` lists each one for Review, and a reviewer decides. A confirmation says the newer version lost a right answer, which is a regression. A Link that a human confirmed stays outdated, next to the Review. A re-run that made no Link at all for a Bill in a Window leaves nothing to compare, so it misses a flag and never gives a false one.
+_Avoid_: Stale, superseded, obsolete, deprecated
 
 **Extension**:
 A named set of facts that only some datasets carry, such as the legislature facts (Bill, Sponsor, Roll call) or the judicial facts (case name, opinion type). The core data model carries no extension concept, and no document class either. A Link's kind is an open namespaced string, a Document node's type is an open namespaced string, and in both cases the facts only one namespace understands sit in a payload the core stores and never reads (Kind payload, Class payload).
