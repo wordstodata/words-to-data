@@ -8,6 +8,10 @@
 //! **It stores nothing.** The list is derived each time, so an amendment leaves
 //! it the moment a link names it, from the batch or through `link-amendment`.
 //!
+//! **It ends with the links the current method no longer makes (#185).** They
+//! are review work, not resolve work, so they are a section of their own and
+//! not rows. See [`words_to_data::legislature::outdated`].
+//!
 //! **A person sees a screenful.** The counts cover every row. The rows follow,
 //! work first, and stop at [`DEFAULT_LIMIT`] with the number left out. `--json`
 //! carries every row, in the order each bill states its amendments.
@@ -17,6 +21,7 @@ use std::collections::BTreeMap;
 use clap::Args as ClapArgs;
 use serde::Serialize;
 use words_to_data::legislature::evidence_matching::Stage;
+use words_to_data::legislature::outdated::{OutdatedLink, outdated_links};
 use words_to_data::legislature::residue::{Category, Unlinked, unlinked_amendments};
 use words_to_data::query::{Answer, DEFAULT_LIMIT};
 use words_to_data::review::short_id;
@@ -43,28 +48,36 @@ pub struct Args {
 #[derive(Serialize)]
 struct Listing {
     rows: Vec<Unlinked>,
+    /// The links the current version of their batch method no longer makes.
+    /// Review work, not resolve work, so apart from the rows.
+    outdated: Vec<OutdatedLink>,
 }
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
-    let rows = crate::fail::or_exit(
-        with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref())),
+    let (rows, outdated) = crate::fail::or_exit(
+        with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref())
+            .and_then(|rows| Ok((rows, outdated_links(&d, args.bill.as_deref())?)))),
         "Error reading the dataset's amendments",
     );
 
     if args.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&Listing { rows }).unwrap()
+            serde_json::to_string_pretty(&Listing { rows, outdated }).unwrap()
         );
         return;
     }
 
     print_counts(&rows);
-    if rows.is_empty() {
-        return;
+    if !rows.is_empty() {
+        print_queue(rows);
     }
+    print_outdated(&outdated);
+}
 
+/// The rows, work first, at most a screenful.
+fn print_queue(rows: Vec<Unlinked>) {
     let mut queue = rows;
     queue.sort_by_key(|row| queue_place(row.category));
     let total = queue.len();
@@ -80,6 +93,29 @@ pub fn run(args: Args) {
             "  … {} more row(s) not shown; pass --json for all of them",
             shown.dropped()
         );
+    }
+}
+
+/// The links the current version of their method no longer makes, one line
+/// each. Review work: a reviewer settles each one (Job 3 of
+/// `docs/agents/working-a-dataset.md`).
+fn print_outdated(outdated: &[OutdatedLink]) {
+    if outdated.is_empty() {
+        return;
+    }
+    println!(
+        "\nLinks the current method no longer makes ({}): review each with settle",
+        outdated.len()
+    );
+    for row in outdated {
+        println!(
+            "  link {}  {}  {} -> {}",
+            short_id(&row.link_id),
+            row.path,
+            row.made_by,
+            row.remade_by
+        );
+        println!("    window: {}@{}", row.work, row.window);
     }
 }
 

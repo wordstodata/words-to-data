@@ -307,9 +307,31 @@ To **correct** a wrong link, refute it and record the right one with
   responsible for part of the new words) is right for each cause whose words
   you can see in it.
 - **If you refute an amendment's only link and find no right one**, the
-  amendment leaves every work list — `residue` treats any link, even a refuted
-  one, as linked. Until the tool changes, list that amendment under "open" in
-  your report, with what you searched for, so a person can pick it up.
+  amendment goes back on the work list: `residue` lists it as work, with the
+  link you refuted. Resolve it (Job 2), or record that it has no link.
+
+### Links the current method no longer makes
+
+`residue <dataset> --bill <bill>` ends with a section **"Links the current
+method no longer makes"**. Each row is an **outdated** link: the batch made it
+at an older version, the bill was re-run over the same window at a newer
+version, and the re-run did not make it again. The row gives the link id, the
+path, the older and the newer version, and the window. `residue --json` gives
+the same rows as `outdated`, and `annotations --json` marks the link with an
+`outdated` field. `settle --explain` says it on an `Outdated:` line.
+
+An outdated link is not wrong because it is outdated. The newer version can
+have lost a right answer. Review each one like any other link, and then:
+
+- **refute** it if the amendment's words and the words that changed do not
+  agree. When no other link of the amendment stands, the amendment goes back on
+  the work list.
+- **confirm** it if they agree. Then the newer version lost a right answer.
+  That is a regression in the method: say so under "open" in your report, with
+  the link id and the two versions, so a person can file it.
+
+A link that a person already confirmed stays in this section. Its review
+stands until someone overrides it.
 
 **What to review first.** `annotations <dataset> --bill <bill> --json` gives each
 link a `links` entry with how it was made:
@@ -319,14 +341,16 @@ link a `links` entry with how it was made:
 - `recorded.address_source` — `markup` or `olrc`
 - `recorded.changes_under_address` — how many changes the address held
 - `causes` — how many amendments are linked to the same change
+- `outdated` — set when the current version of the batch no longer makes the
+  link (see above); `null` otherwise
 
 Start every review by comparing the amendment's quoted words with the words
 that changed. A link whose changed words have nothing to do with the
 amendment — a renumbered footnote marker, a punctuation change made by a
 sibling — is the error this playbook most wants caught.
 
-Review in this order: links chosen by **elimination**; links whose address came
-from the **OLRC** table; links whose change has **more than one cause**; links
+Review in this order: **outdated** links (above); links chosen by
+**elimination**; links whose address came from the **OLRC** table; links whose change has **more than one cause**; links
 chosen by quoted words under an address holding **many** changes. Then take a
 small sample of the strongest kind — quoted words, one change — so the report
 can say how often the strong links are right rather than assume it.

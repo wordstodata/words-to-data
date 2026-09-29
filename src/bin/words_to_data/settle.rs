@@ -22,6 +22,7 @@ use clap::{Args as ClapArgs, ValueEnum};
 use words_to_data::dataset::{Dataset, Format};
 use words_to_data::inspect::{self, EvidenceWords};
 use words_to_data::legislature::evidence_matching::{Recorded, RecordedSource};
+use words_to_data::legislature::outdated::outdated_link;
 use words_to_data::link::{Link, Named, Target};
 use words_to_data::review::{self, Review, Verdict};
 use words_to_data::storage::{LinkReader, Storage};
@@ -235,6 +236,23 @@ fn print_how_made<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
         println!(
             "  Causes: one of {} amendments linked to this change",
             made.causes
+        );
+    }
+    print_outdated(dataset, reviewed);
+}
+
+/// Whether the current version of the link's batch method no longer makes it
+/// (#185). Said only when it is so: most links are current.
+fn print_outdated<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
+    let outdated = crate::fail::or_exit(
+        outdated_link(dataset, reviewed),
+        "Error reading whether the link is outdated",
+    );
+    if let Some(outdated) = outdated {
+        println!(
+            "  Outdated: made by @{}. This bill's links in this window were re-made by @{}, \
+             and this one was not",
+            outdated.made_by.version, outdated.remade_by.version
         );
     }
 }

@@ -60,3 +60,11 @@ Three readers of "which section does this amendment name" existed at once — `s
 - **Ask a model to extract the cited section.** A model supplies a codification from memory where the text gives none, and a wrong section that exists passes any check that it exists. The publisher has already resolved the citation; the markup is read instead.
 - **Sweep every window.** The generalized sweep answered a question the law's own date and the diff already answer, and matching `119-hr-1` against a window after its changes landed produced the false links #218 measured.
 - **Fetch OLRC tables at match time and store nothing.** A classification is a statement by a party, and the dataset keeps what was said.
+
+## Addendum, 2026-09-28: a link the newer version no longer makes
+
+A newer version of the batch re-stamps every link it makes again, because a link is identified by what it says (`docs/adr/0004`). A link that only the older version made keeps the older version, because evidence is never deleted (`docs/adr/0005`). Before #185 nothing told a reader that such a link was different from its neighbours. The first case was `5fe0631d2a2d` to 26 U.S.C. 36B(f)(2): version 3 made it by elimination, #274 found it wrong, and version 4 did not make it again.
+
+Decision 13 of #179 said that a superseded method is **declared** in the Declaration. For a change of version, that is not necessary. Among one batch method's links for one bill in one window, a link below the newest version there is **outdated**, and that is **derived** from the versions the links carry (`docs/adr/0007`). Nothing is stored. The rule applies to the evidence matcher and the renumbering step, which run over every amendment of a bill, and never to an agent's method, which covers only the items it chose. `residue --bill` lists each outdated link as review work, and `settle --explain`, `path` and `annotations` mark it. Nothing refutes it: a reviewer decides.
+
+A **declared** retirement is still deferred: a method retired with no newer run, such as the removed model method's links in a dataset built before #252. No newer version will run over those windows, so a derivation cannot see them. Build it when someone needs it.

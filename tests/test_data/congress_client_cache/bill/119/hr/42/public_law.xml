@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><?xml-stylesheet type="text/css" href="uslm.css"?><pLaw xmlns="http://schemas.gpo.gov/xml/uslm" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xml:lang="en" xsi:schemaLocation="http://schemas.gpo.gov/xml/uslm https://www.govinfo.gov/schemas/xml/uslm/uslm-2.0.17.xsd">
+
+<?I97 139 STAT. ?>
+<?I98 139 STAT. ?>
+<?I99 139 STAT. ?>
+<?I50 PUBLIC LAW 119–22—July 7, 2025?>
+<?I51 PUBLIC LAW 119–22—July 7, 2025?>
+<?I52 PUBLIC LAW 119–22—July 7, 2025?>
+
+
+<!--Disclaimer: Legislative measures that include compacts or other non-standard data structures will require additional modeling and may contain inconsistencies in the converted USLM XML.-->
+<meta><dc:title>Public Law 119–22: To amend the Alaska Native Claims Settlement Act to exclude certain payments to aged, blind, or disabled Alaska Natives or descendants of Alaska Natives from being used to determine eligibility for certain programs, and for other purposes.</dc:title>
+<dc:type>Public Law</dc:type><docNumber>22</docNumber>
+<citableAs>Public Law 119–22</citableAs><citableAs>139 Stat. 402</citableAs>
+<approvedDate>2025-07-07</approvedDate>
+<dc:date>2025-07-07</dc:date>
+<dc:publisher>United States Government Publishing Office</dc:publisher><dc:creator>National Archives and Records Administration</dc:creator><dc:creator>Office of the Federal Register</dc:creator><dc:format>text/xml</dc:format><dc:language>EN</dc:language><dc:rights>Pursuant to Title 17 Section 105 of the United States Code, this file is not subject to copyright protection and is in the public domain.</dc:rights>
+<processedBy>GPO Locator to USLM Converter 4.15.31;Stage2.20250702</processedBy><processedDate>2026-05-07</processedDate>
+<congress>119</congress><publicPrivate>public</publicPrivate>
+</meta>
+<preface><centerRunningHead>PUBLIC LAW 119–22—July 7, 2025</centerRunningHead>
+<page identifier="/us/stat/139/402">139 STAT. 402</page>
+<dc:type>Public Law</dc:type><docNumber>119–22</docNumber>
+<congress value="119">119th Congress</congress>
+</preface>
+<main>
+<longTitle>
+<docTitle class="centered fontsize12" style="-uslm-lc:I658005">An Act</docTitle>
+<officialTitle class="indentUp0 firstIndent1 fontsize8" style="-uslm-lc:I658011">To amend the Alaska Native Claims Settlement Act to exclude certain payments to aged, blind, or disabled Alaska Natives or descendants of Alaska Natives from being used to determine eligibility for certain programs, and for other purposes.<sidenote><p class="centered fontsize8" id="x6629b0e8-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658076"><approvedDate date="2025-07-07">July 7, 2025</approvedDate></p><p class="centered fontsize8" id="x6629b0e9-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658076">[<ref href="/us/bill/119/hr/42">H.R. 42</ref>]<?GPOvSpace 08?></p></sidenote></officialTitle>
+</longTitle>
+<enactingFormula style="-uslm-lc:I658120"><i>  Be it enacted by the Senate and House of Representa­tives of the United States of America in Congress assembled,</i></enactingFormula><sidenote><p class="leftAlign firstIndent0 fontsize8" id="x6629ff0a-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658180">Alaska Native Settlement Trust Eligibility Act.</p></sidenote>
+<section id="d130e88" identifier="/us/pl/119/22/s1" style="-uslm-lc:I658146"><num class="bold" value="1">SECTION 1. </num><sidenote><p class="leftAlign firstIndent0 fontsize8" id="x662ae96b-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658180"><ref href="/us/usc/t43/s1601">43 USC 1601 note</ref>.</p></sidenote><heading>SHORT TITLE.</heading><content style="-uslm-lc:I658120">  This Act may be cited as the “<shortTitle role="act">Alaska Native Settlement Trust Eligibility Act</shortTitle>”.</content></section>
+<section id="d130e103" identifier="/us/pl/119/22/s2" role="instruction" style="-uslm-lc:I658141"><num class="fontsize12" value="2">SEC. 2. </num><heading>ELIGIBILITY FOR CERTAIN PROGRAMS.</heading><content class="firstIndent0 fontsize10" id="x662c971c-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658120">  Section 29(c) of the Alaska Native Claims Settlement Act (<ref href="/us/usc/t43/s1626/c">43 U.S.C. 1626(c)</ref>) <amendingAction type="amend">is amended</amendingAction>, in the undesignated matter following paragraph (3), by <amendingAction type="delete">striking</amendingAction> subparagraph (E) and <amendingAction type="insert">inserting</amendingAction> the following:<quotedContent><subparagraph class="fontsize10" id="y662d335d-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658122"><num class="fontsize10" style="-uslm-lc:emspace2" value="E">“(E) </num><content><sidenote><p class="leftAlign firstIndent0 fontsize8" id="x662d335e-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658180">Time period. </p><p class="leftAlign firstIndent0 fontsize8" id="x662d335f-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658180">Effective date.</p></sidenote>an interest in a Settlement Trust and, for the 5-year period beginning on the date of the enactment of the Alaska Native Settlement Trust Eligibility Act, an amount distributed from or benefit provided by a Settlement Trust to a Native or descendant of a Native who is an aged, blind, or disabled individual (as defined in section 1614(a) of the Social Security Act (<ref href="/us/usc/t42/s1382c/a">42 U.S.C. 1382c(a)</ref>)).”</content></subparagraph>
+</quotedContent>.</content></section>
+<action>
+<actionDescription style="-uslm-lc:I658030">Approved</actionDescription> <date date="2025-07-07">July 7, 2025</date>.</action>
+</main>
+<legislativeHistory>
+<heading style="-uslm-lc:I658031"><inline class="underline">LEGISLATIVE HISTORY</inline>—<ref href="/us/bill/119/hr/42">H.R. 42</ref>:</heading>
+<note>
+<heading style="-uslm-lc:I658032">CONGRESSIONAL RECORD, Vol. 171 (2025):</heading>
+<p class="indentUp4 firstIndent-1" id="x662d8180-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658035">Feb. 4, considered and passed House.</p><p class="indentUp4 firstIndent-1" id="x662d8181-4a3b-11f1-8881-4b76bc008a6a" style="-uslm-lc:I658035">June 18, considered and passed Senate.</p></note>
+</legislativeHistory>
+<endMarker>○</endMarker>
+</pLaw>

@@ -1,0 +1,76 @@
+{
+    "bill": {
+        "actions": {
+            "count": 19,
+            "url": "https://api.congress.gov/v3/bill/119/hr/42/actions?format=json"
+        },
+        "committees": {
+            "count": 1,
+            "url": "https://api.congress.gov/v3/bill/119/hr/42/committees?format=json"
+        },
+        "congress": 119,
+        "constitutionalAuthorityStatementText": "<pre>\n[Congressional Record Volume 171, Number 1 (Friday, January 3, 2025)]\n[House]\nFrom the Congressional Record Online through the Government Publishing Office [<a href=\"https://www.gpo.gov\">www.gpo.gov</a>]\nBy Mr. BEGICH:\nH.R. 42.\nCongress has the power to enact this legislation pursuant\nto the following:\nArticle 1, Section 8\nThe single subject of this legislation is:\nExcluding all amounts distributed or benefits provided by a\nSettlement Trust to blind, disabled, and Alaska Native Elders\nand their descendants when determining eligibility for\ngovernmental benefits.\n[Page H37]\n</pre>",
+        "introducedDate": "2025-01-03",
+        "latestAction": {
+            "actionDate": "2025-07-07",
+            "text": "Became Public Law No: 119-22."
+        },
+        "laws": [
+            {
+                "number": "119-22",
+                "type": "Public Law"
+            }
+        ],
+        "legislationUrl": "https://www.congress.gov/bill/119th-congress/house-bill/42",
+        "number": "42",
+        "originChamber": "House",
+        "originChamberCode": "H",
+        "policyArea": {
+            "name": "Native Americans"
+        },
+        "relatedBills": {
+            "count": 1,
+            "url": "https://api.congress.gov/v3/bill/119/hr/42/relatedbills?format=json"
+        },
+        "sponsors": [
+            {
+                "bioguideId": "B001323",
+                "firstName": "Nicholas",
+                "fullName": "Rep. Begich, Nicholas [R-AK-At Large]",
+                "isByRequest": "N",
+                "lastName": "Begich",
+                "middleName": "J.",
+                "party": "R",
+                "state": "AK",
+                "url": "https://api.congress.gov/v3/member/B001323?format=json"
+            }
+        ],
+        "subjects": {
+            "count": 6,
+            "url": "https://api.congress.gov/v3/bill/119/hr/42/subjects?format=json"
+        },
+        "summaries": {
+            "count": 2,
+            "url": "https://api.congress.gov/v3/bill/119/hr/42/summaries?format=json"
+        },
+        "textVersions": {
+            "count": 5,
+            "url": "https://api.congress.gov/v3/bill/119/hr/42/text?format=json"
+        },
+        "title": "Alaska Native Settlement Trust Eligibility Act",
+        "titles": {
+            "count": 6,
+            "url": "https://api.congress.gov/v3/bill/119/hr/42/titles?format=json"
+        },
+        "type": "HR",
+        "updateDate": "2026-07-11T16:58:18Z",
+        "updateDateIncludingText": "2026-07-13T18:43:53Z"
+    },
+    "request": {
+        "billNumber": "42",
+        "billType": "hr",
+        "congress": "119",
+        "contentType": "application/json",
+        "format": "json"
+    }
+}

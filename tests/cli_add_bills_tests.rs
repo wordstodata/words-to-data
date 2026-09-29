@@ -22,7 +22,8 @@ use words_to_data::storage::LinkReader;
 /// The three committed release points of title 7.
 const DATES: [&str; 3] = ["2025-07-18", "2025-07-30", "2025-08-14"];
 
-/// The committed Congress cache, which holds `119-hr-1` and nothing else.
+/// The committed Congress cache. It holds `119-hr-1`, and `119-hr-42` for
+/// `outdated_link_tests.rs`.
 const CONGRESS_CACHE: &str = "tests/test_data/congress_client_cache";
 
 const BILL: &str = "119-hr-1";

@@ -174,21 +174,24 @@ pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
     // here rather than by the caller so that `path` names its annotations too:
     // both commands are doors into a review, and the id is what opens it.
     for link in &a.links {
-        println!(
-            "      link {}  {}{}",
-            link.id,
-            link.path,
-            decision(&link.made)
-        );
+        println!("      link {}  {}{}", link.id, link.path, decision(link));
     }
 }
 
 /// How a link was decided, in a few words: `  [elimination, address from
 /// olrc, 1 of 5 causes]`. The kind is the word `--json` gives as `chosen`, so
-/// what a person reads is what an agent filters on. Empty for a link with
-/// nothing of the kind to say.
-fn decision(made: &words_to_data::inspect::HowMade) -> String {
+/// what a person reads is what an agent filters on. An outdated link says so,
+/// with the version that made it and the newer one that did not make it again.
+/// Empty for a link with nothing of the kind to say.
+fn decision(link: &words_to_data::inspect::LinkMade) -> String {
+    let made = &link.made;
     let mut parts: Vec<String> = Vec::new();
+    if let Some(outdated) = &link.outdated {
+        parts.push(format!(
+            "outdated: made by @{}, not made again by @{}",
+            outdated.made_by.version, outdated.remade_by.version
+        ));
+    }
     if let Some(recorded) = &made.recorded {
         parts.push(
             serde_json::to_value(recorded.chosen)

@@ -183,8 +183,18 @@ fn stated_by(link: &inspect::RedesignationLink) -> String {
         Some(bill) => format!("stated by {bill}"),
         None => "stated by an unnamed source".to_string(),
     };
+    let outdated = link
+        .outdated
+        .as_ref()
+        .map(|outdated| {
+            format!(
+                " [outdated: made by @{}, not made again by @{}]",
+                outdated.made_by.version, outdated.remade_by.version
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "{bill}, between {} and {} ({}) [{}]",
+        "{bill}, between {} and {} ({}) [{}]{outdated}",
         link.from_date,
         link.to_date,
         trust(link),

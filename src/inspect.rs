@@ -21,6 +21,7 @@ use crate::dataset::{
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::legislature::evidence_matching::{Recorded, evidence_method};
+use crate::legislature::outdated::{OutdatedLink, outdated_links};
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
 use crate::link::{
     Link, LinkKind, ProvisionHistory, RedesignationStep, Target, VerificationState, Window,
@@ -341,6 +342,9 @@ pub struct RedesignationLink {
     /// the state is what made a dataset holding a refutation read exactly like
     /// one holding none (#227).
     pub review: Option<Review>,
+    /// Set when the current version of the renumbering step no longer makes
+    /// this link (#185). Derived, and never stored.
+    pub outdated: Option<OutdatedLink>,
 }
 
 /// Why a report did not follow a redesignation link that names its path.
@@ -640,7 +644,7 @@ pub fn path_report<S: Storage>(
 ) -> Result<PathReport, DatasetError> {
     let present_in = presence_counts(dataset, path)?;
 
-    let (provisions, unfollowed_redesignations) = match pair {
+    let (mut provisions, mut unfollowed_redesignations) = match pair {
         Some((from_id, to_id)) => {
             let window = Window {
                 from_date: from_id.at.clone(),
@@ -670,6 +674,8 @@ pub fn path_report<S: Storage>(
         ),
     };
 
+    mark_outdated(dataset, &mut provisions, &mut unfollowed_redesignations)?;
+
     let annotations = annotations(
         dataset,
         &LinkQuery::new().at(Locator::new().at_path(path, matching)),
@@ -684,6 +690,33 @@ pub fn path_report<S: Storage>(
         annotations,
         olrc_classifications: olrc_classifications(dataset, path)?,
     })
+}
+
+/// Mark each renumbering link a report names that the current version of the
+/// renumbering step no longer makes (#185).
+///
+/// A report names a link by its short id, so the outdated links are looked up
+/// by theirs.
+fn mark_outdated<S: Storage>(
+    dataset: &S,
+    provisions: &mut [ProvisionAtPath],
+    unfollowed: &mut [UnfollowedRedesignation],
+) -> Result<(), DatasetError> {
+    let outdated: BTreeMap<String, OutdatedLink> = outdated_links(dataset, None)?
+        .into_iter()
+        .map(|row| (crate::review::short_id(&row.link_id).to_string(), row))
+        .collect();
+    if outdated.is_empty() {
+        return Ok(());
+    }
+    let links = provisions
+        .iter_mut()
+        .flat_map(|provision| provision.via.iter_mut())
+        .chain(unfollowed.iter_mut().map(|u| &mut u.link));
+    for link in links {
+        link.outdated = outdated.get(&link.id).cloned();
+    }
+    Ok(())
 }
 
 /// Where a walk has reached: a path, and the date it holds that path on.
@@ -912,6 +945,7 @@ impl From<&RedesignationStep> for RedesignationLink {
             bill_id: step.bill_id.clone(),
             id: crate::review::short_id(&step.link_id).to_string(),
             review: step.review.clone(),
+            outdated: None,
         }
     }
 }
@@ -1875,6 +1909,11 @@ pub struct LinkMade {
     pub path: String,
     #[serde(flatten)]
     pub made: HowMade,
+    /// Set when the current version of the link's batch method no longer
+    /// makes it: its bill was re-run over its window at a newer version, and
+    /// the re-run did not make this link (#185). `None` for a current link and
+    /// for every link an agent or a person made. Derived, and never stored.
+    pub outdated: Option<OutdatedLink>,
 }
 
 /// Build a summary for `ann`, tagging it with the expression pair it was found
@@ -1927,6 +1966,10 @@ pub fn annotations<S: Storage>(
     let mut unlimited = query.clone();
     unlimited.limit = None;
     let links = dataset.links_matching(&unlimited)?.rows;
+    let mut outdated: BTreeMap<String, OutdatedLink> = outdated_links(dataset, None)?
+        .into_iter()
+        .map(|row| (row.link_id.clone(), row))
+        .collect();
 
     // Grouped by the window they were made over, because an annotation is
     // reported with its pair and a link carries the pair in its subject.
@@ -1958,6 +2001,7 @@ pub fn annotations<S: Storage>(
                     id: crate::review::short_id(id).to_string(),
                     path: path.clone(),
                     made: how_made(dataset, by_id[id])?,
+                    outdated: outdated.remove(id),
                 });
             }
             out.push(summarize(&from, &to, &ann, &link_ids, links));
