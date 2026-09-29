@@ -22,6 +22,8 @@ use clap::Args as ClapArgs;
 use words_to_data::dataset::{Dataset, ExpressionId, ExpressionPair, adjacent_expressions};
 use words_to_data::storage::{DocumentReader, LinkReader, Storage};
 
+use crate::ui;
+
 use crate::release_points::{self, DEFAULT_MIRROR_INDEX, Missing, ReleaseSource};
 
 #[derive(ClapArgs)]
@@ -175,7 +177,10 @@ fn report_windows<S: Storage>(dataset: &Dataset<S>, before: &[ExpressionPair], w
              --between {from} {to}"
         );
     }
-    println!("  words_to_data link-by-evidence {written}");
+    println!(
+        "  {}",
+        ui::command(&format!("words_to_data link-by-evidence {written}"))
+    );
 }
 
 /// What a window holds, counted by link kind.

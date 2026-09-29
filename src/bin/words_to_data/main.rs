@@ -107,6 +107,7 @@ enum Command {
 }
 
 fn main() {
+    end_quietly_when_the_reader_stops();
     match Cli::parse().command {
         Command::BuildDataset(args) => build_dataset::run(args),
         Command::ConvertDataset(args) => convert_dataset::run(args),
@@ -135,5 +136,20 @@ fn main() {
         Command::Annotations(args) => annotations::run(args),
         Command::Path(args) => path::run(args),
         Command::Validate(args) => validate::run(args),
+    }
+}
+
+/// Let a pipe that closes early end the command, as it ends `grep` or `cat`.
+///
+/// Rust ignores `SIGPIPE`, so `words_to_data residue data.sqlite | head` made
+/// the next `println!` panic with "failed printing to stdout: Broken pipe" once
+/// `head` had read its ten lines. The default action ends the process without a
+/// word, which is what a person who piped into `head` expects.
+fn end_quietly_when_the_reader_stops() {
+    #[cfg(unix)]
+    // SAFETY: called first in `main`, before any thread starts, and it only
+    // restores the signal's default action.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 }

@@ -21,6 +21,8 @@ use clap::Args as ClapArgs;
 use words_to_data::dataset::Dataset;
 use words_to_data::storage::{LegislatureReader, LegislatureWriter, Storage};
 
+use crate::ui;
+
 #[derive(ClapArgs)]
 pub struct Args {
     /// Path to the dataset to add the bills to (compact JSON or SQLite)
@@ -124,16 +126,40 @@ fn report_next_steps(loaded: &[String], written: &str) {
     }
     println!("\nNo other step has run over the new bill(s). To run the steps that read a new law:");
     if crate::load::is_sqlite(written) {
-        println!("  words_to_data add-classifications {written}");
-        println!("  words_to_data link-by-evidence {written}");
+        println!(
+            "  {}",
+            ui::command(&format!("words_to_data add-classifications {written}"))
+        );
+        println!(
+            "  {}",
+            ui::command(&format!("words_to_data link-by-evidence {written}"))
+        );
         for bill in loaded {
-            println!("  words_to_data residue {written} --bill {bill}");
+            println!(
+                "  {}",
+                ui::command(&format!("words_to_data residue {written} --bill {bill}"))
+            );
         }
     } else {
-        println!("  words_to_data add-classifications {written} --output <classified.json>");
-        println!("  words_to_data link-by-evidence <classified.json> --output <linked.json>");
+        println!(
+            "  {}",
+            ui::command(&format!(
+                "words_to_data add-classifications {written} --output <classified.json>"
+            ))
+        );
+        println!(
+            "  {}",
+            ui::command(&format!(
+                "words_to_data link-by-evidence <classified.json> --output <linked.json>"
+            ))
+        );
         for bill in loaded {
-            println!("  words_to_data residue <linked.json> --bill {bill}");
+            println!(
+                "  {}",
+                ui::command(&format!(
+                    "words_to_data residue <linked.json> --bill {bill}"
+                ))
+            );
         }
     }
 }

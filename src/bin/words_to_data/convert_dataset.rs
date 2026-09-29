@@ -21,7 +21,6 @@ pub fn run(args: Args) {
 
     match (is_sqlite(&args.input), is_sqlite(&output)) {
         (false, true) => {
-            println!("Converting compact JSON -> SQLite...");
             let dataset = crate::fail::or_exit(
                 crate::load::load_compact(&args.input),
                 "Error loading dataset",
@@ -35,13 +34,20 @@ pub fn run(args: Args) {
                 remove_existing(&output),
                 "Error replacing the output dataset",
             );
-            crate::fail::or_exit(dataset.save_to_sqlite(&output), "Error saving SQLite");
+            crate::fail::or_exit(
+                crate::ui::step(&format!("Write {output}"), || {
+                    dataset.save_to_sqlite(&output)
+                }),
+                "Error saving SQLite",
+            );
         }
         (true, false) => {
-            println!("Converting SQLite -> compact JSON...");
             let dataset =
                 crate::fail::or_exit(Dataset::open_sqlite(&args.input), "Error opening SQLite");
-            let memory = crate::fail::or_exit(dataset.to_memory(), "Error reading SQLite");
+            let memory = crate::fail::or_exit(
+                crate::ui::step(&format!("Read {}", args.input), || dataset.to_memory()),
+                "Error reading SQLite",
+            );
             // Writing JSON truncates, so this direction already replaces.
             crate::fail::or_exit(
                 crate::load::save_compact(&memory, &output),

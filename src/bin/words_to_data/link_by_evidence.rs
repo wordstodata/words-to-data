@@ -28,9 +28,11 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::{Dataset, adjacent_expressions};
 use words_to_data::legislature::evidence_matching::{
-    EvidenceMatching, Outcome, Stage, evidence_method, match_by_evidence,
+    EvidenceMatching, Outcome, Stage, evidence_method, match_by_evidence_reporting,
 };
 use words_to_data::storage::{LegislatureReader, Storage};
+
+use crate::ui::{self, Task};
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -80,7 +82,12 @@ pub fn run(args: Args) {
 
 /// Find, write and report.
 fn link<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>) {
-    let found = crate::fail::or_exit(match_by_evidence(dataset), "Error matching amendments");
+    let task = Task::start("Match amendments by evidence");
+    let found = crate::fail::or_exit(
+        match_by_evidence_reporting(dataset, &task),
+        "Error matching amendments",
+    );
+    task.done(&format!("{} amendment(s)", found.matches.len()));
     for (bill_id, public_law) in &found.laws_quoting_no_strings {
         eprintln!(
             "warning: Pub. L. {public_law} ({bill_id}) is stored with no quoted strings. A \
@@ -88,13 +95,16 @@ fn link<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>) {
              amendments are linked. Rebuild the dataset with build-dataset to store them."
         );
     }
-    let mut written = 0;
-    for amendment in &found.matches {
-        for link in amendment.links() {
-            crate::fail::or_exit(dataset.add_link(link), "Error adding link");
-            written += 1;
+    let written = crate::ui::step("Write the links", || {
+        let mut written = 0;
+        for amendment in &found.matches {
+            for link in amendment.links() {
+                crate::fail::or_exit(dataset.add_link(link), "Error adding link");
+                written += 1;
+            }
         }
-    }
+        written
+    });
     // Every window of every work, and not only the windows `found` read. The
     // method considered them all: a work no amendment addresses has nothing in
     // it to link, and that is an answer. A run records that the reasoning was
@@ -131,11 +141,19 @@ fn report(found: &EvidenceMatching, written: usize) {
             })
             .count()
     };
-    println!("Method: {}", evidence_method());
-    println!("{total} amendment(s) of public laws");
-    println!("  {linked} linked, as {written} link(s)");
-    println!("  {} stopped at the address", stopped_at(Stage::Address));
-    println!("  {} stopped at the window", stopped_at(Stage::Window));
-    println!("  {} stopped at resolving", stopped_at(Stage::Resolve));
-    println!("{} window(s) read", found.windows.len());
+    println!("{} {}", ui::heading("Method:"), evidence_method());
+    println!("{} amendment(s) of public laws", ui::figure(total));
+    println!(
+        "  {} linked, as {} link(s)",
+        ui::good(linked),
+        ui::figure(written)
+    );
+    for (stage, name) in [
+        (Stage::Address, "stopped at the address"),
+        (Stage::Window, "stopped at the window"),
+        (Stage::Resolve, "stopped at resolving"),
+    ] {
+        println!("  {} {name}", ui::attention(stopped_at(stage)));
+    }
+    println!("{} window(s) read", ui::figure(found.windows.len()));
 }

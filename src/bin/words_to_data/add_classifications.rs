@@ -26,6 +26,7 @@ use words_to_data::dataset::{Dataset, ExpressionId, WorkId};
 use words_to_data::olrc::{
     ClassificationRow, ClassificationTable, OlrcClient, SkipReason, classify, held_public_laws,
 };
+use words_to_data::progress::Progress;
 use words_to_data::storage::Storage;
 
 /// The first Congress whose tables this command reads. Earlier tables are
@@ -188,7 +189,10 @@ fn read_tables(client: &OlrcClient, laws: &[String]) -> Vec<PageRows> {
                 break;
             }
             let page = crate::fail::or_exit(
-                client.public_law_table(congress, session),
+                crate::ui::step(
+                    &format!("OLRC table of the {congress}th Congress, session {session}"),
+                    || client.public_law_table(congress, session),
+                ),
                 "Error reading a classification table",
             );
             let table = crate::fail::or_exit(
@@ -225,8 +229,11 @@ fn index_sections<S: Storage>(dataset: &Dataset<S>, pages: &[PageRows]) -> Secti
         .flat_map(|page| page.rows.iter().map(|row| row.title.as_str()))
         .collect();
 
+    let task = crate::ui::Task::start("Index the sections of the Code");
+    task.begin("titles", Some(titles.len() as u64));
     let mut paths = SectionPaths::new();
     for title in titles {
+        task.advance(1);
         let work = WorkId::new(format!("uscode/title_{title}"));
         let Ok(expressions) = dataset.expressions(&work) else {
             continue;
@@ -235,10 +242,11 @@ fn index_sections<S: Storage>(dataset: &Dataset<S>, pages: &[PageRows]) -> Secti
             let id = ExpressionId::new(work.clone(), held.id.at.clone());
             match dataset.get_expression(&id) {
                 Ok(Some(expression)) => paths.add_work(&expression.root),
-                _ => eprintln!("warning: {id} is listed and could not be read"),
+                _ => task.note(&format!("{id} is listed and could not be read")),
             }
         }
     }
+    task.done("");
     paths
 }
 

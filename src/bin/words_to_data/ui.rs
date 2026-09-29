@@ -17,7 +17,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use console::{Style, StyledObject, style};
+use console::{Style, StyledObject, Term, style};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use words_to_data::legislature::redesignation::{RedesignationReport, clause_start};
 use words_to_data::progress::Progress;
@@ -143,56 +143,76 @@ pub fn step<T>(title: &str, work: impl FnOnce() -> T) -> T {
 /// How long a [`step`] must take before its result line is worth printing.
 const WORTH_A_LINE: Duration = Duration::from_secs(1);
 
-/// Write a renumbering report to stderr: the summary, then each statement no
-/// reader placed, with its reason on the line under it.
+/// Write a renumbering report to stderr: the summary, then the statements no
+/// reader placed, grouped under the reason each was not placed.
 ///
-/// Every statement is written, because the tool's silence must not read as the
-/// corpus's silence (#110). The library's own [`RedesignationReport::warn`]
-/// writes each one as a single long line; at a terminal the clause first and
-/// the reason under it can be read down the page.
+/// One reason often covers many statements. A bill loaded before any window it
+/// could be checked against leaves all 57 of its statements unplaced for one
+/// reason, and 57 lines each ending in that reason hide it. So the reason is
+/// written once, and the clauses under it.
+///
+/// **Every statement is written when stderr goes to a file or a pipe**, because
+/// the tool's silence must not read as the corpus's silence (#110). At a
+/// terminal a long group stops after a few clauses and says how many more there
+/// are and which command lists them all.
 pub fn warn_unplaced(bill: &str, report: &RedesignationReport) {
     let placed = report.statements() - report.statements_unplaced();
+    let mark = if report.unplaced.is_empty() {
+        style("✓").green().for_stderr()
+    } else {
+        style("!").yellow().for_stderr()
+    };
     eprintln!(
-        "{} {}  {} of {} renumbering statement(s) placed, {} link(s) recorded",
-        style("✓").green().for_stderr(),
-        style(bill).bold().for_stderr(),
-        placed,
+        "{mark} {}  {placed} of {} renumbering statement(s) placed, {} link(s) recorded",
+        style(format!("Renumberings of {bill}")).bold().for_stderr(),
         report.statements(),
         report.links(),
     );
-    if report.unplaced.is_empty() && report.later_windows.is_empty() {
-        return;
-    }
-    if !report.unplaced.is_empty() {
-        eprintln!(
-            "  {} {} statement(s) not placed by any reader:",
-            warn_text("!"),
-            report.statements_unplaced()
-        );
-    }
+
+    let mut by_reason: Vec<(String, Vec<String>)> = Vec::new();
     for unplaced in &report.unplaced {
-        eprintln!("    {}", unplaced.clause_start());
-        eprintln!(
-            "      {}",
-            dim(&format!("{} reader: {}", unplaced.reader, unplaced.reason))
-        );
+        let reason = format!("{} reader: {}", unplaced.reader, unplaced.reason);
+        match by_reason.iter_mut().find(|(known, _)| *known == reason) {
+            Some((_, clauses)) => clauses.push(unplaced.clause_start()),
+            None => by_reason.push((reason, vec![unplaced.clause_start()])),
+        }
+    }
+    let shown_per_reason = if Term::stderr().is_term() {
+        CLAUSES_SHOWN_AT_A_TERMINAL
+    } else {
+        usize::MAX
+    };
+    let mut hidden = 0;
+    for (reason, clauses) in &by_reason {
+        eprintln!("  {} {}", warn_text("not placed"), dim(reason));
+        for clause in clauses.iter().take(shown_per_reason) {
+            eprintln!("      {clause}");
+        }
+        hidden += clauses.len().saturating_sub(shown_per_reason);
     }
     for later in &report.later_windows {
         eprintln!(
-            "  {} {} -> {} also changed under this statement, and holds no link:",
+            "  {} {}",
             warn_text("review"),
-            later.from,
-            later.to.at
+            dim(&format!(
+                "{} -> {} also changed under this statement, and holds no link",
+                later.from, later.to.at
+            ))
         );
-        eprintln!("    {}", clause_start(&later.text));
+        eprintln!("      {}", clause_start(&later.text));
     }
-    eprintln!(
-        "  {}",
-        dim(&format!(
-            "words_to_data redesignation-report <dataset> --bill-id {bill} lists them again"
-        ))
-    );
+    if hidden > 0 {
+        eprintln!(
+            "  {}",
+            dim(&format!(
+                "… and {hidden} more. To list them all: words_to_data redesignation-report <dataset> --bill-id {bill}"
+            ))
+        );
+    }
 }
+
+/// How many clauses of one reason [`warn_unplaced`] shows at a terminal.
+const CLAUSES_SHOWN_AT_A_TERMINAL: usize = 3;
 
 /// A heading on stdout: bold where there is a terminal, plain elsewhere.
 pub fn heading(text: &str) -> StyledObject<&str> {
@@ -214,9 +234,24 @@ pub fn attention<D>(value: D) -> StyledObject<D> {
     style(value).yellow()
 }
 
+/// Text on stdout that is bad news: refuted, broken, incomplete.
+pub fn bad<D>(value: D) -> StyledObject<D> {
+    style(value).red()
+}
+
 /// Text on stdout that is context, not the answer: ids, dates, hints.
 pub fn quiet<D>(value: D) -> StyledObject<D> {
     style(value).dim()
+}
+
+/// A count painted by `paint`, or dimmed when it is zero, so the eye goes to
+/// the counts that are not.
+pub fn unless_zero(count: usize, paint: fn(usize) -> StyledObject<usize>) -> StyledObject<usize> {
+    if count == 0 {
+        quiet(count)
+    } else {
+        paint(count)
+    }
 }
 
 /// A shell command on stdout, printed so it can be copied and run.
