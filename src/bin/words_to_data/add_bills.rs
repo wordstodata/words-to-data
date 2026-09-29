@@ -149,9 +149,7 @@ fn report_next_steps(loaded: &[String], written: &str) {
         );
         println!(
             "  {}",
-            ui::command(&format!(
-                "words_to_data link-by-evidence <classified.json> --output <linked.json>"
-            ))
+            ui::command("words_to_data link-by-evidence <classified.json> --output <linked.json>")
         );
         for bill in loaded {
             println!(
