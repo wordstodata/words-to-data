@@ -15,6 +15,8 @@ use words_to_data::congress::{BillDownload, CongressClient};
 use words_to_data::dataset::{Dataset, adjacent_expressions};
 use words_to_data::storage::{DocumentReader, LegislatureReader, LegislatureWriter, Storage};
 
+use crate::ui::Task;
+
 /// The Congress client for a run: the network and the cache, or the cache only.
 ///
 /// An offline client needs no API key, so a run over a cache that holds every
@@ -70,18 +72,20 @@ pub fn add_all<S: Storage + LegislatureReader + LegislatureWriter>(
 
     let mut downloads: Vec<BillDownload> = Vec::new();
     for bill in to_load {
-        println!("Downloading bill {bill}...");
+        let task = Task::start(format!("Bill {bill}"));
         let download = client
-            .download_bill(bill)
+            .download_bill_reporting(bill, &task)
             .map_err(|e| format!("bill {bill} could not be fetched: {e}"))?;
+        task.done(&summary_of(&download));
         downloads.push(download);
     }
 
     let mut loaded = Vec::new();
     for download in &downloads {
-        let bill_id = dataset
-            .load_bill_download(download)
-            .map_err(|e| format!("bill {} could not be loaded: {e}", download.bill_id))?;
+        let bill_id = crate::ui::step(&format!("Store {}", download.bill_id), || {
+            dataset.load_bill_download(download)
+        })
+        .map_err(|e| format!("bill {} could not be loaded: {e}", download.bill_id))?;
         loaded.push(bill_id);
     }
 
@@ -91,6 +95,19 @@ pub fn add_all<S: Storage + LegislatureReader + LegislatureWriter>(
         loaded,
         already_held,
     })
+}
+
+/// "2 roll calls, 433 members", said once a bill is downloaded.
+fn summary_of(download: &BillDownload) -> String {
+    let roll_calls = download
+        .votes_json
+        .as_deref()
+        .and_then(|json| serde_json::from_str::<Vec<serde_json::Value>>(json).ok())
+        .map_or(0, |votes| votes.len());
+    format!(
+        "{roll_calls} roll call(s), {} member(s)",
+        download.member_jsons.len()
+    )
 }
 
 /// Record what each bill renumbered, after everything is loaded.
@@ -126,9 +143,11 @@ fn record_redesignations<S: Storage + LegislatureReader>(
             continue;
         };
         let report = crate::fail::or_exit(
-            dataset.record_redesignations_over(bill, &document, &windows),
+            crate::ui::step(&format!("Renumberings stated by {bill}"), || {
+                dataset.record_redesignations_over(bill, &document, &windows)
+            }),
             "Error recording redesignations",
         );
-        report.warn(bill);
+        crate::ui::warn_unplaced(bill, &report);
     }
 }

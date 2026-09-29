@@ -36,7 +36,7 @@ use crate::storage::{
 };
 use crate::uslm::bill_parser::Bill;
 use crate::uslm::parser::ParseError;
-use crate::utils::{load_uslm_folder, parse_uslm_xml};
+use crate::utils::{load_uslm_folder_reporting, parse_uslm_xml};
 
 /// On-disk serialization format for in-memory datasets.
 ///
@@ -765,8 +765,21 @@ impl<S: Storage> Dataset<S> {
         date: &str,
         label: Option<String>,
     ) -> Result<(), DatasetError> {
-        let element = load_uslm_folder(folder_path, date)
+        self.add_uslm_folder_reporting(folder_path, date, label, &crate::progress::Silent)
+    }
+
+    /// [`Self::add_uslm_folder`], telling `progress` as each title is parsed
+    /// and stored.
+    pub fn add_uslm_folder_reporting(
+        &mut self,
+        folder_path: &str,
+        date: &str,
+        label: Option<String>,
+        progress: &dyn crate::progress::Progress,
+    ) -> Result<(), DatasetError> {
+        let element = load_uslm_folder_reporting(folder_path, date, progress)
             .ok_or_else(|| DatasetError::FolderLoadFailed(folder_path.to_string()))?;
+        progress.begin("store titles", None);
         self.add_works_of(element, date, label)
     }
 

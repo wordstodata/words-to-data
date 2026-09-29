@@ -26,7 +26,7 @@
 //! be.
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, Format, adjacent_expressions};
+use words_to_data::dataset::{Dataset, adjacent_expressions};
 use words_to_data::legislature::evidence_matching::{
     EvidenceMatching, Outcome, Stage, evidence_method, match_by_evidence,
 };
@@ -65,12 +65,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             link(&mut dataset);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("Wrote {output}");

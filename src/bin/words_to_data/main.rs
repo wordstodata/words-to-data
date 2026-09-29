@@ -33,6 +33,7 @@ mod section_agreement;
 mod settle;
 mod show_bill;
 mod span;
+mod ui;
 mod validate;
 mod votes;
 

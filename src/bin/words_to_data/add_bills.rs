@@ -18,7 +18,7 @@
 //! steps that read a new law, for the operator to run.
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::Dataset;
 use words_to_data::storage::{LegislatureReader, LegislatureWriter, Storage};
 
 #[derive(ClapArgs)]
@@ -74,12 +74,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             grow(&mut dataset, &client, &args.bills, output);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");

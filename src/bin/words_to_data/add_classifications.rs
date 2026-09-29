@@ -22,7 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use clap::Args as ClapArgs;
 use words_to_data::citation::resolve::SectionPaths;
-use words_to_data::dataset::{Dataset, ExpressionId, Format, WorkId};
+use words_to_data::dataset::{Dataset, ExpressionId, WorkId};
 use words_to_data::olrc::{
     ClassificationRow, ClassificationTable, OlrcClient, SkipReason, classify, held_public_laws,
 };
@@ -84,12 +84,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             add_classifications(&mut dataset, &client);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");

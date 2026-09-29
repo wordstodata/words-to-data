@@ -14,8 +14,11 @@ use std::error::Error as StdError;
 use std::path::PathBuf;
 
 use words_to_data::dataset::Dataset;
+use words_to_data::progress::Progress;
 use words_to_data::storage::Storage;
 use words_to_data::uscode::{self, MirrorIndex};
+
+use crate::ui::Task;
 
 /// Default mirror manifest (release-point date -> zip URL).
 pub const DEFAULT_MIRROR_INDEX: &str = "https://wordstodata.com/mirror/uslm/index.json";
@@ -59,7 +62,7 @@ impl ReleaseSource {
     }
 
     /// The folder of extracted XML for one release point.
-    fn locate(&self, date: &str) -> Result<Located, Box<dyn StdError>> {
+    fn locate(&self, date: &str, progress: &dyn Progress) -> Result<Located, Box<dyn StdError>> {
         let cached = self.cache_dir.join("uslm").join(date);
 
         let Some(index) = &self.index else {
@@ -81,6 +84,7 @@ impl ReleaseSource {
             url,
             date,
             &self.cache_dir,
+            progress,
         )?))
     }
 }
@@ -121,28 +125,38 @@ pub fn add_all<S: Storage>(
 
     let mut added = Vec::new();
     for date in &oldest_first {
-        println!("Loading release point {date}...");
+        let task = Task::start(format!("Release point {date}"));
         let located = source
-            .locate(date)
+            .locate(date, &task)
             .map_err(|e| format!("release point {date} could not be fetched: {e}"))?;
 
         let folder = match located {
             Located::Folder(folder) => folder,
             Located::NotOffered(reason) => match missing {
                 Missing::Skip => {
-                    eprintln!("Skipping {date}: {reason}");
+                    task.done(&format!("skipped: {reason}"));
                     continue;
                 }
                 Missing::Stop => return Err(format!("release point {date} is not here: {reason}")),
             },
         };
 
-        println!("Parsing {date}...");
         dataset
-            .add_uslm_folder(&folder.to_string_lossy(), date, None)
+            .add_uslm_folder_reporting(&folder.to_string_lossy(), date, None, &task)
             .map_err(|e| format!("release point {date} could not be added: {e}"))?;
+        task.done(&format!("{} titles", xml_files_in(&folder)));
         added.push(date.clone());
     }
 
     Ok(added)
+}
+
+/// How many XML files a release point's folder holds: one per title.
+fn xml_files_in(folder: &std::path::Path) -> usize {
+    folder.read_dir().map_or(0, |entries| {
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "xml"))
+            .count()
+    })
 }

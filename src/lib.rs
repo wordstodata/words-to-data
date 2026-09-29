@@ -19,6 +19,7 @@ pub mod legislature;
 pub mod link;
 pub mod method;
 pub mod olrc;
+pub mod progress;
 pub mod query;
 pub mod review;
 pub mod storage;
