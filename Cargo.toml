@@ -56,3 +56,12 @@ rusqlite = { version = "0.35", features = ["bundled", "serialize"] }
 # ends. A fixed path is shared by every run, every checkout and every user of
 # the machine, so a leftover file or a second run failed the suite (#120).
 tempfile = "3"
+
+# `cargo test` builds the crate, its dependencies and the test binaries at
+# `opt-level = 1`. The suite parses and diffs whole titles of the Code, and
+# unoptimized code ran it four to five times slower (#278). Debug assertions
+# and overflow checks stay on. `cargo build` and `cargo run` keep the
+# unoptimized `dev` profile, so a debug build stays fast to compile and easy to
+# step through.
+[profile.test]
+opt-level = 1
