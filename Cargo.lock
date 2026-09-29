@@ -1985,7 +1985,6 @@ dependencies = [
  "dirs",
  "hex",
  "indicatif",
- "libc",
  "rayon",
  "regex",
  "roxmltree",

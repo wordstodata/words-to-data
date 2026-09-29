@@ -139,17 +139,26 @@ fn main() {
     }
 }
 
-/// Let a pipe that closes early end the command, as it ends `grep` or `cat`.
+/// A reader that closes the pipe early has read enough, so the command stops
+/// with status 0, as `search` already does (#235).
 ///
-/// Rust ignores `SIGPIPE`, so `words_to_data residue data.sqlite | head` made
-/// the next `println!` panic with "failed printing to stdout: Broken pipe" once
-/// `head` had read its ten lines. The default action ends the process without a
-/// word, which is what a person who piped into `head` expects.
+/// `println!` panics on a broken pipe, so `words_to_data residue data.sqlite |
+/// head` ended with "failed printing to stdout: Broken pipe" and status 101
+/// once `head` had read its ten lines. `search` handles the error where it
+/// writes; every other command writes with `println!`, so the rule is kept
+/// here, once, for all of them. Any other panic is reported as before.
 fn end_quietly_when_the_reader_stops() {
-    #[cfg(unix)]
-    // SAFETY: called first in `main`, before any thread starts, and it only
-    // restores the signal's default action.
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info.payload();
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or_default();
+        if message.starts_with("failed printing to stdout") && message.contains("Broken pipe") {
+            std::process::exit(0);
+        }
+        report(info);
+    }));
 }
