@@ -467,17 +467,40 @@ fn walk_counts(diff: &words_to_data::diff::TreeDiff) -> (usize, usize, usize) {
     (changed, added, removed)
 }
 
+/// Title 7 is Agriculture, and `119-hr-1` changed, added and removed
+/// provisions in it between the two release points. Title 9 did not change,
+/// so a diff over it has no path to collect, and title 51 only gained two.
+const TITLE_7: &str = "uscode/title_7";
+
+/// Title 7 at the two release points, so a diff has paths of every kind to
+/// collect.
+fn changed_fixture() -> (Dataset<InMemoryStorage>, ExpressionId, ExpressionId) {
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    for date in ["2025-07-18", "2025-07-30"] {
+        dataset
+            .add_uslm_xml(&format!("tests/test_data/usc/{date}/usc07.xml"), date, None)
+            .expect("title 7 should load");
+    }
+    let work = WorkId::new(TITLE_7);
+    let from = ExpressionId::new(work.clone(), "2025-07-18");
+    let to = ExpressionId::new(work, "2025-07-30");
+    (dataset, from, to)
+}
+
 #[test]
 fn should_collect_changed_added_and_removed_paths_matching_the_tree_diff() {
-    let dataset = make_fixture();
-    let (from, to) = pair();
+    let (dataset, from, to) = changed_fixture();
 
     let tree = dataset.compute_diff(&from, &to).expect("compute_diff");
     let (changed, added, removed) = walk_counts(&tree);
+    assert!(
+        changed > 0 && added > 0 && removed > 0,
+        "the fixture changes, adds and removes paths: {changed} {added} {removed}"
+    );
 
     let summary = inspect::diff(&dataset, &from, &to).expect("diff");
 
-    assert_eq!(summary.work, TITLE_9);
+    assert_eq!(summary.work, TITLE_7);
     assert_eq!(summary.from, from.to_string());
     assert_eq!(summary.to, to.to_string());
     assert_eq!(summary.from_date, from.at);
@@ -489,9 +512,12 @@ fn should_collect_changed_added_and_removed_paths_matching_the_tree_diff() {
 
 #[test]
 fn should_produce_identical_diff_summary_for_sqlite_backend() {
-    let fixture = make_fixture();
-    let (from, to) = pair();
+    let (fixture, from, to) = changed_fixture();
     let expected = inspect::diff(&fixture, &from, &to).expect("mem");
+    assert!(
+        !expected.changed_paths.is_empty(),
+        "the fixture has changed paths to compare"
+    );
 
     let (_dir, sqlite) = to_sqlite(&fixture);
     let actual = inspect::diff(&sqlite, &from, &to).expect("sqlite");
