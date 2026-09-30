@@ -14,6 +14,9 @@ pub struct CongressClient {
     api_key: String,
     cache: ResponseCache,
     http: crate::http::Http,
+    /// Where requests go. [`BASE_URL`] unless a caller set another with
+    /// [`CongressClient::with_base_url`].
+    base_url: String,
     /// Read only the cache, and never reach the network. See
     /// [`CongressClient::cached_only`].
     offline: bool,
@@ -37,7 +40,16 @@ impl CongressClient {
             api_key,
             cache,
             http: crate::http::Http::new(),
+            base_url: BASE_URL.to_string(),
             offline: false,
+        }
+    }
+
+    /// Send requests to another server, such as a local one in a test.
+    pub fn with_base_url(self, base_url: impl Into<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+            ..self
         }
     }
 
@@ -82,7 +94,7 @@ impl CongressClient {
             return Err(self.not_cached(&key));
         }
 
-        let url = format!("{}/{}", BASE_URL, endpoint);
+        let url = format!("{}/{}", self.base_url, endpoint);
 
         let mut response = self
             .http
@@ -234,8 +246,9 @@ impl CongressClient {
         };
 
         // Fetch member details. A member the API does not answer for is left
-        // out, but a member an offline client has not got is a gap in the
-        // cache, and it stops the download.
+        // out. A member an offline client has not got is a gap in the cache,
+        // and a member refused by the rate limit is a gap in the data, so each
+        // of those stops the download (#284).
         let mut member_jsons = HashMap::new();
         for id in member_ids {
             let endpoint = format!("member/{}", id);
@@ -243,7 +256,9 @@ impl CongressClient {
                 Ok(json) => {
                     member_jsons.insert(id, json);
                 }
-                Err(error @ CongressError::NotCached(_)) => return Err(error),
+                Err(error @ (CongressError::NotCached(_) | CongressError::RateLimited)) => {
+                    return Err(error);
+                }
                 Err(_) => {}
             }
         }
