@@ -4,6 +4,7 @@ use clap::Args as ClapArgs;
 use words_to_data::inspect;
 
 use crate::load::{self, with_dataset};
+use crate::ui;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -35,11 +36,24 @@ pub fn run(args: Args) {
         return;
     }
 
-    println!("Bill:       {}", summary.bill_id);
-    println!("Amendments: {}", summary.amendment_count);
+    println!(
+        "{}       {}",
+        ui::heading("Bill:"),
+        ui::figure(&summary.bill_id)
+    );
+    println!(
+        "{} {}",
+        ui::heading("Amendments:"),
+        ui::figure(summary.amendment_count)
+    );
     for a in &summary.amendments {
         let actions = a.action_types.join(", ");
-        println!("\n- {} [{}] ({} change(s))", a.id, actions, a.change_count);
+        println!(
+            "\n- {} {} {}",
+            ui::figure(&a.id),
+            ui::attention(format!("[{actions}]")),
+            ui::quiet(format!("({} change(s))", a.change_count))
+        );
         println!("    {}", truncate(&a.amending_text, 200));
     }
 }

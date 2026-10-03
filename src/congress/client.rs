@@ -8,6 +8,8 @@ use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
+use crate::progress::{Progress, Silent};
+
 const BASE_URL: &str = "https://api.congress.gov/v3";
 const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
 
@@ -181,52 +183,55 @@ impl CongressClient {
     ///
     /// bill_id format: (congress-type-number) "119-hr-1"
     pub fn download_bill(&self, bill_id: &str) -> Result<BillDownload, CongressError> {
+        self.download_bill_reporting(bill_id, &Silent)
+    }
+
+    /// [`Self::download_bill`], saying each step to `progress` as it goes.
+    ///
+    /// Most of the time goes to members. A bill with a roll call names every
+    /// member who voted, about 432 for a House vote, and each is its own
+    /// request. The cache is shared across bills, so the first bill of a
+    /// Congress is slow and the next ones are fast (#124). The report says how
+    /// many members are cached before the fetching starts, which is what tells
+    /// a person the wait is the roster and not the bill.
+    ///
+    /// A roll call or member the API does not answer for is left out, and
+    /// `progress` hears about it by name. A record an offline client has not
+    /// got stops the download.
+    pub fn download_bill_reporting(
+        &self,
+        bill_id: &str,
+        progress: &dyn Progress,
+    ) -> Result<BillDownload, CongressError> {
         let (congress, bill_type, number) = Self::parse_bill_id(bill_id)?;
 
-        // Fetch bill XML from api.congress.gov
+        progress.begin("text of the law", None);
         let bill_xml = self.fetch_bill_xml(congress, &bill_type, number)?;
 
-        // Fetch bill metadata (includes sponsors, actions, committees, etc.)
+        // Bill metadata (sponsors, actions, committees, etc.) and cosponsors.
+        progress.begin("sponsors", None);
         let bill_endpoint = format!("bill/{}/{}/{}", congress, bill_type, number);
         let bill_metadata_json = self.fetch(
             &bill_endpoint,
             "json",
             format!("bill/{}/{}/{}/metadata", congress, bill_type, number).into(),
         )?;
-
-        // Fetch cosponsors
         let cosponsors_endpoint = format!("{}/cosponsors", bill_endpoint);
         let cosponsors_json = self.fetch(&cosponsors_endpoint, "json", None)?;
 
-        // Collect member bioguide IDs from sponsors
-        let mut member_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        if let Ok(v) = serde_json::from_str::<Value>(&bill_metadata_json)
-            && let Some(sponsors) = v["bill"]["sponsors"].as_array()
-        {
-            for s in sponsors {
-                if let Some(id) = s["bioguideId"].as_str() {
-                    member_ids.insert(id.to_string());
-                }
-            }
-        }
+        let mut member_ids = sponsor_ids(&bill_metadata_json, &cosponsors_json);
 
-        if let Ok(v) = serde_json::from_str::<Value>(&cosponsors_json)
-            && let Some(cosponsors) = v["cosponsors"].as_array()
-        {
-            for c in cosponsors {
-                if let Some(id) = c["bioguideId"].as_str() {
-                    member_ids.insert(id.to_string());
-                }
-            }
-        }
-
-        // Fetch House votes (dedupe by roll number). As with members below, a
-        // vote the API does not answer for is left out, and a vote an offline
-        // client has not got stops the download.
+        // House votes, deduped by roll number.
+        progress.begin("roll calls", None);
         let refs = match self.get_bill_house_votes(congress, &bill_type, number) {
             Ok(refs) => refs,
             Err(error @ CongressError::NotCached(_)) => return Err(error),
-            Err(_) => Vec::new(),
+            Err(error) => {
+                progress.note(&format!(
+                    "The votes on {bill_id} could not be listed, so none are held: {error}"
+                ));
+                Vec::new()
+            }
         };
         let mut seen_rolls = std::collections::HashSet::new();
         let mut roll_calls = Vec::new();
@@ -242,7 +247,10 @@ impl CongressClient {
                     roll_calls.push(vote);
                 }
                 Err(error @ CongressError::NotCached(_)) => return Err(error),
-                Err(_) => {}
+                Err(error) => progress.note(&format!(
+                    "Roll call {} of {bill_id} could not be fetched and is left out: {error}",
+                    r.roll_number
+                )),
             }
         }
         let votes_json = if roll_calls.is_empty() {
@@ -251,19 +259,7 @@ impl CongressClient {
             Some(serde_json::to_string(&roll_calls).unwrap_or_default())
         };
 
-        // Fetch member details, several at once (#284). The first error that
-        // stops the download ends the fetch: no new request starts after it.
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(MEMBER_FETCHES_AT_ONCE)
-            .build()
-            .map_err(|e| CongressError::Io(std::io::Error::other(e)))?;
-        let members: Vec<Option<(String, String)>> = pool.install(|| {
-            member_ids
-                .into_par_iter()
-                .map(|id| self.member_json(id))
-                .collect::<Result<_, _>>()
-        })?;
-        let member_jsons: HashMap<String, String> = members.into_iter().flatten().collect();
+        let member_jsons = self.fetch_members(member_ids, progress)?;
 
         Ok(BillDownload {
             bill_id: bill_id.to_string(),
@@ -275,18 +271,63 @@ impl CongressClient {
         })
     }
 
+    /// Fetch the member record for each id, several at once (#284).
+    ///
+    /// The label of the step says the split, "432 members, 411 cached", so a
+    /// person can see why one bill takes minutes and the next takes seconds.
+    /// The first error that stops the download ends the fetch: no new request
+    /// starts after it.
+    fn fetch_members(
+        &self,
+        ids: std::collections::HashSet<String>,
+        progress: &dyn Progress,
+    ) -> Result<HashMap<String, String>, CongressError> {
+        let cached = ids
+            .iter()
+            .filter(|id| self.cache.holds(&format!("{}.json", member_endpoint(id))))
+            .count();
+        progress.begin(
+            &format!("{} members, {cached} cached", ids.len()),
+            Some(ids.len() as u64),
+        );
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(MEMBER_FETCHES_AT_ONCE)
+            .build()
+            .map_err(|e| CongressError::Io(std::io::Error::other(e)))?;
+        let members: Vec<Option<(String, String)>> = pool.install(|| {
+            ids.into_par_iter()
+                .map(|id| {
+                    let member = self.member_json(id, progress);
+                    progress.advance(1);
+                    member
+                })
+                .collect::<Result<_, _>>()
+        })?;
+        Ok(members.into_iter().flatten().collect())
+    }
+
     /// One member's response, keyed by the member's bioguide ID.
     ///
-    /// A member the API does not answer for is `None`, and is left out. A
-    /// member an offline client has not got is a gap in the cache, and a member
-    /// refused by the rate limit is a gap in the data, so each of those is an
-    /// error that stops the download (#284).
-    fn member_json(&self, id: String) -> Result<Option<(String, String)>, CongressError> {
-        let endpoint = format!("member/{}", id);
-        match self.fetch(&endpoint, "json", None) {
+    /// A member the API does not answer for is `None`, and is left out, and
+    /// `progress` hears about it by name. A member an offline client has not
+    /// got is a gap in the cache, and a member refused by the rate limit is a
+    /// gap in the data, so each of those is an error that stops the download
+    /// (#284).
+    fn member_json(
+        &self,
+        id: String,
+        progress: &dyn Progress,
+    ) -> Result<Option<(String, String)>, CongressError> {
+        match self.fetch(&member_endpoint(&id), "json", None) {
             Ok(json) => Ok(Some((id, json))),
             Err(error @ (CongressError::NotCached(_) | CongressError::RateLimited)) => Err(error),
-            Err(_) => Ok(None),
+            Err(error) => {
+                progress.note(&format!(
+                    "Member {id} could not be fetched and is left out: {error}"
+                ));
+                Ok(None)
+            }
         }
     }
 
@@ -405,4 +446,38 @@ impl CongressClient {
 
         Ok(body)
     }
+}
+
+/// The endpoint, and the cache key less its extension, of one member's record.
+fn member_endpoint(id: &str) -> String {
+    format!("member/{id}")
+}
+
+/// The bioguide id of the sponsor and of each cosponsor of a bill.
+fn sponsor_ids(
+    bill_metadata_json: &str,
+    cosponsors_json: &str,
+) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    if let Ok(v) = serde_json::from_str::<Value>(bill_metadata_json)
+        && let Some(sponsors) = v["bill"]["sponsors"].as_array()
+    {
+        ids.extend(
+            sponsors
+                .iter()
+                .filter_map(|s| s["bioguideId"].as_str())
+                .map(String::from),
+        );
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(cosponsors_json)
+        && let Some(cosponsors) = v["cosponsors"].as_array()
+    {
+        ids.extend(
+            cosponsors
+                .iter()
+                .filter_map(|c| c["bioguideId"].as_str())
+                .map(String::from),
+        );
+    }
+    ids
 }

@@ -17,6 +17,7 @@ use clap::Args as ClapArgs;
 use words_to_data::inspect;
 
 use crate::load::{self, with_dataset};
+use crate::ui;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -39,18 +40,20 @@ pub fn run(args: Args) {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else if report.ok {
         println!(
-            "OK — {} annotation(s) checked, no issues",
-            report.checked_annotations
+            "{} — {} annotation(s) checked, no issues",
+            ui::good("OK").bold(),
+            ui::figure(report.checked_annotations)
         );
     } else {
         if !report.issues.is_empty() {
             println!(
-                "FAILED — {} issue(s) across {} annotation(s):",
-                report.issues.len(),
-                report.checked_annotations
+                "{} — {} issue(s) across {} annotation(s):",
+                ui::bad("FAILED").bold(),
+                ui::bad(report.issues.len()),
+                ui::figure(report.checked_annotations)
             );
             for issue in &report.issues {
-                println!("  - {issue}");
+                println!("  {} {issue}", ui::bad("-"));
             }
         }
 
@@ -62,10 +65,10 @@ pub fn run(args: Args) {
             println!(
                 "\n{} bill and window pair(s) hold redesignation statements no step has \
                  resolved:",
-                report.unresolved_redesignations.len()
+                ui::attention(report.unresolved_redesignations.len())
             );
             for outstanding in &report.unresolved_redesignations {
-                println!("  - {outstanding}");
+                println!("  {} {outstanding}", ui::attention("-"));
             }
         }
 
@@ -76,10 +79,10 @@ pub fn run(args: Args) {
         if !report.uncovered_amendments.is_empty() {
             println!(
                 "\n{} bill and window pair(s) hold amendments no matching run has covered:",
-                report.uncovered_amendments.len()
+                ui::attention(report.uncovered_amendments.len())
             );
             for outstanding in &report.uncovered_amendments {
-                println!("  - {outstanding}");
+                println!("  {} {outstanding}", ui::attention("-"));
             }
         }
     }

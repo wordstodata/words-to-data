@@ -73,8 +73,25 @@ pub fn open(path: &str) -> Result<OpenDataset, DatasetError> {
     if is_sqlite(path) {
         Ok(OpenDataset::Sql(Dataset::open_sqlite(path)?))
     } else {
-        Ok(OpenDataset::Mem(Dataset::load(path, Format::Compact)?))
+        Ok(OpenDataset::Mem(load_compact(path)?))
     }
+}
+
+/// Read a compact JSON dataset, with a spinner while it reads.
+///
+/// A real dataset is a gigabyte of JSON and takes many seconds to read, which
+/// without a word looks like a command that hangs.
+pub fn load_compact(path: &str) -> Result<Dataset<InMemoryStorage>, DatasetError> {
+    crate::ui::step(&format!("Open {path}"), || {
+        Dataset::load(path, Format::Compact)
+    })
+}
+
+/// Write a compact JSON dataset, with a spinner while it writes.
+pub fn save_compact(dataset: &Dataset<InMemoryStorage>, path: &str) -> Result<(), DatasetError> {
+    crate::ui::step(&format!("Save {path}"), || {
+        dataset.save(path, Format::Compact)
+    })
 }
 
 /// Run the same expression against whichever backend was opened.

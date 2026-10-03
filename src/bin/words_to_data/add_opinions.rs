@@ -20,7 +20,7 @@ use words_to_data::citation::{Opinion, cites_links, usc};
 use words_to_data::courtlistener::{
     ClusterRecord, CourtListenerClient, OpinionRecord, opinion_expression, work_id,
 };
-use words_to_data::dataset::{Dataset, ExpressionId, Format, WorkId};
+use words_to_data::dataset::{Dataset, ExpressionId, WorkId};
 use words_to_data::storage::Storage;
 
 #[derive(ClapArgs)]
@@ -77,12 +77,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             add_opinions(&mut dataset, &client, &args.opinions);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");

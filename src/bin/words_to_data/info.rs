@@ -8,6 +8,7 @@ use words_to_data::inspect;
 use words_to_data::method::{Method, MethodRun};
 
 use crate::load::{self, with_dataset};
+use crate::ui;
 
 /// How many works the human output lists before it summarizes.
 const SCOPE_SAMPLE: usize = 5;
@@ -62,16 +63,28 @@ pub fn run(args: Args) {
         return;
     }
 
-    println!("Name:        {}", info.name);
-    println!("Description: {}", info.description);
-    println!("Author:      {}", info.author);
-    println!("License:     {}", info.license);
-    println!("Version:     {}", info.version);
+    println!("{}        {}", ui::heading("Name:"), info.name);
+    println!("{} {}", ui::heading("Description:"), info.description);
+    println!("{}      {}", ui::heading("Author:"), info.author);
+    println!("{}     {}", ui::heading("License:"), info.license);
+    println!("{}     {}", ui::heading("Version:"), info.version);
     if !info.source_urls.is_empty() {
-        println!("Sources:     {}", info.source_urls.join(", "));
+        println!(
+            "{}     {}",
+            ui::heading("Sources:"),
+            info.source_urls.join(", ")
+        );
     }
-    println!("Works:       {}", info.work_count);
-    println!("Expressions: {}", info.expression_count);
+    println!(
+        "{}       {}",
+        ui::heading("Works:"),
+        ui::figure(info.work_count)
+    );
+    println!(
+        "{} {}",
+        ui::heading("Expressions:"),
+        ui::figure(info.expression_count)
+    );
 
     // The legislature block prints whole or not at all. Zeroes here say "this
     // dataset speaks legislature and holds none of it", and no block at all
@@ -85,7 +98,7 @@ pub fn run(args: Args) {
             ("Roll calls:", counts.roll_calls),
             ("Votes:", counts.member_votes),
         ] {
-            println!("{label:<13}{count}");
+            println!("{:<13}{}", ui::heading(label), ui::figure(count));
         }
     }
 
@@ -94,9 +107,13 @@ pub fn run(args: Args) {
     // that does not know a namespace can still report it, and a total hides it
     // (`docs/adr/0002-links-live-in-the-core.md`).
     if info.link_count > 0 {
-        println!("Links:       {}", info.link_count);
+        println!(
+            "{}       {}",
+            ui::heading("Links:"),
+            ui::figure(info.link_count)
+        );
         for (kind, count) in &info.link_counts_by_kind {
-            println!("  {kind}  {count}");
+            println!("  {kind}  {}", ui::figure(count));
         }
     }
 
@@ -114,7 +131,7 @@ pub fn run(args: Args) {
     // reviews of its own, so counting the records would make this report climb
     // as the reviewing gets done.
     if !info.review_states_by_kind.is_empty() {
-        println!("Review state:");
+        println!("{}", ui::heading("Review state:"));
         let width = info
             .review_states_by_kind
             .keys()
@@ -124,7 +141,10 @@ pub fn run(args: Args) {
         for (kind, states) in &info.review_states_by_kind {
             println!(
                 "  {kind:<width$}  {} unreviewed, {} confirmed, {} refuted, {} disputed",
-                states.unreviewed, states.confirmed, states.refuted, states.disputed
+                ui::unless_zero(states.unreviewed, ui::attention),
+                ui::unless_zero(states.confirmed, ui::good),
+                ui::unless_zero(states.refuted, ui::bad),
+                ui::unless_zero(states.disputed, ui::attention)
             );
         }
     }
@@ -133,7 +153,7 @@ pub fn run(args: Args) {
     // no model replies holds none, and a zero there reads as a tool that
     // measured nothing rather than a dataset that holds nothing.
     if info.reply_count > 0 {
-        println!("Replies:     {}", info.reply_count);
+        println!("{}     {}", ui::heading("Replies:"), info.reply_count);
     }
 
     // One line, and no detail. A reader must be able to see that the corpus
@@ -146,8 +166,11 @@ pub fn run(args: Args) {
     let renumbering = &info.redesignations;
     if !renumbering.is_silent() {
         println!(
-            "Renumbering: {} statement(s), {} link(s), {} not placed",
-            renumbering.statements, renumbering.links, renumbering.unplaced
+            "{} {} statement(s), {} link(s), {} not placed",
+            ui::heading("Renumbering:"),
+            ui::figure(renumbering.statements),
+            ui::figure(renumbering.links),
+            ui::unless_zero(renumbering.unplaced, ui::attention)
         );
     }
 
@@ -164,7 +187,7 @@ pub fn run(args: Args) {
     // reader makes the summary it wants out of the full record
     // (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
     if !info.method_runs.is_empty() {
-        println!("Methods run:");
+        println!("{}", ui::heading("Methods run:"));
         let grouped = works_by_method_and_window(&info.method_runs);
         let width = grouped
             .keys()
@@ -174,8 +197,9 @@ pub fn run(args: Args) {
         for ((method, from_date, to_date), works) in &grouped {
             let named = method.to_string();
             println!(
-                "  {named:<width$}  {from_date} -> {to_date}  ({})",
-                works_covered(works.len())
+                "  {named:<width$}  {}  {}",
+                ui::quiet(format!("{from_date} -> {to_date}")),
+                ui::quiet(format!("({})", works_covered(works.len())))
             );
         }
     }
@@ -184,19 +208,19 @@ pub fn run(args: Args) {
     // reader of this dataset knows what it does not hold. Each work carries its
     // own dates, because a dataset need not hold every work on every date.
     match info.scope.held.len() {
-        0 => println!("Covers:      nothing"),
+        0 => println!("{}      nothing", ui::heading("Covers:")),
         // A full US Code dataset holds 60+ works, which is a wall of text.
         // Show a sample and the count; `--json` carries them all.
         count if count > SCOPE_SAMPLE => {
-            println!("Covers:      {count} works, including");
+            println!("{}      {count} works, including", ui::heading("Covers:"));
             for held in &info.scope.held[..SCOPE_SAMPLE] {
-                println!("  {}  {}", held.work, held.dates.join(", "));
+                println!("  {}  {}", held.work, ui::quiet(held.dates.join(", ")));
             }
         }
         _ => {
-            println!("Covers:");
+            println!("{}", ui::heading("Covers:"));
             for held in &info.scope.held {
-                println!("  {}  {}", held.work, held.dates.join(", "));
+                println!("  {}  {}", held.work, ui::quiet(held.dates.join(", ")));
             }
         }
     }
@@ -207,25 +231,47 @@ pub fn run(args: Args) {
     };
 
     if !declared.intends.is_empty() {
-        println!("Declared:    {}", declared.intends.join(", "));
+        println!(
+            "{}    {}",
+            ui::heading("Declared:"),
+            declared.intends.join(", ")
+        );
     }
     if let Some(dates) = &declared.dates {
-        println!("Dates:       {} to {}", dates.from, dates.to);
+        println!(
+            "{}       {} to {}",
+            ui::heading("Dates:"),
+            dates.from,
+            dates.to
+        );
     }
     if !declared.namespaces.is_empty() {
-        println!("Namespaces:  {}", declared.namespaces.join(", "));
+        println!(
+            "{}  {}",
+            ui::heading("Namespaces:"),
+            declared.namespaces.join(", ")
+        );
     }
 
     // A stated hole is not a fault, but a reader seeing "title 26" has to know
     // section 174 is deliberately absent, and why.
     for hole in &declared.excludes {
-        println!("Excluded:    {} — {}", hole.path, hole.reason);
+        println!(
+            "{}    {} — {}",
+            ui::heading("Excluded:"),
+            hole.path,
+            hole.reason
+        );
     }
 
     // Only printed when there is one. A gap means the build did not do what it
     // said it would, which is the one thing here a reader must not miss.
     let gaps = info.scope.gaps();
     if !gaps.is_empty() {
-        println!("INCOMPLETE:  declared but not held: {}", gaps.join(", "));
+        println!(
+            "{}  declared but not held: {}",
+            ui::bad("INCOMPLETE:").bold(),
+            gaps.join(", ")
+        );
     }
 }

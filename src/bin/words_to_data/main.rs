@@ -33,6 +33,7 @@ mod section_agreement;
 mod settle;
 mod show_bill;
 mod span;
+mod ui;
 mod validate;
 mod votes;
 
@@ -106,6 +107,7 @@ enum Command {
 }
 
 fn main() {
+    end_quietly_when_the_reader_stops();
     match Cli::parse().command {
         Command::BuildDataset(args) => build_dataset::run(args),
         Command::ConvertDataset(args) => convert_dataset::run(args),
@@ -135,4 +137,28 @@ fn main() {
         Command::Path(args) => path::run(args),
         Command::Validate(args) => validate::run(args),
     }
+}
+
+/// A reader that closes the pipe early has read enough, so the command stops
+/// with status 0, as `search` already does (#235).
+///
+/// `println!` panics on a broken pipe, so `words_to_data residue data.sqlite |
+/// head` ended with "failed printing to stdout: Broken pipe" and status 101
+/// once `head` had read its ten lines. `search` handles the error where it
+/// writes; every other command writes with `println!`, so the rule is kept
+/// here, once, for all of them. Any other panic is reported as before.
+fn end_quietly_when_the_reader_stops() {
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info.payload();
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or_default();
+        if message.starts_with("failed printing to stdout") && message.contains("Broken pipe") {
+            std::process::exit(0);
+        }
+        report(info);
+    }));
 }

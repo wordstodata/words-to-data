@@ -18,8 +18,10 @@
 //! steps that read a new law, for the operator to run.
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::Dataset;
 use words_to_data::storage::{LegislatureReader, LegislatureWriter, Storage};
+
+use crate::ui;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -74,12 +76,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             grow(&mut dataset, &client, &args.bills, output);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");
@@ -124,16 +126,38 @@ fn report_next_steps(loaded: &[String], written: &str) {
     }
     println!("\nNo other step has run over the new bill(s). To run the steps that read a new law:");
     if crate::load::is_sqlite(written) {
-        println!("  words_to_data add-classifications {written}");
-        println!("  words_to_data link-by-evidence {written}");
+        println!(
+            "  {}",
+            ui::command(&format!("words_to_data add-classifications {written}"))
+        );
+        println!(
+            "  {}",
+            ui::command(&format!("words_to_data link-by-evidence {written}"))
+        );
         for bill in loaded {
-            println!("  words_to_data residue {written} --bill {bill}");
+            println!(
+                "  {}",
+                ui::command(&format!("words_to_data residue {written} --bill {bill}"))
+            );
         }
     } else {
-        println!("  words_to_data add-classifications {written} --output <classified.json>");
-        println!("  words_to_data link-by-evidence <classified.json> --output <linked.json>");
+        println!(
+            "  {}",
+            ui::command(&format!(
+                "words_to_data add-classifications {written} --output <classified.json>"
+            ))
+        );
+        println!(
+            "  {}",
+            ui::command("words_to_data link-by-evidence <classified.json> --output <linked.json>")
+        );
         for bill in loaded {
-            println!("  words_to_data residue <linked.json> --bill {bill}");
+            println!(
+                "  {}",
+                ui::command(&format!(
+                    "words_to_data residue <linked.json> --bill {bill}"
+                ))
+            );
         }
     }
 }

@@ -8,6 +8,7 @@ use clap::Args as ClapArgs;
 use words_to_data::inspect;
 
 use crate::load::{self, with_dataset};
+use crate::ui;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -41,13 +42,17 @@ pub fn run(args: Args) {
 
     println!(
         "{:<width$}  {:>10}  {:>12}",
-        "BILL", "AMENDMENTS", "WITH CHANGES"
+        ui::heading("BILL"),
+        ui::heading("AMENDMENTS"),
+        ui::heading("WITH CHANGES")
     );
     for b in &bills {
         println!(
             "{:<width$}  {:>10}  {:>12}",
-            b.bill_id, b.amendment_count, b.amendments_with_changes
+            ui::figure(&b.bill_id),
+            b.amendment_count,
+            b.amendments_with_changes
         );
     }
-    println!("{} bill(s)", bills.len());
+    println!("{}", ui::quiet(format!("{} bill(s)", bills.len())));
 }

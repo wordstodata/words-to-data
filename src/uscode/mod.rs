@@ -8,10 +8,12 @@
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fs;
-use std::io::{self, Cursor};
+use std::io::{self, Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+use crate::progress::Progress;
 
 /// Release-point zips are hundreds of MB, well over ureq's default read cap.
 const MAX_ZIP_BYTES: u64 = 4 * 1024 * 1024 * 1024;
@@ -43,13 +45,31 @@ pub fn fetch_index(index_url: &str) -> Result<MirrorIndex, Box<dyn StdError>> {
 }
 
 /// Download the release-point zip at `url` and extract its XML into `dest_dir`.
-pub fn download_release(url: &str, dest_dir: &Path) -> Result<(), Box<dyn StdError>> {
-    let bytes = crate::http::Http::new()
-        .call(|agent| agent.get(url).call())?
-        .body_mut()
-        .with_config()
-        .limit(MAX_ZIP_BYTES)
-        .read_to_vec()?;
+///
+/// The zip is hundreds of megabytes, so `progress` hears each chunk as it
+/// arrives, counted in bytes against the length the server states.
+pub fn download_release(
+    url: &str,
+    dest_dir: &Path,
+    progress: &dyn Progress,
+) -> Result<(), Box<dyn StdError>> {
+    let mut response = crate::http::Http::new().call(|agent| agent.get(url).call())?;
+    let body = response.body_mut();
+    progress.begin_bytes("download", body.content_length());
+
+    let mut reader = body.with_config().limit(MAX_ZIP_BYTES).reader();
+    let mut bytes = Vec::new();
+    let mut chunk = vec![0; 1 << 16];
+    loop {
+        let read = reader.read(&mut chunk)?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+        progress.advance(read as u64);
+    }
+
+    progress.begin("extract", None);
     extract_release(&bytes, dest_dir)?;
     Ok(())
 }
@@ -71,10 +91,11 @@ pub fn ensure_release(
     url: &str,
     date: &str,
     cache_dir: &Path,
+    progress: &dyn Progress,
 ) -> Result<PathBuf, Box<dyn StdError>> {
     let folder = cache_dir.join("uslm").join(date);
     if !is_populated(&folder) {
-        download_release(url, &folder)?;
+        download_release(url, &folder, progress)?;
     }
     Ok(folder)
 }

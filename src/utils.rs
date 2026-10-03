@@ -43,6 +43,15 @@ type Result<T> = std::result::Result<T, ParseError>;
 /// }
 /// ```
 pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<DocumentNode> {
+    load_uslm_folder_reporting(folder_path, date, &crate::progress::Silent)
+}
+
+/// [`load_uslm_folder`], telling `progress` as each file is parsed.
+pub fn load_uslm_folder_reporting(
+    folder_path: &str,
+    date: &str,
+    progress: &dyn crate::progress::Progress,
+) -> Option<DocumentNode> {
     let paths = read_dir(folder_path);
     if paths.is_err() {
         return None;
@@ -59,12 +68,15 @@ pub fn load_uslm_folder(folder_path: &str, date: &str) -> Option<DocumentNode> {
     if files.is_empty() {
         return None;
     }
+    progress.begin("parse titles", Some(files.len() as u64));
     let mut parsed_files: Vec<DocumentNode> = files
         .par_iter()
         .map(|file| {
             let pwd = file.to_str().unwrap();
             let err = format!("Failed to parse {}", pwd);
-            parse_uslm_xml(pwd, date).expect(err.as_str())
+            let parsed = parse_uslm_xml(pwd, date).expect(err.as_str());
+            progress.advance(1);
+            parsed
         })
         .collect();
     if parsed_files.is_empty() {

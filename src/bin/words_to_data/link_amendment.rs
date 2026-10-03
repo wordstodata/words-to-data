@@ -31,7 +31,7 @@
 //! sits; a W2D file is read into memory and written out again (#195).
 
 use clap::{Args as ClapArgs, ValueEnum};
-use words_to_data::dataset::{Dataset, ExpressionId, Format};
+use words_to_data::dataset::{Dataset, ExpressionId};
 use words_to_data::inspect;
 use words_to_data::legislature::{AmendingAction, BillAmendment};
 use words_to_data::link::{
@@ -172,12 +172,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             record(&mut dataset, &args);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");
