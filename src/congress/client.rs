@@ -4,16 +4,25 @@ use super::{
     BillDownload, CongressError, CosponsorRecord, HouseRollCall, Member, RecordedVoteRef,
     ResponseCache, SponsorInfo,
 };
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
 const BASE_URL: &str = "https://api.congress.gov/v3";
 const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
 
+/// How many member requests a bill download sends at once. A House roll call
+/// names approximately 430 members, and the API allows 5,000 requests an hour,
+/// so a small pool makes a download fast and keeps a run inside the limit.
+const MEMBER_FETCHES_AT_ONCE: usize = 8;
+
 pub struct CongressClient {
     api_key: String,
     cache: ResponseCache,
     http: crate::http::Http,
+    /// Where requests go. [`BASE_URL`] unless a caller set another with
+    /// [`CongressClient::with_base_url`].
+    base_url: String,
     /// Read only the cache, and never reach the network. See
     /// [`CongressClient::cached_only`].
     offline: bool,
@@ -37,7 +46,16 @@ impl CongressClient {
             api_key,
             cache,
             http: crate::http::Http::new(),
+            base_url: BASE_URL.to_string(),
             offline: false,
+        }
+    }
+
+    /// Send requests to another server, such as a local one in a test.
+    pub fn with_base_url(self, base_url: impl Into<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+            ..self
         }
     }
 
@@ -82,7 +100,7 @@ impl CongressClient {
             return Err(self.not_cached(&key));
         }
 
-        let url = format!("{}/{}", BASE_URL, endpoint);
+        let url = format!("{}/{}", self.base_url, endpoint);
 
         let mut response = self
             .http
@@ -233,20 +251,19 @@ impl CongressClient {
             Some(serde_json::to_string(&roll_calls).unwrap_or_default())
         };
 
-        // Fetch member details. A member the API does not answer for is left
-        // out, but a member an offline client has not got is a gap in the
-        // cache, and it stops the download.
-        let mut member_jsons = HashMap::new();
-        for id in member_ids {
-            let endpoint = format!("member/{}", id);
-            match self.fetch(&endpoint, "json", None) {
-                Ok(json) => {
-                    member_jsons.insert(id, json);
-                }
-                Err(error @ CongressError::NotCached(_)) => return Err(error),
-                Err(_) => {}
-            }
-        }
+        // Fetch member details, several at once (#284). The first error that
+        // stops the download ends the fetch: no new request starts after it.
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(MEMBER_FETCHES_AT_ONCE)
+            .build()
+            .map_err(|e| CongressError::Io(std::io::Error::other(e)))?;
+        let members: Vec<Option<(String, String)>> = pool.install(|| {
+            member_ids
+                .into_par_iter()
+                .map(|id| self.member_json(id))
+                .collect::<Result<_, _>>()
+        })?;
+        let member_jsons: HashMap<String, String> = members.into_iter().flatten().collect();
 
         Ok(BillDownload {
             bill_id: bill_id.to_string(),
@@ -256,6 +273,21 @@ impl CongressClient {
             votes_json,
             member_jsons,
         })
+    }
+
+    /// One member's response, keyed by the member's bioguide ID.
+    ///
+    /// A member the API does not answer for is `None`, and is left out. A
+    /// member an offline client has not got is a gap in the cache, and a member
+    /// refused by the rate limit is a gap in the data, so each of those is an
+    /// error that stops the download (#284).
+    fn member_json(&self, id: String) -> Result<Option<(String, String)>, CongressError> {
+        let endpoint = format!("member/{}", id);
+        match self.fetch(&endpoint, "json", None) {
+            Ok(json) => Ok(Some((id, json))),
+            Err(error @ (CongressError::NotCached(_) | CongressError::RateLimited)) => Err(error),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Parse bill_id like "119-hr-1" into (congress, type, number)
