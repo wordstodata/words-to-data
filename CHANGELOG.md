@@ -38,7 +38,10 @@ check it and correct it with the command alone.
 
 ### Also new
 
-- A SQLite store beside compact JSON (`convert-dataset` moves between them).
+- A SQLite store beside compact JSON. `build-dataset` writes SQLite when the
+  output is named `.sqlite` or `.db`, and `convert-dataset` moves between the two.
+- Progress bars, colour, and a time for each step in the command line. No long step
+  runs in silence.
 - Court opinions from CourtListener, with their U.S.C. citations as links
   (`add-opinions`, `cases-citing`).
 - Readers: `search` (scoped, bounded, with snippets), `diff`, `path`, `annotations`,
@@ -46,7 +49,11 @@ check it and correct it with the command alone.
   `section-agreement`, `contradictions`, `redesignation-report`, `coverage`.
 - Each method has a name and a version. A dataset records which method ran over
   which window.
-- Network requests retry over IPv4 when an IPv6 route is unreachable.
+- A bill's member records are fetched eight at a time. A rate-limit answer stops
+  the download, so no member is left out with no warning.
+- Network requests retry over IPv4 when an IPv6 route is unreachable. After one
+  such answer, every later request goes over IPv4 at once: on some networks the
+  error for parallel IPv6 connections comes only once a second.
 
 ### Breaking
 
@@ -57,8 +64,6 @@ check it and correct it with the command alone.
 
 ### Known limits
 
-- `build-dataset` always writes compact JSON, whatever the file name. Convert it
-  with `convert-dataset`.
 - No command gives a single member's vote by name. `votes` counts by party.
 - An amendment that is only partly linked does not show in `residue`. `coverage`
   shows its unlinked change.
