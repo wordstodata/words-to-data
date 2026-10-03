@@ -15,7 +15,7 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::{Dataset, Format, WorkId};
 use words_to_data::link::LinkKind;
 use words_to_data::storage::LinkReader;
 
@@ -289,4 +289,28 @@ fn should_hold_the_bill_in_place_and_name_the_next_steps_when_a_sqlite_dataset_t
     ] {
         assert!(said.contains(&step), "the run should name `{step}`: {said}");
     }
+}
+
+/// A dataset named `.sqlite` is a SQLite file from the start (#288).
+///
+/// Every other command reads the extension to choose the backend, so a build
+/// that wrote JSON under a SQLite name gave a file no command could open, and
+/// a first run needed `convert-dataset` before anything else.
+#[test]
+fn should_write_a_sqlite_dataset_when_the_output_is_named_sqlite() {
+    let cache = cache_for("sqlite_output");
+    let output = scratch("sqlite_output.sqlite");
+    let _ = std::fs::remove_file(&output);
+
+    build(&cache, &output, &[]);
+
+    let dataset = Dataset::open_sqlite(&output).expect("the output should be a SQLite dataset");
+    let expressions = dataset
+        .expressions(&WorkId::new("uscode/title_7"))
+        .expect("the expressions should be readable");
+    assert_eq!(
+        expressions.len(),
+        DATES.len(),
+        "the dataset should hold title 7 at every date it was built from"
+    );
 }

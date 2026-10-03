@@ -94,6 +94,25 @@ pub fn save_compact(dataset: &Dataset<InMemoryStorage>, path: &str) -> Result<()
     })
 }
 
+/// Write a dataset in the format its file name asks for: SQLite for `.sqlite`
+/// or `.db`, compact JSON for anything else (#288).
+///
+/// A SQLite output starts from an empty file. Writing into an existing database
+/// keeps whatever it already held: rows of a different dataset that share no
+/// key survive, and a table from an older build keeps its narrower shape. The
+/// command names an output, so producing that output rather than a mixture of
+/// it and its predecessor is the whole job. Writing JSON truncates already.
+pub fn save(dataset: &Dataset<InMemoryStorage>, path: &str) -> Result<(), DatasetError> {
+    if !is_sqlite(path) {
+        return save_compact(dataset, path);
+    }
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
+    crate::ui::step(&format!("Write {path}"), || dataset.save_to_sqlite(path))
+}
+
 /// Run the same expression against whichever backend was opened.
 ///
 /// ```ignore
