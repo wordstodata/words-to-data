@@ -12,8 +12,16 @@
 //! made once more over IPv4 only. Forcing IPv4 from the start was rejected: it
 //! would break a machine that reaches the internet over IPv6 alone, which this
 //! retry leaves working, because its first attempt succeeds.
+//!
+//! **After one unreachable answer, every request goes over IPv4 at once
+//! (#286).** On some networks the "unreachable" error comes back about once a
+//! second when several connections ask for it at the same time. Parallel
+//! requests then wait in line for an error, and 432 member requests take eight
+//! minutes. The network does not change during a run, so it is asked once.
 
 use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ureq::Agent;
 use ureq::config::IpFamily;
@@ -23,6 +31,8 @@ use ureq::config::IpFamily;
 pub struct Http {
     any: Agent,
     ipv4: Agent,
+    /// Set when the network was unreachable once. Clones share it.
+    unreachable_before: Arc<AtomicBool>,
 }
 
 impl Http {
@@ -33,6 +43,7 @@ impl Http {
                 .ip_family(IpFamily::Ipv4Only)
                 .build()
                 .new_agent(),
+            unreachable_before: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -44,8 +55,14 @@ impl Http {
         &self,
         request: impl Fn(&Agent) -> Result<T, ureq::Error>,
     ) -> Result<T, ureq::Error> {
+        if self.unreachable_before.load(Ordering::Relaxed) {
+            return request(&self.ipv4);
+        }
         match request(&self.any) {
-            Err(error) if is_unreachable(&error) => request(&self.ipv4),
+            Err(error) if is_unreachable(&error) => {
+                self.unreachable_before.store(true, Ordering::Relaxed);
+                request(&self.ipv4)
+            }
             answered => answered,
         }
     }
