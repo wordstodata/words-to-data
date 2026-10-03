@@ -1,4 +1,4 @@
-use words_to_data::congress::{CongressClient, VotePosition};
+use words_to_data::congress::{CongressClient, CongressError, VotePosition};
 
 const TEST_CONGRESS_CACHE_DIR: &str = "tests/test_data/congress_client_cache";
 
@@ -177,6 +177,58 @@ fn should_name_the_missing_vote_when_an_offline_client_reads_a_bill_whose_vote_i
         message.contains("house-vote/119/1/190/members") && message.contains("cache"),
         "the error should name the vote the cache has not got: {message}"
     );
+}
+
+/// A member the API refuses because of the rate limit is not left out (#284).
+///
+/// A member the API does not know is left out, but a 429 says nothing about the
+/// member. A bill loaded without that member would read as a bill without it,
+/// so the download stops. The cache is the committed one, less the sponsor's
+/// record, and the API is a local server that answers every request with 429.
+#[test]
+fn should_stop_the_download_when_the_api_rate_limits_a_member_request() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let cache = dir.path().join("cache");
+    copy_tree(std::path::Path::new(TEST_CONGRESS_CACHE_DIR), &cache);
+    std::fs::remove_file(cache.join("member/A000375.json")).expect("the sponsor is cached");
+    let client = CongressClient::with_ttl(
+        "test-key".to_string(),
+        Some(cache.to_string_lossy().to_string()),
+        None,
+    )
+    .with_base_url(rate_limited_server());
+
+    let error = client
+        .download_bill("119-hr-1")
+        .expect_err("the API refused the sponsor's record");
+
+    assert!(
+        matches!(error, CongressError::RateLimited),
+        "the error should be the rate limit: {error}"
+    );
+}
+
+/// The address of a local server that answers every request with a 429.
+fn rate_limited_server() -> String {
+    use std::io::{BufRead, BufReader, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a local port");
+    let address = listener.local_addr().expect("the port's address");
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            // Read the request up to its blank line before answering it.
+            let mut reader = BufReader::new(&stream);
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok_and(|read| read > 2) {
+                line.clear();
+            }
+            let _ = stream.write_all(
+                b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+    format!("http://{address}")
 }
 
 /// Copy a folder and everything under it.

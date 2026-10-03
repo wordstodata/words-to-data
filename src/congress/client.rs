@@ -4,6 +4,7 @@ use super::{
     BillDownload, CongressError, CosponsorRecord, HouseRollCall, Member, RecordedVoteRef,
     ResponseCache, SponsorInfo,
 };
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -12,10 +13,18 @@ use crate::progress::{Progress, Silent};
 const BASE_URL: &str = "https://api.congress.gov/v3";
 const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
 
+/// How many member requests a bill download sends at once. A House roll call
+/// names approximately 430 members, and the API allows 5,000 requests an hour,
+/// so a small pool makes a download fast and keeps a run inside the limit.
+const MEMBER_FETCHES_AT_ONCE: usize = 8;
+
 pub struct CongressClient {
     api_key: String,
     cache: ResponseCache,
     http: crate::http::Http,
+    /// Where requests go. [`BASE_URL`] unless a caller set another with
+    /// [`CongressClient::with_base_url`].
+    base_url: String,
     /// Read only the cache, and never reach the network. See
     /// [`CongressClient::cached_only`].
     offline: bool,
@@ -39,7 +48,16 @@ impl CongressClient {
             api_key,
             cache,
             http: crate::http::Http::new(),
+            base_url: BASE_URL.to_string(),
             offline: false,
+        }
+    }
+
+    /// Send requests to another server, such as a local one in a test.
+    pub fn with_base_url(self, base_url: impl Into<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+            ..self
         }
     }
 
@@ -84,7 +102,7 @@ impl CongressClient {
             return Err(self.not_cached(&key));
         }
 
-        let url = format!("{}/{}", BASE_URL, endpoint);
+        let url = format!("{}/{}", self.base_url, endpoint);
 
         let mut response = self
             .http
@@ -253,39 +271,64 @@ impl CongressClient {
         })
     }
 
-    /// Fetch the member record for each id, cached ones first.
+    /// Fetch the member record for each id, several at once (#284).
     ///
     /// The label of the step says the split, "432 members, 411 cached", so a
     /// person can see why one bill takes minutes and the next takes seconds.
+    /// The first error that stops the download ends the fetch: no new request
+    /// starts after it.
     fn fetch_members(
         &self,
         ids: std::collections::HashSet<String>,
         progress: &dyn Progress,
     ) -> Result<HashMap<String, String>, CongressError> {
-        let endpoint = |id: &str| format!("member/{id}");
         let cached = ids
             .iter()
-            .filter(|id| self.cache.holds(&format!("{}.json", endpoint(id))))
+            .filter(|id| self.cache.holds(&format!("{}.json", member_endpoint(id))))
             .count();
         progress.begin(
             &format!("{} members, {cached} cached", ids.len()),
             Some(ids.len() as u64),
         );
 
-        let mut member_jsons = HashMap::new();
-        for id in ids {
-            match self.fetch(&endpoint(&id), "json", None) {
-                Ok(json) => {
-                    member_jsons.insert(id, json);
-                }
-                Err(error @ CongressError::NotCached(_)) => return Err(error),
-                Err(error) => progress.note(&format!(
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(MEMBER_FETCHES_AT_ONCE)
+            .build()
+            .map_err(|e| CongressError::Io(std::io::Error::other(e)))?;
+        let members: Vec<Option<(String, String)>> = pool.install(|| {
+            ids.into_par_iter()
+                .map(|id| {
+                    let member = self.member_json(id, progress);
+                    progress.advance(1);
+                    member
+                })
+                .collect::<Result<_, _>>()
+        })?;
+        Ok(members.into_iter().flatten().collect())
+    }
+
+    /// One member's response, keyed by the member's bioguide ID.
+    ///
+    /// A member the API does not answer for is `None`, and is left out, and
+    /// `progress` hears about it by name. A member an offline client has not
+    /// got is a gap in the cache, and a member refused by the rate limit is a
+    /// gap in the data, so each of those is an error that stops the download
+    /// (#284).
+    fn member_json(
+        &self,
+        id: String,
+        progress: &dyn Progress,
+    ) -> Result<Option<(String, String)>, CongressError> {
+        match self.fetch(&member_endpoint(&id), "json", None) {
+            Ok(json) => Ok(Some((id, json))),
+            Err(error @ (CongressError::NotCached(_) | CongressError::RateLimited)) => Err(error),
+            Err(error) => {
+                progress.note(&format!(
                     "Member {id} could not be fetched and is left out: {error}"
-                )),
+                ));
+                Ok(None)
             }
-            progress.advance(1);
         }
-        Ok(member_jsons)
     }
 
     /// Parse bill_id like "119-hr-1" into (congress, type, number)
@@ -403,6 +446,11 @@ impl CongressClient {
 
         Ok(body)
     }
+}
+
+/// The endpoint, and the cache key less its extension, of one member's record.
+fn member_endpoint(id: &str) -> String {
+    format!("member/{id}")
 }
 
 /// The bioguide id of the sponsor and of each cosponsor of a bill.
