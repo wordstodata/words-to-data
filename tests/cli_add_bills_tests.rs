@@ -314,3 +314,44 @@ fn should_write_a_sqlite_dataset_when_the_output_is_named_sqlite() {
         "the dataset should hold title 7 at every date it was built from"
     );
 }
+
+/// A bill load says how many renumberings it could not place, and where to read
+/// them, in place of the statements themselves (#290).
+///
+/// Each statement and its clause, printed after a successful build, looks like
+/// a failure to a first-time user. `redesignation-report` already lists them.
+/// The fixture holds title 7 alone, so most of the bill's statements, which
+/// renumber title 26 and others, cannot be placed.
+#[test]
+fn should_summarise_the_unplaced_renumberings_when_a_build_loads_a_bill() {
+    let cache = cache_for("quiet_unplaced");
+    let output = scratch("quiet_unplaced.json");
+    let dates = DATES.join(",");
+
+    let build = run(&[
+        "build-dataset",
+        "--uslm-dates",
+        &dates,
+        "--offline",
+        "--cache-dir",
+        &cache,
+        "--bills",
+        BILL,
+        &output,
+    ]);
+
+    succeeded(&build, "build-dataset");
+    let said = stderr_of(&build);
+    assert!(
+        said.contains(&format!("redesignation-report <dataset> --bill-id {BILL}")),
+        "the build should name the command that lists them: {said}"
+    );
+    let detail: Vec<&str> = said
+        .lines()
+        .filter(|line| line.contains(" reader: "))
+        .collect();
+    assert!(
+        detail.is_empty(),
+        "the build should not print each unplaced statement: {detail:?}"
+    );
+}
