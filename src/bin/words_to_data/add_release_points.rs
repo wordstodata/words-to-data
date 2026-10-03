@@ -19,8 +19,10 @@
 use std::collections::BTreeMap;
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, ExpressionId, ExpressionPair, Format, adjacent_expressions};
+use words_to_data::dataset::{Dataset, ExpressionId, ExpressionPair, adjacent_expressions};
 use words_to_data::storage::{DocumentReader, LinkReader, Storage};
+
+use crate::ui;
 
 use crate::release_points::{self, DEFAULT_MIRROR_INDEX, Missing, ReleaseSource};
 
@@ -87,12 +89,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             grow(&mut dataset, &source, &args.uslm_dates, output);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");
@@ -175,7 +177,10 @@ fn report_windows<S: Storage>(dataset: &Dataset<S>, before: &[ExpressionPair], w
              --between {from} {to}"
         );
     }
-    println!("  words_to_data link-by-evidence {written}");
+    println!(
+        "  {}",
+        ui::command(&format!("words_to_data link-by-evidence {written}"))
+    );
 }
 
 /// What a window holds, counted by link kind.

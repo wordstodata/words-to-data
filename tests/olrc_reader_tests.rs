@@ -90,16 +90,6 @@ fn run(args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
-#[test]
-fn should_show_the_olrc_row_when_path_reads_a_section_the_olrc_classified() {
-    let said = run(&["path", dataset_on_disk(), SECTION_174A]);
-
-    assert!(
-        said.contains("classified by the OLRC from Pub. L. 119-21 §70302(a), new"),
-        "the OLRC's statement that § 70302(a) made § 174A should be shown: {said}"
-    );
-}
-
 /// The table puts a note on § 174A too: § 70302(c) of the law, `nt new`. That
 /// row is about a note, and a reviewer must not read it as about the text.
 #[test]

@@ -46,28 +46,40 @@ impl ResponseCache {
 
     pub fn get(&self, key: &str) -> Option<String> {
         let path = self.key_to_path(key);
-
-        if !path.exists() {
+        if !self.is_fresh(&path) {
             return None;
         }
-
-        // Check TTL. A read is non-destructive: an expired entry is treated as a
-        // cache miss but is never deleted, so committed fixtures survive reads.
-        if let Some(ttl) = self.ttl {
-            let metadata = fs::metadata(&path).ok()?;
-            let modified = metadata.modified().ok()?;
-            let age = SystemTime::now().duration_since(modified).ok()?;
-
-            if age > ttl {
-                return None;
-            }
-        }
-
         let mut file = fs::File::open(&path).ok()?;
         let mut contents = String::new();
         file.read_to_string(&mut contents).ok()?;
 
         Some(contents)
+    }
+
+    /// Whether a [`Self::get`] of `key` would answer now, without reading it.
+    ///
+    /// A caller about to fetch many records uses it to say how many are cached
+    /// and how many must be fetched, before the fetching starts.
+    pub fn holds(&self, key: &str) -> bool {
+        self.is_fresh(&self.key_to_path(key))
+    }
+
+    /// Whether the entry at `path` exists and is inside its time to live.
+    ///
+    /// A read is non-destructive: an expired entry is treated as a cache miss
+    /// but is never deleted, so committed fixtures survive reads.
+    fn is_fresh(&self, path: &Path) -> bool {
+        if !path.exists() {
+            return false;
+        }
+        let Some(ttl) = self.ttl else {
+            return true;
+        };
+        let age = fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok());
+        age.is_some_and(|age| age <= ttl)
     }
 
     /// Write a response under `key`. The error is `std::io::Error` rather than

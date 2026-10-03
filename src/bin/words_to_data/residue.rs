@@ -8,6 +8,10 @@
 //! **It stores nothing.** The list is derived each time, so an amendment leaves
 //! it the moment a link names it, from the batch or through `link-amendment`.
 //!
+//! **It ends with the links the current method no longer makes (#185).** They
+//! are review work, not resolve work, so they are a section of their own and
+//! not rows. See [`words_to_data::legislature::outdated`].
+//!
 //! **A person sees a screenful.** The counts cover every row. The rows follow,
 //! work first, and stop at [`DEFAULT_LIMIT`] with the number left out. `--json`
 //! carries every row, in the order each bill states its amendments.
@@ -17,11 +21,13 @@ use std::collections::BTreeMap;
 use clap::Args as ClapArgs;
 use serde::Serialize;
 use words_to_data::legislature::evidence_matching::Stage;
+use words_to_data::legislature::outdated::{OutdatedLink, outdated_links};
 use words_to_data::legislature::residue::{Category, Unlinked, unlinked_amendments};
 use words_to_data::query::{Answer, DEFAULT_LIMIT};
 use words_to_data::review::short_id;
 
 use crate::load::{self, with_dataset};
+use crate::ui;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -43,35 +49,43 @@ pub struct Args {
 #[derive(Serialize)]
 struct Listing {
     rows: Vec<Unlinked>,
+    /// The links the current version of their batch method no longer makes.
+    /// Review work, not resolve work, so apart from the rows.
+    outdated: Vec<OutdatedLink>,
 }
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
-    let rows = crate::fail::or_exit(
-        with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref())),
+    let (rows, outdated) = crate::fail::or_exit(
+        with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref())
+            .and_then(|rows| Ok((rows, outdated_links(&d, args.bill.as_deref())?)))),
         "Error reading the dataset's amendments",
     );
 
     if args.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&Listing { rows }).unwrap()
+            serde_json::to_string_pretty(&Listing { rows, outdated }).unwrap()
         );
         return;
     }
 
     print_counts(&rows);
-    if rows.is_empty() {
-        return;
+    if !rows.is_empty() {
+        print_queue(rows);
     }
+    print_outdated(&outdated);
+}
 
+/// The rows, work first, at most a screenful.
+fn print_queue(rows: Vec<Unlinked>) {
     let mut queue = rows;
     queue.sort_by_key(|row| queue_place(row.category));
     let total = queue.len();
     queue.truncate(DEFAULT_LIMIT);
     let shown = Answer { rows: queue, total };
 
-    println!("\nWork first:");
+    println!("\n{}", ui::heading("Work first:"));
     for row in &shown.rows {
         print_row(row);
     }
@@ -80,6 +94,29 @@ pub fn run(args: Args) {
             "  … {} more row(s) not shown; pass --json for all of them",
             shown.dropped()
         );
+    }
+}
+
+/// The links the current version of their method no longer makes, one line
+/// each. Review work: a reviewer settles each one (Job 3 of
+/// `docs/agents/working-a-dataset.md`).
+fn print_outdated(outdated: &[OutdatedLink]) {
+    if outdated.is_empty() {
+        return;
+    }
+    println!(
+        "\nLinks the current method no longer makes ({}): review each with settle",
+        outdated.len()
+    );
+    for row in outdated {
+        println!(
+            "  link {}  {}  {} -> {}",
+            short_id(&row.link_id),
+            row.path,
+            row.made_by,
+            row.remade_by
+        );
+        println!("    window: {}@{}", row.work, row.window);
     }
 }
 
@@ -98,8 +135,15 @@ fn queue_place(category: Category) -> u8 {
 /// for which reason.
 fn print_counts(rows: &[Unlinked]) {
     let count = |category: Category| rows.iter().filter(|row| row.category == category).count();
-    println!("{} amendment(s) that no standing link names", rows.len());
-    println!("  {:>4}  work", count(Category::Work));
+    println!(
+        "{} amendment(s) that no standing link names",
+        ui::figure(rows.len())
+    );
+    println!(
+        "  {:>4}  {}",
+        ui::attention(count(Category::Work)).bold(),
+        ui::heading("work")
+    );
 
     let mut reasons: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     for row in rows.iter().filter(|row| row.category == Category::Work) {
@@ -108,7 +152,11 @@ fn print_counts(rows: &[Unlinked]) {
             .or_default() += 1;
     }
     for ((stage, reason), count) in &reasons {
-        println!("          {count:>4}  {stage}: {reason}");
+        println!(
+            "          {:>4}  {}: {reason}",
+            ui::attention(count),
+            ui::quiet(stage)
+        );
     }
 
     println!(
@@ -150,7 +198,13 @@ fn print_row(row: &Unlinked) {
         (Category::NotHeld, _) => "not held".to_string(),
         (Category::Quiet, _) => "quiet".to_string(),
     };
-    println!("  {id}  [{category}] {}: {}", stage_name(row), row.reason);
+    println!(
+        "  {}  {} {}: {}",
+        ui::figure(id),
+        ui::attention(format!("[{category}]")),
+        ui::quiet(stage_name(row)),
+        row.reason
+    );
     println!(
         "    {} § {}",
         row.public_law,
@@ -163,7 +217,7 @@ fn print_row(row: &Unlinked) {
             .iter()
             .map(|step| format!("({})", step.number))
             .collect();
-        println!("    address: {section}{below}");
+        println!("    {} {section}{below}", ui::quiet("address:"));
     }
     if let Some(no_link) = &row.no_link {
         let method = no_link
@@ -187,13 +241,13 @@ fn print_row(row: &Unlinked) {
         );
     }
     if let Some(not_held) = &row.not_held {
-        println!("    not held: {not_held}");
+        println!("    {} {not_held}", ui::quiet("not held:"));
     }
     if let (Some(from), Some(to)) = (&row.from, &row.to) {
-        println!("    window: {from} -> {}", to.at);
+        println!("    {} {from} -> {}", ui::quiet("window:"), to.at);
     }
     for change in &row.changes {
-        println!("    change: {change}");
+        println!("    {} {change}", ui::quiet("change:"));
     }
     for classified in &row.olrc {
         let descriptions: Vec<&str> = classified

@@ -19,14 +19,16 @@
 //! sits; a W2D file is read into memory and written out again (#195).
 
 use clap::{Args as ClapArgs, ValueEnum};
-use words_to_data::dataset::{Dataset, Format};
+use words_to_data::dataset::Dataset;
 use words_to_data::inspect::{self, EvidenceWords};
 use words_to_data::legislature::evidence_matching::{Recorded, RecordedSource};
+use words_to_data::legislature::outdated::outdated_link;
 use words_to_data::link::{Link, Named, Target};
 use words_to_data::review::{self, Review, Verdict};
 use words_to_data::storage::{LinkReader, Storage};
 
 use crate::load::with_dataset;
+use crate::ui;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -121,12 +123,12 @@ pub fn run(args: Args) {
         }
         Some(output) => {
             let mut dataset = crate::fail::or_exit(
-                Dataset::load(&args.dataset, Format::Compact),
+                crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
             settle(&mut dataset, &args);
             crate::fail::or_exit(
-                dataset.save(output, Format::Compact),
+                crate::load::save_compact(&dataset, output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");
@@ -148,7 +150,7 @@ fn explain<S: Storage>(dataset: &Dataset<S>, args: &Args) {
         "Error reading the link's reviews",
     );
     match review::newest(&records) {
-        None => println!("\nNo reviews yet."),
+        None => println!("\n{}", ui::quiet("No reviews yet.")),
         Some(winning) => {
             println!(
                 "\n{} review record(s). Readers report the newest: {} by {} on {}.",
@@ -189,10 +191,15 @@ fn find_link<S: Storage>(dataset: &Dataset<S>, args: &Args) -> Link {
 
 /// The link itself: its id, what it says, and who said it.
 fn describe(reviewed: &Link) {
-    println!("Link {}", review::short_id(&reviewed.id()));
+    println!(
+        "{} {}",
+        ui::heading("Link"),
+        ui::figure(review::short_id(&reviewed.id()))
+    );
     println!(
         "  {} said by {}",
-        reviewed.kind.0, reviewed.provenance.source
+        reviewed.kind.0,
+        ui::quiet(&reviewed.provenance.source)
     );
     println!("  {}", reviewed.subject.name());
     println!("  -> {}", reviewed.object.name());
@@ -207,7 +214,7 @@ fn print_how_made<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
         inspect::how_made(dataset, reviewed),
         "Error reading how the link was made",
     );
-    println!("\nHow it was made:");
+    println!("\n{}", ui::heading("How it was made:"));
     println!("  Source: {}", made.source);
     println!(
         "  Method: {}",
@@ -235,6 +242,23 @@ fn print_how_made<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
         println!(
             "  Causes: one of {} amendments linked to this change",
             made.causes
+        );
+    }
+    print_outdated(dataset, reviewed);
+}
+
+/// Whether the current version of the link's batch method no longer makes it
+/// (#185). Said only when it is so: most links are current.
+fn print_outdated<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
+    let outdated = crate::fail::or_exit(
+        outdated_link(dataset, reviewed),
+        "Error reading whether the link is outdated",
+    );
+    if let Some(outdated) = outdated {
+        println!(
+            "  Outdated: made by @{}. This bill's links in this window were re-made by @{}, \
+             and this one was not",
+            outdated.made_by.version, outdated.remade_by.version
         );
     }
 }
@@ -309,7 +333,7 @@ fn print_words_at_the_ends<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
     // diff, because a reviewer reads the instruction and then checks whether the
     // words moved the way it said.
     if let Some(instructed) = &evidence.object_text {
-        println!("\nWhat the object says:");
+        println!("\n{}", ui::heading("What the object says:"));
         print_wrapped(instructed, "  ");
     }
     match &evidence.words {
@@ -365,7 +389,7 @@ fn every_word(path: &str, reviewed: &Link) -> String {
 /// "untouched" would read it as a guarantee about the subtree that was never
 /// checked.
 fn print_changes(from: &str, to: &str, changes: &[inspect::PathFieldChange]) {
-    println!("\nThe words at its two ends:");
+    println!("\n{}", ui::heading("The words at its two ends:"));
     println!("  {from}");
     println!("  {to}");
     if changes.is_empty() {

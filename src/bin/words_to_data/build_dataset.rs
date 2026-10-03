@@ -2,7 +2,7 @@
 //! release points.
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration, Format};
+use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration};
 
 use crate::release_points::{self, DEFAULT_MIRROR_INDEX, Missing, ReleaseSource};
 
@@ -101,8 +101,6 @@ pub fn run(args: Args) {
         );
     }
 
-    dataset
-        .save(&args.output, Format::Compact)
-        .expect("Error saving dataset");
+    crate::load::save_compact(&dataset, &args.output).expect("Error saving dataset");
     println!("Wrote {}", args.output);
 }

@@ -16,11 +16,13 @@
 //! Every case here is read out of the committed corpus: the public law
 //! `119-hr-1` and the three committed release points of title 7.
 
+mod common;
+
 use std::collections::HashMap;
 
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{
-    Dataset, DatasetMetadata, Expression, ExpressionId, WorkId, adjacent_expressions, work_roots,
+    Dataset, DatasetMetadata, ExpressionId, WorkId, adjacent_expressions,
 };
 use words_to_data::diff::TreeDiff;
 use words_to_data::inspect;
@@ -29,7 +31,6 @@ use words_to_data::link::{LinkKind, Target};
 use words_to_data::review::{Review, Verdict};
 use words_to_data::storage::{InMemoryStorage, LinkReader};
 use words_to_data::uslm::bill_redesignation::redesignations_stated_in;
-use words_to_data::uslm::parser::parse;
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -80,18 +81,11 @@ fn title_7_and_the_bill_at(dates: &[&str]) -> Dataset<InMemoryStorage> {
 
 /// Put title 7 as it read on one date into a dataset, as a release point.
 fn add_title_7_at(dataset: &mut Dataset<InMemoryStorage>, date: &str) {
-    let parsed = parse(&format!("tests/test_data/usc/{date}/usc07.xml"), date)
-        .expect("title 7 should parse");
-    for root in work_roots(parsed) {
-        let work = WorkId::new(root.data.path.to_string());
-        dataset
-            .add_expression(Expression {
-                id: ExpressionId::new(work, date),
-                label: None,
-                root,
-            })
-            .expect("the expression should store");
-    }
+    common::add_uslm_xml(
+        dataset,
+        &format!("tests/test_data/usc/{date}/usc07.xml"),
+        date,
+    );
 }
 
 /// The ids of every renumbering link a dataset holds, sorted.
@@ -320,18 +314,11 @@ fn should_say_nothing_changed_when_the_report_reads_a_statement_whose_text_no_wi
     // and the report must say why, rather than say the step has not run.
     let mut dataset = Dataset::new(DatasetMetadata::default());
     for date in DATES {
-        let parsed = parse(&format!("tests/test_data/usc/{date}/usc20.xml"), date)
-            .expect("title 20 should parse");
-        for root in work_roots(parsed) {
-            let work = WorkId::new(root.data.path.to_string());
-            dataset
-                .add_expression(Expression {
-                    id: ExpressionId::new(work, date),
-                    label: None,
-                    root,
-                })
-                .expect("the expression should store");
-        }
+        common::add_uslm_xml(
+            &mut dataset,
+            &format!("tests/test_data/usc/{date}/usc20.xml"),
+            date,
+        );
     }
     dataset
         .load_bill_download(&committed_bill_download())

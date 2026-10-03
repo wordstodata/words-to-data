@@ -33,12 +33,15 @@ ureq = "3"
 dirs = "6.0.0"
 clap = { version = "4.6.6", features = ["derive"], optional = true }
 zip = { version = "2", optional = true }
+indicatif = { version = "0.18.6", optional = true }
+console = { version = "0.16.6", optional = true }
 
 [features]
 default = ["tools"]
 # Mirror downloader: fetch the manifest + release-point zips from our host.
 download = ["zip"]
-tools = ["clap", "download"]
+# indicatif and console draw progress and colour. Only the command line needs them.
+tools = ["clap", "download", "dep:indicatif", "dep:console"]
 
 # Single user-facing binary; every tool is a subcommand (`words_to_data <cmd>`).
 # Gated so a pure-lib consumer (`default-features = false`) skips clap + this bin.
@@ -56,3 +59,12 @@ rusqlite = { version = "0.35", features = ["bundled", "serialize"] }
 # ends. A fixed path is shared by every run, every checkout and every user of
 # the machine, so a leftover file or a second run failed the suite (#120).
 tempfile = "3"
+
+# `cargo test` builds the crate, its dependencies and the test binaries at
+# `opt-level = 1`. The suite parses and diffs whole titles of the Code, and
+# unoptimized code ran it four to five times slower (#278). Debug assertions
+# and overflow checks stay on. `cargo build` and `cargo run` keep the
+# unoptimized `dev` profile, so a debug build stays fast to compile and easy to
+# step through.
+[profile.test]
+opt-level = 1

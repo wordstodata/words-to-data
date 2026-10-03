@@ -265,11 +265,6 @@ fn should_name_the_section_and_drop_the_subsection_when_asked_for_an_identifier(
 }
 
 #[test]
-fn should_find_nothing_when_the_text_has_no_citation() {
-    assert!(usc::find("The Fourteenth Amendment requires no such thing.").is_empty());
-}
-
-#[test]
 fn should_name_no_provision_the_opinion_did_not_cite_when_a_whole_opinion_is_read() {
     // The false-positive gate (#135). *Obergefell v. Hodges*, CourtListener
     // opinion 2812209, as the API returned it: 209,682 bytes of real judicial

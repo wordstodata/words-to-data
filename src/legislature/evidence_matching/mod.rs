@@ -357,6 +357,16 @@ pub struct EvidenceMatching {
 pub fn match_by_evidence<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
 ) -> Result<EvidenceMatching, DatasetError> {
+    match_by_evidence_reporting(dataset, &crate::progress::Silent)
+}
+
+/// [`match_by_evidence`], telling `progress` as each title of the Code is
+/// matched. Almost all of the time goes there, one title at a time.
+pub fn match_by_evidence_reporting<S: Storage + LegislatureReader>(
+    dataset: &Dataset<S>,
+    progress: &dyn crate::progress::Progress,
+) -> Result<EvidenceMatching, DatasetError> {
+    progress.begin("read the amendments", None);
     let mut stated = stated_amendments(dataset)?;
     let classifications = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
     let mut outcomes: Vec<Option<Outcome>> = vec![None; stated.len()];
@@ -374,6 +384,7 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
     }
 
     // One work at a time, so only one title of the Code is in memory at once.
+    progress.begin("titles of the Code", Some(by_work.len() as u64));
     for (work, members) in &by_work {
         windows.extend(match_in_work(
             dataset,
@@ -383,6 +394,7 @@ pub fn match_by_evidence<S: Storage + LegislatureReader>(
             &classifications,
             &mut outcomes,
         )?);
+        progress.advance(1);
     }
 
     let laws_quoting_no_strings = laws_quoting_no_strings(&stated);
