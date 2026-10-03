@@ -12,7 +12,8 @@ pub struct Args {
     #[arg(long, value_delimiter = ',', required = true)]
     pub uslm_dates: Vec<String>,
 
-    /// Output path for the dataset
+    /// Output path for the dataset: `.sqlite` or `.db` writes SQLite, any
+    /// other name writes compact JSON
     pub output: String,
 
     /// Congress bills to include (e.g. `119-hr-1,119-hr-42`); requires
@@ -101,6 +102,6 @@ pub fn run(args: Args) {
         );
     }
 
-    crate::load::save_compact(&dataset, &args.output).expect("Error saving dataset");
+    crate::load::save(&dataset, &args.output).expect("Error saving dataset");
     println!("Wrote {}", args.output);
 }
