@@ -17,7 +17,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use console::{Style, StyledObject, Term, style};
+use console::{Style, StyledObject, style};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use words_to_data::legislature::redesignation::{RedesignationReport, clause_start};
 use words_to_data::progress::Progress;
@@ -143,21 +143,22 @@ pub fn step<T>(title: &str, work: impl FnOnce() -> T) -> T {
 /// How long a [`step`] must take before its result line is worth printing.
 const WORTH_A_LINE: Duration = Duration::from_secs(1);
 
-/// Write a renumbering report to stderr: the summary, then the statements no
-/// reader placed, grouped under the reason each was not placed.
+/// Write a renumbering report to stderr: the summary, how many statements no
+/// reader placed and the command that lists them, then each later window to
+/// review.
 ///
-/// One reason often covers many statements. A bill loaded before any window it
-/// could be checked against leaves all 57 of its statements unplaced for one
-/// reason, and 57 lines each ending in that reason hide it. So the reason is
-/// written once, and the clauses under it.
+/// **The unplaced statements are counted, not written out (#290).** Each one
+/// and its clause, printed after a load that succeeded, read as a failure to a
+/// first-time user, and `redesignation-report` lists them with their reasons.
+/// The count and the command keep the tool from being silent about them, which
+/// is the rule of #110: the tool's silence must not read as the corpus's.
 ///
-/// **Every statement is written when stderr goes to a file or a pipe**, because
-/// the tool's silence must not read as the corpus's silence (#110). At a
-/// terminal a long group stops after a few clauses and says how many more there
-/// are and which command lists them all.
+/// A later window to review is written in full, because no other command
+/// reports it.
 pub fn warn_unplaced(bill: &str, report: &RedesignationReport) {
-    let placed = report.statements() - report.statements_unplaced();
-    let mark = if report.unplaced.is_empty() {
+    let unplaced = report.statements_unplaced();
+    let placed = report.statements() - unplaced;
+    let mark = if unplaced == 0 {
         style("✓").green().for_stderr()
     } else {
         style("!").yellow().for_stderr()
@@ -168,28 +169,16 @@ pub fn warn_unplaced(bill: &str, report: &RedesignationReport) {
         report.statements(),
         report.links(),
     );
+    if unplaced > 0 {
+        eprintln!(
+            "  {} {}",
+            warn_text(&format!("{unplaced} not placed.")),
+            dim(&format!(
+                "To list them: words_to_data redesignation-report <dataset> --bill-id {bill}"
+            ))
+        );
+    }
 
-    let mut by_reason: Vec<(String, Vec<String>)> = Vec::new();
-    for unplaced in &report.unplaced {
-        let reason = format!("{} reader: {}", unplaced.reader, unplaced.reason);
-        match by_reason.iter_mut().find(|(known, _)| *known == reason) {
-            Some((_, clauses)) => clauses.push(unplaced.clause_start()),
-            None => by_reason.push((reason, vec![unplaced.clause_start()])),
-        }
-    }
-    let shown_per_reason = if Term::stderr().is_term() {
-        CLAUSES_SHOWN_AT_A_TERMINAL
-    } else {
-        usize::MAX
-    };
-    let mut hidden = 0;
-    for (reason, clauses) in &by_reason {
-        eprintln!("  {} {}", warn_text("not placed"), dim(reason));
-        for clause in clauses.iter().take(shown_per_reason) {
-            eprintln!("      {clause}");
-        }
-        hidden += clauses.len().saturating_sub(shown_per_reason);
-    }
     for later in &report.later_windows {
         eprintln!(
             "  {} {}",
@@ -201,18 +190,7 @@ pub fn warn_unplaced(bill: &str, report: &RedesignationReport) {
         );
         eprintln!("      {}", clause_start(&later.text));
     }
-    if hidden > 0 {
-        eprintln!(
-            "  {}",
-            dim(&format!(
-                "… and {hidden} more. To list them all: words_to_data redesignation-report <dataset> --bill-id {bill}"
-            ))
-        );
-    }
 }
-
-/// How many clauses of one reason [`warn_unplaced`] shows at a terminal.
-const CLAUSES_SHOWN_AT_A_TERMINAL: usize = 3;
 
 /// A heading on stdout: bold where there is a terminal, plain elsewhere.
 pub fn heading(text: &str) -> StyledObject<&str> {

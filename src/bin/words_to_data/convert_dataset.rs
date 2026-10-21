@@ -25,21 +25,7 @@ pub fn run(args: Args) {
                 crate::load::load_compact(&args.input),
                 "Error loading dataset",
             );
-            // Start from an empty file. Writing into an existing database keeps
-            // whatever it already held: rows of a different dataset that share
-            // no key survive, and a table from an older build keeps its narrower
-            // shape. Converting names an output, so producing that output rather
-            // than a mixture of it and its predecessor is the whole job.
-            crate::fail::or_exit(
-                remove_existing(&output),
-                "Error replacing the output dataset",
-            );
-            crate::fail::or_exit(
-                crate::ui::step(&format!("Write {output}"), || {
-                    dataset.save_to_sqlite(&output)
-                }),
-                "Error saving SQLite",
-            );
+            crate::fail::or_exit(crate::load::save(&dataset, &output), "Error saving SQLite");
         }
         (true, false) => {
             let dataset =
@@ -65,16 +51,6 @@ pub fn run(args: Args) {
     }
 
     println!("{output}");
-}
-
-/// Delete the output file if it is already there, so the conversion starts clean.
-///
-/// A missing file is the normal case and not an error.
-fn remove_existing(path: &str) -> std::io::Result<()> {
-    match std::fs::remove_file(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        other => other,
-    }
 }
 
 /// Swap a `.json` input for `.sqlite` output and vice versa.
