@@ -35,6 +35,9 @@ check it and correct it with the command alone.
 - **For agents.** [`docs/agents/working-a-dataset.md`](docs/agents/working-a-dataset.md)
   is a playbook for any agent. It was tested with fresh agents that had only the
   playbook, the binary and a dataset.
+- **SLEUTH, the official agent.** [SLEUTH-pi](https://github.com/wordstodata/sleuth-pi)
+  is a package for the pi coding agent that follows the playbook, with a tool for
+  each command and a read-only default.
 
 ### Also new
 

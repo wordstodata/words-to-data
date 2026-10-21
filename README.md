@@ -70,6 +70,20 @@ The agent records what it finds with `link-amendment` and `settle`. Both refuse 
 change that did not happen, and neither deletes anything: a review is its own
 record, and the newest review stands.
 
+### SLEUTH, the official agent
+
+[SLEUTH-pi](https://github.com/wordstodata/sleuth-pi) is that setup, ready to
+use. It is a package for the [pi](https://github.com/earendil-works/pi) coding
+agent: a tool for each `words_to_data` command, the playbook as four skills
+(answer, residue, review, build), and a write gate. A session is read-only
+unless you give it `--write`.
+
+```
+pi install github:wordstodata/sleuth-pi
+pi
+/dataset law.sqlite
+```
+
 ## Use it as a library
 
 ```toml
