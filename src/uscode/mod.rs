@@ -32,6 +32,17 @@ impl MirrorIndex {
     pub fn url_for(&self, date: &str) -> Option<&str> {
         self.download.get(date).map(String::as_str)
     }
+
+    /// Every release-point date the mirror can download, oldest first.
+    ///
+    /// These are the dates [`MirrorIndex::url_for`] answers for, so each one
+    /// listed is one a build can fetch. `versions` is not read: a date there
+    /// with no download URL cannot be fetched.
+    pub fn dates(&self) -> Vec<&str> {
+        let mut dates: Vec<&str> = self.download.keys().map(String::as_str).collect();
+        dates.sort_unstable();
+        dates
+    }
 }
 
 /// Fetch and parse the mirror manifest from `index_url` (e.g.

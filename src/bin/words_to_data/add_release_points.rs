@@ -71,14 +71,10 @@ pub fn run(args: Args) {
         ))
     };
 
-    let source = if args.offline {
-        ReleaseSource::cached_only(args.cache_dir.as_deref())
-    } else {
-        crate::fail::or_exit(
-            ReleaseSource::from_mirror(&args.mirror_index, args.cache_dir.as_deref()),
-            "Error fetching mirror manifest",
-        )
-    };
+    let source = crate::fail::or_exit(
+        ReleaseSource::new(&args.mirror_index, args.cache_dir.as_deref(), args.offline),
+        "Error fetching mirror manifest",
+    );
 
     match output {
         None => {
