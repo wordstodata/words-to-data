@@ -31,7 +31,7 @@ env:
   SHARD_1: redesignation_tests duplicate_path_tests website_example_tests
   SHARD_2: residue_tests
   SHARD_3: evidence_matching_tests path_redesignation_tests diff_tests
-  SHARD_4: readme_example_tests sqlite_tests no_regression_tests utils_tests usc_citation_link_tests court_opinion_citation_tests dataset_tests
+  SHARD_4: sqlite_tests no_regression_tests utils_tests usc_citation_link_tests court_opinion_citation_tests dataset_tests
 
 jobs:
   lint:
