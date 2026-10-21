@@ -62,6 +62,15 @@ words_to_data validate <dataset>                 # faults, and steps nobody has 
 words_to_data residue <dataset> --bill <bill>    # the amendments with no link, and why
 ```
 
+**Scope.** `info` prints `Covers:`, the works the dataset holds. If the dataset
+has a declaration, `info` also prints `Declared:`, any `Excluded:` path with its
+reason, and `INCOMPLETE:` for a declared work that the dataset does not hold. A
+work outside `Covers:` is out of scope: "not found" there says nothing about the
+law. A dataset without a declaration cannot tell you that it is incomplete. A
+person sets one with
+`words_to_data declare <dataset> <declaration.json>` (a compact JSON dataset
+also needs `--output <new file>`). The command prints the same lines.
+
 ## Job 1 — answer a question
 
 The usual shape is: find the provisions, find what changed, find who changed it,
