@@ -56,7 +56,7 @@ The annotator prototype was removed in September 2026, because the link and veri
 
 ## SLEUTH
 
-There is a branch called `sleuth` which builds an iced desktop app. It's also reasonably free form
+SLEUTH is the official agent for words-to-data. It is a skill package for pi, in its own repo: https://github.com/wordstodata/sleuth-pi. It follows `docs/agents/working-a-dataset.md`, and holds a verbatim copy of it at `skills/references/working-a-dataset.md`. When the playbook changes here, re-copy it there.
 
 ## AI Building
 Work happens on `main`. If set off on your own autonomous task and you find yourself on `main`, create a branch for the work, and file the PR against `main`.
