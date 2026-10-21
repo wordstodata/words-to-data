@@ -363,6 +363,10 @@ fn should_print_the_method_and_each_links_kind_of_decision_when_annotations_answ
 ///
 /// `tests/test_data/processed/annotations.json` is the real output of that
 /// method over the real corpus.
+///
+/// The record of the model method #252 removed. It names the bill `119-21`,
+/// so its amendment ids do not match a dataset built today, which names the
+/// bill `119-hr-1`. Do not join its ids to that bill.
 fn model_link_on_disk(name: &str) -> (Link, String) {
     let json = std::fs::read_to_string("tests/test_data/processed/annotations.json")
         .expect("the annotations fixture should be readable");

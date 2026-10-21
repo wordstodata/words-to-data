@@ -26,7 +26,7 @@ use crate::{
 /// that modify the United States Code.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Bill {
-    /// The bill identifier (e.g., "119-21" for the 119th Congress, 21st law)
+    /// The bill identifier (e.g., "119-hr-1" for H.R. 1 of the 119th Congress)
     pub bill_id: String,
 
     /// All amendments extracted from instruction elements in the bill
@@ -128,7 +128,7 @@ impl AmendmentReport {
 ///
 /// # Arguments
 ///
-/// * `bill_id` - The bill identifier (e.g., "119-21" for the 119th Congress, 21st law)
+/// * `bill_id` - The bill identifier (e.g., "119-hr-1" for H.R. 1 of the 119th Congress)
 /// * `xml_str` - The Public Law XML content as a string
 ///
 /// # Returns
@@ -142,7 +142,7 @@ impl AmendmentReport {
 /// use words_to_data::uslm::bill_parser::parse_bill_amendments_from_str;
 ///
 /// let xml = std::fs::read_to_string("bill.xml").unwrap();
-/// let bill = parse_bill_amendments_from_str("119-21", &xml).unwrap();
+/// let bill = parse_bill_amendments_from_str("119-hr-1", &xml).unwrap();
 /// ```
 ///
 /// # Errors
@@ -170,7 +170,7 @@ pub fn parse_bill_amendments_from_str(bill_id: &str, xml_str: &str) -> Result<Bi
 ///
 /// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 /// let xml = std::fs::read_to_string(path).unwrap();
-/// let (bill, report) = parse_bill_amendments_from_str_with_report("119-21", &xml).unwrap();
+/// let (bill, report) = parse_bill_amendments_from_str_with_report("119-hr-1", &xml).unwrap();
 ///
 /// // 119-21 writes six of the schema's twelve actions, and all six are read.
 /// assert!(!bill.amendments.is_empty());
@@ -538,7 +538,7 @@ fn collect_amendment_paths(node: &DocumentNode, located: &mut BTreeMap<String, S
 ///
 /// # Arguments
 ///
-/// * `bill_id` - The bill identifier (e.g., "119-21" for the 119th Congress, 21st law)
+/// * `bill_id` - The bill identifier (e.g., "119-hr-1" for H.R. 1 of the 119th Congress)
 /// * `path` - Path to the Public Law XML file
 ///
 /// # Returns
@@ -551,8 +551,8 @@ fn collect_amendment_paths(node: &DocumentNode, located: &mut BTreeMap<String, S
 /// ```
 /// use words_to_data::uslm::bill_parser::parse_bill_amendments;
 ///
-/// let bill = parse_bill_amendments("119-21", "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml").unwrap();
-/// assert_eq!(bill.bill_id, "119-21");
+/// let bill = parse_bill_amendments("119-hr-1", "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml").unwrap();
+/// assert_eq!(bill.bill_id, "119-hr-1");
 /// assert!(!bill.amendments.is_empty());
 /// ```
 ///
@@ -586,9 +586,9 @@ pub fn parse_bill_amendments(bill_id: &str, path: &str) -> Result<Bill> {
 /// use words_to_data::uslm::bill_parser::parse_bill_amendments_with_report;
 ///
 /// let path = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
-/// let (bill, report) = parse_bill_amendments_with_report("119-21", path).unwrap();
+/// let (bill, report) = parse_bill_amendments_with_report("119-hr-1", path).unwrap();
 ///
-/// assert_eq!(bill.bill_id, "119-21");
+/// assert_eq!(bill.bill_id, "119-hr-1");
 /// assert!(report.is_empty());
 /// ```
 pub fn parse_bill_amendments_with_report(

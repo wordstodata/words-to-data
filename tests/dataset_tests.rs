@@ -274,7 +274,7 @@ fn should_save_and_load_file() {
 fn should_add_and_query_bills() {
     let mut dataset = make_test_dataset();
 
-    let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+    let bill = parse_bill_amendments("119-hr-1", PL_XML_PATH).unwrap();
     let bill_id = bill.bill_id.clone();
 
     dataset.add_bill(bill).unwrap();
@@ -283,7 +283,7 @@ fn should_add_and_query_bills() {
 
     let found = dataset.get_bill(&bill_id).unwrap();
     assert!(found.is_some());
-    assert_eq!(found.unwrap().bill_id, "119-21");
+    assert_eq!(found.unwrap().bill_id, "119-hr-1");
 
     let not_found = dataset.get_bill("nonexistent").unwrap();
     assert!(not_found.is_none());
@@ -295,11 +295,11 @@ fn should_list_all_bill_ids_when_iterating_dataset() {
 
     assert!(dataset.list_bill_ids().unwrap().is_empty());
 
-    let bill = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+    let bill = parse_bill_amendments("119-hr-1", PL_XML_PATH).unwrap();
     dataset.add_bill(bill).unwrap();
 
     let ids = dataset.list_bill_ids().unwrap();
-    assert_eq!(ids, vec!["119-21".to_string()]);
+    assert_eq!(ids, vec!["119-hr-1".to_string()]);
 }
 
 /// The `legislature.amended_by` links `link-by-evidence` wrote over the

@@ -58,7 +58,7 @@ pub enum DocumentType {
     Bill {
         /// The type of bill (currently only PublicLaw is supported)
         bill_type: BillType,
-        /// The bill identifier (e.g., "119-21" for the 119th Congress, 21st law)
+        /// The bill identifier (e.g., "119-hr-1" for H.R. 1 of the 119th Congress)
         bill_id: String,
     },
 }
@@ -73,7 +73,7 @@ impl DocumentType {
     ///   - For Bills: "publiclaw", "public_law", "plaw"
     /// * `meta_str` - Additional metadata required for type disambiguation:
     ///   - For USC: "usctitle" or "usctitleappendix"
-    ///   - For Bills: the bill ID (e.g., "119-21")
+    ///   - For Bills: the bill ID (e.g., "119-hr-1")
     ///
     /// # Returns
     ///
@@ -95,11 +95,11 @@ impl DocumentType {
     /// }
     ///
     /// // Parse a Public Law
-    /// let bill = DocumentType::from_str("publiclaw", Some("119-21")).unwrap();
+    /// let bill = DocumentType::from_str("publiclaw", Some("119-hr-1")).unwrap();
     /// match bill {
     ///     DocumentType::Bill { bill_type, bill_id } => {
     ///         assert_eq!(bill_type, BillType::PublicLaw);
-    ///         assert_eq!(bill_id, "119-21");
+    ///         assert_eq!(bill_id, "119-hr-1");
     ///     },
     ///     _ => panic!("Expected Bill variant"),
     /// }
@@ -337,7 +337,7 @@ impl ElementType {
     /// // The same word, in the namespace of the class it came from.
     /// let enacted = DocumentType::Bill {
     ///     bill_type: BillType::PublicLaw,
-    ///     bill_id: "119-21".to_string(),
+    ///     bill_id: "119-hr-1".to_string(),
     /// };
     /// assert_eq!(
     ///     ElementType::Section.node_type(&enacted).as_str(),

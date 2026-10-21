@@ -9,6 +9,9 @@ use words_to_data::annotation::{AnnotationStatus, ChangeAnnotation};
 use words_to_data::dataset::{ExpressionId, WorkId};
 use words_to_data::link::{Corroboration, Link, LinkKind, Target, VerificationState};
 
+/// The record of the model method #252 removed. It names the bill `119-21`,
+/// so its amendment ids do not match a dataset built today, which names the
+/// bill `119-hr-1`. Do not join its ids to that bill.
 const ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
 
 /// The pair the fixture's annotations sit between.

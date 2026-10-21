@@ -30,13 +30,13 @@ fn test_document_type_usc_title_appendix() {
 
 #[test]
 fn test_document_type_public_law() {
-    let result = DocumentType::from_str("publiclaw", Some("119-21"));
+    let result = DocumentType::from_str("publiclaw", Some("119-hr-1"));
     assert!(result.is_ok());
 
     match result.unwrap() {
         DocumentType::Bill { bill_type, bill_id } => {
             assert_eq!(bill_type, BillType::PublicLaw);
-            assert_eq!(bill_id, "119-21");
+            assert_eq!(bill_id, "119-hr-1");
         }
         _ => panic!("Expected Bill variant"),
     }

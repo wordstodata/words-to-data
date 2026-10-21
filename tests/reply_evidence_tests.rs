@@ -57,7 +57,7 @@ fn a_link(evidence: Option<Evidence>) -> Link {
         },
         kind: LinkKind::new(LinkKind::AMENDED_BY),
         object: Target::External {
-            reference: "legislature.amendment:119-21:abc".to_string(),
+            reference: "legislature.amendment:119-hr-1:abc".to_string(),
             display: "by striking ...".to_string(),
         },
         provenance: Provenance {
@@ -222,7 +222,7 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
 
     let mut dataset = dataset();
     let bill = parse_bill_amendments(
-        "119-21",
+        "119-hr-1",
         "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml",
     )
     .expect("the public law should parse");
@@ -236,7 +236,7 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
 
     // Parsed from the bill, so nothing has been asserted about its changes yet.
     assert!(
-        dataset.get_bill("119-21").unwrap().unwrap().amendments[&amendment_id]
+        dataset.get_bill("119-hr-1").unwrap().unwrap().amendments[&amendment_id]
             .provenance
             .is_none(),
         "the amending text is a fact from a source; its word-level changes are not"
@@ -245,7 +245,7 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
     let reply_id = dataset.add_reply(&recorded_reply()).expect("stored");
     dataset
         .update_amendments(&[AmendmentChanges {
-            bill_id: "119-21".to_string(),
+            bill_id: "119-hr-1".to_string(),
             amendment_id: amendment_id.clone(),
             changes: vec![],
             provenance: Some(Provenance {
@@ -270,7 +270,7 @@ fn should_say_a_model_produced_an_amendments_word_level_changes() {
     dataset.save_to_sqlite(&file).expect("save to sqlite");
     let sqlite = Dataset::open_sqlite(&file).expect("open sqlite");
 
-    let stored = sqlite.get_bill("119-21").unwrap().unwrap().amendments[&amendment_id]
+    let stored = sqlite.get_bill("119-hr-1").unwrap().unwrap().amendments[&amendment_id]
         .provenance
         .clone()
         .expect("the provenance should survive the file it travels in");
