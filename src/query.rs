@@ -135,6 +135,56 @@ impl PathMatch {
     }
 }
 
+/// Where a link's object sits, measured from the path a reader asked about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectPlace {
+    /// The object is the path asked about.
+    AtPath,
+    /// The object is a path beneath it.
+    BeneathPath,
+    /// The object is a path above it: the object holds the path asked about.
+    ///
+    /// Not a statement about the path asked about. A citation of § 174 does not
+    /// cite § 174(a), so a reader must say which path the link names.
+    AbovePath,
+}
+
+/// Every link of `kind` whose object names `path`, each with where the object
+/// sits.
+///
+/// The object end, where [`Locator`] reads the subject. A statement *about* a
+/// provision, such as an opinion citing it, names the provision as its object,
+/// so "what names this path" has two halves and this is the second.
+///
+/// `matching` decides as it does for a subject: [`PathMatch::Subtree`] also
+/// takes the objects beneath `path`, and [`PathMatch::Exact`] does not. An
+/// object above `path` is taken either way, because a link can stop above the
+/// path a reader asks about: a citation resolves to a section and no lower.
+pub fn links_by_object<R: crate::storage::LinkReader + ?Sized>(
+    reader: &R,
+    kind: &str,
+    path: &str,
+    matching: PathMatch,
+) -> Result<Vec<(Link, ObjectPlace)>, crate::dataset::DatasetError> {
+    Ok(reader
+        .links_by_kind(kind)?
+        .into_iter()
+        .filter_map(|link| {
+            let object = link.object.path()?;
+            let place = if object == path {
+                ObjectPlace::AtPath
+            } else if matching.accepts(path, object) {
+                ObjectPlace::BeneathPath
+            } else if crate::uslm::path::covers_path(object, path) {
+                ObjectPlace::AbovePath
+            } else {
+                return None;
+            };
+            Some((link, place))
+        })
+        .collect())
+}
+
 /// A link's review state: the three verdicts, or nobody has said anything.
 ///
 /// Four values, mirroring decision 21 of #179 exactly — `review.confirmed`,
@@ -145,7 +195,8 @@ impl PathMatch {
 /// Derived, never stored. The newest review of a link is the one a reader
 /// reports, so this is the verdict of that record
 /// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReviewStatus {
     /// No review names this link.
     Unreviewed,

@@ -4,6 +4,7 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
+use words_to_data::judicial::cites::{CitationLink, PathRole};
 use words_to_data::query::DEFAULT_LIMIT;
 
 use crate::load::{self, with_dataset};
@@ -112,6 +113,70 @@ pub fn run(args: Args) {
     if let Some(first) = report.olrc_classifications.first() {
         print_classifications(&first.section, &report.olrc_classifications);
     }
+
+    print_citations(&report.citations, report.citations.len());
+}
+
+/// The citing opinion as a line names it, and whether the dataset holds it.
+fn opinion_of(citation: &CitationLink) -> String {
+    if citation.opinion_held {
+        citation.opinion.clone()
+    } else {
+        format!("{} (not held in this dataset)", citation.opinion)
+    }
+}
+
+/// What to call a provision that holds the path asked about: a citation
+/// resolves to a section, so that is the usual word.
+fn holder(path: &str) -> &'static str {
+    let last = path.rsplit('/').next().unwrap_or(path);
+    if last.starts_with("section_") {
+        "section"
+    } else {
+        "provision"
+    }
+}
+
+/// The `judicial.cites` links that name the path, one line each (#301).
+///
+/// `total` is how many name it, which is more than `citations` holds when a
+/// caller stopped at a limit. The caller says what it left out.
+pub fn print_citations(citations: &[CitationLink], total: usize) {
+    if total == 0 {
+        return;
+    }
+    // Rows about a provision above the path are counted here too, so the
+    // heading says so: each of those rows says it is not about this path.
+    println!(
+        "\nCitations (judicial.cites) naming this path or a provision that holds it ({total}):"
+    );
+    for citation in citations {
+        let words = citation
+            .matched_words
+            .as_deref()
+            .map(|words| format!(" as \"{words}\""))
+            .unwrap_or_default();
+        let said = match citation.role {
+            PathRole::CitingOpinion => format!("cites {}{words}", citation.cited_path),
+            PathRole::CitedPath => format!("cited by {}{words}", opinion_of(citation)),
+            PathRole::CitedBeneathPath => format!(
+                "cited by {}{words}, at {}",
+                opinion_of(citation),
+                citation.cited_path
+            ),
+            PathRole::CitedAbovePath => format!(
+                "{}{words} cites the {} that holds this path, not this path: {}",
+                opinion_of(citation),
+                holder(&citation.cited_path),
+                citation.cited_path
+            ),
+        };
+        println!(
+            "  {said} ({}) [link {}]",
+            trust_of(citation.verification, citation.review.as_ref()),
+            citation.id
+        );
+    }
 }
 
 /// The OLRC's classifications of one section, one line each.
@@ -211,8 +276,17 @@ fn stated_by(link: &inspect::RedesignationLink) -> String {
 /// (#227), and printing only the review would hide that nobody has reviewed an
 /// unconfirmed link at all.
 fn trust(link: &inspect::RedesignationLink) -> String {
-    let recorded = stored_trust(link.verification);
-    match &link.review {
+    trust_of(link.verification, link.review.as_ref())
+}
+
+/// The maker's state and the newest review, as [`trust`] prints them, for a
+/// link of any kind.
+fn trust_of(
+    verification: words_to_data::link::VerificationState,
+    review: Option<&words_to_data::review::Review>,
+) -> String {
+    let recorded = stored_trust(verification);
+    match review {
         None => recorded.to_string(),
         Some(review) => format!(
             "{recorded}, {} by {} on {}",

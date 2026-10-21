@@ -20,6 +20,7 @@ use crate::dataset::{
 };
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
+use crate::judicial::cites::{CitationLink, citations_naming};
 use crate::legislature::evidence_matching::{Recorded, evidence_method};
 use crate::legislature::outdated::{OutdatedLink, outdated_links};
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
@@ -497,6 +498,9 @@ pub struct PathReport {
     /// Empty for a path above any section, and for a section the table does
     /// not name. See [`olrc_classifications`].
     pub olrc_classifications: Vec<OlrcClassification>,
+    /// The `judicial.cites` links that name this path (#301). See
+    /// [`crate::judicial::cites::citations_naming`].
+    pub citations: Vec<CitationLink>,
 }
 
 /// One statement of the OLRC's classification table about a Code section: a
@@ -689,6 +693,7 @@ pub fn path_report<S: Storage>(
         unfollowed_redesignations,
         annotations,
         olrc_classifications: olrc_classifications(dataset, path)?,
+        citations: citations_naming(dataset, path, matching)?,
     })
 }
 
