@@ -2,7 +2,7 @@
 //! release points.
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::{Dataset, DatasetMetadata, Declaration};
+use words_to_data::dataset::{Dataset, DatasetMetadata};
 
 use crate::release_points::{self, DEFAULT_MIRROR_INDEX, Missing, ReleaseSource};
 
@@ -46,20 +46,6 @@ pub struct Args {
     pub declaration: Option<String>,
 }
 
-/// Read a declaration file, or `None` when none was given.
-///
-/// A declaration that will not parse is fatal rather than skipped. Building a
-/// dataset that silently declares nothing is how a gap goes unreported, which
-/// is the failure this whole feature exists to prevent.
-fn read_declaration(path: Option<&String>) -> Option<Declaration> {
-    let path = path?;
-    let text = crate::fail::or_exit(std::fs::read_to_string(path), "Error reading declaration");
-    Some(crate::fail::or_exit(
-        serde_json::from_str(&text),
-        "Error parsing declaration",
-    ))
-}
-
 pub fn run(args: Args) {
     let source = if args.offline {
         ReleaseSource::cached_only(args.cache_dir.as_deref())
@@ -77,7 +63,7 @@ pub fn run(args: Args) {
         source_urls: vec![args.mirror_index.clone()],
         license: "Public Domain".to_string(),
         version: "1.0".to_string(),
-        declaration: read_declaration(args.declaration.as_ref()),
+        declaration: args.declaration.as_deref().map(crate::declare::read),
         // Nothing has run over a dataset that is being created. Each step
         // records itself as it runs.
         method_runs: Vec::new(),

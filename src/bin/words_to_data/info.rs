@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::WorkId;
+use words_to_data::dataset::{Scope, WorkId};
 use words_to_data::inspect;
 use words_to_data::method::{Method, MethodRun};
 
@@ -225,8 +225,16 @@ pub fn run(args: Args) {
         }
     }
 
+    print_declared(&info.scope);
+}
+
+/// Print what a dataset declared, and the declared work it does not hold.
+///
+/// `declare` prints these lines too, so the person who sets a declaration sees
+/// any gap at once, in the words `info` uses (#293).
+pub fn print_declared(scope: &Scope) {
     // A dataset that declared nothing prints exactly what it always printed.
-    let Some(declared) = &info.scope.declared else {
+    let Some(declared) = &scope.declared else {
         return;
     };
 
@@ -266,7 +274,7 @@ pub fn run(args: Args) {
 
     // Only printed when there is one. A gap means the build did not do what it
     // said it would, which is the one thing here a reader must not miss.
-    let gaps = info.scope.gaps();
+    let gaps = scope.gaps();
     if !gaps.is_empty() {
         println!(
             "{}  declared but not held: {}",

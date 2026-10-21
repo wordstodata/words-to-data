@@ -16,6 +16,7 @@ mod congress_bills;
 mod contradictions;
 mod convert_dataset;
 mod coverage;
+mod declare;
 mod diff;
 mod expressions;
 mod fail;
@@ -67,6 +68,8 @@ enum Command {
     AddBills(add_bills::Args),
     /// Add the OLRC's classification of each public law the dataset holds, as links
     AddClassifications(add_classifications::Args),
+    /// Set what a dataset is meant to cover, and report what it declared and does not hold
+    Declare(declare::Args),
 
     // --- Inspection (read-only) ---
     /// Show a dataset's metadata and headline counts
@@ -119,6 +122,7 @@ fn main() {
         Command::AddReleasePoints(args) => add_release_points::run(args),
         Command::AddBills(args) => add_bills::run(args),
         Command::AddClassifications(args) => add_classifications::run(args),
+        Command::Declare(args) => declare::run(args),
         Command::CasesCiting(args) => cases_citing::run(args),
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),
