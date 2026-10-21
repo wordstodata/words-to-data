@@ -7,7 +7,7 @@ name = "words-to-data"
 version = "0.4.0"
 edition = "2024"
 exclude = ["tests/"]
-description = "The U.S. Code and the laws that change it, as a dataset with evidence behind every link"
+description = "Your agent's favorite legal database: the U.S. Code and the laws that change it, with evidence behind every link"
 repository = "https://github.com/wordstodata/words-to-data"
 license = "MIT OR Apache-2.0"
 

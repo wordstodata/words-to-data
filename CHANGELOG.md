@@ -7,7 +7,7 @@ carries over**: rebuild your datasets with this version.
 
 ### What words-to-data is now
 
-The U.S. Code and the laws that change it, as a dataset with evidence behind every
+**Your agent's favorite legal database.** The U.S. Code and the laws that change it, as a dataset with evidence behind every
 link. A dataset records which amendment made which change, who said so, by which
 method at which version, and who has checked it. People and agents can query it,
 check it and correct it with the command alone.

@@ -1,14 +1,60 @@
-# words-to-data
+# Words To Data
 
-**The U.S. Code, and the laws that change it, as a dataset with evidence behind every link.**
+**Your agent's favorite legal database.**
 
-words-to-data reads the Code release point by release point, and the public laws
-that amend it. It records **which amendment made which change**, with the evidence
-for each record. No language model decides anything: an amendment is placed from
-the publisher's markup, the OLRC's classification tables, and the words the law
-quotes. What the rules cannot place is listed as work, with the reason it stopped.
+words-to-data holds the U.S. Code, release point by release point, and the public
+laws that amend it. It records **which amendment made which change**, and the
+evidence for each record. An agent asks it questions with one command,
+`words_to_data`, and every answer comes with something it can quote.
 
-## Try it
+## Why agents like it
+
+- **Evidence, not recall.** A link says what made it: the address in the bill's
+  markup, the window it changed in, and the words the law quotes.
+  `settle --explain` prints all of it. The agent quotes the record and does not
+  rely on what it remembers about a law.
+- **No model inside.** The dataset is built by rules from the publisher's markup
+  and the OLRC's classification tables. What the rules cannot place goes on a work
+  list (`residue`) with the reason it stopped. An answer is never a guess that
+  looks like data.
+- **It says what it does not know.** `cases-citing` names each period the
+  dataset holds no printing for, and says that this is not a statement that
+  nothing changed. `residue` gives the reason each unlinked amendment stopped.
+- **Output that fits in context.** Listing commands stop at 20 rows and say how
+  many they did not show, and how to get the rest. `--path`, `--work`, `--at` and
+  `--bill` narrow a listing, and `--json` gives machine-readable rows.
+- **Writes that are hard to get wrong.** `link-amendment` refuses a path that did
+  not change. `settle` records a review as its own record, and nothing is deleted.
+  A wrong link stays visible, and the newest review stands.
+
+## Give it to your agent
+
+### SLEUTH, the official agent
+
+[SLEUTH-pi](https://github.com/wordstodata/sleuth-pi) is a package for the
+[pi](https://github.com/earendil-works/pi) coding agent. It has a tool for each
+`words_to_data` command, the playbook as four skills (answer, residue, review,
+build), and a write gate. A session is read-only unless you give it `--write`.
+
+```
+pi install github:wordstodata/sleuth-pi
+pi
+/dataset law.sqlite
+```
+
+### Any other agent
+
+Give the agent three things: the `words_to_data` binary, a dataset, and
+[`docs/agents/working-a-dataset.md`](docs/agents/working-a-dataset.md). The
+playbook tells it how to answer a question with evidence, how to work the residue,
+and how to review links. It needs no other tools.
+
+In the test of the playbook ([#267](https://github.com/wordstodata/words-to-data/pull/267)),
+six new agents answered four questions about Public Law 119-21 correctly, in 17–22
+tool calls each, and worked its residue from 55 items to 3. Every answer was
+checked by hand.
+
+## Build a dataset
 
 You need Rust, about 3.5 GB of disk, and a free
 [Congress API key](https://api.congress.gov/sign-up/).
@@ -24,7 +70,12 @@ words_to_data link-by-evidence law.sqlite
 
 That is the whole Code at two release points, and Public Law 119-21 (the
 reconciliation act of July 2025) linked to the changes it made. It takes about a
-minute and a half. Now ask it something:
+minute and a half.
+
+## What your agent sees
+
+Three questions, and the real output. Where is section 174A, which amendment made
+it, and why should anyone believe that?
 
 ```
 $ words_to_data search law.sqlite "domestic research or experimental" --work uscode/title_26 --at 2025-07-30
@@ -53,36 +104,6 @@ How it was made:
 
 `words_to_data residue law.sqlite --bill 119-hr-1` lists what the rules could not
 link, and why. `words_to_data --help` lists every command.
-
-## Give it to an agent
-
-Give an agent three things: the `words_to_data` binary, a dataset, and
-[`docs/agents/working-a-dataset.md`](docs/agents/working-a-dataset.md). The
-playbook tells it how to answer a question with evidence, how to work the residue,
-and how to review links. It needs no other tools.
-
-In the test of the playbook ([#267](https://github.com/wordstodata/words-to-data/pull/267)),
-six new agents answered four questions about Public Law 119-21 correctly, in 17–22
-tool calls each, and worked its residue from 55 items to 3. Every answer was
-checked by hand.
-
-The agent records what it finds with `link-amendment` and `settle`. Both refuse a
-change that did not happen, and neither deletes anything: a review is its own
-record, and the newest review stands.
-
-### SLEUTH, the official agent
-
-[SLEUTH-pi](https://github.com/wordstodata/sleuth-pi) is that setup, ready to
-use. It is a package for the [pi](https://github.com/earendil-works/pi) coding
-agent: a tool for each `words_to_data` command, the playbook as four skills
-(answer, residue, review, build), and a write gate. A session is read-only
-unless you give it `--write`.
-
-```
-pi install github:wordstodata/sleuth-pi
-pi
-/dataset law.sqlite
-```
 
 ## Use it as a library
 
