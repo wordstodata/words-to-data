@@ -28,7 +28,21 @@
 //! with whether the provision changed in it, **and** the period between the
 //! opinion and the first printing held, which is out of scope. A reader can then
 //! tell "this provision did not change" from "we were not looking".
+//!
+//! # Below the section
+//!
+//! A citation link targets the section, and the subdivision the opinion wrote,
+//! the `(e)` of `26 U.S.C. § 174(e)`, is kept only in the link's payload. It is
+//! resolved when it is read, against the printing being read, and nothing is
+//! written back (#302). A change window is read at that subdivision where both
+//! of its printings hold it, and at the whole section where they do not, and
+//! [`ChangeWindow::at`] says which.
 
+use std::collections::BTreeMap;
+
+use serde::Serialize;
+
+use crate::citation::resolve::{Subdivision, resolve_subdivision};
 use crate::dataset::{Coverage, DatasetError, ExpressionId, Scope, WorkId};
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
@@ -38,7 +52,8 @@ use crate::storage::{DocumentReader, LinkReader};
 use crate::uslm::path::covers_path;
 
 /// Whether the dataset holds the opinion a citation link came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Citing {
     /// The dataset holds it, as one expression of one work. Everything the
     /// report says about it can be checked against the text in the file.
@@ -86,10 +101,13 @@ impl Citing {
 }
 
 /// Two printings of one work, and whether the provision differs between them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChangeWindow {
     pub from: String,
     pub to: String,
+    /// Where the change was looked for: the subdivision the opinion wrote when
+    /// both printings hold it, and the whole section when they do not.
+    pub at: String,
     /// True when the provision does not say the same thing on both dates.
     pub changed: bool,
     /// Every path at or under the provision whose text differs, in document
@@ -102,14 +120,14 @@ pub struct ChangeWindow {
 /// From the day the opinion was filed to the first printing of the cited work
 /// that the dataset holds. The provision may have been rewritten ten times in it,
 /// and this dataset cannot see any of them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UncoveredPeriod {
     pub from: String,
     pub to: String,
 }
 
 /// What this dataset can say about a provision since an opinion was filed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SincePublication {
     /// Whether the dataset carries the cited material at all.
     pub coverage: Coverage,
@@ -132,8 +150,21 @@ impl SincePublication {
     }
 }
 
+/// How a citation stands to the path a caller asked about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Relation {
+    /// The opinion cites the path asked about, or a provision under it.
+    Within,
+    /// The opinion cites a provision that holds the path asked about: the
+    /// section with no subdivision, a subdivision above the path, or a
+    /// subdivision the printing does not hold, so only the section is known.
+    /// It is not "does not cite", and it is not "cites this path".
+    Holds,
+}
+
 /// One provision one opinion cites, and what became of it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CitedProvision {
     /// Where the provision sits: a structural path, because a provision has no
     /// identity of its own yet (`docs/adr/0001-structural-paths-locate-not-identify.md`).
@@ -144,18 +175,35 @@ pub struct CitedProvision {
     /// How far the *link* can be trusted — not the provision, and not the
     /// opinion's text.
     pub verification: VerificationState,
+    /// Where the subdivision the opinion wrote leads in the latest printing
+    /// held: the `(a)(1)` of `174(a)(1)`. The link stops at the section and
+    /// keeps the subdivision as written, so this is resolved when it is read.
+    #[serde(flatten)]
+    pub subdivision: Subdivision,
+    /// How this citation stands to the path asked about.
+    pub relation: Relation,
     pub since: SincePublication,
 }
 
 /// One opinion, and the provisions it cites that the caller asked about.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CitingCase {
     pub citing: Citing,
     /// In path order, so two runs report alike.
     pub cites: Vec<CitedProvision>,
 }
 
-/// Every opinion in this dataset that cites a provision at or under `path`.
+/// Every opinion in this dataset that cites a provision at or under `path`, or
+/// a provision that holds it.
+///
+/// A link targets the section, and keeps the subdivision the opinion wrote in
+/// its payload. That subdivision is resolved here, at read time, in the latest
+/// printing held ([`CitedProvision::subdivision`]). Each citation then says how
+/// it stands to `path` ([`Relation`]): it cites `path` or a provision under it,
+/// or it cites a provision above `path` — the section alone, a subdivision that
+/// holds `path`, or a subdivision the printing does not hold. A citation whose
+/// subdivision resolves to another branch, such as (a) when (e) is asked
+/// about, is left out: that opinion does not cite `path`.
 ///
 /// In the order the opinions are named, so two runs agree. An opinion that cites
 /// the provision twice is one entry with two [`CitedProvision`]s, because two
@@ -171,22 +219,46 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
     let scope = Scope::derive(reader)?;
     let links = reader.links_by_kind(LinkKind::CITES)?;
 
+    // Every printing of each cited section, read once. Nine opinions cite § 174,
+    // and reading its title nine times over is the cost of not keeping it.
+    let mut printings: BTreeMap<String, Vec<(ExpressionId, DocumentNode)>> = BTreeMap::new();
+
     let mut cases: Vec<CitingCase> = Vec::new();
     for link in links {
-        let Some(cited_path) = provision_at_or_under(&link.object, path) else {
+        let Target::Node(cited_path) = &link.object else {
+            continue;
+        };
+        if !covers_path(path, cited_path) && !covers_path(cited_path, path) {
+            continue;
+        }
+        if !printings.contains_key(cited_path) {
+            printings.insert(cited_path.clone(), reader.find_nodes(cited_path)?);
+        }
+        let held = &printings[cited_path];
+
+        let written = written_section(&link).unwrap_or_default();
+        let subdivision = held
+            .iter()
+            .max_by(|a, b| a.0.at.cmp(&b.0.at))
+            .map_or(Subdivision::Section, |(_, section)| {
+                resolve_subdivision(section, written)
+            });
+        let Some(relation) = relation_to(&subdivision, cited_path, path) else {
             continue;
         };
 
         let citing = citing_of(reader, &link)?;
         let cited = CitedProvision {
-            since: since_publication(reader, &scope, &cited_path, citing.at())?,
-            path: cited_path,
+            since: since_publication(reader, &scope, cited_path, held, written, citing.at())?,
+            path: cited_path.clone(),
             citation_text: link
                 .provenance
                 .evidence
                 .as_ref()
                 .and_then(|evidence| evidence.reasoning.clone()),
             verification: link.provenance.verification,
+            subdivision,
+            relation,
         };
 
         match cases.iter_mut().find(|case| case.citing == citing) {
@@ -204,15 +276,36 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
     Ok(cases)
 }
 
-/// The path a link's object names, when it sits at or under `wanted`.
+/// How a citation of the section at `cited_path` stands to the path `asked`.
 ///
 /// A citation to `26 U.S.C. § 174` resolves to the section, and a caller asking
 /// about the section means the whole of it, so a link into a subsection counts.
-fn provision_at_or_under(object: &Target, wanted: &str) -> Option<String> {
-    match object {
-        Target::Node(path) if covers_path(wanted, path) => Some(path.clone()),
-        _ => None,
+/// A caller asking about a path below the section is answered from the
+/// subdivision the opinion wrote. `None` means the citation does not reach the
+/// path asked about.
+fn relation_to(subdivision: &Subdivision, cited_path: &str, asked: &str) -> Option<Relation> {
+    if covers_path(asked, cited_path) {
+        return Some(Relation::Within);
     }
+    match subdivision {
+        Subdivision::Resolved { resolved_path: at } if covers_path(asked, at) => {
+            Some(Relation::Within)
+        }
+        Subdivision::Resolved { resolved_path: at } if covers_path(at, asked) => {
+            Some(Relation::Holds)
+        }
+        // Another branch of the section, such as (a) when (e) is asked about.
+        Subdivision::Resolved { .. } => None,
+        Subdivision::Section | Subdivision::Unresolved { .. } => Some(Relation::Holds),
+    }
+}
+
+/// The section as the opinion wrote it, `174(a)(1)`, from the link's payload.
+fn written_section(link: &Link) -> Option<&str> {
+    link.payload
+        .as_ref()
+        .and_then(|payload| payload.value.get("section"))
+        .and_then(|section| section.as_str())
 }
 
 /// Who the citing opinion is, and whether this dataset holds it.
@@ -266,6 +359,8 @@ fn since_publication<R: DocumentReader + ?Sized>(
     reader: &R,
     scope: &Scope,
     path: &str,
+    held: &[(ExpressionId, DocumentNode)],
+    written: &str,
     opinion_date: Option<&str>,
 ) -> Result<SincePublication, DatasetError> {
     let coverage = scope.covers(path);
@@ -284,11 +379,6 @@ fn since_publication<R: DocumentReader + ?Sized>(
         .collect();
     dates.sort();
 
-    // Read the provision once per printing, from the index, rather than diffing
-    // the whole work. A title of the U.S. Code holds tens of thousands of nodes
-    // and the question is about one of them.
-    let held: Vec<(ExpressionId, DocumentNode)> = reader.find_nodes(path)?;
-
     let mut windows = Vec::new();
     for pair in dates.windows(2) {
         let (from, to) = (&pair[0], &pair[1]);
@@ -297,10 +387,11 @@ fn since_publication<R: DocumentReader + ?Sized>(
         if opinion_date.is_some_and(|filed| to.as_str() <= filed) {
             continue;
         }
-        let changed_paths = changed_between(&held, &work, from, to);
+        let (at, changed_paths) = changed_between(held, &work, path, written, from, to);
         windows.push(ChangeWindow {
             from: from.clone(),
             to: to.clone(),
+            at,
             changed: !changed_paths.is_empty(),
             changed_paths,
         });
@@ -333,7 +424,13 @@ fn work_holding(scope: &Scope, path: &str) -> Option<WorkId> {
         .cloned()
 }
 
-/// Every path at or under `path` whose text differs between the two printings.
+/// Where to look for a change, and every path there whose text differs between
+/// the two printings.
+///
+/// The subdivision the opinion wrote is resolved in each printing, because a
+/// subdivision can be added or removed between them. Where both printings hold
+/// it at one path, the change is read there; otherwise the whole section is
+/// read, and the path returned says so.
 ///
 /// The date is deliberately not compared: two printings of one provision always
 /// differ in it, and comparing whole nodes would report every provision as
@@ -342,9 +439,11 @@ fn work_holding(scope: &Scope, path: &str) -> Option<WorkId> {
 fn changed_between(
     held: &[(ExpressionId, DocumentNode)],
     work: &WorkId,
+    section: &str,
+    written: &str,
     from: &str,
     to: &str,
-) -> Vec<String> {
+) -> (String, Vec<String>) {
     let at = |date: &str| {
         held.iter()
             .find(|(id, _)| &id.work == work && id.at == date)
@@ -353,12 +452,26 @@ fn changed_between(
     let (Some(before), Some(after)) = (at(from), at(to)) else {
         // The provision is not at this path on both dates. Added or removed
         // rather than changed, and neither is this function's question.
-        return Vec::new();
+        return (section.to_string(), Vec::new());
+    };
+
+    let (before, after) = match (
+        resolve_subdivision(before, written),
+        resolve_subdivision(after, written),
+    ) {
+        (
+            Subdivision::Resolved { resolved_path: was },
+            Subdivision::Resolved { resolved_path: is },
+        ) if was == is => match (before.find(&was), after.find(&is)) {
+            (Some(was), Some(is)) => (was, is),
+            _ => (before, after),
+        },
+        _ => (before, after),
     };
 
     let mut paths = Vec::new();
     collect_changed(&TreeDiff::from_nodes(before, after), &mut paths);
-    paths
+    (before.data.path.to_string(), paths)
 }
 
 /// The paths a diff records a text change at, root first.

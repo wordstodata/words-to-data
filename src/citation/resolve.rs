@@ -22,11 +22,14 @@
 
 use std::collections::BTreeMap;
 
+use serde::Serialize;
+
 use crate::dataset::{Coverage, Scope};
 use crate::document::{DocumentNode, NodeType};
+use crate::legislature::redesignation::{Step, walk_down};
 use crate::uslm::{ElementType, UslmFacts};
 
-use super::usc::{UscCitation, fold_dashes};
+use super::usc::{UscCitation, fold_dashes, subdivisions};
 
 /// Whether a node is a section of the US Code, and not of a public law.
 ///
@@ -161,4 +164,55 @@ pub fn resolve(citation: &UscCitation, scope: &Scope, paths: &SectionPaths) -> V
             }
         })
         .collect()
+}
+
+/// Where the subdivision a citation wrote leads, below the section it names.
+///
+/// Serialized with a `resolution` tag, so a reader of JSON is told whether the
+/// path was resolved or the citation fell back to the section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "resolution", rename_all = "snake_case")]
+pub enum Subdivision {
+    /// The citation names the section alone: `26 U.S.C. § 174`.
+    Section,
+    /// Every designation leads to a provision, and this is its path.
+    Resolved { resolved_path: String },
+    /// A designation leads to nothing in this printing. `unresolved` is that
+    /// designation as written, `(e)` for `174(e)`, so a reader is told which part
+    /// failed and not only that something did.
+    Unresolved { unresolved: String },
+}
+
+/// Resolve the subdivision a citation wrote, such as the `(a)(1)` of
+/// `174(a)(1)`, below one printing of its section.
+///
+/// A link stores the section and keeps the subdivision as written, because a
+/// citation cannot be trusted at that depth (`CONTEXT.md`, *Citation*). This
+/// resolves it at read time, against the printing the reader is looking at, and
+/// writes nothing. A designation the printing does not hold is reported by
+/// name rather than guessed at: the published example `981(a)(l)(C)` has a
+/// lower-case L where the provision has a paragraph `(1)`.
+///
+/// The walk is the one an amendment's address takes below its section, so a
+/// citation and an amendment resolve a designation alike.
+pub fn resolve_subdivision(section: &DocumentNode, written: &str) -> Subdivision {
+    let designations = subdivisions(written);
+    if designations.is_empty() {
+        return Subdivision::Section;
+    }
+
+    let mut current = section;
+    for designation in designations {
+        match walk_down(current, &[Step::numbered(designation)]) {
+            Ok(next) => current = next,
+            Err(_) => {
+                return Subdivision::Unresolved {
+                    unresolved: format!("({designation})"),
+                };
+            }
+        }
+    }
+    Subdivision::Resolved {
+        resolved_path: current.data.path.to_string(),
+    }
 }
