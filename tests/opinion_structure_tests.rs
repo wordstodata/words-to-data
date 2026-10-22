@@ -389,3 +389,37 @@ fn should_store_each_footnote_by_its_printed_mark_when_columbia_gives_no_label()
         "the footnotes follow the pages, got {last:?}"
     );
 }
+
+/// Page 462 of 537 U.S. is in the dissent, and no paragraph starts on it: one
+/// paragraph runs from 461 over all of it. A pin cite to 462 still names a
+/// path. The page holds no paragraph, and its words are in the last paragraph
+/// that starts on 461, after the mark `*462`.
+#[test]
+fn should_hold_a_page_for_every_page_marked_when_no_paragraph_starts_on_it() {
+    let case = boeing();
+
+    let page = node(&case, &format!("{DISSENT}/page_462"));
+    assert!(page.children.is_empty(), "no paragraph starts on 462");
+
+    let pages: Vec<String> = child_paths(&case, DISSENT)
+        .into_iter()
+        .filter(|path| path.contains("/page_"))
+        .collect();
+    let expected: Vec<String> = (457..=464)
+        .map(|page| format!("{DISSENT}/page_{page}"))
+        .collect();
+    assert_eq!(pages, expected, "every page the dissent is printed on, in order");
+
+    let last_on_461 = node(&case, &format!("{DISSENT}/page_461"))
+        .children
+        .last()
+        .expect("paragraphs start on 461");
+    assert!(
+        last_on_461
+            .data
+            .content
+            .as_deref()
+            .is_some_and(|text| text.contains("*462")),
+        "the words of 462 are in the paragraph that runs over it"
+    );
+}

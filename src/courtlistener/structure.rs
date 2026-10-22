@@ -56,6 +56,10 @@ pub(crate) struct Structure {
     /// The label of the first page mark in the body, such as `441`, when the
     /// source marks pages.
     pub first_page_mark: Option<String>,
+    /// Every page the body is printed on, in order, once each: the page it
+    /// starts on, then each page marked. A page on which no paragraph starts is
+    /// here too, so a pin cite to it still names a path.
+    pub pages: Vec<String>,
 }
 
 impl Structure {
@@ -68,6 +72,7 @@ impl Structure {
             }
         }
         self.first_page_mark = None;
+        self.pages.clear();
         self
     }
 }
@@ -216,6 +221,8 @@ struct Reader<'a> {
     page: Option<String>,
     /// The label of the first page mark in the body.
     first_mark: Option<String>,
+    /// The label of each page mark in the body, in order.
+    marks: Vec<String>,
     block: Option<OpenBlock>,
     /// Paragraphs, each with its raw markup and page.
     passages: Vec<(PassageKind, &'a str, Vec<String>)>,
@@ -228,6 +235,7 @@ impl<'a> Reader<'a> {
             at: 0,
             page: None,
             first_mark: None,
+            marks: Vec::new(),
             block: None,
             passages: Vec::new(),
         }
@@ -287,6 +295,7 @@ impl<'a> Reader<'a> {
         if self.first_mark.is_none() {
             self.first_mark = Some(label.clone());
         }
+        self.marks.push(label.clone());
         self.page = Some(label);
     }
 
@@ -413,12 +422,34 @@ impl<'a> Reader<'a> {
         if let Some(first_mark) = &self.first_mark {
             first_page(&mut passages, first_mark);
         }
+        let pages = pages_printed(&passages, self.marks);
         Structure {
             passages,
             report,
             first_page_mark: self.first_mark,
+            pages,
         }
     }
+}
+
+/// Every page the body is printed on, in order, once each.
+///
+/// Empty when no paragraph has a page, which is a writing with no page level.
+fn pages_printed(passages: &[Passage], marks: Vec<String>) -> Vec<String> {
+    let first = passages.iter().find_map(|passage| match &passage.kind {
+        PassageKind::Paragraph { page } => Some(page.clone()),
+        PassageKind::Footnote { .. } => None,
+    });
+    let Some(Some(first)) = first else {
+        return Vec::new();
+    };
+    let mut pages = vec![first];
+    for mark in marks {
+        if !pages.contains(&mark) {
+            pages.push(mark);
+        }
+    }
+    pages
 }
 
 /// A footnote's label: the one the source states, or else the mark its text

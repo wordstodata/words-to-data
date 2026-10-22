@@ -15,7 +15,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::structure::{Passage, PassageKind, read_structure};
+use super::structure::{Passage, PassageKind, Structure, read_structure};
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
@@ -700,7 +700,7 @@ fn writing_node(
         .map(|passage| passage.text.as_str())
         .collect::<Vec<_>>()
         .join("\n\n");
-    let children = passage_nodes(&structure.passages, path, date, &provenance)?;
+    let children = passage_nodes(&structure, path, date, &provenance)?;
     let node = DocumentNode {
         data: writing(facts)?,
         children,
@@ -715,7 +715,7 @@ fn writing_node(
 /// `p`, or `paragraph_<n>` alone when the writing has no pages; and
 /// `footnote_<label>`.
 fn passage_nodes(
-    passages: &[Passage],
+    structure: &Structure,
     writing: &str,
     date: time::Date,
     provenance: &Provenance,
@@ -733,10 +733,21 @@ fn passage_nodes(
         Ok::<_, CourtListenerError>(DocumentNode::leaf(data))
     };
 
-    let mut children: Vec<DocumentNode> = Vec::new();
+    // Every page printed, whether or not a paragraph starts on it.
+    let mut children: Vec<DocumentNode> = structure
+        .pages
+        .iter()
+        .map(|page| {
+            DocumentNode::leaf(NodeData::new(
+                format!("{writing}/page_{page}"),
+                NodeType::new(NodeType::PAGE),
+                date,
+            ))
+        })
+        .collect();
     let mut footnotes = Vec::new();
     let mut unpaged = 0;
-    for passage in passages {
+    for passage in &structure.passages {
         match &passage.kind {
             PassageKind::Footnote { label } => footnotes.push(leaf(
                 format!("{writing}/footnote_{label}"),
