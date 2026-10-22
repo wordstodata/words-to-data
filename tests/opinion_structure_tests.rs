@@ -87,7 +87,9 @@ fn should_read_xml_harvard_first_when_a_record_carries_it_beside_other_fields() 
 /// HTML comes before a court website's HTML.
 #[test]
 fn should_read_html_lawbox_before_html_when_a_record_carries_no_structure_field() {
-    let (_, source, _) = opinion(122262).text().expect("the combined record has text");
+    let (_, source, _) = opinion(122262)
+        .text()
+        .expect("the combined record has text");
     assert_eq!(source.field, "html_lawbox");
 }
 
@@ -98,8 +100,7 @@ fn should_read_html_lawbox_before_html_when_a_record_carries_no_structure_field(
 /// runs over the break onto 441, so it belongs to 440. Paragraph `b678-4` starts
 /// with the mark for 442, so it is the first paragraph that starts on 442.
 #[test]
-fn should_put_each_paragraph_under_the_reporter_page_it_starts_on_when_harvard_labels_the_pages()
-{
+fn should_put_each_paragraph_under_the_reporter_page_it_starts_on_when_harvard_labels_the_pages() {
     let case = boeing();
 
     let over_the_break = words(&case, &format!("{MAJORITY}/page_440/paragraph_4"));
@@ -129,7 +130,10 @@ fn should_put_each_paragraph_under_the_reporter_page_it_starts_on_when_harvard_l
         "judicial.paragraph"
     );
     assert_eq!(
-        node(&case, &format!("{MAJORITY}/page_442")).data.node_type.as_str(),
+        node(&case, &format!("{MAJORITY}/page_442"))
+            .data
+            .node_type
+            .as_str(),
         "judicial.page"
     );
 }
@@ -236,7 +240,10 @@ fn should_name_the_record_and_the_field_when_a_paragraph_states_its_provenance()
         .provenance
         .as_ref()
         .expect("a paragraph records where its words came from");
-    assert_eq!(provenance.source, "courtlistener:opinion/9434365:xml_harvard");
+    assert_eq!(
+        provenance.source,
+        "courtlistener:opinion/9434365:xml_harvard"
+    );
     assert_eq!(
         provenance.verification,
         words_to_data::link::VerificationState::MachineSuggested
@@ -277,8 +284,7 @@ fn should_give_paragraph_n_only_when_the_labelled_pages_are_not_the_official_rep
         &children[..children.len().min(5)]
     );
     assert!(
-        words(&case, &format!("{writing}/paragraph_2"))
-            .starts_with("The Constitution promises"),
+        words(&case, &format!("{writing}/paragraph_2")).starts_with("The Constitution promises"),
         "the paragraphs are counted through the writing"
     );
 }
@@ -357,7 +363,10 @@ fn should_put_paragraphs_under_the_reporter_pages_when_columbia_marks_star_pages
         .provenance
         .as_ref()
         .expect("a paragraph records where its words came from");
-    assert_eq!(provenance.source, "courtlistener:opinion/9943788:html_columbia");
+    assert_eq!(
+        provenance.source,
+        "courtlistener:opinion/9943788:html_columbia"
+    );
     assert_eq!(
         provenance.verification,
         words_to_data::link::VerificationState::Asserted,
@@ -408,7 +417,10 @@ fn should_hold_a_page_for_every_page_marked_when_no_paragraph_starts_on_it() {
     let expected: Vec<String> = (457..=464)
         .map(|page| format!("{DISSENT}/page_{page}"))
         .collect();
-    assert_eq!(pages, expected, "every page the dissent is printed on, in order");
+    assert_eq!(
+        pages, expected,
+        "every page the dissent is printed on, in order"
+    );
 
     let last_on_461 = node(&case, &format!("{DISSENT}/page_461"))
         .children
@@ -422,4 +434,86 @@ fn should_hold_a_page_for_every_page_marked_when_no_paragraph_starts_on_it() {
             .is_some_and(|text| text.contains("*462")),
         "the words of 462 are in the paragraph that runs over it"
     );
+}
+
+// --- Through the command ----------------------------------------------------
+
+fn run(args: &[&str]) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(args)
+        .output()
+        .expect("the binary should run")
+}
+
+fn stdout_of(output: &std::process::Output) -> String {
+    assert!(
+        output.status.success(),
+        "the command should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+/// Title 1 and *Boeing*, added with `add-opinions --offline` from the
+/// committed records, at its own path per test.
+fn with_boeing(name: &str) -> String {
+    let path = format!(
+        "{}/opinion_structure_{name}.sqlite",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let _ = std::fs::remove_file(&path);
+    let mut dataset = words_to_data::dataset::Dataset::new(Default::default());
+    dataset
+        .add_uslm_xml(
+            "tests/test_data/usc/2025-07-18/usc01.xml",
+            "2025-07-18",
+            None,
+        )
+        .expect("title 1 should parse");
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+    stdout_of(&run(&[
+        "add-opinions",
+        &path,
+        "--offline",
+        "--cache-dir",
+        "tests/test_data",
+        "--opinions",
+        "122262",
+    ]));
+    path
+}
+
+/// `path` on a writing says what is inside it: each page with how many
+/// paragraphs start on it, and each footnote. That is how a reader goes from
+/// a pin cite to the words without reading the whole writing.
+#[test]
+fn should_list_the_pages_and_footnotes_when_path_is_asked_about_a_writing() {
+    let dataset = with_boeing("path_contents");
+
+    let printed = stdout_of(&run(&["path", &dataset, DISSENT]));
+    assert!(
+        printed.contains(&format!(
+            "{DISSENT}/page_459  judicial.page  3 paragraph(s)"
+        )),
+        "got:\n{printed}"
+    );
+    assert!(
+        printed.contains(&format!(
+            "{DISSENT}/page_462  judicial.page  0 paragraph(s)"
+        )),
+        "a page no paragraph starts on is listed too, got:\n{printed}"
+    );
+    assert!(
+        printed.contains(&format!("{DISSENT}/footnote_1  judicial.footnote")),
+        "got:\n{printed}"
+    );
+
+    let answer: serde_json::Value =
+        serde_json::from_str(&stdout_of(&run(&["path", &dataset, DISSENT, "--json"])))
+            .expect("--json should print JSON");
+    let contents = answer["contents"].as_array().expect("contents is a list");
+    assert_eq!(contents[0]["path"], format!("{DISSENT}/page_457"));
+    assert_eq!(contents[0]["node_type"], "judicial.page");
 }

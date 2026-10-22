@@ -127,6 +127,8 @@ pub fn run(args: Args) {
         }
     }
 
+    print_contents(&report.contents);
+
     print_unfollowed(&report.unfollowed_redesignations);
 
     // Say which paths the count covers. A bare "Annotations (0)" reads as
@@ -234,6 +236,27 @@ fn fact(name: &str, value: Option<&str>) {
 /// The values joined, or `None` when there are none.
 fn listed(values: &[String], separator: &str) -> Option<String> {
     (!values.is_empty()).then(|| values.join(separator))
+}
+
+/// What is directly inside a court path: each page with how many paragraphs
+/// start on it, and each paragraph or footnote with its length (#314).
+fn print_contents(contents: &[inspect::ContentsEntry]) {
+    if contents.is_empty() {
+        return;
+    }
+    println!("\nInside this path ({}):", contents.len());
+    for entry in contents {
+        let size = match entry.node_type.as_str() {
+            "judicial.page" => format!("{} paragraph(s)", entry.children),
+            _ if entry.children > 0 => format!("{} part(s)", entry.children),
+            _ => format!("{} chars", entry.chars),
+        };
+        println!("  {}  {}  {size}", entry.path, entry.node_type);
+    }
+    println!(
+        "  A paragraph belongs to the page it starts on. Read one with \
+         `search <dataset> \"\" --path <path> --exact --snippet 0`."
+    );
 }
 
 /// The citing opinion as a line names it, and whether the dataset holds it.
