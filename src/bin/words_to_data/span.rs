@@ -16,7 +16,7 @@ use words_to_data::storage::DocumentReader;
 /// on `not-a-date`, so every work is skipped, the run reports covering nothing,
 /// and it exits zero. A pipeline would carry straight on past a job that never
 /// happened.
-fn publication_date(text: &str) -> Result<String, String> {
+pub(crate) fn publication_date(text: &str) -> Result<String, String> {
     words_to_data::date::date_str_to_date(text)
         .map(|_| text.to_string())
         .map_err(|_| format!("`{text}` is not a date. Write it as YYYY-MM-DD, such as 2025-07-18."))

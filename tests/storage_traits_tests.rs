@@ -91,6 +91,10 @@ impl DocumentReader for DocumentsOnly {
     fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
         self.0.has_node(path)
     }
+
+    fn holds_any(&self, locator: &Locator) -> Result<bool, DatasetError> {
+        self.0.holds_any(locator)
+    }
 }
 
 /// Accepts anything that can read documents, and asks for nothing else.
@@ -288,6 +292,10 @@ impl DocumentReader for DocumentsAndLinks {
 
     fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
         self.0.has_node(path)
+    }
+
+    fn holds_any(&self, locator: &Locator) -> Result<bool, DatasetError> {
+        self.0.holds_any(locator)
     }
 }
 

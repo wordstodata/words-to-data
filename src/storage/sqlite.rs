@@ -1193,6 +1193,16 @@ impl DocumentReader for SqliteStorage {
             .prepare("SELECT 1 FROM element_index WHERE path = ?1")?;
         Ok(stmt.exists(params![path])?)
     }
+
+    fn holds_any(&self, locator: &Locator) -> Result<bool, DatasetError> {
+        // The clause the search reads with, so a scope means one thing here.
+        let scope = ScopeClause::of(locator);
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT 1 FROM element_index WHERE 1 = 1{scope} LIMIT 1",
+            scope = scope.sql,
+        ))?;
+        Ok(stmt.exists(&scope.bindings()[..])?)
+    }
 }
 
 /// Rebuild a link from one row of `links`.

@@ -31,7 +31,7 @@ use crate::method::{Method, MethodRun};
 pub use crate::query::PathMatch;
 use crate::query::{Answer, LinkQuery, Locator, ReviewStatus};
 use crate::review::{Review, Verdict};
-use crate::storage::{LegislatureCounts, LegislatureReader, Storage};
+use crate::storage::{DocumentReader, LegislatureCounts, LegislatureReader, Storage};
 
 /// Top-level summary of a dataset: its metadata plus headline counts.
 #[derive(Debug, Clone, Serialize)]
@@ -695,6 +695,61 @@ pub fn path_report<S: Storage>(
         olrc_classifications: olrc_classifications(dataset, path)?,
         citations: citations_naming(dataset, path, matching)?,
     })
+}
+
+/// A path that no expression in a command's scope holds.
+///
+/// Part of the answer, not a note about the run: an empty list over a guessed
+/// path reads exactly like an empty list over a real one, and an agent took
+/// "Changed (0)" as proof that a section was not in the dataset when it was held
+/// at another path (#305).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AbsentPath {
+    /// The path that was asked for.
+    pub path: String,
+    /// The longest leading part of [`Self::path`] that the scope does hold, if
+    /// any. It is where a reader can go on from.
+    pub nearest_held: Option<String>,
+}
+
+/// Whether the locator's path is absent from every expression its scope reaches.
+///
+/// `None` when the locator names no path, or when at least one expression in
+/// scope holds a provision at the path (or, for a subtree, beneath it). The
+/// commands that take a path ask this one question, so `diff`, `search` and
+/// `annotations` cannot come to disagree about what "not held" means.
+pub fn absent_path<R: DocumentReader + ?Sized>(
+    reader: &R,
+    locator: &Locator,
+) -> Result<Option<AbsentPath>, DatasetError> {
+    let Some(path) = &locator.path else {
+        return Ok(None);
+    };
+    if reader.holds_any(locator)? {
+        return Ok(None);
+    }
+
+    // Shorten the path one segment at a time until the scope holds it. A path
+    // has a few segments, and each question is one index lookup in SQLite.
+    let mut nearest_held = None;
+    let mut prefix = path.as_str();
+    while let Some((shorter, _)) = prefix.rsplit_once('/') {
+        prefix = shorter;
+        let ancestor = Locator {
+            path: Some(prefix.to_string()),
+            matching: PathMatch::Exact,
+            ..locator.clone()
+        };
+        if reader.holds_any(&ancestor)? {
+            nearest_held = Some(prefix.to_string());
+            break;
+        }
+    }
+
+    Ok(Some(AbsentPath {
+        path: path.clone(),
+        nearest_held,
+    }))
 }
 
 /// Mark each renumbering link a report names that the current version of the

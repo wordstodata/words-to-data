@@ -964,6 +964,10 @@ impl<S: Storage> DocumentReader for Dataset<S> {
     fn has_node(&self, path: &str) -> Result<bool, DatasetError> {
         self.storage.has_node(path)
     }
+
+    fn holds_any(&self, locator: &crate::query::Locator) -> Result<bool, DatasetError> {
+        self.storage.holds_any(locator)
+    }
 }
 
 impl<S: Storage> LinkReader for Dataset<S> {

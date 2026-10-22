@@ -14,9 +14,10 @@ use std::io::Write;
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::SearchResult;
+use words_to_data::inspect::{AbsentPath, absent_path};
 use words_to_data::query::{DEFAULT_LIMIT, Locator};
 
-use crate::annotations::path_matching;
+use crate::annotations::{absent_notice, path_matching};
 use crate::load::{self, with_dataset};
 
 /// How many characters of a hit to show around the match, by default.
@@ -44,7 +45,10 @@ pub struct Args {
     /// Search only the expressions published on this date, e.g. `2025-07-18`
     ///
     /// A three-release-point corpus returns one provision three times without it
-    #[arg(long, value_name = "DATE")]
+    ///
+    /// A date alone: `uscode/title_26@2025-07-18` is refused, not read as a date
+    /// that no expression has (#305). Name the work with `--work`
+    #[arg(long, value_name = "DATE", value_parser = crate::span::publication_date)]
     pub at: Option<String>,
 
     /// Search only this structural path and the paths beneath it
@@ -103,9 +107,18 @@ pub fn run(args: Args) {
 
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let found = crate::fail::or_exit(
-        with_dataset!(ds, d => d.search_text_in(&args.query, &locator, limit)),
+        with_dataset!(&ds, d => d.search_text_in(&args.query, &locator, limit)),
         "Error searching dataset",
     );
+    // Asked only when nothing matched: a hit proves the path is held. An empty
+    // search over a guessed path must not read like one over a real path (#305).
+    let absent = match found.total {
+        0 => crate::fail::or_exit(
+            with_dataset!(&ds, d => absent_path(d, &locator)),
+            "Error checking the path",
+        ),
+        _ => None,
+    };
 
     // The window is applied to both surfaces. The field is called `snippet`, and
     // a snippet that is a whole section is not one. The field as recorded is a
@@ -122,7 +135,7 @@ pub fn run(args: Args) {
     // A reader that closed the pipe has read enough, which is a clean stop and
     // not a failure. `println!` panics on a broken pipe, so `search | head`
     // exited 101 where the same run without a pipe exited 0 (#235).
-    if let Err(error) = report(&args, &hits, found.total, found.dropped())
+    if let Err(error) = report(&args, &hits, found.total, found.dropped(), absent.as_ref())
         && error.kind() != std::io::ErrorKind::BrokenPipe
     {
         crate::fail::refuse(&format!("Error writing the answer: {error}"));
@@ -133,20 +146,35 @@ pub fn run(args: Args) {
 ///
 /// Returns the write error rather than panicking on it, so the caller can tell a
 /// reader that walked away from a disk that filled up.
-fn report(args: &Args, hits: &[SearchResult], total: usize, dropped: usize) -> std::io::Result<()> {
+fn report(
+    args: &Args,
+    hits: &[SearchResult],
+    total: usize,
+    dropped: usize,
+    absent: Option<&AbsentPath>,
+) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
 
     if args.json {
+        let mut answer = serde_json::json!({
+            "hits": hits,
+            "total": total,
+        });
+        // Only when the path is absent, so the answer over a real path is the
+        // same as it was.
+        if let Some(absent) = absent {
+            answer["absent_path"] = serde_json::json!(absent);
+        }
+        writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
+        return out.flush();
+    }
+
+    if let Some(absent) = absent {
         writeln!(
             out,
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "hits": hits,
-                "total": total,
-            }))
-            .unwrap()
+            absent_notice(absent, args.exact, "this search reads")
         )?;
-        return out.flush();
     }
 
     for hit in hits {
