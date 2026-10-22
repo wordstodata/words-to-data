@@ -166,3 +166,168 @@ fn text_field_of(source: &str) -> String {
         .map_or(source, |(_, field)| field)
         .to_string()
 }
+
+/// Every fact the dataset stores about one case, and about the writing a path
+/// names, when it names one (#327).
+///
+/// `opinions` names each writing and stops at its type and author. The panel,
+/// per curiam, the precedential status and the reporter citations were stored
+/// and no command showed them, so an agent read the payload with SQL. This is
+/// what `path` shows on a judicial path. It fetches nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CourtFacts {
+    /// The case the path is in, with a short entry for each of its writings.
+    pub case: HeldCase,
+    /// The writing the path names or is beneath, with every stored fact.
+    /// `None` when the path is the case itself or a part of it that is no
+    /// writing, such as its head matter.
+    pub writing: Option<HeldWriting>,
+}
+
+/// The stored facts of a case: [`CaseFacts`], named for a reader.
+///
+/// `None` and an empty list mean "not recorded". A dataset built before cases
+/// were works has no case node, and then every fact of the case is `None`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HeldCase {
+    /// The case's work, such as `judicial/case_122262`.
+    pub path: String,
+    /// The day the court filed the case: the date of its expression.
+    pub date: String,
+    pub case_name: Option<String>,
+    pub cluster_id: Option<u64>,
+    /// The judges who sat, in the publisher's own words.
+    pub panel: Option<String>,
+    pub precedential_status: Option<String>,
+    /// The reporter citations of the case, as the reporters print them.
+    pub citations: Vec<String>,
+    /// The publisher's code for where the record came from, such as `LRU`.
+    pub source: Option<String>,
+    pub docket_id: Option<u64>,
+    /// The publisher's combined records of the case that are **not** stored
+    /// as text, because the writings hold the same words.
+    pub combined_records: Vec<u64>,
+    /// The court that filed it. Always `None` today: the court is one more
+    /// request per case, and is not stored (#53).
+    pub court: Option<String>,
+    /// Every writing of the case, in the order the case prints them.
+    pub writings: Vec<HeldWriting>,
+}
+
+/// The stored facts of one writing: [`OpinionFacts`], and where its text came
+/// from.
+///
+/// `None` means "not recorded". A blank string the publisher sent, such as an
+/// empty `sha1`, is not recorded either.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HeldWriting {
+    /// The writing's path, such as `judicial/case_122262/opinion_9434365`.
+    pub path: String,
+    pub opinion_type: Option<String>,
+    pub author: Option<String>,
+    pub per_curiam: Option<bool>,
+    pub sha1: Option<String>,
+    pub page_count: Option<u32>,
+    pub download_url: Option<String>,
+    /// The record and the field the text was read from, as the node's
+    /// provenance names them: `courtlistener:opinion/9434365:xml_harvard`.
+    pub text_source: Option<String>,
+    /// How the text was read: `ocr`, `text_layer` or `markup`.
+    pub text_method: Option<String>,
+}
+
+/// The stored facts of the case that holds `path`, and of the writing at or
+/// above `path`. `None` when no judicial work holds the path.
+///
+/// A case has one expression, the day it was filed. Should a work hold more
+/// than one, the latest is read.
+pub fn court_facts<R: DocumentReader + ?Sized>(
+    reader: &R,
+    path: &str,
+) -> Result<Option<CourtFacts>, DatasetError> {
+    if path.split('/').next() != Some(NodeType::JUDICIAL) {
+        return Ok(None);
+    }
+    let Some(work) = reader
+        .works()?
+        .into_iter()
+        .find(|work| crate::uslm::path::covers_path(work.as_str(), path))
+    else {
+        return Ok(None);
+    };
+    let Some(latest) = reader
+        .expressions(&work)?
+        .into_iter()
+        .max_by(|a, b| a.id.at.cmp(&b.id.at))
+    else {
+        return Ok(None);
+    };
+    let Some(expression) = reader.get_expression(&latest.id)? else {
+        return Ok(None);
+    };
+    let root = &expression.root;
+    let facts = CaseFacts::of(&root.data);
+    let writings: Vec<HeldWriting> = writings_of(root).into_iter().map(held_writing).collect();
+    let writing = writings
+        .iter()
+        .find(|writing| crate::uslm::path::covers_path(&writing.path, path))
+        .cloned();
+    let case = HeldCase {
+        path: work.to_string(),
+        date: latest.id.at.clone(),
+        case_name: facts
+            .as_ref()
+            .and_then(|facts| recorded(Some(facts.case_name.clone()))),
+        cluster_id: facts.as_ref().map(|facts| facts.cluster_id),
+        panel: facts
+            .as_ref()
+            .and_then(|facts| recorded(facts.panel.clone())),
+        precedential_status: facts
+            .as_ref()
+            .and_then(|facts| recorded(facts.precedential_status.clone())),
+        citations: facts
+            .as_ref()
+            .map(|facts| facts.citations.clone())
+            .unwrap_or_default(),
+        source: facts
+            .as_ref()
+            .and_then(|facts| recorded(facts.source.clone())),
+        docket_id: facts.as_ref().and_then(|facts| facts.docket_id),
+        combined_records: facts
+            .as_ref()
+            .map(|facts| facts.combined_records.clone())
+            .unwrap_or_default(),
+        court: None,
+        writings,
+    };
+    Ok(Some(CourtFacts { case, writing }))
+}
+
+/// One writing's stored facts.
+fn held_writing(node: &DocumentNode) -> HeldWriting {
+    let data = &node.data;
+    let facts = OpinionFacts::of(data).unwrap_or_default();
+    HeldWriting {
+        path: data.path.to_string(),
+        opinion_type: recorded(facts.opinion_type),
+        author: recorded(facts.author),
+        per_curiam: facts.per_curiam,
+        sha1: recorded(facts.sha1),
+        page_count: facts.page_count,
+        download_url: recorded(facts.download_url),
+        text_source: data
+            .provenance
+            .as_ref()
+            .map(|provenance| provenance.source.clone()),
+        text_method: data
+            .provenance
+            .as_ref()
+            .and_then(|provenance| provenance.method.as_ref())
+            .map(|method| method.name.clone()),
+    }
+}
+
+/// A value the publisher sent, or `None` when it sent nothing or a blank.
+fn recorded(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.trim().is_empty())
+}

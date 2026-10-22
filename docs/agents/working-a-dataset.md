@@ -59,6 +59,7 @@ words_to_data info <dataset>                     # what it holds, links by kind,
 words_to_data expressions <dataset>              # every work and date
 words_to_data bills <dataset>                    # the bills, and how many amendments each states
 words_to_data opinions <dataset>                 # the court cases and their writings: type, author, citations
+words_to_data path <dataset> <case or writing>   # every stored fact of a case or a writing
 words_to_data validate <dataset>                 # faults, and steps nobody has run
 words_to_data residue <dataset> --bill <bill>    # the amendments with no link, and why
 ```
@@ -70,7 +71,17 @@ date, name, cluster and court, and under it each writing: its path, writing
 type (such as `020lead`, `040dissent`, or `010combined` for one record that
 holds the whole case), author, the field its text was read from, and how many
 `judicial.cites` links it makes. `path <dataset> <writing>` shows each of those
-links. Take a path from this list, never from memory. "combined record … kept
+links. Take a path from this list, never from memory.
+
+`path` also shows every stored fact. On a writing,
+`judicial/case_<cluster>/opinion_<id>`, it shows the writing's type, author,
+per curiam, page count, download URL, sha1, and the record and field its text
+came from, then the facts of its case. On a case, `judicial/case_<cluster>`, it
+shows the case name, cluster, panel, precedential status, reporter citations,
+source, docket, court and combined records, then one line for each writing.
+`--json` gives the same facts as named fields under `judicial`. "not recorded"
+means the dataset does not hold that fact: do not find it with SQL, and do not
+take it from the text without saying so. "combined record … kept
 as a source, not as text" means the publisher also holds the whole case as one
 record with the same words, and the dataset stores the split writings instead.
 "court not recorded" means the dataset does not hold the court; it does not

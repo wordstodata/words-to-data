@@ -21,6 +21,7 @@ use crate::dataset::{
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
 use crate::judicial::cites::{CitationLink, citations_naming};
+use crate::judicial::held::{CourtFacts, court_facts};
 use crate::legislature::evidence_matching::{Recorded, evidence_method};
 use crate::legislature::outdated::{OutdatedLink, outdated_links};
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
@@ -501,6 +502,10 @@ pub struct PathReport {
     /// The `judicial.cites` links that name this path (#301). See
     /// [`crate::judicial::cites::citations_naming`].
     pub citations: Vec<CitationLink>,
+    /// The stored facts of the case and the writing at a judicial path
+    /// (#327). `None` for a path no judicial work holds. See
+    /// [`crate::judicial::held::court_facts`].
+    pub judicial: Option<CourtFacts>,
 }
 
 /// One statement of the OLRC's classification table about a Code section: a
@@ -694,6 +699,7 @@ pub fn path_report<S: Storage>(
         annotations,
         olrc_classifications: olrc_classifications(dataset, path)?,
         citations: citations_naming(dataset, path, matching)?,
+        judicial: court_facts(dataset, path)?,
     })
 }
 
