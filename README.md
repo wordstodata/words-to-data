@@ -129,6 +129,8 @@ for annotation in dataset.annotations_for_path(path)? {
 
 - **Grow a dataset** in place, with no rebuild: `add-release-points` and
   `add-bills`. A grown dataset holds the same links as one built from scratch.
+  `release-points` lists the release-point dates the mirror offers and the cache
+  holds.
 - **Court opinions** that cite a provision: `add-opinions` (needs
   `COURTLISTENER_API_KEY`), then `cases-citing`.
 - **Everything is cached**, under your user cache directory. `--offline` reads only

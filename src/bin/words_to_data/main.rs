@@ -23,6 +23,7 @@ mod fail;
 mod info;
 mod link_amendment;
 mod link_by_evidence;
+mod list_release_points;
 mod load;
 mod path;
 mod redesignation_report;
@@ -70,6 +71,8 @@ enum Command {
     AddClassifications(add_classifications::Args),
     /// Set what a dataset is meant to cover, and report what it declared and does not hold
     Declare(declare::Args),
+    /// List the release points the mirror offers and the cache holds
+    ReleasePoints(list_release_points::Args),
 
     // --- Inspection (read-only) ---
     /// Show a dataset's metadata and headline counts
@@ -123,6 +126,7 @@ fn main() {
         Command::AddBills(args) => add_bills::run(args),
         Command::AddClassifications(args) => add_classifications::run(args),
         Command::Declare(args) => declare::run(args),
+        Command::ReleasePoints(args) => list_release_points::run(args),
         Command::CasesCiting(args) => cases_citing::run(args),
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),

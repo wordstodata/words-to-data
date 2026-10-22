@@ -201,6 +201,15 @@ change takes effect after the newest release point, record **no link,
 `not_yet_in_corpus`**, and quote the words. In the first playtest, 8 of the 22
 items that were not linked were this.
 
+A newer release point can hold the change. To see the dates there are, run:
+
+```
+words_to_data release-points --json      # each date: in_mirror, in_cache
+```
+
+It only reads. Growing the dataset with `add-release-points` writes, so do it
+only when you were told you may change the dataset.
+
 ### Stage: address
 
 The batch could not tell which provision of the Code the amendment acts on.

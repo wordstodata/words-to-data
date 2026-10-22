@@ -10,8 +10,11 @@
 //! title (`docs/adr/0003-storage-is-keyed-by-work.md`). Nothing about adding one
 //! is new, therefore, and no stored type changes.
 
+use std::collections::BTreeSet;
 use std::error::Error as StdError;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
 
 use words_to_data::dataset::Dataset;
 use words_to_data::progress::Progress;
@@ -30,6 +33,17 @@ pub struct ReleaseSource {
     cache_dir: PathBuf,
 }
 
+/// One release point, and where it can be read from.
+#[derive(Serialize)]
+pub struct Listed {
+    /// The release-point date, `YYYY-MM-DD`.
+    pub date: String,
+    /// Whether the mirror offers it, and `None` when the mirror was not read.
+    pub in_mirror: Option<bool>,
+    /// Whether the cache holds it.
+    pub in_cache: bool,
+}
+
 /// The result of looking for one release point.
 enum Located {
     /// The folder of extracted XML, ready to parse.
@@ -39,26 +53,70 @@ enum Located {
 }
 
 impl ReleaseSource {
-    /// Read the mirror manifest, and download a release point that is not cached.
-    pub fn from_mirror(
+    /// The source a run reads, made the one way every command makes it.
+    ///
+    /// Online, the mirror manifest is read, and a release point that is not
+    /// cached is downloaded. `offline` reads only the cache and never reaches
+    /// the network: a date the cache has not got is named, not downloaded.
+    /// `build-dataset`, `add-release-points` and `release-points` all come
+    /// through here, so the listing and the build cannot disagree about where
+    /// a release point comes from.
+    pub fn new(
         mirror_index: &str,
         cache_dir: Option<&str>,
+        offline: bool,
     ) -> Result<Self, Box<dyn StdError>> {
+        let index = if offline {
+            None
+        } else {
+            Some(uscode::fetch_index(mirror_index)?)
+        };
         Ok(Self {
-            index: Some(uscode::fetch_index(mirror_index)?),
+            index,
             cache_dir: cache_root(cache_dir),
         })
     }
 
-    /// Read only the cache, and never reach the network.
+    /// The cache directory this source reads and fills.
+    pub fn cache_dir(&self) -> &Path {
+        &self.cache_dir
+    }
+
+    /// Each release point this source knows of, oldest first.
     ///
-    /// A date the cache has not got is named rather than downloaded, which is
-    /// how `add-opinions --offline` reads the records that are committed.
-    pub fn cached_only(cache_dir: Option<&str>) -> Self {
-        Self {
-            index: None,
-            cache_dir: cache_root(cache_dir),
-        }
+    /// A date is listed if the mirror offers it or the cache holds it. Offline
+    /// the mirror is not read, so `in_mirror` is `None` for every date.
+    pub fn list(&self) -> Vec<Listed> {
+        let cached = self.cached_dates();
+        let offered: BTreeSet<String> = self
+            .index
+            .as_ref()
+            .map(|index| index.dates().into_iter().map(str::to_string).collect())
+            .unwrap_or_default();
+
+        cached
+            .union(&offered)
+            .map(|date| Listed {
+                date: date.clone(),
+                in_mirror: self.index.as_ref().map(|_| offered.contains(date)),
+                in_cache: cached.contains(date),
+            })
+            .collect()
+    }
+
+    /// The dates whose `<cache>/uslm/<date>` folder holds a release point.
+    ///
+    /// The same test `locate` makes, so a date listed as cached is a date a
+    /// run reads from the cache.
+    fn cached_dates(&self) -> BTreeSet<String> {
+        let Ok(entries) = self.cache_dir.join("uslm").read_dir() else {
+            return BTreeSet::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| is_populated(&entry.path()))
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect()
     }
 
     /// The folder of extracted XML for one release point.
@@ -95,7 +153,7 @@ fn cache_root(cache_dir: Option<&str>) -> PathBuf {
 }
 
 /// A release point is already extracted if its folder holds at least one file.
-fn is_populated(folder: &std::path::Path) -> bool {
+fn is_populated(folder: &Path) -> bool {
     folder
         .read_dir()
         .is_ok_and(|mut entries| entries.next().is_some())
@@ -152,7 +210,7 @@ pub fn add_all<S: Storage>(
 }
 
 /// How many XML files a release point's folder holds: one per title.
-fn xml_files_in(folder: &std::path::Path) -> usize {
+fn xml_files_in(folder: &Path) -> usize {
     folder.read_dir().map_or(0, |entries| {
         entries
             .filter_map(Result::ok)

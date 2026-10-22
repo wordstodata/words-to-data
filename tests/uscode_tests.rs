@@ -29,3 +29,14 @@ fn should_extract_all_xml_files_flat_when_given_a_release_zip() {
     names.sort();
     assert_eq!(names, vec!["usc01.xml", "usc09.xml"]);
 }
+
+#[test]
+fn should_list_every_date_it_can_download_oldest_first_when_given_the_manifest() {
+    let json = std::fs::read_to_string("tests/test_data/mirror/index.json").unwrap();
+    let index: MirrorIndex = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(
+        index.dates(),
+        vec!["2025-06-12", "2025-07-18", "2025-07-30"]
+    );
+}
