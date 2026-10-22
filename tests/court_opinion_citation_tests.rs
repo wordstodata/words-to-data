@@ -187,72 +187,38 @@ fn dataset_holding_the_ten(titles: &[(&str, &str, &str)]) -> Dataset<InMemorySto
 /// change in the preference order names the case it moved.
 #[test]
 fn should_take_the_text_from_the_field_the_record_carries_and_say_which() {
+    // Harvard's Caselaw Access Project comes first, because only it holds the
+    // pages and the paragraphs (docs/adr/0014, decision 3). It is raw OCR with
+    // no human review, so its text is `MachineSuggested`.
+    let harvard = |id| {
+        (
+            id,
+            "xml_harvard",
+            text_method::OCR,
+            VerificationState::MachineSuggested,
+        )
+    };
     let expected = [
-        // A court's own PDF, read from its text layer. The publisher's characters.
-        (
-            2812209,
-            "plain_text",
-            text_method::TEXT_LAYER,
-            VerificationState::Asserted,
-        ),
-        (
-            2651100,
-            "plain_text",
-            text_method::TEXT_LAYER,
-            VerificationState::Asserted,
-        ),
-        (
-            6248,
-            "plain_text",
-            text_method::TEXT_LAYER,
-            VerificationState::Asserted,
-        ),
-        // Editor-prepared HTML from the Lawbox donation.
-        (
-            109019,
-            "html_lawbox",
-            text_method::MARKUP,
-            VerificationState::Asserted,
-        ),
-        // The combined record of *Boeing*. Its text is read here, and it is
-        // not stored: the case's split records are its writings.
+        // These carry a court's own PDF text too.
+        harvard(2812209),
+        harvard(2651100),
+        harvard(6248),
+        // These carry Lawbox's or a court website's HTML too.
+        harvard(109019),
+        harvard(1527901),
+        harvard(406879),
+        // Harvard alone.
+        harvard(9434365),
+        harvard(6931314),
+        harvard(8991218),
+        // The combined record of *Boeing* has no Harvard text, so Lawbox's
+        // editor-prepared HTML is read. It is not stored: the case's split
+        // records are its writings.
         (
             122262,
             "html_lawbox",
             text_method::MARKUP,
             VerificationState::Asserted,
-        ),
-        (
-            1527901,
-            "html_lawbox",
-            text_method::MARKUP,
-            VerificationState::Asserted,
-        ),
-        // A court website's HTML, or Resource.org's.
-        (
-            406879,
-            "html",
-            text_method::MARKUP,
-            VerificationState::Asserted,
-        ),
-        // Harvard's Caselaw Access Project: raw OCR, no human review.
-        (
-            9434365,
-            "xml_harvard",
-            text_method::OCR,
-            VerificationState::MachineSuggested,
-        ),
-        (
-            6931314,
-            "xml_harvard",
-            text_method::OCR,
-            VerificationState::MachineSuggested,
-        ),
-        (
-            8991218,
-            "xml_harvard",
-            text_method::OCR,
-            VerificationState::MachineSuggested,
         ),
     ];
 
@@ -299,48 +265,59 @@ fn should_take_the_text_from_the_field_the_record_carries_and_say_which() {
     }
 }
 
-/// The issue asks for at least three provenances, including one Harvard CAP record
-/// and one derived from a court PDF, so the verification state differs between
-/// records rather than being uniform by construction. Counted, not claimed.
+/// The ten records carry their text in different fields, from different
+/// donors, at different levels of trust: a court's PDF, Lawbox's and a court
+/// website's HTML, and Harvard's OCR. Counted, not claimed. The field read is
+/// the first that the record carries in the order of decision 3 of ADR 0014,
+/// so a record that carries Harvard's field is read from it, whatever else it
+/// carries.
 #[test]
-fn should_span_more_than_two_provenances_across_the_ten_opinions() {
-    let mut fields = BTreeSet::new();
-    let mut methods = BTreeSet::new();
-    let mut states = BTreeSet::new();
+fn should_read_the_first_field_in_structure_order_when_the_records_carry_different_fields() {
+    let order = [
+        "xml_harvard",
+        "html_columbia",
+        "html_anon_2020",
+        "html_lawbox",
+        "html",
+        "plain_text",
+    ];
+    let mut carried = BTreeSet::new();
     let mut from_a_court_document = 0;
 
     for (opinion_id, cluster_id) in TEN {
         let (opinion, _) = records(opinion_id, cluster_id);
-        let (_, source, _) = opinion.text().expect("the record should carry text");
-        fields.insert(source.field);
-        methods.insert(source.method);
-        states.insert(format!("{:?}", source.verification));
-        if source.field == "plain_text" && opinion.download_url.is_some() {
+        let fields: Vec<&str> = [
+            ("xml_harvard", &opinion.xml_harvard),
+            ("html_columbia", &opinion.html_columbia),
+            ("html_anon_2020", &opinion.html_anon_2020),
+            ("html_lawbox", &opinion.html_lawbox),
+            ("html", &opinion.html),
+            ("plain_text", &opinion.plain_text),
+        ]
+        .into_iter()
+        .filter(|(_, value)| value.as_deref().is_some_and(|text| !text.trim().is_empty()))
+        .map(|(name, _)| name)
+        .collect();
+        carried.extend(fields.iter().copied());
+        if fields.contains(&"plain_text") && opinion.download_url.is_some() {
             from_a_court_document += 1;
         }
+
+        let (_, source, _) = opinion.text().expect("the record should carry text");
+        let first = order
+            .iter()
+            .find(|field| fields.contains(field))
+            .expect("the record carries a text field");
+        assert_eq!(source.field, *first, "opinion {opinion_id}");
     }
 
     assert!(
-        fields.len() >= 3,
-        "at least three provenances, got {fields:?}"
-    );
-    assert!(
-        fields.contains("xml_harvard"),
-        "one record must come from Harvard's Caselaw Access Project, got {fields:?}"
+        carried.len() >= 4,
+        "the records differ in what they carry, got {carried:?}"
     );
     assert!(
         from_a_court_document >= 1,
-        "one record must be derived from a document the court published"
-    );
-    assert_eq!(
-        methods.len(),
-        3,
-        "the text was obtained three different ways, got {methods:?}"
-    );
-    assert_eq!(
-        states.len(),
-        2,
-        "so the verification state is not uniform, got {states:?}"
+        "one record carries the text of a document the court published"
     );
 }
 
@@ -460,10 +437,11 @@ fn should_store_a_dissent_as_its_own_writing_in_the_same_case() {
 #[test]
 fn should_read_the_citation_when_the_section_sign_is_a_character_reference() {
     let (opinion, _) = records(406879, 406879);
-    let (text, source, _) = opinion.text().expect("the record carries text");
-
-    assert_eq!(source.field, "html", "this record's text comes from `html`");
-    let raw = opinion.html.as_deref().expect("and the field is there");
+    // Since ADR 0014 the text stored for this record is Harvard's, which writes
+    // the character itself. The `html` field is read here on its own, because
+    // it is the form that tests the decoding.
+    let raw = opinion.html.as_deref().expect("the record carries `html`");
+    let (text, _) = text_of_markup(raw);
     assert!(
         raw.contains("&#167;"),
         "the field really does write the section sign as a reference"
@@ -630,9 +608,7 @@ fn should_answer_which_opinions_cite_section_174_and_whether_it_changed_after_ea
         );
     }
 
-    // And the stored opinions really do differ in how far their text is trusted,
-    // so the verification state is a fact about each record rather than a
-    // constant.
+    // And each citing writing says how far its text is trusted.
     let states: BTreeSet<String> = cases
         .iter()
         .filter_map(|case| match &case.citing {
@@ -642,10 +618,13 @@ fn should_answer_which_opinions_cite_section_174_and_whether_it_changed_after_ea
             Citing::NotHeld { .. } => None,
         })
         .collect();
+    // Every citing writing is read from Harvard's field since ADR 0014 put
+    // structure first, so every one is OCR that no person has confirmed, and
+    // the dataset says so of each.
     assert_eq!(
-        states.len(),
-        2,
-        "the citing opinions' text is not all trusted alike, got {states:?}"
+        states,
+        BTreeSet::from(["MachineSuggested".to_string()]),
+        "the citing writings' text is Harvard's OCR, got {states:?}"
     );
 }
 

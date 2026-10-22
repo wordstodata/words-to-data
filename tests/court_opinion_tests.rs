@@ -37,7 +37,11 @@ const WRITING: &str = "judicial/case_2812209/opinion_2812209";
 
 /// A sentence from the middle of the opinion, used to prove that search reaches
 /// the text rather than the heading.
-const FROM_THE_OPINION: &str = "The Constitution promises liberty to all within its reach";
+///
+/// Not the words before it. Harvard's text, which is the text read since ADR
+/// 0014 put structure first, prints "promises libertyto all": OCR, as its
+/// provenance says.
+const FROM_THE_OPINION: &str = "a liberty that includes certain specific rights";
 
 /// Build the expression this dataset would store for the cached case, from the
 /// two committed records.
@@ -105,15 +109,15 @@ fn should_store_the_opinion_as_one_writing_of_its_case_dated_from_the_cluster() 
     assert_eq!(opinion.data.node_type.as_str(), "judicial.opinion");
     assert_eq!(opinion.data.date.to_string(), "2015-06-26");
     let stored = opinion;
-    // Characters, not bytes: 206,987 is the figure the source reports, and the
-    // opinion is full of typographic quotes and section marks.
+    // Characters, not bytes: 177,810 is Harvard's text with the markup off, and
+    // the opinion is full of typographic quotes and section marks.
     assert_eq!(
         stored
             .data
             .content
             .as_deref()
             .map(|text| text.chars().count()),
-        Some(206_987),
+        Some(177_810),
         "the opinion text should arrive whole"
     );
     assert!(
@@ -186,15 +190,16 @@ fn should_reach_how_the_text_was_obtained_without_opening_a_payload() {
 
     assert_eq!(
         provenance.source,
-        "courtlistener:opinion/2812209:plain_text"
+        "courtlistener:opinion/2812209:xml_harvard"
     );
     assert_eq!(
         provenance.method.as_ref(),
-        Some(&Method::new(text_method::TEXT_LAYER, text_method::VERSION)),
-        "this record says extracted_by_ocr is false, so the text came from a \
-         text layer, and the version says which reading produced it"
+        Some(&Method::new(text_method::OCR, text_method::VERSION)),
+        "the text is Harvard's, which CAP says is machine OCR, although this \
+         record says extracted_by_ocr is false; the version says which reading \
+         produced it"
     );
-    assert_eq!(provenance.verification, VerificationState::Asserted);
+    assert_eq!(provenance.verification, VerificationState::MachineSuggested);
 
     // And the payload says nothing about it, so there is one place to look.
     let payload = opinion
@@ -266,7 +271,7 @@ fn assert_judicial_facts_survived<S: words_to_data::storage::Storage>(dataset: &
             .provenance
             .as_ref()
             .and_then(|p| p.method.clone()),
-        Some(Method::new(text_method::TEXT_LAYER, text_method::VERSION))
+        Some(Method::new(text_method::OCR, text_method::VERSION))
     );
     assert_eq!(opinion.data.node_type.as_str(), "judicial.opinion");
 }

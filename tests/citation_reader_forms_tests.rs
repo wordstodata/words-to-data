@@ -104,9 +104,13 @@ fn should_link_the_written_subdivision_when_snow_sets_a_space_before_each_bracke
 
 #[test]
 fn should_read_the_subdivision_when_a_space_stands_before_each_bracket() {
-    // *Snow v. Commissioner*, 416 U.S. 500 (1974), opinion 109019. Its text is
-    // from `html_lawbox`, which sets a space before each bracket.
-    let text = stored_text(109019);
+    // *Snow v. Commissioner*, 416 U.S. 500 (1974), opinion 109019. Its
+    // `html_lawbox` sets a space before each bracket. The text stored for Snow
+    // is Harvard's since ADR 0014, so Lawbox's field is read here on its own.
+    let lawbox = opinion(109019)
+        .html_lawbox
+        .expect("Snow carries Lawbox's HTML");
+    let (text, _) = text_of_markup(&lawbox);
     assert!(
         text.contains("26 U. S. C. \u{a7} 174 (a) (1)"),
         "the committed text writes the spaced form"

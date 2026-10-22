@@ -1,8 +1,8 @@
 //! What `search` counts as the same words: white space, and the spellings of
 //! "U.S.C.".
 //!
-//! Court opinions write one citation in more than one way, and plain-text
-//! opinions break lines inside phrases. A search that matched the exact
+//! Court opinions write one citation in more than one way, and the text of an
+//! opinion breaks lines inside phrases. A search that matched the exact
 //! characters found 7 of the 9 opinions that cite § 174 when asked for
 //! "U.S.C. § 174", and 3 when asked for "U. S. C. § 174" (#307).
 //!
@@ -146,15 +146,16 @@ fn should_find_the_same_opinions_when_us_code_is_spelt_with_or_without_spaces() 
     });
 }
 
-/// Opinion 2651100 is plain text, and its line breaks fall inside phrases:
-/// "engaged in qualified research\neach year".
+/// Opinion 2651100 is read from Harvard's markup, and an inline tag ends a
+/// line inside a phrase: Harvard sets the ampersand of "R & D" in `<em>`, so
+/// the stored text is "Not all R\n&\nD expenses".
 #[test]
 fn should_find_a_phrase_when_a_line_break_splits_it() {
     on_both_backends("line_break", |dataset| {
         let found = hits(&[
             "search",
             dataset,
-            "engaged in qualified research each year",
+            "Not all R & D expenses are QREs",
             "--path",
             "judicial",
             "--json",
@@ -171,7 +172,7 @@ fn should_find_a_phrase_when_a_line_break_splits_it() {
         );
         let snippet = found[0]["snippet"].as_str().unwrap();
         assert!(
-            snippet.contains("qualified research\neach year"),
+            snippet.contains("R\n&\nD expenses"),
             "the snippet shows the text as the opinion has it, got {snippet:?}"
         );
     });

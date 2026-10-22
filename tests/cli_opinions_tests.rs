@@ -192,7 +192,7 @@ fn should_count_the_citation_links_each_opinion_makes_when_the_dataset_holds_the
 }
 
 #[test]
-fn should_name_the_field_each_text_was_read_from_when_the_records_differ() {
+fn should_name_the_field_each_text_was_read_from_when_the_records_carry_several() {
     let dataset = with_the_ten("opinions_text_field");
 
     let rows = rows_of(&dataset);
@@ -203,15 +203,16 @@ fn should_name_the_field_each_text_was_read_from_when_the_records_differ() {
             .unwrap_or_else(|| panic!("{path} should be listed: {rows:#?}"))["text_field"]
             .clone()
     };
-    // Shami: a court PDF. Snow: the Lawbox donation. The Boeing dissent:
-    // Harvard's OCR. See docs/adr/0008.
+    // Shami also carries a court PDF, and Snow the Lawbox donation. Harvard's
+    // OCR is read for all three, because only it holds the pages and the
+    // paragraphs. See docs/adr/0014, decision 3.
     assert_eq!(
         field_of("judicial/case_2651100/opinion_2651100"),
-        "plain_text"
+        "xml_harvard"
     );
     assert_eq!(
         field_of("judicial/case_109019/opinion_109019"),
-        "html_lawbox"
+        "xml_harvard"
     );
     assert_eq!(
         field_of("judicial/case_122262/opinion_9434365"),
