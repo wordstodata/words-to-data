@@ -9,14 +9,14 @@ use rusqlite::{Connection, params};
 use crate::congress::{BillVotes, HouseRollCall, Member, MemberVote, SponsorInfo, VotePosition};
 use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, ExpressionPair,
-    SearchResult, WorkId,
+    SearchAnswer, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
 use crate::link::{Link, LinkKind, Provenance, Target, Window};
-use crate::query::{Answer, Locator, PathMatch};
+use crate::query::{Locator, PathMatch};
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, Hits, InMemoryStorage,
@@ -1105,7 +1105,7 @@ impl DocumentReader for SqliteStorage {
         query: &str,
         locator: &Locator,
         limit: Option<usize>,
-    ) -> Result<Answer<SearchResult>, DatasetError> {
+    ) -> Result<SearchAnswer, DatasetError> {
         // Every text field, not a chosen few: a field left out of this query is
         // a field whose text reads as absent from the law (#82).
         //
@@ -1144,11 +1144,14 @@ impl DocumentReader for SqliteStorage {
             let field: String = row.get(5)?;
             let snippet: Option<String> = row.get(6)?;
             if let Some(snippet) = snippet {
-                hits.offer(|| SearchResult {
-                    expression: ExpressionId::new(WorkId::new(work), date),
-                    path,
-                    field,
-                    snippet,
+                hits.offer(crate::search::occurrences(&snippet, query), |offsets| {
+                    SearchResult {
+                        expression: ExpressionId::new(WorkId::new(work), date),
+                        path,
+                        field,
+                        snippet,
+                        offsets,
+                    }
                 });
             }
         }

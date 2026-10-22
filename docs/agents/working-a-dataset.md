@@ -92,6 +92,23 @@ read the words.
    ```
    Search the date **after** the change you care about, then the date **before**,
    and compare: a provision present after and absent before was added.
+
+   Each hit is one field, and its line says how often the field holds the words
+   (`[content]  5 occurrences`). The last line counts both: `1 field, 5
+   occurrences`. A court opinion is one field, so one hit is not one mention.
+   `--occurrences` lists each occurrence as its own hit, with its character
+   offset in the field and a snippet around it; `--limit` and `--all` then count
+   occurrences:
+   ```
+   words_to_data search <dataset> "174" --work judicial/opinion_122262 --occurrences
+   ```
+   To read more around one occurrence, give its offset. `--offset` centres the
+   snippet on that character, and `--snippet` says how many characters to show:
+   ```
+   words_to_data search <dataset> "" --path judicial/opinion_122262 --exact --offset 24552 --snippet 2000
+   ```
+   The offset counts characters in one field, so read the hit whose `[field]` the
+   occurrence named. Do this rather than read a whole opinion with `--snippet 0`.
 2. **See what changed.** `diff` lists the paths that changed between two dates of
    one work; `path` shows one provision and the words that changed on it.
    ```

@@ -13,7 +13,8 @@
 use std::io::Write;
 
 use clap::Args as ClapArgs;
-use words_to_data::dataset::SearchResult;
+use serde::Serialize;
+use words_to_data::dataset::{ExpressionId, SearchAnswer, SearchResult};
 use words_to_data::inspect::{AbsentPath, absent_path};
 use words_to_data::query::{DEFAULT_LIMIT, Locator};
 
@@ -74,9 +75,36 @@ pub struct Args {
     #[arg(long, value_name = "CHARS", default_value_t = DEFAULT_SNIPPET)]
     pub snippet: usize,
 
+    /// List each occurrence of the query as its own hit, with its character offset
+    ///
+    /// A field can hold the query many times: a court opinion is one field.
+    /// Each occurrence gets its own snippet, and `--limit`/`--all` count
+    /// occurrences, not fields
+    #[arg(long)]
+    pub occurrences: bool,
+
+    /// Centre each snippet on this character of its field, not on the first occurrence
+    ///
+    /// Reads one window of a long field: take an offset from `--occurrences`,
+    /// then `--path P --exact --offset N --snippet K` gives the K characters
+    /// around it. An empty query matches every field at the path
+    #[arg(long, value_name = "CHAR", conflicts_with = "occurrences")]
+    pub offset: Option<usize>,
+
     /// Emit JSON instead of human-readable text
     #[arg(long)]
     pub json: bool,
+}
+
+/// One occurrence of the query inside a field, as `--occurrences` lists it.
+#[derive(Serialize)]
+struct Occurrence {
+    expression: ExpressionId,
+    path: String,
+    field: String,
+    /// Where the occurrence begins in the field's text, in characters.
+    offset: usize,
+    snippet: String,
 }
 
 pub fn run(args: Args) {
@@ -120,6 +148,22 @@ pub fn run(args: Args) {
         _ => None,
     };
 
+    if args.occurrences {
+        // The limit went to the search as a count of fields. Each field holds
+        // at least one occurrence, so that many fields hold at least that many
+        // occurrences, and cutting the list here gives the first ones exactly.
+        let mut listed = each_occurrence(&found.rows, args.snippet);
+        if let Some(limit) = limit {
+            listed.truncate(limit);
+        }
+        if let Err(error) = report_occurrences(&args, &listed, found.occurrences, absent.as_ref())
+            && error.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            crate::fail::refuse(&format!("Error writing the answer: {error}"));
+        }
+        return;
+    }
+
     // The window is applied to both surfaces. The field is called `snippet`, and
     // a snippet that is a whole section is not one. The field as recorded is a
     // `--snippet 0` away, and `words_to_data path` reads the provision itself.
@@ -127,7 +171,11 @@ pub fn run(args: Args) {
         .rows
         .iter()
         .map(|hit| SearchResult {
-            snippet: window_around(&hit.snippet, &args.query, args.snippet),
+            snippet: window_at(
+                &hit.snippet,
+                args.offset.unwrap_or_else(|| first_offset(hit)),
+                args.snippet,
+            ),
             ..hit.clone()
         })
         .collect();
@@ -135,7 +183,7 @@ pub fn run(args: Args) {
     // A reader that closed the pipe has read enough, which is a clean stop and
     // not a failure. `println!` panics on a broken pipe, so `search | head`
     // exited 101 where the same run without a pipe exited 0 (#235).
-    if let Err(error) = report(&args, &hits, found.total, found.dropped(), absent.as_ref())
+    if let Err(error) = report(&args, &hits, &found, absent.as_ref())
         && error.kind() != std::io::ErrorKind::BrokenPipe
     {
         crate::fail::refuse(&format!("Error writing the answer: {error}"));
@@ -149,8 +197,7 @@ pub fn run(args: Args) {
 fn report(
     args: &Args,
     hits: &[SearchResult],
-    total: usize,
-    dropped: usize,
+    found: &SearchAnswer,
     absent: Option<&AbsentPath>,
 ) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
@@ -158,7 +205,8 @@ fn report(
     if args.json {
         let mut answer = serde_json::json!({
             "hits": hits,
-            "total": total,
+            "total": found.total,
+            "occurrences": found.occurrences,
         });
         // Only when the path is absent, so the answer over a real path is the
         // same as it was.
@@ -178,12 +226,27 @@ fn report(
     }
 
     for hit in hits {
-        writeln!(out, "{}  {}  [{}]", hit.expression, hit.path, hit.field)?;
+        writeln!(
+            out,
+            "{}  {}  [{}]  {}",
+            hit.expression,
+            hit.path,
+            hit.field,
+            counted(hit.offsets.len(), "occurrence")
+        )?;
         writeln!(out, "    {}", hit.snippet)?;
     }
-    writeln!(out, "{total} match(es)")?;
+    // Fields and occurrences both, so a count of fields is not read as a count
+    // of mentions. A court opinion is one field (#306).
+    writeln!(
+        out,
+        "{}, {}",
+        counted(found.total, "field"),
+        counted(found.occurrences, "occurrence")
+    )?;
     // What was left out, said rather than left to be inferred. A listing that
     // stopped in silence would read as the whole answer (#220, #235).
+    let dropped = found.dropped();
     if dropped > 0 {
         writeln!(
             out,
@@ -193,63 +256,131 @@ fn report(
     out.flush()
 }
 
-/// `width` characters of `text` around the first match of `query`.
+/// `n` and the noun, singular or plural as `n` asks.
+fn counted(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{n} {noun}s")
+    }
+}
+
+/// Each occurrence in each field, as a hit of its own, in the order found.
+fn each_occurrence(fields: &[SearchResult], width: usize) -> Vec<Occurrence> {
+    fields
+        .iter()
+        .flat_map(|hit| {
+            hit.offsets.iter().map(move |&offset| Occurrence {
+                expression: hit.expression.clone(),
+                path: hit.path.clone(),
+                field: hit.field.clone(),
+                offset,
+                snippet: window_at(&hit.snippet, offset, width),
+            })
+        })
+        .collect()
+}
+
+/// Write the occurrences to stdout, and say how many the limit left out.
 ///
-/// The match is centred, so the words on both sides of it are what a reader
-/// gets. An elision is marked with `…` at whichever end was cut: a snippet that
-/// begins mid-sentence with no mark reads as the start of the provision.
+/// `total` counts every occurrence the search found, listed or not.
+fn report_occurrences(
+    args: &Args,
+    listed: &[Occurrence],
+    total: usize,
+    absent: Option<&AbsentPath>,
+) -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+
+    if args.json {
+        let mut answer = serde_json::json!({
+            "hits": listed,
+            "total": total,
+        });
+        if let Some(absent) = absent {
+            answer["absent_path"] = serde_json::json!(absent);
+        }
+        writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
+        return out.flush();
+    }
+
+    if let Some(absent) = absent {
+        writeln!(
+            out,
+            "{}",
+            absent_notice(absent, args.exact, "this search reads")
+        )?;
+    }
+
+    for hit in listed {
+        writeln!(
+            out,
+            "{}  {}  [{}] at {}",
+            hit.expression, hit.path, hit.field, hit.offset
+        )?;
+        writeln!(out, "    {}", hit.snippet)?;
+    }
+    writeln!(out, "{}", counted(total, "occurrence"))?;
+    let dropped = total.saturating_sub(listed.len());
+    if dropped > 0 {
+        writeln!(
+            out,
+            "  … {dropped} more not shown; pass --all for every one of them"
+        )?;
+    }
+    out.flush()
+}
+
+/// Where the first occurrence in a field begins, or the field's start.
+///
+/// A field holds the query, which is what made it a hit, but the two back ends
+/// find a hit by different means, so a field without an offset falls back to
+/// its opening rather than refusing to print.
+fn first_offset(hit: &SearchResult) -> usize {
+    hit.offsets.first().copied().unwrap_or(0)
+}
+
+/// `width` characters of `text` around the character at `centre`.
+///
+/// The centre is placed in the middle, so the words on both sides of it are
+/// what a reader gets. An elision is marked with `…` at whichever end was cut: a
+/// snippet that begins mid-sentence with no mark reads as the start of the
+/// provision.
 ///
 /// A width of zero returns the whole field, so a reader who wants the section's
 /// text can still ask for it.
 ///
-/// Counted in characters and not bytes. The corpus holds `§`, and a byte slice
-/// through a character panics.
-fn window_around(text: &str, query: &str, width: usize) -> String {
-    let text = text.trim();
+/// Counted in characters and not bytes, as the offsets are. The corpus holds
+/// `§`, and a byte slice through a character panics.
+fn window_at(text: &str, centre: usize, width: usize) -> String {
     if width == 0 {
-        return text.to_string();
+        return text.trim().to_string();
     }
     let characters: Vec<char> = text.chars().collect();
     if characters.len() <= width {
-        return text.to_string();
+        return text.trim().to_string();
     }
 
-    // Where the match begins, in characters. A field holds the query — that is
-    // what made it a hit — but the two backends match by different means, so a
-    // miss falls back to the opening rather than refusing to print.
-    let found = first_match(&characters, &query.chars().collect::<Vec<_>>()).unwrap_or(0);
-
-    let start = found
+    let start = centre
         .saturating_sub(width / 2)
         .min(characters.len() - width);
     let end = start + width;
 
+    // The edges of the field are trimmed, as a whole field is: most fields
+    // begin with the white space of their markup. A cut edge is not trimmed,
+    // so a window is the characters asked for, exactly.
+    let window: String = characters[start..end].iter().collect();
     let mut snippet = String::new();
     if start > 0 {
         snippet.push('…');
+        snippet.push_str(&window);
+    } else {
+        snippet.push_str(window.trim_start());
     }
-    snippet.extend(&characters[start..end]);
     if end < characters.len() {
         snippet.push('…');
+    } else {
+        snippet.truncate(snippet.trim_end().len());
     }
     snippet
-}
-
-/// The character position where `needle` first appears in `haystack`, whatever
-/// the case of either.
-///
-/// Compared character by character rather than on a lowercased copy of the whole
-/// field, because lowercasing can change how many characters a string holds, and
-/// a position read off the copy would then point at the wrong place in the
-/// original.
-fn first_match(haystack: &[char], needle: &[char]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(0);
-    }
-    haystack.windows(needle.len()).position(|window| {
-        window
-            .iter()
-            .zip(needle)
-            .all(|(found, asked)| found.to_lowercase().eq(asked.to_lowercase()))
-    })
 }

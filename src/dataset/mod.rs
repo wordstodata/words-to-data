@@ -92,7 +92,36 @@ pub struct SearchResult {
     pub expression: ExpressionId,
     pub path: String,
     pub field: String,
+    /// The field's text. The `search` command cuts it to a window.
     pub snippet: String,
+    /// The character offset of each occurrence of the query in the field's
+    /// text, first to last. A field can hold a term many times, and one hit for
+    /// the field is not one mention (#306).
+    #[serde(default)]
+    pub offsets: Vec<usize>,
+}
+
+/// What a search returned, and how much it matched.
+///
+/// A search counts two things. A hit is one field, and a field can hold the
+/// query many times: a court opinion is one field, so "1 field" said nothing
+/// about how often the opinion names a section (#306). The answer counts both,
+/// so a caller can say which one it reports.
+#[derive(Debug, Clone)]
+pub struct SearchAnswer {
+    /// The fields returned, at most the search's limit.
+    pub rows: Vec<SearchResult>,
+    /// How many fields matched, whether or not they were returned.
+    pub total: usize,
+    /// How many occurrences the matched fields hold, all of them together.
+    pub occurrences: usize,
+}
+
+impl SearchAnswer {
+    /// How many matched fields were not returned. Zero when nothing was cut.
+    pub fn dropped(&self) -> usize {
+        self.total.saturating_sub(self.rows.len())
+    }
 }
 
 /// A source this build could not read, as a dataset error.
@@ -443,7 +472,7 @@ impl<S: Storage> Dataset<S> {
         query: &str,
         locator: &crate::query::Locator,
         limit: Option<usize>,
-    ) -> Result<crate::query::Answer<SearchResult>, DatasetError> {
+    ) -> Result<SearchAnswer, DatasetError> {
         self.storage.search_text_in(query, locator, limit)
     }
 
@@ -953,7 +982,7 @@ impl<S: Storage> DocumentReader for Dataset<S> {
         query: &str,
         locator: &crate::query::Locator,
         limit: Option<usize>,
-    ) -> Result<crate::query::Answer<SearchResult>, DatasetError> {
+    ) -> Result<SearchAnswer, DatasetError> {
         self.storage.search_text_in(query, locator, limit)
     }
 
