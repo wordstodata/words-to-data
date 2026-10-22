@@ -89,6 +89,9 @@ read the words.
    words_to_data path <dataset> <path> --from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30
    ```
    For a provision that is **new** in the window, `path` prints the words added.
+   `path` also shows citations: on `judicial/opinion_<id>` it lists the sections
+   the opinion cites, and on a Code path the opinions that cite it or the section
+   that holds it.
 3. **Find which amendment made the change.**
    ```
    words_to_data annotations <dataset> --bill <bill> --path <path>

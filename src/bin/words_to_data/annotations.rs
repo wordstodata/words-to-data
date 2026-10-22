@@ -9,6 +9,7 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect::{self, PathMatch};
+use words_to_data::judicial::cites::citations_naming;
 use words_to_data::legislature::evidence_matching::RecordedSource;
 use words_to_data::query::{LinkQuery, Locator};
 
@@ -88,10 +89,23 @@ pub fn run(args: Args) {
     }
 
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
-    let found = crate::fail::or_exit(
-        with_dataset!(ds, d => inspect::annotations(&d, &query)),
+    let asked = citations_asked(&args);
+    let (found, mut citations) = crate::fail::or_exit(
+        with_dataset!(ds, d => inspect::annotations(&d, &query).and_then(|found| {
+            let citations = match asked {
+                Some(path) => citations_naming(&d, path, path_matching(args.exact))?,
+                None => Vec::new(),
+            };
+            Ok((found, citations))
+        })),
         "Error reading annotations",
     );
+    // The limit counts citations apart from annotations, so each list keeps
+    // its own total and says what it left out.
+    let citations_total = citations.len();
+    if let Some(limit) = limit {
+        citations.truncate(limit);
+    }
 
     if args.json {
         println!(
@@ -99,6 +113,10 @@ pub fn run(args: Args) {
             serde_json::to_string_pretty(&serde_json::json!({
                 "annotations": found.rows,
                 "total": found.total,
+                // Added beside the two above, never in place of them: agents
+                // read those (#301).
+                "citations": citations,
+                "citations_total": citations_total,
             }))
             .unwrap()
         );
@@ -117,6 +135,29 @@ pub fn run(args: Args) {
             found.dropped()
         );
     }
+
+    crate::path::print_citations(&citations, citations_total);
+    if citations_total > citations.len() {
+        println!(
+            "  … {} more not shown; pass --all for every one of them",
+            citations_total - citations.len()
+        );
+    }
+}
+
+/// The path to list `judicial.cites` links for, when the filters given allow
+/// any (#301).
+///
+/// Only with `--path`: a citation is a statement about a path, and a listing of
+/// every citation in a dataset was not asked for. And not with `--bill` or a
+/// window, because a citation has neither: no bill made it, and it was not
+/// observed between two dates. The filters compose, so a filter no citation can
+/// pass leaves none.
+fn citations_asked(args: &Args) -> Option<&str> {
+    if args.bill.is_some() || args.from.is_some() {
+        return None;
+    }
+    args.path.as_deref()
 }
 
 /// Read the `--exact` flag both path-taking commands carry.

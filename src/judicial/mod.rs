@@ -26,6 +26,7 @@
 //! would date every opinion to the day a third party scraped it, and it is the
 //! field that looks right.
 
+pub mod cites;
 pub mod reliance;
 
 use serde::{Deserialize, Serialize};
