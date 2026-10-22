@@ -34,7 +34,12 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Text to search for (case-insensitive)
+    /// Text to search for
+    ///
+    /// Case is ignored. A run of white space in the text, such as a line
+    /// break, matches one space in the query. "U.S.C." and "U. S. C." match
+    /// each other; no other spellings are made equal ("U.S.C.A." stays as it
+    /// is). Snippets show the text as stored
     pub query: String,
 
     /// Search only this work, e.g. `uscode/title_26`

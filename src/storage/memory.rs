@@ -15,6 +15,7 @@ use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
 use crate::link::{Link, Target};
 use crate::query::Locator;
+use crate::search::Query;
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, Hits, LegislatureCounts,
     LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, Storage, locates_expression,
@@ -131,7 +132,7 @@ impl InMemoryStorage {
     fn search_element(
         element: &DocumentNode,
         id: &ExpressionId,
-        query: &str,
+        query: &Query,
         locator: &Locator,
         hits: &mut Hits,
     ) {
@@ -146,19 +147,21 @@ impl InMemoryStorage {
         let path = element.data.path.to_string();
         if locates_path(locator, &path) {
             for (field_name, field_value) in fields {
-                if let Some(text) = field_value
-                    && text.to_lowercase().contains(query)
-                {
-                    hits.offer(crate::search::occurrences(text, query), |offsets| {
-                        SearchResult {
-                            expression: id.clone(),
-                            path: path.clone(),
-                            field: field_name.to_string(),
-                            snippet: text.to_string(),
-                            offsets,
-                        }
-                    });
+                let Some(text) = field_value else { continue };
+                if !might_match(text, query) {
+                    continue;
                 }
+                let offsets = query.occurrences(text);
+                if offsets.is_empty() {
+                    continue;
+                }
+                hits.offer(offsets, |offsets| SearchResult {
+                    expression: id.clone(),
+                    path: path.clone(),
+                    field: field_name.to_string(),
+                    snippet: text.to_string(),
+                    offsets,
+                });
             }
         }
 
@@ -219,20 +222,14 @@ impl DocumentReader for InMemoryStorage {
         locator: &Locator,
         limit: Option<usize>,
     ) -> Result<SearchAnswer, DatasetError> {
-        let query_lower = query.to_lowercase();
+        let query = Query::new(query);
         let mut hits = Hits::with_limit(limit);
 
         for expression in self.all_expressions() {
             if !locates_expression(locator, &expression.id) {
                 continue;
             }
-            Self::search_element(
-                &expression.root,
-                &expression.id,
-                &query_lower,
-                locator,
-                &mut hits,
-            );
+            Self::search_element(&expression.root, &expression.id, &query, locator, &mut hits);
         }
 
         Ok(hits.answer())
@@ -272,6 +269,18 @@ impl DocumentReader for InMemoryStorage {
             .filter(|e| locates_expression(locator, &e.id))
             .any(|e| reaches(&e.root, locator)))
     }
+}
+
+/// Whether `text` holds every piece of the query, so a match is possible.
+///
+/// A quick test before [`Query::occurrences`], which is slower: most fields
+/// of a title hold no match, and this skips them.
+fn might_match(text: &str, query: &Query) -> bool {
+    let lower: String = text.chars().flat_map(char::to_lowercase).collect();
+    query
+        .pieces()
+        .iter()
+        .all(|piece| lower.contains(piece.as_str()))
 }
 
 /// Fetch both expressions of a diff, refusing a pair that names two works.
