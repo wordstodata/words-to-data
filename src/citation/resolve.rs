@@ -56,6 +56,9 @@ fn is_usc_section(node_type: &NodeType) -> bool {
 #[derive(Debug, Clone, Default)]
 pub struct SectionPaths {
     paths: BTreeMap<String, Vec<String>>,
+    /// The heading of every indexed section that is a stub, by path
+    /// ([`stub_heading`]).
+    stubs: BTreeMap<String, String>,
 }
 
 impl SectionPaths {
@@ -75,6 +78,9 @@ impl SectionPaths {
                 .entry(fold_dashes(&uslm_id))
                 .or_default()
                 .push(work.data.path.to_string());
+            if let Some(heading) = stub_heading(work) {
+                self.stubs.insert(work.data.path.to_string(), heading);
+            }
         }
         for child in &work.children {
             self.add_work(child);
@@ -93,6 +99,12 @@ impl SectionPaths {
         self.paths
             .get(&fold_dashes(uslm_id))
             .map_or(&[], Vec::as_slice)
+    }
+
+    /// The stub heading of the section at `path`, such as `[Renumbered § 30]`,
+    /// when the indexed work prints it as a stub ([`stub_heading`]).
+    pub fn stub_at(&self, path: &str) -> Option<&str> {
+        self.stubs.get(path).map(String::as_str)
     }
 
     /// How many identifiers are indexed.
@@ -230,5 +242,41 @@ pub fn resolve_subdivision(section: &DocumentNode, written: &str) -> Subdivision
     }
     Subdivision::Resolved {
         resolved_path: current.data.path.to_string(),
+    }
+}
+
+/// The words a stub's heading starts with: the section is no longer law, and
+/// says where it went, or that it went.
+const STUB_WORDS: [&str; 4] = ["Repealed", "Renumbered", "Transferred", "Omitted"];
+
+/// The heading of a section that is now a stub, written as the Code prints it:
+/// `[Renumbered § 30]` for `26 U.S.C. § 44F`. `None` for a section of law.
+///
+/// A stub is a section whose heading says it was Repealed, Renumbered,
+/// Transferred or Omitted, inside the brackets the Code prints around it:
+/// `[§ 44F. Renumbered § 30]`. The number carries the opening bracket and the
+/// heading the closing one, so the heading must end in `]`. That keeps out a
+/// section of law whose heading starts with one of the words, such as one
+/// headed "Transferred functions".
+///
+/// A citation that resolves to a stub resolves to a real node, and the link
+/// looked as good as any other (#310). It is not: the court cited law that
+/// this printing no longer holds at that number. Readers say so with the
+/// heading, and this is the one place that decides what a stub is.
+///
+/// The rule reads the node of one printing, so the answer is about that
+/// printing: § 44F was law when *United Stationers* cited it in 1997.
+pub fn stub_heading(section: &DocumentNode) -> Option<String> {
+    let heading = section.data.heading.as_deref()?.trim();
+    let first_word = heading
+        .trim_start_matches('[')
+        .split(|c: char| !c.is_alphabetic())
+        .next()?;
+    if !heading.ends_with(']') || !STUB_WORDS.contains(&first_word) {
+        return None;
+    }
+    match heading.starts_with('[') {
+        true => Some(heading.to_string()),
+        false => Some(format!("[{heading}")),
     }
 }

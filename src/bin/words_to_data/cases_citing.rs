@@ -366,6 +366,7 @@ fn report_each(cases: &[CitingCase]) {
                 cited.citation_text.as_deref().unwrap_or(""),
             );
             report_subdivision(cited);
+            report_stub(cited);
             report_since(cited);
         }
         println!();
@@ -385,6 +386,17 @@ fn report_subdivision(cited: &CitedProvision) {
             "      wrote a subdivision: {unresolved} does not resolve in the latest \
              printing held, so only the section is known"
         ),
+    }
+}
+
+/// Whether the cited section is a stub in the latest printing held (#310).
+/// Said only when it is: a section of law needs no line.
+fn report_stub(cited: &CitedProvision) {
+    if let Some(stub) = &cited.stub_heading {
+        println!(
+            "      the cited section is now a stub: {stub}. That is its heading in the \
+             latest printing held, which holds no law at that number."
+        );
     }
 }
 
