@@ -5,6 +5,7 @@ use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
 use words_to_data::judicial::cites::{CitationLink, PathRole};
+use words_to_data::judicial::held::{CourtFacts, HeldWriting};
 use words_to_data::query::{DEFAULT_LIMIT, Locator, PathMatch};
 
 use crate::load::{self, with_dataset};
@@ -97,6 +98,10 @@ pub fn run(args: Args) {
         println!("Nearest held path: {nearest}");
     }
 
+    if let Some(facts) = &report.judicial {
+        print_court_facts(facts);
+    }
+
     if let (Some(from), Some(to)) = (&args.from, &args.to) {
         println!(
             "\nProvisions ({from} -> {to}) ({}):",
@@ -141,6 +146,94 @@ pub fn run(args: Args) {
     }
 
     print_citations(&report.citations, report.citations.len());
+}
+
+const NOT_RECORDED: &str = "not recorded";
+
+/// The stored facts of a writing and of its case, one named fact to a line
+/// (#327).
+///
+/// Every fact is printed, and a missing one says "not recorded", so a reader
+/// does not take a blank for an answer, nor go to SQL to find out.
+fn print_court_facts(facts: &CourtFacts) {
+    if let Some(writing) = &facts.writing {
+        println!("\nWriting {}:", writing.path);
+        print_writing_facts(writing);
+    }
+
+    let case = &facts.case;
+    println!("\nCase {}@{}:", case.path, case.date);
+    fact("case name", case.case_name.as_deref());
+    fact(
+        "cluster",
+        case.cluster_id.map(|id| id.to_string()).as_deref(),
+    );
+    fact("panel", case.panel.as_deref());
+    fact("precedential status", case.precedential_status.as_deref());
+    fact("citations", listed(&case.citations, "; ").as_deref());
+    fact("source", case.source.as_deref());
+    fact("docket", case.docket_id.map(|id| id.to_string()).as_deref());
+    fact("court", case.court.as_deref());
+    // A combined record holds the same words as the writings, so it is kept
+    // as a source and not as text (ADR 0014, decision 2). Its absence from
+    // the writings is not a loss.
+    let combined: Vec<String> = case.combined_records.iter().map(u64::to_string).collect();
+    fact(
+        "combined records kept as a source, not as text",
+        Some(listed(&combined, ", ").as_deref().unwrap_or("none")),
+    );
+
+    // Each writing once, short, so a reader sees which of them is the Court's
+    // and which a dissent. The path of a writing gives it in full.
+    println!("\nWritings of this case ({}):", case.writings.len());
+    for writing in &case.writings {
+        println!(
+            "  {}  {} · author {} · per curiam {}",
+            writing.path,
+            writing
+                .opinion_type
+                .as_deref()
+                .unwrap_or("writing type not recorded"),
+            writing.author.as_deref().unwrap_or(NOT_RECORDED),
+            yes_or_no(writing.per_curiam).unwrap_or(NOT_RECORDED),
+        );
+    }
+}
+
+/// Every stored fact of one writing, and where its text came from.
+fn print_writing_facts(writing: &HeldWriting) {
+    fact("writing type", writing.opinion_type.as_deref());
+    fact("author", writing.author.as_deref());
+    fact("per curiam", yes_or_no(writing.per_curiam));
+    fact(
+        "page count",
+        writing.page_count.map(|n| n.to_string()).as_deref(),
+    );
+    fact("download URL", writing.download_url.as_deref());
+    fact("sha1", writing.sha1.as_deref());
+    let text_from = writing
+        .text_source
+        .as_ref()
+        .map(|source| match &writing.text_method {
+            Some(method) => format!("{source} ({method})"),
+            None => source.clone(),
+        });
+    fact("text from", text_from.as_deref());
+}
+
+/// A stored yes-or-no fact in words, or `None` when it is not recorded.
+fn yes_or_no(value: Option<bool>) -> Option<&'static str> {
+    value.map(|value| if value { "yes" } else { "no" })
+}
+
+/// One named fact on its own line, or "not recorded".
+fn fact(name: &str, value: Option<&str>) {
+    println!("  {name}: {}", value.unwrap_or(NOT_RECORDED));
+}
+
+/// The values joined, or `None` when there are none.
+fn listed(values: &[String], separator: &str) -> Option<String> {
+    (!values.is_empty()).then(|| values.join(separator))
 }
 
 /// The citing opinion as a line names it, and whether the dataset holds it.
