@@ -25,6 +25,7 @@ mod link_amendment;
 mod link_by_evidence;
 mod list_release_points;
 mod load;
+mod opinions;
 mod path;
 mod redesignation_report;
 mod redesignations;
@@ -81,6 +82,8 @@ enum Command {
     Expressions(expressions::Args),
     /// List every bill the dataset holds
     Bills(bills::Args),
+    /// List every court opinion the dataset holds: case, writing type, cluster, citations
+    Opinions(opinions::Args),
     /// Report every renumbering the dataset's bills state, weakest first
     RedesignationReport(redesignation_report::Args),
     /// List the subjects the dataset holds more than one link about
@@ -131,6 +134,7 @@ fn main() {
         Command::Info(args) => info::run(args),
         Command::Expressions(args) => expressions::run(args),
         Command::Bills(args) => bills::run(args),
+        Command::Opinions(args) => opinions::run(args),
         Command::RedesignationReport(args) => redesignation_report::run(args),
         Command::Contradictions(args) => contradictions::run(args),
         Command::SectionAgreement(args) => section_agreement::run(args),
