@@ -29,7 +29,7 @@ use crate::document::{DocumentNode, NodeType};
 use crate::legislature::redesignation::{Step, walk_down};
 use crate::uslm::{ElementType, UslmFacts};
 
-use super::usc::{UscCitation, fold_dashes, subdivisions};
+use super::usc::{UscCitation, fold_dashes, range_ends, subdivisions};
 
 /// Whether a node is a section of the US Code, and not of a public law.
 ///
@@ -139,28 +139,44 @@ pub struct CitedSection {
 ///
 /// One entry per section, in the order the citation wrote them, so a caller can
 /// report the whole citation rather than the part of it that resolved.
+///
+/// A range is two entries. `26 U.S.C. §§ 991-997` names no section numbered
+/// `991-997`, and its number can be a range ([`range_ends`]), so each end is
+/// resolved on its own and both entries keep the section as written (#309). The
+/// sections between the ends are not named: the text did not write them, and a
+/// link says what the text wrote. A number the title does hold, such as
+/// `20 U.S.C. § 1078-1`, is that section and never a range.
 pub fn resolve(citation: &UscCitation, scope: &Scope, paths: &SectionPaths) -> Vec<CitedSection> {
     let coverage = scope.covers(citation.work().as_str());
+    let cited = |section: &String, number: &str| {
+        let uslm_id = citation.uslm_id(number);
+        let resolution = match coverage {
+            Coverage::OutOfScope => Resolution::OutOfScope,
+            Coverage::Gap => Resolution::Gap,
+            Coverage::InScope => match paths.paths_of(&uslm_id) {
+                [] => Resolution::Absent,
+                found => Resolution::Provision {
+                    paths: found.to_vec(),
+                },
+            },
+        };
+        CitedSection {
+            section: section.clone(),
+            uslm_id,
+            resolution,
+        }
+    };
 
     citation
         .sections
         .iter()
-        .map(|section| {
-            let uslm_id = citation.uslm_id(section);
-            let resolution = match coverage {
-                Coverage::OutOfScope => Resolution::OutOfScope,
-                Coverage::Gap => Resolution::Gap,
-                Coverage::InScope => match paths.paths_of(&uslm_id) {
-                    [] => Resolution::Absent,
-                    found => Resolution::Provision {
-                        paths: found.to_vec(),
-                    },
-                },
-            };
-            CitedSection {
-                section: section.clone(),
-                uslm_id,
-                resolution,
+        .flat_map(|section| {
+            let whole = cited(section, section);
+            match (&whole.resolution, range_ends(section)) {
+                (Resolution::Absent, Some((from, to))) => {
+                    vec![cited(section, &from), cited(section, &to)]
+                }
+                _ => vec![whole],
             }
         })
         .collect()

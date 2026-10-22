@@ -13,7 +13,7 @@
 //! reader of this file can see exactly what is matched. Every place this file
 //! departs from the published source is marked where it happens, with what the
 //! published pattern says and why we differ, because a silent divergence from an
-//! upstream pattern is a maintenance trap. [`law_section`] carries four such
+//! upstream pattern is a maintenance trap. [`law_section`] carries six such
 //! notes.
 //!
 //! # What is read, and what is declined
@@ -70,6 +70,20 @@ const REPORTERS: [&str; 8] = [
     "USC",
 ];
 
+/// A reporter written close to `U.S.C.` and as none of [`REPORTERS`]: `V.S.C.`,
+/// where OCR read the U as a V, or `U.S.C` without its last point.
+///
+/// Not from `reporters_db`, and never read as a citation. A near miss can be a
+/// typing slip or a misread scan, and the reader cannot tell which, so it reads
+/// nothing and reports the text ([`SkipReason::NearMissReporter`]). Before #309
+/// it was neither read nor reported: *Shami*'s Harvard text writes
+/// `26 V.S.C. §§ 1361(a)(1), 1363(a)`, and two citations were lost in silence.
+///
+/// A U or a V, an S and a C, each with or without a point, and spaces between
+/// them. It needs a space after it, with or without a comma ([`CANDIDATE`]), so
+/// `U.S.C.C.A.N.` is not a near miss.
+const NEAR_MISS_REPORTER: &str = r"[UV]\.?\s*S\.?\s*C\.?";
+
 /// `section_marker` from `regexes.json`, verbatim: `§`, `§§`, `Section`,
 /// `Sections`, `sec.`, `S.`, and the rest of that family.
 const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
@@ -84,7 +98,7 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// (?:\d+(?:\((?:[a-zA-Z]{1}|\d{1,2})\))+)|(?:\d+(?:[\-.:]\d+){,3})
 /// ```
 ///
-/// Four changes from it.
+/// Six changes from it.
 ///
 /// `{,3}` is written `{0,3}`, because Python accepts an open lower bound and
 /// Rust does not. That is mechanical.
@@ -120,21 +134,30 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// whichever dash it is written with. #135 counted fourteen citations of this
 /// shape in the release, six of them in its four appendix files.
 ///
-/// The alternative asks for a letter before the dash, so a **digit** number keeps
-/// the published separator class and nothing else. There the dash is a range —
-/// the notes write `18 U.S.C. §§ 3141–3150` — and the first number is a section
-/// the text really cited, which [`ends_cleanly`] explains and this keeps.
+/// A **digit** number reads every dash of [`DASHES`] too, where the published
+/// pattern reads the ASCII hyphen alone. Until #309 the notes' `18 U.S.C.
+/// §§ 3141–3152` was read as section 3141, and the other end of the range was
+/// lost; `§§ 991-997` with a hyphen was read whole. Now both are read whole,
+/// whichever dash is written, and the printing decides whether the number is a
+/// section or a range ([`range_ends`]).
 ///
 /// It takes a subsection after the number for the same reason the first
 /// alternative does, so `15 U.S.C. §§ 77z–1(a)(6)` is read whole and the
 /// subsection travels as written.
+///
+/// One space may stand before each bracket of a subsection. Some reporters set
+/// `§ 174 (a) (1)`, and the published pattern stops at `174` there, so the
+/// `(a)(1)` *Snow v. Commissioner* wrote was lost (#309). One space, and not a
+/// line break: a bracket at the start of a line can open a list item. The
+/// section is kept without the spaces ([`compact`]), so `§ 174 (a) (1)` and
+/// `§ 174(a)(1)` name one thing; the citation's `text` keeps them.
 fn law_section() -> String {
     let dashes = dash_class();
-    let subsection = r"(?:\((?:[a-zA-Z]{1}|\d{1,2})\))";
+    let subsection = r"(?: ?\((?:[a-zA-Z]{1}|\d{1,2})\))";
     let with_a_subsection = format!(r"\d+[a-zA-Z]{{0,4}}{subsection}+");
     let dashed_after_a_letter =
         format!(r"\d+[a-zA-Z]{{1,4}}(?:[{dashes}]\d+[a-zA-Z]{{0,4}}){{1,3}}{subsection}*");
-    let as_published = r"\d+[a-zA-Z]{0,4}(?:[\-.:]\d+[a-zA-Z]{0,4}){0,3}";
+    let as_published = format!(r"\d+[a-zA-Z]{{0,4}}(?:[\-.:{dashes}]\d+[a-zA-Z]{{0,4}}){{0,3}}");
 
     format!("(?:{with_a_subsection})|(?:{dashed_after_a_letter})|(?:{as_published})")
 }
@@ -189,6 +212,10 @@ pub fn fold_dashes(text: &str) -> String {
 /// so that a citation form the reader declines can still be named and counted
 /// ([`find_with_report`]).
 ///
+/// The reporter may also be a near miss ([`NEAR_MISS_REPORTER`]), so that one
+/// is reported rather than passed over. A spelling the reader takes is tried
+/// first, so a real citation is never called a near miss.
+///
 /// The run must start with a digit, because every section of the Code is numbered
 /// and a report about `5 U.S.C. Appendix` would be a report about prose rather
 /// than about a citation. It must end in a letter or a digit, so that the full
@@ -200,7 +227,7 @@ static CANDIDATE: LazyLock<Regex> = LazyLock::new(|| {
     let reporters = reporters_pattern();
     let dashes = dash_class();
     Regex::new(&format!(
-        r"\b(?P<title>\d+),?\s+(?P<reporter>{reporters}),?\s+(?:(?P<marker>{SECTION_MARKER})\s*)?(?P<section>\d(?:[0-9A-Za-z.:{dashes}]*[0-9A-Za-z])?(?:\([0-9A-Za-z]+\))*)"
+        r"\b(?P<title>\d+),?\s+(?:(?:{reporters})|(?P<near_miss>{NEAR_MISS_REPORTER})),?\s+(?:(?P<marker>{SECTION_MARKER})\s*)?(?P<section>\d(?:[0-9A-Za-z.:{dashes}]*[0-9A-Za-z])?(?:\([0-9A-Za-z]+\))*)"
     ))
     .expect("the candidate pattern must compile")
 });
@@ -341,6 +368,43 @@ pub fn subdivisions(section: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The two ends of a range of sections, when a section number may be one:
+/// `991` and `997` for `991-997`.
+///
+/// The text alone cannot say. `20 U.S.C. § 1078-1` is one section, and
+/// `26 U.S.C. §§ 991-997` is seven, and both are written as a number, a dash and
+/// a number. So this says only whether the number *can* be a range — two plain
+/// numbers, the second greater than the first — and the printing decides
+/// (`super::resolve::resolve`). Of the 215 sections of the 2026-07-12 release
+/// numbered as a number, a dash and a number, none has a second number greater
+/// than its first (#309).
+///
+/// A second end shorter than the first takes the first's leading digits, so
+/// `1740–42` is 1740 to 1742, as prose writes a range. `1078-1` would be 1078
+/// to 1071, which is no range.
+///
+/// ```
+/// use words_to_data::citation::usc::range_ends;
+///
+/// let ends = |from: &str, to: &str| Some((from.to_string(), to.to_string()));
+/// assert_eq!(range_ends("991-997"), ends("991", "997"));
+/// assert_eq!(range_ends("1740\u{2013}42"), ends("1740", "1742"));
+/// assert_eq!(range_ends("1078-1"), None);
+/// assert_eq!(range_ends("174(a)(1)"), None);
+/// ```
+pub fn range_ends(section: &str) -> Option<(String, String)> {
+    let (from, to) = section.split_once(DASHES)?;
+    let digits = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit());
+    if !digits(from) || !digits(to) {
+        return None;
+    }
+
+    let leading = &from[..from.len().saturating_sub(to.len())];
+    let to = format!("{leading}{to}");
+    let number = |part: &str| part.parse::<u64>().ok();
+    (number(from)? < number(&to)?).then(|| (from.to_string(), to))
+}
+
 /// Why a piece of text that looks like a citation was not read as one.
 ///
 /// A reason is part of the statement. A hole with no reason cannot be told apart
@@ -367,6 +431,26 @@ pub enum SkipReason {
     /// read whole ([`law_section`]). No citation in the committed notes lands
     /// here any more.
     SectionNumberNotRead,
+    /// The reporter is written close to `U.S.C.` and as none of its spellings,
+    /// as in `26 V.S.C. §§ 1361(a)(1)`, where OCR read the U as a V.
+    ///
+    /// A near miss is not read, because the reader cannot tell a slip from a
+    /// reporter it does not know. See [`NEAR_MISS_REPORTER`].
+    ///
+    /// The other near miss the measurement for #309 met, `U.S.C` with no last
+    /// point, from a live CourtListener opinion:
+    ///
+    /// ```
+    /// use words_to_data::citation::usc::{self, SkipReason};
+    ///
+    /// let text = "procedures of 28 U.S.C secs. 351-364 (2012), to Judges";
+    /// let (found, report) = usc::find_with_report(text);
+    ///
+    /// assert!(found.is_empty());
+    /// assert_eq!(report.skipped[0].text, "28 U.S.C secs. 351-364");
+    /// assert_eq!(report.skipped[0].reason, SkipReason::NearMissReporter);
+    /// ```
+    NearMissReporter,
 }
 
 impl std::fmt::Display for SkipReason {
@@ -374,6 +458,9 @@ impl std::fmt::Display for SkipReason {
         let said = match self {
             Self::NoSectionMarker => "no section marker",
             Self::SectionNumberNotRead => "a section number that cannot be read whole",
+            Self::NearMissReporter => {
+                "a reporter written close to U.S.C. and as none of its spellings"
+            }
         };
         f.write_str(said)
     }
@@ -521,10 +608,10 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
             continue;
         }
 
-        let mut sections = vec![first.to_string()];
+        let mut sections = vec![compact(first)];
         let mut end = whole.end();
         while let Some((start, stop)) = further_section(text, end) {
-            sections.push(text[start..stop].to_string());
+            sections.push(compact(&text[start..stop]));
             end = stop;
         }
 
@@ -543,6 +630,12 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
     found
 }
 
+/// A section as read, without the spaces some reporters set before a bracket:
+/// `174(a)(1)` for `174 (a) (1)`. Nothing else is changed.
+fn compact(section: &str) -> String {
+    section.replace(' ', "")
+}
+
 /// Every citation-shaped piece of text that no citation in `found` covers.
 ///
 /// A candidate the reader took is not a skip, so the citations already read say
@@ -558,7 +651,9 @@ fn declined_candidates(text: &str, found: &[UscCitation]) -> Vec<SkippedCitation
             continue;
         }
 
-        let reason = if candidate.name("marker").is_none() {
+        let reason = if candidate.name("near_miss").is_some() {
+            SkipReason::NearMissReporter
+        } else if candidate.name("marker").is_none() {
             SkipReason::NoSectionMarker
         } else {
             SkipReason::SectionNumberNotRead
@@ -604,9 +699,9 @@ fn further_section(text: &str, end: usize) -> Option<(usize, usize)> {
 ///
 /// [`law_section`] reads those three whole since #141, so what this refuses is a
 /// number that runs on past even that — a fifth letter, as in `§ 78aaaaa`, or a
-/// fourth dashed part. A number that ends in a digit is left alone: there the
-/// dash is the range of `§§ 1961–63`, and the first section named is still one
-/// the text cited.
+/// fourth dashed part. A number that ends in a digit is left alone, as it was
+/// when the dash of `§§ 1961–63` was not read; [`law_section`] reads that dash
+/// since #309.
 fn ends_cleanly(text: &str, end: usize) -> bool {
     let mut after = text[end..].chars();
     let Some(next) = after.next() else {

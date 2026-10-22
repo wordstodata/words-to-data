@@ -242,23 +242,29 @@ fn should_link_the_opinion_to_the_provision_when_the_section_number_ends_in_a_le
 }
 
 #[test]
-fn should_say_absent_when_the_dataset_holds_the_title_and_it_has_no_such_section() {
+fn should_resolve_each_end_when_the_title_has_no_section_numbered_as_the_range() {
     let (dataset, paths) = dataset_holding(&[(TITLE_1, "uscode/title_1")]);
     let scope = dataset.scope().expect("scope should derive");
 
     // `1 U.S.C.U. §§ 1-2` is one of the published examples. The hyphenated form
     // stays as it is written, because whether it means one section numbered
     // `1-2` or sections 1 through 2 cannot be decided from the text: the code
-    // does have sections such as `300gg-11`. Title 1 has no section `1-2`, and
-    // saying so is an answer about the law, not about our coverage.
+    // does have sections such as `20 U.S.C. § 1078-1`. The printing decides.
+    // Title 1 has no section `1-2`, so it is a range, and each end is a section
+    // of the title (#309). Until then this was Absent, and no link and no
+    // report said that the citation named two sections.
     let found = usc::find("1 U.S.C.U. §§ 1-2");
     let citation = found.first().expect("one citation");
+    assert_eq!(citation.sections, ["1-2"], "the reader keeps it as written");
     let cited = resolve(citation, &scope, &paths);
 
-    assert_eq!(cited[0].section, "1-2");
-    assert_eq!(cited[0].uslm_id, "/us/usc/t1/s1-2");
-    assert_eq!(cited[0].resolution, Resolution::Absent);
-    assert!(cites_links(&obergefell(), citation, &cited).is_empty());
+    let named: Vec<&str> = cited.iter().map(|cited| cited.uslm_id.as_str()).collect();
+    assert_eq!(named, ["/us/usc/t1/s1", "/us/usc/t1/s2"]);
+    assert!(
+        cited.iter().all(|cited| cited.section == "1-2"),
+        "each end keeps the range as the citation wrote it"
+    );
+    assert_eq!(cites_links(&obergefell(), citation, &cited).len(), 2);
 }
 
 #[test]

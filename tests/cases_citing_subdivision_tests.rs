@@ -9,10 +9,11 @@
 //!
 //! The fixture is real: two printings of title 26 from the committed corpus, and
 //! the ten committed CourtListener records, added by the `add-opinions` command
-//! offline. Of the nine that cite § 174, four wrote a subdivision that the held
-//! printings hold — `(a)(1)` three times, `(a)` once — four wrote the section
+//! offline. Of the nine that cite § 174, five wrote a subdivision that the held
+//! printings hold — `(a)(1)` four times, `(a)` once — three wrote the section
 //! alone, and *Shami* wrote `(e)`, which no held printing has: § 174 runs from
-//! (a) to (d) in 2025.
+//! (a) to (d) in 2025. *Snow* writes `§ 174 (a) (1)`, with a space before each
+//! bracket, and is read as `(a)(1)` since #309.
 
 use std::collections::BTreeSet;
 use std::process::{Command, Output};
@@ -125,11 +126,12 @@ fn should_list_an_opinion_as_citing_a_subdivision_when_the_subdivision_it_wrote_
     assert_eq!(
         works_where(&cases, Relation::Within),
         set(&[
+            "judicial/opinion_109019",
             "judicial/opinion_122262",
             "judicial/opinion_9434365",
             "judicial/opinion_6248",
         ]),
-        "Boeing, the Boeing dissent and Harris wrote § 174(a)(1)"
+        "Snow, Boeing, the Boeing dissent and Harris wrote § 174(a)(1)"
     );
 }
 
@@ -144,7 +146,6 @@ fn should_list_an_opinion_as_citing_a_path_that_holds_the_asked_path_when_it_wro
         works_where(&cases, Relation::Holds),
         set(&[
             // The section alone.
-            "judicial/opinion_109019",
             "judicial/opinion_1527901",
             "judicial/opinion_6931314",
             "judicial/opinion_8991218",
@@ -172,6 +173,7 @@ fn should_leave_out_an_opinion_whose_subdivision_resolves_to_another_branch_when
 
     let reached: BTreeSet<String> = cases.iter().map(work_of).collect();
     for wrote_a in [
+        "judicial/opinion_109019",
         "judicial/opinion_122262",
         "judicial/opinion_9434365",
         "judicial/opinion_6248",
@@ -183,7 +185,7 @@ fn should_leave_out_an_opinion_whose_subdivision_resolves_to_another_branch_when
         );
     }
     assert!(works_where(&cases, Relation::Within).is_empty());
-    assert_eq!(works_where(&cases, Relation::Holds).len(), 5);
+    assert_eq!(works_where(&cases, Relation::Holds).len(), 4);
 }
 
 /// The one citation an opinion makes to § 174, asked about at the section.
@@ -276,11 +278,11 @@ fn should_print_the_opinions_that_cite_a_path_above_the_asked_path_in_their_own_
     let printed = stdout_of(&run(&["cases-citing", dataset_path(), "--path", &asked]));
 
     assert!(
-        printed.contains("3 opinion(s) cite it:"),
-        "Boeing, its dissent and Harris wrote (a)(1), got:\n{printed}"
+        printed.contains("4 opinion(s) cite it:"),
+        "Snow, Boeing, its dissent and Harris wrote (a)(1), got:\n{printed}"
     );
     assert!(
-        printed.contains("6 opinion(s) cite a provision that holds this path"),
+        printed.contains("5 opinion(s) cite a provision that holds this path"),
         "the section alone, (e) and (a) hold (a)(1), got:\n{printed}"
     );
     assert_eq!(
@@ -351,17 +353,18 @@ fn should_say_the_asked_path_is_in_no_printing_and_keep_the_section_citations_wh
     );
     assert!(
         !printed.contains("No opinion in this dataset cites it."),
-        "five opinions cite the section that holds it, got:\n{printed}"
+        "four opinions cite the section that holds it, got:\n{printed}"
     );
     assert!(
-        printed.contains("5 opinion(s) cite a provision that holds this path"),
-        "the four that wrote § 174 alone, and Shami's (e), got:\n{printed}"
+        printed.contains("4 opinion(s) cite a provision that holds this path"),
+        "the three that wrote § 174 alone, and Shami's (e), got:\n{printed}"
     );
     assert_eq!(
         listed_as_not_citing(&printed),
         set(&[
             "judicial/opinion_2812209",
             // § 174(a) and § 174(a)(1): another branch of the section.
+            "judicial/opinion_109019",
             "judicial/opinion_122262",
             "judicial/opinion_9434365",
             "judicial/opinion_6248",
@@ -408,8 +411,8 @@ fn should_carry_the_resolved_path_and_whether_it_fell_back_to_the_section_in_jso
     assert_eq!(shami["unresolved"], "(e)");
     assert_eq!(shami["since"]["windows"][0]["at"], SECTION_174);
 
-    let snow = json_citation(answer, "judicial/opinion_109019");
-    assert_eq!(snow["resolution"], "section");
+    let united_stationers = json_citation(answer, "judicial/opinion_1527901");
+    assert_eq!(united_stationers["resolution"], "section");
 
     assert_eq!(
         answer["not_citing"],
