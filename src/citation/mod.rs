@@ -30,7 +30,6 @@ pub mod usc;
 
 use serde_json::json;
 
-use crate::dataset::WorkId;
 use crate::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
 use crate::method::Method;
 use resolve::{CitedSection, Resolution};
@@ -43,9 +42,9 @@ use usc::UscCitation;
 ///
 /// [`Opinion::held`] is for an opinion this dataset carries, since #53 put court
 /// opinions in datasets. Then the subject is a [`Target::Node`] naming the
-/// node, so a reader can follow the link to the text that made the citation, a
-/// backend can index it, and `LinkReader::links_for_path` answers "what does this
-/// case cite".
+/// writing's node, such as `judicial/case_122262/opinion_9434365`, so a reader
+/// can follow the link to the text that made the citation, a backend can index
+/// it, and `LinkReader::links_for_path` answers "what does this case cite".
 ///
 /// [`Opinion::new`] is for an opinion the dataset does **not** carry — a citation
 /// read out of a text held somewhere else. Then the subject is
@@ -64,8 +63,9 @@ pub struct Opinion {
     pub id: String,
     /// What to call it on a page: `Obergefell v. Hodges, 576 U.S. 644 (2015)`.
     pub display: String,
-    /// The work this dataset holds the opinion as, when it holds it.
-    held_as: Option<WorkId>,
+    /// The path of the writing this dataset holds the opinion as, when it
+    /// holds it.
+    held_as: Option<String>,
 }
 
 impl Opinion {
@@ -78,15 +78,19 @@ impl Opinion {
         }
     }
 
-    /// An opinion this dataset holds, as the work at `held_as`.
+    /// An opinion this dataset holds, as the writing at the path `held_as`.
     ///
-    /// Use `courtlistener::work_id` to name it, so the link and the stored node
-    /// cannot disagree about where the opinion is.
-    pub fn held(held_as: WorkId, id: impl Into<String>, display: impl Into<String>) -> Self {
+    /// Use `courtlistener::writing_path` to name it, so the link and the stored
+    /// node cannot disagree about where the writing is.
+    pub fn held(
+        held_as: impl Into<String>,
+        id: impl Into<String>,
+        display: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             display: display.into(),
-            held_as: Some(held_as),
+            held_as: Some(held_as.into()),
         }
     }
 
@@ -97,7 +101,7 @@ impl Opinion {
 
     fn target(&self) -> Target {
         match &self.held_as {
-            Some(work) => Target::Node(work.to_string()),
+            Some(path) => Target::Node(path.clone()),
             None => Target::External {
                 reference: self.reference(),
                 display: self.display.clone(),

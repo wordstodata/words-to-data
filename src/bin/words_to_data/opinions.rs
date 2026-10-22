@@ -1,4 +1,5 @@
-//! `words_to_data opinions` — list the court opinions a dataset holds (#308).
+//! `words_to_data opinions` — list the court opinions a dataset holds, one row
+//! for each writing, under its case (#308, #313).
 
 use clap::Args as ClapArgs;
 use words_to_data::judicial::held::{self, HeldOpinion};
@@ -56,11 +57,20 @@ pub fn run(args: Args) {
         return;
     }
 
+    let cases: std::collections::BTreeSet<&str> =
+        rows.iter().map(|row| row.case.as_str()).collect();
     println!(
-        "This dataset holds {total} {}.",
-        if total == 1 { "opinion" } else { "opinions" }
+        "This dataset holds {total} {} in {} {}.",
+        if total == 1 { "writing" } else { "writings" },
+        cases.len(),
+        if cases.len() == 1 { "case" } else { "cases" },
     );
+    let mut case_shown: Option<&str> = None;
     for row in shown {
+        if case_shown != Some(row.case.as_str()) {
+            print_case(row);
+            case_shown = Some(row.case.as_str());
+        }
         print_row(row);
     }
     // What was left out, said rather than left to be inferred (#220, #235).
@@ -70,30 +80,50 @@ pub fn run(args: Args) {
     }
 }
 
-/// One opinion on two lines: what to type, and what it is.
+const NOT_RECORDED: &str = "not recorded";
+
+/// The case, once, above its writings: what to type, what it is, and what of
+/// it is not stored as text.
 ///
 /// Every fact is named, and a missing one is said to be missing, so a reader
 /// does not take a blank for an answer.
-fn print_row(row: &HeldOpinion) {
-    const NOT_RECORDED: &str = "not recorded";
+fn print_case(row: &HeldOpinion) {
     println!(
         "{}@{}  {}",
-        row.work,
+        row.case,
         row.date,
         row.case_name
             .as_deref()
             .unwrap_or("(case name not recorded)")
     );
+    let sources = match row.combined_records.as_slice() {
+        [] => String::new(),
+        ids => format!(
+            " · combined record {} kept as a source, not as text",
+            ids.iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
     println!(
-        "    cluster {} · {} · author {} · text from {} · court {} · {} citation link(s)",
+        "    cluster {} · court {}{sources}",
         row.cluster_id
             .map_or_else(|| NOT_RECORDED.to_string(), |id| id.to_string()),
+        row.court.as_deref().unwrap_or(NOT_RECORDED),
+    );
+}
+
+/// One writing on one line: its path, and what it is.
+fn print_row(row: &HeldOpinion) {
+    println!(
+        "  {}  {} · author {} · text from {} · {} citation link(s)",
+        row.path,
         row.opinion_type
             .as_deref()
             .unwrap_or("writing type not recorded"),
         row.author.as_deref().unwrap_or(NOT_RECORDED),
         row.text_field.as_deref().unwrap_or(NOT_RECORDED),
-        row.court.as_deref().unwrap_or(NOT_RECORDED),
         row.cites,
     );
 }

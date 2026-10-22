@@ -99,7 +99,7 @@ fn report<S: Storage>(dataset: &S, args: &Args) {
                 "path": path,
                 "held": held,
                 "cases": cases,
-                "opinions_held": judicial,
+                "cases_held": judicial,
                 "not_citing": silent,
                 "notes": [ONE_LINK_PER_SECTION],
             }));
@@ -477,8 +477,9 @@ fn first_paths(paths: &[String]) -> String {
     }
 }
 
-/// How many opinions this dataset holds, and those that do **not** cite the
-/// provision.
+/// How many cases this dataset holds, and those with no writing that cites the
+/// provision. A case is a work, `judicial/case_<cluster>`, so a case counts as
+/// citing when any of its writings does (#313).
 ///
 /// "Which of the ten cite it" is answered by both halves. A list of the nine that
 /// do, with the tenth left out, cannot be told from a list of nine opinions.
@@ -519,7 +520,7 @@ fn silent_opinions<S: Storage>(dataset: &S, cases: &[CitingCase]) -> (usize, Vec
 
 fn report_silent_opinions(held: usize, silent: &[WorkId]) {
     println!(
-        "This dataset holds {held} opinion(s). {} of them do not cite it:",
+        "This dataset holds {held} case(s). {} of them have no writing that cites it:",
         silent.len(),
     );
     for work in silent {

@@ -1,26 +1,28 @@
 //! Reading court opinions from CourtListener, and storing them as documents.
 //!
 //! CourtListener is Free Law Project's case-law database. This module reads two
-//! of its records — an opinion and the cluster above it — and turns the pair into
-//! an [`Expression`]: one work as it read on one date, with one node
+//! of its records — a cluster, which is the case, and the opinion records under
+//! it — and turns them into an [`Expression`]: one case as it read on one date
 //! (`docs/adr/0006-a-document-node-is-class-neutral.md`, #53).
 //!
 //! [`Expression`]: crate::dataset::Expression
 //!
-//! # An opinion is one node
+//! # A case is a work, and each writing is a child
 //!
-//! The whole text as the content of a single node at `judicial/opinion_<id>`. The
-//! text has structure — `xml_harvard` carries `<opinion type="majority">` and
-//! `<author>` — and nothing here parses it. The node gains children later and its
-//! type does not change.
+//! The case is `judicial/case_<cluster>`, and each writing is one node under it,
+//! `judicial/case_<cluster>/opinion_<id>`, with its whole text as content. When
+//! the publisher holds both a combined record of the case and split records of
+//! its writings, the split records are the text and the combined record is only
+//! a source (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+//! decisions 1 and 2). Nothing here parses a writing's own structure yet.
 //!
 //! # The filing date is on the cluster
 //!
 //! An opinion record carries `date_created` and `date_modified`, and neither is
 //! the date the court decided anything: they say when CourtListener ingested and
 //! last touched the record. The court's date is `date_filed` on the cluster,
-//! which is a second request. [`opinion_expression`] takes both records for that
-//! reason, and there is no single-record form of it to take by mistake.
+//! which is a second request. [`case_expression`] takes both kinds of record for
+//! that reason, and there is no single-record form of it to take by mistake.
 //!
 //! # Which field holds the text decides the answer
 //!
@@ -49,7 +51,10 @@ pub mod markup;
 pub mod opinion;
 
 pub use client::CourtListenerClient;
-pub use opinion::{ClusterRecord, OpinionRecord, TextSource, opinion_expression, work_id};
+pub use opinion::{
+    CaseExpression, ClusterRecord, OpinionRecord, TextSource, WritingText, case_expression,
+    work_id, writing_path,
+};
 
 /// Something went wrong reading CourtListener.
 #[derive(Debug, thiserror::Error)]

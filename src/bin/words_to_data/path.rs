@@ -157,7 +157,11 @@ pub fn print_citations(citations: &[CitationLink], total: usize) {
             .map(|words| format!(" as \"{words}\""))
             .unwrap_or_default();
         let said = match citation.role {
-            PathRole::CitingOpinion => format!("cites {}{words}", citation.cited_path),
+            // The writing is named on every line: on a case, the lines of a
+            // dissent and of the Court's opinion must not read alike (#313).
+            PathRole::CitingOpinion => {
+                format!("{} cites {}{words}", citation.opinion, citation.cited_path)
+            }
             PathRole::CitedPath => format!("cited by {}{words}", opinion_of(citation)),
             PathRole::CitedBeneathPath => format!(
                 "cited by {}{words}, at {}",

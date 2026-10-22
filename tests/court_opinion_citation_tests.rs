@@ -19,11 +19,13 @@ use std::collections::BTreeSet;
 use words_to_data::citation::resolve::{Resolution, SectionPaths, resolve};
 use words_to_data::citation::{Opinion, cites_links, usc};
 use words_to_data::courtlistener::markup::text_of_markup;
-use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, opinion_expression, work_id};
+use words_to_data::courtlistener::{
+    CaseExpression, ClusterRecord, OpinionRecord, case_expression, writing_path,
+};
 use words_to_data::dataset::{Coverage, Dataset, DatasetMetadata, ExpressionId, WorkId};
 use words_to_data::document::text_method;
-use words_to_data::judicial::OpinionFacts;
 use words_to_data::judicial::reliance::{self, Citing};
+use words_to_data::judicial::{CaseFacts, OpinionFacts};
 use words_to_data::link::VerificationState;
 use words_to_data::storage::InMemoryStorage;
 
@@ -37,12 +39,14 @@ const LATER: &str = "2025-07-30";
 /// Section 174 as both committed release points publish it.
 const SECTION_174: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174";
 
-/// The ten opinions, as `(opinion id, cluster id)`.
+/// The ten opinions, as `(opinion id, cluster id)`: the records the question
+/// was first asked of.
 ///
-/// *Boeing* appears twice: 122262 is the combined opinion and 9434365 is Justice
-/// Thomas's dissent, and they share cluster 122262. Two writings in one case are
-/// two works and one filing date, which is why the cluster is named per opinion
-/// rather than per case.
+/// *Boeing* appears twice: 122262 is the combined record of the whole case and
+/// 9434365 is Justice Thomas's dissent, and they share cluster 122262. Since
+/// #313 a case is a work and is read whole, so *Boeing* is stored from all three
+/// of its records: the split majority, 9434364, and the dissent are its
+/// writings, and the combined record is only a source ([`CASES`]).
 const TEN: [(u64, u64); 10] = [
     (2812209, 2812209), // Obergefell v. Hodges — cites no U.S.C. section 174
     (109019, 109019),   // Snow v. Commissioner, 416 U.S. 500 (1974)
@@ -56,12 +60,36 @@ const TEN: [(u64, u64); 10] = [
     (406879, 406879),   // Encyclopaedia Britannica v. Commissioner (7th Cir. 1982)
 ];
 
+/// The nine cases the ten opinions belong to, by cluster id, in the order of
+/// [`TEN`].
+const CASES: [u64; 9] = [
+    2812209, 109019, 122262, 2651100, 6248, 7029371, 8998794, 1527901, 406879,
+];
+
+/// One committed record, as the API returned it.
+fn read(name: String) -> String {
+    std::fs::read_to_string(format!("{CACHE}/{name}"))
+        .unwrap_or_else(|error| panic!("{name} should be committed: {error}"))
+}
+
+/// One case, built from its cluster and every opinion record the cluster lists,
+/// as `add-opinions` builds it.
+fn case(cluster_id: u64) -> CaseExpression {
+    let cluster = ClusterRecord::from_json(&read(format!("cluster_{cluster_id}.json")))
+        .expect("the cluster record should read");
+    let opinions: Vec<OpinionRecord> = cluster
+        .opinion_ids()
+        .into_iter()
+        .map(|id| {
+            OpinionRecord::from_json(&read(format!("opinion_{id}.json")))
+                .expect("the opinion record should read")
+        })
+        .collect();
+    case_expression(&cluster, &opinions).expect("the case should build")
+}
+
 /// The two committed records for one opinion, as the API returned them.
 fn records(opinion_id: u64, cluster_id: u64) -> (OpinionRecord, ClusterRecord) {
-    let read = |name: String| {
-        std::fs::read_to_string(format!("{CACHE}/{name}"))
-            .unwrap_or_else(|error| panic!("{name} should be committed: {error}"))
-    };
     let opinion = OpinionRecord::from_json(&read(format!("opinion_{opinion_id}.json")))
         .expect("the opinion record should read");
     let cluster = ClusterRecord::from_json(&read(format!("cluster_{cluster_id}.json")))
@@ -81,7 +109,7 @@ fn metadata() -> DatasetMetadata {
     }
 }
 
-/// A dataset holding the ten opinions, the titles named, and every citation link
+/// A dataset holding the nine cases of the ten opinions, the titles named, and every citation link
 /// the opinions' own text supports.
 ///
 /// The text the citations are read out of is the text that was stored, so a
@@ -113,28 +141,31 @@ fn dataset_holding_the_ten(titles: &[(&str, &str, &str)]) -> Dataset<InMemorySto
     let scope = dataset.scope().expect("the scope should derive");
     let mut texts = Vec::new();
 
-    for (opinion_id, cluster_id) in TEN {
-        let (opinion, cluster) = records(opinion_id, cluster_id);
-        let (expression, _, _) =
-            opinion_expression(&opinion, &cluster).expect("the expression should build");
-        let text = expression
-            .root
-            .data
-            .content
-            .as_deref()
-            .expect("an opinion carries text")
-            .to_string();
-        texts.push((
-            Opinion::held(
-                work_id(opinion_id),
-                opinion_id.to_string(),
-                cluster.display(),
-            ),
-            text,
-        ));
+    for cluster_id in CASES {
+        let case = case(cluster_id);
+        let display = CaseFacts::of(&case.expression.root.data)
+            .expect("a case carries its facts")
+            .case_name;
+        for writing in &case.writings {
+            let text = case
+                .expression
+                .root
+                .find(&writing.path)
+                .and_then(|node| node.data.content.as_deref())
+                .expect("a writing carries text")
+                .to_string();
+            texts.push((
+                Opinion::held(
+                    writing.path.clone(),
+                    writing.opinion_id.to_string(),
+                    display.clone(),
+                ),
+                text,
+            ));
+        }
         dataset
-            .add_expression(expression)
-            .expect("an opinion should store");
+            .add_expression(case.expression)
+            .expect("a case should store");
     }
 
     for (opinion, text) in &texts {
@@ -183,6 +214,8 @@ fn should_take_the_text_from_the_field_the_record_carries_and_say_which() {
             text_method::MARKUP,
             VerificationState::Asserted,
         ),
+        // The combined record of *Boeing*. Its text is read here, and it is
+        // not stored: the case's split records are its writings.
         (
             122262,
             "html_lawbox",
@@ -242,10 +275,17 @@ fn should_take_the_text_from_the_field_the_record_carries_and_say_which() {
             "opinion {opinion_id} should have words"
         );
 
-        let (expression, _, _) =
-            opinion_expression(&opinion, &cluster).expect("the expression should build");
-        let provenance = expression
+        let case = case(cluster.id);
+        if opinion_id == 122262 {
+            let facts = CaseFacts::of(&case.expression.root.data).expect("case facts");
+            assert_eq!(facts.combined_records, [122262], "a source, not a writing");
+            continue;
+        }
+        let provenance = case
+            .expression
             .root
+            .find(&writing_path(cluster.id, opinion_id))
+            .unwrap_or_else(|| panic!("opinion {opinion_id} should be a writing"))
             .data
             .provenance
             .as_ref()
@@ -312,12 +352,16 @@ fn should_span_more_than_two_provenances_across_the_ten_opinions() {
 /// something to bite on.
 #[test]
 fn should_date_the_opinion_from_the_cluster_and_never_from_the_ingest_record() {
-    let (opinion, cluster) = records(109019, 109019);
-    let (expression, _, _) =
-        opinion_expression(&opinion, &cluster).expect("the expression should build");
+    let (_, cluster) = records(109019, 109019);
+    let expression = case(109019).expression;
 
     assert_eq!(expression.id.at, "1974-05-13", "the day the court filed it");
     assert_eq!(expression.root.data.date.to_string(), "1974-05-13");
+    let writing = expression
+        .root
+        .find(&writing_path(109019, 109019))
+        .expect("Snow's one writing");
+    assert_eq!(writing.data.date.to_string(), "1974-05-13");
     assert_eq!(
         cluster.date_filed.as_deref(),
         Some("1974-05-13"),
@@ -330,23 +374,29 @@ fn should_date_the_opinion_from_the_cluster_and_never_from_the_ingest_record() {
 /// publisher took the text from.
 #[test]
 fn should_keep_the_free_metadata_the_two_records_supply() {
-    let (opinion, cluster) = records(2651100, 2651100);
-    let (expression, _, _) =
-        opinion_expression(&opinion, &cluster).expect("the expression should build");
-    let facts = OpinionFacts::of(&expression.root.data).expect("judicial facts");
+    let expression = case(2651100).expression;
+    let case_facts = CaseFacts::of(&expression.root.data).expect("case facts");
+    let facts = OpinionFacts::of(
+        &expression
+            .root
+            .find(&writing_path(2651100, 2651100))
+            .expect("Shami's one writing")
+            .data,
+    )
+    .expect("writing facts");
 
-    assert_eq!(facts.case_name, "Shami v. Commissioner");
+    assert_eq!(case_facts.case_name, "Shami v. Commissioner");
     assert_eq!(facts.opinion_type.as_deref(), Some("010combined"));
     assert_eq!(facts.author.as_deref(), Some("Owen"));
     assert_eq!(facts.per_curiam, Some(false));
-    assert_eq!(facts.precedential_status.as_deref(), Some("Published"));
-    assert_eq!(facts.cluster_id, Some(2651100));
+    assert_eq!(case_facts.precedential_status.as_deref(), Some("Published"));
+    assert_eq!(case_facts.cluster_id, 2651100);
     assert!(
-        facts.docket_id.is_some(),
+        case_facts.docket_id.is_some(),
         "the docket is the way to the court"
     );
     assert!(
-        facts.panel.is_some(),
+        case_facts.panel.is_some(),
         "the cluster names the judges who sat, and that is free"
     );
     assert!(
@@ -358,47 +408,39 @@ fn should_keep_the_free_metadata_the_two_records_supply() {
         facts.download_url
     );
     assert!(
-        facts
+        case_facts
             .citations
             .iter()
             .any(|printed| printed.contains("F.3d")),
         "the reporters' citations are free, got {:?}",
-        facts.citations
+        case_facts.citations
     );
 }
 
-/// A dissent is its own writing, its own work and its own node, and it shares the
-/// case with the opinion it dissents from. Separate opinions need no new class.
+/// A dissent is its own writing and its own node, a child of the case it
+/// dissents in, beside the Court's opinion. Separate opinions need no new class.
 #[test]
-fn should_store_a_dissent_as_its_own_work_in_the_same_case() {
-    let (lead, lead_cluster) = records(122262, 122262);
-    let (dissent, dissent_cluster) = records(9434365, 122262);
+fn should_store_a_dissent_as_its_own_writing_in_the_same_case() {
+    let expression = case(122262).expression;
 
-    let (lead_expression, _, _) =
-        opinion_expression(&lead, &lead_cluster).expect("the lead should build");
-    let (dissent_expression, _, _) =
-        opinion_expression(&dissent, &dissent_cluster).expect("the dissent should build");
-
-    assert_ne!(lead_expression.id.work, dissent_expression.id.work);
-    assert_eq!(
-        lead_expression.id.at, dissent_expression.id.at,
-        "one case, one filing date"
-    );
-
-    let facts = |expression: &words_to_data::dataset::Expression| {
-        OpinionFacts::of(&expression.root.data).expect("judicial facts")
+    let facts = |opinion_id| {
+        OpinionFacts::of(
+            &expression
+                .root
+                .find(&writing_path(122262, opinion_id))
+                .unwrap_or_else(|| panic!("opinion {opinion_id} should be a writing"))
+                .data,
+        )
+        .expect("judicial facts")
     };
     assert_eq!(
-        facts(&lead_expression).cluster_id,
-        facts(&dissent_expression).cluster_id,
-        "the cluster is the only thing that says they are the same case"
-    );
-    assert_eq!(
-        facts(&dissent_expression).opinion_type.as_deref(),
+        facts(9434365).opinion_type.as_deref(),
         Some("040dissent"),
         "the publisher's vocabulary, kept verbatim"
     );
-    assert_eq!(facts(&dissent_expression).author.as_deref(), Some("Thomas"));
+    assert_eq!(facts(9434365).author.as_deref(), Some("Thomas"));
+    assert_eq!(facts(9434364).opinion_type.as_deref(), Some("020lead"));
+    assert_eq!(expression.id.work.as_str(), "judicial/case_122262");
 }
 
 // --- The character that decides the answer --------------------------------
@@ -491,21 +533,31 @@ fn should_answer_which_opinions_cite_section_174_and_whether_it_changed_after_ea
     let citing: BTreeSet<String> = cases
         .iter()
         .map(|case| match &case.citing {
-            Citing::Held { expression, .. } => expression.work.to_string(),
+            Citing::Held { path, .. } => path.clone(),
             Citing::NotHeld { reference, .. } => reference.clone(),
         })
         .collect();
-    assert_eq!(citing.len(), 9, "nine of the ten cite it, got {citing:?}");
-    assert!(
-        !citing.contains("judicial/opinion_2812209"),
-        "Obergefell cites no section 174, which is why it is in the set"
+    // Nine writings: *Boeing*'s combined record is a source now, and its
+    // majority, 9434364, cites the section in its own words.
+    let expected: BTreeSet<String> = [
+        (109019, 109019),
+        (122262, 9434364),
+        (122262, 9434365),
+        (2651100, 2651100),
+        (6248, 6248),
+        (7029371, 6931314),
+        (8998794, 8991218),
+        (1527901, 1527901),
+        (406879, 406879),
+    ]
+    .into_iter()
+    .map(|(cluster, opinion)| writing_path(cluster, opinion))
+    .collect();
+    assert_eq!(
+        citing, expected,
+        "every writing but Obergefell's cites section 174; Obergefell is in the \
+         set because it does not"
     );
-    for (opinion_id, _) in TEN.iter().skip(1) {
-        assert!(
-            citing.contains(&format!("judicial/opinion_{opinion_id}")),
-            "opinion {opinion_id} should cite section 174, got {citing:?}"
-        );
-    }
 
     for case in &cases {
         let name = case.citing.display();
@@ -656,7 +708,7 @@ fn should_name_a_held_opinion_by_its_path_and_an_unheld_one_as_external() {
 
     let held = cites_links(
         &Opinion::held(
-            work_id(109019),
+            writing_path(109019, 109019),
             "109019",
             "Snow v. Commissioner, 416 U.S. 500",
         ),
@@ -671,7 +723,7 @@ fn should_name_a_held_opinion_by_its_path_and_an_unheld_one_as_external() {
 
     assert_eq!(
         held[0].subject,
-        words_to_data::link::Target::Node("judicial/opinion_109019".to_string()),
+        words_to_data::link::Target::Node("judicial/case_109019/opinion_109019".to_string()),
         "the dataset holds this opinion, so the link points at the node"
     );
     assert_eq!(
@@ -688,9 +740,11 @@ fn should_name_a_held_opinion_by_its_path_and_an_unheld_one_as_external() {
     for link in held {
         dataset.add_link(link).expect("a link should store");
     }
-    let from_the_case =
-        words_to_data::storage::LinkReader::links_for_path(&dataset, "judicial/opinion_109019")
-            .expect("links should read back");
+    let from_the_case = words_to_data::storage::LinkReader::links_for_path(
+        &dataset,
+        "judicial/case_109019/opinion_109019",
+    )
+    .expect("links should read back");
     assert_eq!(from_the_case.len(), 1);
 }
 

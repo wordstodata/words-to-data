@@ -20,18 +20,19 @@ const CACHE: &str = "tests/test_data";
 /// The ten opinions, as `add-opinions` takes them.
 const TEN: &str = "2812209,109019,122262,9434365,2651100,6248,6931314,8991218,1527901,406879";
 
-/// The nine opinions that cite 26 U.S.C. § 174, in one spelling or the other.
-/// Opinion 2812209 holds no text.
+/// The nine writings that cite 26 U.S.C. § 174, in one spelling or the other.
+/// Opinion 2812209 holds no such citation. *Boeing*'s two are its majority,
+/// 9434364, and Justice Thomas's dissent, 9434365.
 const CITE_174: [&str; 9] = [
-    "judicial/opinion_109019",
-    "judicial/opinion_122262",
-    "judicial/opinion_1527901",
-    "judicial/opinion_2651100",
-    "judicial/opinion_406879",
-    "judicial/opinion_6248",
-    "judicial/opinion_6931314",
-    "judicial/opinion_8991218",
-    "judicial/opinion_9434365",
+    "judicial/case_109019/opinion_109019",
+    "judicial/case_122262/opinion_9434364",
+    "judicial/case_122262/opinion_9434365",
+    "judicial/case_1527901/opinion_1527901",
+    "judicial/case_2651100/opinion_2651100",
+    "judicial/case_406879/opinion_406879",
+    "judicial/case_6248/opinion_6248",
+    "judicial/case_7029371/opinion_6931314",
+    "judicial/case_8998794/opinion_8991218",
 ];
 
 fn run(args: &[&str]) -> Output {
@@ -117,13 +118,13 @@ fn hits(args: &[&str]) -> Vec<serde_json::Value> {
         .clone()
 }
 
-/// The works a search found the query in.
+/// The writings a search found the query in, by path.
 fn works_holding(dataset: &str, query: &str) -> BTreeSet<String> {
     hits(&[
         "search", dataset, query, "--path", "judicial", "--all", "--json",
     ])
     .iter()
-    .map(|hit| hit["expression"]["work"].as_str().unwrap().to_string())
+    .map(|hit| hit["path"].as_str().unwrap().to_string())
     .collect()
 }
 
@@ -159,11 +160,15 @@ fn should_find_a_phrase_when_a_line_break_splits_it() {
             "--json",
         ]);
 
-        let works: Vec<&str> = found
+        let paths: Vec<&str> = found
             .iter()
-            .map(|hit| hit["expression"]["work"].as_str().unwrap())
+            .map(|hit| hit["path"].as_str().unwrap())
             .collect();
-        assert_eq!(works, ["judicial/opinion_2651100"], "in {dataset}");
+        assert_eq!(
+            paths,
+            ["judicial/case_2651100/opinion_2651100"],
+            "in {dataset}"
+        );
         let snippet = found[0]["snippet"].as_str().unwrap();
         assert!(
             snippet.contains("qualified research\neach year"),
