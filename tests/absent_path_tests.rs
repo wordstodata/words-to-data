@@ -168,7 +168,7 @@ fn should_say_no_expression_holds_the_path_when_search_is_given_a_guessed_path()
         text.contains("Nearest held path: uscode/title_9/chapter_1"),
         "{text}"
     );
-    assert!(text.contains("0 match(es)"), "{text}");
+    assert!(text.contains("0 fields, 0 occurrences"), "{text}");
 
     let output = run(&[
         "search",
@@ -304,7 +304,7 @@ fn should_answer_as_before_when_search_and_annotations_are_given_a_held_path() {
         SECTION_16,
     ]);
     assert!(output.status.success());
-    assert_eq!(stdout(&output), "0 match(es)\n");
+    assert_eq!(stdout(&output), "0 fields, 0 occurrences\n");
 
     for command in ["search", "annotations"] {
         let mut args = vec![command, cli_fixture()];

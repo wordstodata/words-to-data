@@ -36,12 +36,13 @@ use serde::Serialize;
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
 use crate::dataset::{
-    DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, SearchResult, WorkId,
+    DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, SearchAnswer,
+    SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::link::Link;
-use crate::query::{Answer, Locator};
+use crate::query::Locator;
 use crate::uslm::bill_parser::Bill;
 
 /// The dataset shape this build reads and writes.
@@ -176,7 +177,7 @@ pub trait DocumentReader {
         query: &str,
         locator: &Locator,
         limit: Option<usize>,
-    ) -> Result<Answer<SearchResult>, DatasetError>;
+    ) -> Result<SearchAnswer, DatasetError>;
 
     /// Search text across every expression, unbounded.
     ///
@@ -257,6 +258,7 @@ pub(crate) fn locates_path(locator: &Locator, path: &str) -> bool {
 pub(crate) struct Hits {
     rows: Vec<SearchResult>,
     total: usize,
+    occurrences: usize,
     limit: Option<usize>,
 }
 
@@ -265,26 +267,36 @@ impl Hits {
         Self {
             rows: Vec::new(),
             total: 0,
+            occurrences: 0,
             limit,
         }
     }
 
-    /// Count one match, and keep it while there is room.
+    /// Count one matched field and its occurrences, and keep it while there is
+    /// room.
     ///
-    /// The hit arrives as a closure so that a match past the limit is never
-    /// built: a section's text can be ten thousand characters, and the reason
-    /// for a limit is not to copy the ones nobody will read.
-    pub(crate) fn offer(&mut self, hit: impl FnOnce() -> SearchResult) {
+    /// The occurrences are counted for every field, kept or not, so the answer
+    /// can say how many mentions it found in all. The hit arrives as a closure
+    /// so that a match past the limit is never built: a section's text can be
+    /// ten thousand characters, and the reason for a limit is not to copy the
+    /// ones nobody will read.
+    pub(crate) fn offer(
+        &mut self,
+        offsets: Vec<usize>,
+        hit: impl FnOnce(Vec<usize>) -> SearchResult,
+    ) {
         self.total += 1;
+        self.occurrences += offsets.len();
         if self.limit.is_none_or(|limit| self.rows.len() < limit) {
-            self.rows.push(hit());
+            self.rows.push(hit(offsets));
         }
     }
 
-    pub(crate) fn answer(self) -> Answer<SearchResult> {
-        Answer {
+    pub(crate) fn answer(self) -> SearchAnswer {
+        SearchAnswer {
             rows: self.rows,
             total: self.total,
+            occurrences: self.occurrences,
         }
     }
 }

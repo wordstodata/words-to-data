@@ -22,6 +22,7 @@ pub mod olrc;
 pub mod progress;
 pub mod query;
 pub mod review;
+pub mod search;
 pub mod storage;
 #[cfg(feature = "download")]
 pub mod uscode;

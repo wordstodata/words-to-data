@@ -20,12 +20,12 @@ use std::collections::BTreeMap;
 
 use words_to_data::dataset::{
     Coverage, Dataset, DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo,
-    ExpressionPair, SearchResult, WorkId,
+    ExpressionPair, SearchAnswer, WorkId,
 };
 use words_to_data::diff::TreeDiff;
 use words_to_data::document::DocumentNode;
 use words_to_data::link::{Link, LinkKind, Provenance, Target, VerificationState};
-use words_to_data::query::{Answer, Locator};
+use words_to_data::query::Locator;
 use words_to_data::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, InMemoryStorage,
     LegislatureReader, LinkReader, LinkWriter, Storage,
@@ -80,7 +80,7 @@ impl DocumentReader for DocumentsOnly {
         query: &str,
         locator: &Locator,
         limit: Option<usize>,
-    ) -> Result<Answer<SearchResult>, DatasetError> {
+    ) -> Result<SearchAnswer, DatasetError> {
         self.0.search_text_in(query, locator, limit)
     }
 
@@ -282,7 +282,7 @@ impl DocumentReader for DocumentsAndLinks {
         query: &str,
         locator: &Locator,
         limit: Option<usize>,
-    ) -> Result<Answer<SearchResult>, DatasetError> {
+    ) -> Result<SearchAnswer, DatasetError> {
         self.0.search_text_in(query, locator, limit)
     }
 

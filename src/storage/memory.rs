@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 use crate::congress::{BillVotes, HouseRollCall, Member, SponsorInfo, VotePosition};
 use crate::dataset::{
     DatasetError, DatasetMetadata, Expression, ExpressionId, ExpressionInfo, ExpressionPair,
-    SearchResult, WorkId,
+    SearchAnswer, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
 use crate::link::{Link, Target};
-use crate::query::{Answer, Locator};
+use crate::query::Locator;
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, Hits, LegislatureCounts,
     LegislatureReader, LegislatureWriter, LinkReader, LinkWriter, Storage, locates_expression,
@@ -149,11 +149,14 @@ impl InMemoryStorage {
                 if let Some(text) = field_value
                     && text.to_lowercase().contains(query)
                 {
-                    hits.offer(|| SearchResult {
-                        expression: id.clone(),
-                        path: path.clone(),
-                        field: field_name.to_string(),
-                        snippet: text.to_string(),
+                    hits.offer(crate::search::occurrences(text, query), |offsets| {
+                        SearchResult {
+                            expression: id.clone(),
+                            path: path.clone(),
+                            field: field_name.to_string(),
+                            snippet: text.to_string(),
+                            offsets,
+                        }
                     });
                 }
             }
@@ -215,7 +218,7 @@ impl DocumentReader for InMemoryStorage {
         query: &str,
         locator: &Locator,
         limit: Option<usize>,
-    ) -> Result<Answer<SearchResult>, DatasetError> {
+    ) -> Result<SearchAnswer, DatasetError> {
         let query_lower = query.to_lowercase();
         let mut hits = Hits::with_limit(limit);
 

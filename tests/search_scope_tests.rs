@@ -360,8 +360,8 @@ fn should_say_how_many_it_did_not_show_when_a_limit_truncates_the_search() {
         total - DEFAULT_LIMIT
     );
     assert!(
-        said.contains(&format!("{total} match(es)")),
-        "the run should still report every match it found, said:\n{said}"
+        said.contains(&format!("{total} fields, ")),
+        "the run should still report every field it found, said:\n{said}"
     );
 
     // `--all` lifts the cap, so nothing is left out to report.
