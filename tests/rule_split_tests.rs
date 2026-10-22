@@ -496,3 +496,74 @@ fn should_give_each_writing_of_obergefell_the_paragraphs_harvard_marks_when_read
         );
     }
 }
+
+// --- plain_text: a court staff summary --------------------------------------
+
+/// The Ninth Circuit opens a published opinion with a "SUMMARY" that court
+/// staff write. Its footnote says: "This summary constitutes no part of the
+/// opinion of the court. It has been prepared by court staff for the
+/// convenience of the reader." *United States v. Anderson* (9th Cir. 2026) is
+/// held only as the court's `plain_text`. The summary is its own child of the
+/// case, as the syllabus of a slip opinion is, and no writing holds its words.
+#[test]
+fn should_store_the_staff_summary_as_its_own_child_of_the_case_when_a_ninth_circuit_opinion_opens_with_one()
+ {
+    let case = case_from(11038158, &[opinion(11505854)]);
+
+    let summary = case
+        .root
+        .find("judicial/case_11038158/summary")
+        .expect("the staff summary is a child of the case");
+    assert_eq!(summary.data.node_type.as_str(), "judicial.summary");
+    assert_eq!(
+        summary.data.provenance.as_ref().map(|p| p.verification),
+        Some(VerificationState::MachineSuggested)
+    );
+    assert_eq!(
+        reasoning(summary),
+        "staff-summary@1: the summary says \"This summary constitutes no part of the opinion \
+         of the court.\""
+    );
+    let words = summary.data.content.as_deref().unwrap_or("");
+    for said in [
+        "SUMMARY",
+        "28 U.S.C. § 2255",
+        "The panel vacated the district court’s order denying",
+        "remanded for an evidentiary hearing.",
+        "This summary constitutes no part of the opinion of the court.",
+    ] {
+        assert!(
+            words.contains(said),
+            "the summary holds {said:?}, got {words:?}"
+        );
+    }
+    assert!(
+        !words.contains("COUNSEL"),
+        "the summary ends where the next heading starts"
+    );
+
+    let found = writings(&case);
+    assert_eq!(found.len(), 1, "the summary is no writing");
+    let (paragraphs, footnotes) = passages(found[0]);
+    for words in paragraphs
+        .iter()
+        .chain(footnotes.iter().map(|(_, words)| words))
+    {
+        assert!(
+            !words.contains("The panel vacated") && !words.contains("constitutes no part"),
+            "no writing holds the summary, got {words:?}"
+        );
+    }
+    assert!(
+        paragraphs
+            .iter()
+            .any(|words| words.starts_with("Patrick Anderson moved to vacate")),
+        "the writing holds the opinion of the court"
+    );
+    assert!(
+        paragraphs
+            .iter()
+            .any(|words| words.contains("Christopher A. Booker")),
+        "the names of counsel stay with the writing, as other captions do"
+    );
+}
