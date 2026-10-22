@@ -8,7 +8,7 @@
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
-use words_to_data::inspect::{self, PathMatch};
+use words_to_data::inspect::{self, AbsentPath, PathMatch};
 use words_to_data::judicial::cites::citations_naming;
 use words_to_data::legislature::evidence_matching::RecordedSource;
 use words_to_data::query::{LinkQuery, Locator};
@@ -69,7 +69,7 @@ pub fn run(args: Args) {
         locator = locator.at_path(path, path_matching(args.exact));
     }
 
-    let mut query = LinkQuery::new().at(locator);
+    let mut query = LinkQuery::new().at(locator.clone());
     if let Some(bill) = &args.bill {
         // The query is class-neutral: it filters on a prefix of the object's
         // reference, and turning a bill into that prefix is the CLI's job
@@ -91,9 +91,9 @@ pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let asked = citations_asked(&args);
     let (found, mut citations) = crate::fail::or_exit(
-        with_dataset!(ds, d => inspect::annotations(&d, &query).and_then(|found| {
+        with_dataset!(&ds, d => inspect::annotations(d, &query).and_then(|found| {
             let citations = match asked {
-                Some(path) => citations_naming(&d, path, path_matching(args.exact))?,
+                Some(path) => citations_naming(d, path, path_matching(args.exact))?,
                 None => Vec::new(),
             };
             Ok((found, citations))
@@ -106,21 +106,38 @@ pub fn run(args: Args) {
     if let Some(limit) = limit {
         citations.truncate(limit);
     }
+    // Asked whatever was found. A link or a citation can name a path that no
+    // expression holds, and "held" is a question about expressions. An empty
+    // list over a guessed path must not read like one over a real path (#305).
+    let absent = crate::fail::or_exit(
+        with_dataset!(&ds, d => inspect::absent_path(d, &locator)),
+        "Error checking the path",
+    );
 
     if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "annotations": found.rows,
-                "total": found.total,
-                // Added beside the two above, never in place of them: agents
-                // read those (#301).
-                "citations": citations,
-                "citations_total": citations_total,
-            }))
-            .unwrap()
-        );
+        let mut answer = serde_json::json!({
+            "annotations": found.rows,
+            "total": found.total,
+            // Added beside the two above, never in place of them: agents
+            // read those (#301).
+            "citations": citations,
+            "citations_total": citations_total,
+        });
+        // Only when the path is absent, so the answer over a real path is the
+        // same as it was.
+        if let Some(absent) = &absent {
+            answer["absent_path"] = serde_json::json!(absent);
+        }
+        println!("{}", serde_json::to_string_pretty(&answer).unwrap());
         return;
+    }
+
+    if let Some(absent) = &absent {
+        let scope = match (&args.from, &args.to) {
+            (Some(from), Some(to)) => format!("of {} from {} to {}", from.work, from.at, to.at),
+            _ => "in the dataset".to_string(),
+        };
+        println!("{}", absent_notice(absent, args.exact, &scope));
     }
 
     for a in &found.rows {
@@ -171,6 +188,20 @@ pub fn path_matching(exact: bool) -> PathMatch {
     } else {
         PathMatch::Subtree
     }
+}
+
+/// The lines that say no expression in scope holds the asked path (#305).
+///
+/// `scope` says which expressions were read, as words that follow "No
+/// expression": "this search reads", "in the dataset". Shared so every
+/// path-taking command words the fact alike.
+pub fn absent_notice(absent: &AbsentPath, exact: bool, scope: &str) -> String {
+    let beneath = if exact { "" } else { " or a path beneath it" };
+    let mut notice = format!("No expression {scope} holds {}{beneath}.", absent.path);
+    if let Some(nearest) = &absent.nearest_held {
+        notice.push_str(&format!("\nNearest held path: {nearest}"));
+    }
+    notice
 }
 
 /// Print one annotation's headline: status, operation, bill, short amendment id,

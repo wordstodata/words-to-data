@@ -9,7 +9,7 @@
 
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
-use words_to_data::inspect::{self, MovedPath, PathMatch};
+use words_to_data::inspect::{self, MovedPath, PathMatch, absent_path};
 use words_to_data::query::Locator;
 
 use crate::annotations::path_matching;
@@ -51,8 +51,9 @@ pub fn run(args: Args) {
     }
 
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    refuse_a_path_neither_end_holds(&ds, &args, &locator);
     let mut summary = crate::fail::or_exit(
-        with_dataset!(ds, d => inspect::diff(&d, &args.from, &args.to)),
+        with_dataset!(&ds, d => inspect::diff(d, &args.from, &args.to)),
         "Error computing diff",
     );
 
@@ -94,6 +95,44 @@ pub fn run(args: Args) {
             println!("  {} -> {}", moved.from, moved.to);
         }
     }
+}
+
+/// Stop when neither expression holds the path, or a path beneath it (#305).
+///
+/// "Changed (0)" over a guessed path read as proof that nothing changed there,
+/// and an agent reported a held section as missing from the dataset. A diff
+/// that compared no provision has no answer to give, so it fails and says why.
+/// A path that one end holds is a real addition or removal, and is listed.
+fn refuse_a_path_neither_end_holds(ds: &load::OpenDataset, args: &Args, locator: &Locator) {
+    let at_end = |id: &ExpressionId| {
+        let one_end = locator.clone().in_window(id.at.clone(), id.at.clone());
+        crate::fail::or_exit(
+            with_dataset!(ds, d => absent_path(d, &one_end)),
+            "Error checking the path",
+        )
+    };
+    let (Some(at_from), Some(at_to)) = (at_end(&args.from), at_end(&args.to)) else {
+        return;
+    };
+    // Each end may hold a different part of the path. The longer part is
+    // nearer to what was asked.
+    let nearest_held = [at_from.nearest_held, at_to.nearest_held]
+        .into_iter()
+        .flatten()
+        .max_by_key(String::len);
+    let beneath = if args.exact {
+        ""
+    } else {
+        " or a path beneath it"
+    };
+    let mut message = format!(
+        "Neither {} nor {} holds {}{beneath}, so the diff compares no provision there.",
+        args.from, args.to, at_from.path
+    );
+    if let Some(nearest) = nearest_held {
+        message.push_str(&format!("\nNearest held path: {nearest}"));
+    }
+    crate::fail::refuse(&message);
 }
 
 /// Whether a locator's path reaches this one.

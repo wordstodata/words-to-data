@@ -256,6 +256,19 @@ impl DocumentReader for InMemoryStorage {
             .all_expressions()
             .any(|e| !e.root.find_all(path).is_empty()))
     }
+
+    fn holds_any(&self, locator: &Locator) -> Result<bool, DatasetError> {
+        // The same two rules the search walk applies, so the two backends and
+        // the two questions cannot come to disagree about a scope.
+        fn reaches(node: &DocumentNode, locator: &Locator) -> bool {
+            locates_path(locator, &node.data.path)
+                || node.children.iter().any(|child| reaches(child, locator))
+        }
+        Ok(self
+            .all_expressions()
+            .filter(|e| locates_expression(locator, &e.id))
+            .any(|e| reaches(&e.root, locator)))
+    }
 }
 
 /// Fetch both expressions of a diff, refusing a pair that names two works.

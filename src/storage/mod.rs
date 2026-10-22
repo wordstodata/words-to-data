@@ -201,6 +201,17 @@ pub trait DocumentReader {
     ///
     /// [`find_nodes`]: DocumentReader::find_nodes
     fn has_node(&self, path: &str) -> Result<bool, DatasetError>;
+
+    /// Whether at least one provision sits where a locator points.
+    ///
+    /// The locator's work and window pick the expressions, and its path and
+    /// matching pick the provisions inside them, as they do for a search. A
+    /// locator with no path asks whether the scope holds any expression at all.
+    ///
+    /// Ask this before an empty answer is read as "nothing here": a path that no
+    /// expression holds gives the same empty list as a real path with nothing to
+    /// report (#305).
+    fn holds_any(&self, locator: &Locator) -> Result<bool, DatasetError>;
 }
 
 /// Whether a locator reaches this expression at all.
