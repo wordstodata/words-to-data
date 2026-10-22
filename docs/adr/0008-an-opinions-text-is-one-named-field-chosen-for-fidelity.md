@@ -1,6 +1,6 @@
 # An opinion's text is one named field, chosen for fidelity
 
-Status: accepted
+Status: accepted. Its field order is superseded by `docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`, which puts structure first; its other rules stand.
 
 A court opinion is stored as one node with one blob of text
 (`docs/adr/0006-a-document-node-is-class-neutral.md`, #53). A CourtListener
