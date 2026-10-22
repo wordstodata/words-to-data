@@ -25,7 +25,7 @@ const CACHE: &str = "tests/test_data";
 const SECTION_174: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174";
 
 /// *Shami v. Commissioner* (5th Cir. 2014). It cites § 174 as `26 U.S.C. § 174(e)`.
-const SHAMI: &str = "judicial/opinion_2651100";
+const SHAMI: &str = "judicial/case_2651100/opinion_2651100";
 
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_words_to_data"))
@@ -99,18 +99,40 @@ fn should_list_the_cited_section_and_the_matched_words_when_path_names_an_opinio
     );
 }
 
-/// The nine opinions that cite § 174. *Obergefell* (2812209) is the tenth, and
-/// it cites no part of title 26.
+/// A case is a work, so `path` on it reports the citations of every writing
+/// in it, and each line names the writing that cites. *Boeing*'s majority and
+/// Justice Thomas's dissent both write § 174(a)(1), and a reader must be able to
+/// tell the dissent's citation from the Court's (#313).
+#[test]
+fn should_name_the_citing_writing_on_each_line_when_path_names_a_case() {
+    let printed = stdout_of(&run(&["path", dataset(), "judicial/case_122262"]));
+
+    for writing in [
+        "judicial/case_122262/opinion_9434364",
+        "judicial/case_122262/opinion_9434365",
+    ] {
+        assert!(
+            printed
+                .lines()
+                .any(|line| line.contains(&format!("{writing} cites {SECTION_174}"))),
+            "path on the case should say {writing} cites § 174, got:\n{printed}"
+        );
+    }
+}
+
+/// The nine writings that cite § 174, in path order. *Obergefell* (2812209) is
+/// the tenth, and it cites no part of title 26. *Boeing*'s two are its
+/// majority, 9434364, and Justice Thomas's dissent, 9434365.
 const CITE_174: [&str; 9] = [
-    "judicial/opinion_109019",
-    "judicial/opinion_122262",
-    "judicial/opinion_1527901",
-    "judicial/opinion_2651100",
-    "judicial/opinion_406879",
-    "judicial/opinion_6248",
-    "judicial/opinion_6931314",
-    "judicial/opinion_8991218",
-    "judicial/opinion_9434365",
+    "judicial/case_109019/opinion_109019",
+    "judicial/case_122262/opinion_9434364",
+    "judicial/case_122262/opinion_9434365",
+    "judicial/case_1527901/opinion_1527901",
+    "judicial/case_2651100/opinion_2651100",
+    "judicial/case_406879/opinion_406879",
+    "judicial/case_6248/opinion_6248",
+    "judicial/case_7029371/opinion_6931314",
+    "judicial/case_8998794/opinion_8991218",
 ];
 
 #[test]
@@ -126,7 +148,7 @@ fn should_list_the_nine_citing_opinions_when_path_names_the_cited_section() {
         );
     }
     assert!(
-        !printed.contains("judicial/opinion_2812209"),
+        !printed.contains("judicial/case_2812209"),
         "Obergefell does not cite § 174, got:\n{printed}"
     );
 }
@@ -291,7 +313,7 @@ fn should_add_citations_and_keep_every_existing_field_when_json_is_asked() {
 fn title_26_with_shami_cited_from_outside() -> String {
     use words_to_data::citation::resolve::{SectionPaths, resolve};
     use words_to_data::citation::{Opinion, cites_links, usc};
-    use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, opinion_expression};
+    use words_to_data::courtlistener::{ClusterRecord, OpinionRecord};
     use words_to_data::dataset::{ExpressionId, WorkId};
 
     let mut dataset: Dataset<InMemoryStorage> = Dataset::new(DatasetMetadata {
@@ -323,13 +345,7 @@ fn title_26_with_shami_cited_from_outside() -> String {
     };
     let record = OpinionRecord::from_json(&read("opinion_2651100.json")).expect("record reads");
     let cluster = ClusterRecord::from_json(&read("cluster_2651100.json")).expect("cluster reads");
-    let (expression, _, _) =
-        opinion_expression(&record, &cluster).expect("the expression should build");
-    let text = expression
-        .root
-        .data
-        .content
-        .expect("an opinion carries text");
+    let (text, _, _) = record.text().expect("an opinion carries text");
 
     let outside = Opinion::new("2651100", cluster.display());
     for citation in usc::find_with_report(&text).0 {

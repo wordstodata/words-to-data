@@ -1,8 +1,10 @@
 //! `words_to_data opinions`: the list of court opinions a dataset holds (#308).
 //!
-//! Before this command an agent saw `judicial/opinion_<id>@date` in
-//! `expressions` and nothing else, so it wrote opinion ids from memory and could
-//! not tell that two works were the majority and the dissent of one case.
+//! Before this command an agent saw an opinion's work and date in `expressions`
+//! and nothing else, so it wrote opinion ids from memory and could not tell
+//! that two works were the majority and the dissent of one case. Since #313 a
+//! case is one work, `judicial/case_<cluster>`, and the list gives one row for
+//! each writing in it.
 //!
 //! The fixture is title 26 of the U.S. Code as it read on 2025-07-18, and the ten
 //! real CourtListener records committed under `tests/test_data/courtlistener`,
@@ -98,11 +100,12 @@ fn should_list_ten_opinions_with_their_case_names_when_the_ten_are_added() {
 
     let rows = rows_of(&dataset);
 
-    assert_eq!(rows.len(), 10, "one row for each held opinion: {rows:#?}");
+    assert_eq!(rows.len(), 10, "one row for each held writing: {rows:#?}");
     let obergefell = rows
         .iter()
-        .find(|row| row["work"] == "judicial/opinion_2812209")
+        .find(|row| row["path"] == "judicial/case_2812209/opinion_2812209")
         .expect("Obergefell should be listed");
+    assert_eq!(obergefell["case"], "judicial/case_2812209");
     assert_eq!(obergefell["date"], "2015-06-26");
     assert_eq!(obergefell["case_name"], "Obergefell v. Hodges");
 }
@@ -113,27 +116,39 @@ fn should_show_one_cluster_with_two_writing_types_when_a_case_has_a_majority_and
 
     let rows = rows_of(&dataset);
 
-    // Boeing Co. v. United States: 122262 is the combined opinion and 9434365
-    // is Justice Thomas's dissent. The committed records give both cluster 122262.
-    let at = |work: &str| {
+    // Boeing Co. v. United States: 9434364 is the Court's opinion and 9434365
+    // is Justice Thomas's dissent. The combined record 122262 holds the same
+    // words, so it is a source and not a row.
+    let at = |path: &str| {
         rows.iter()
-            .position(|row| row["work"] == work)
-            .unwrap_or_else(|| panic!("{work} should be listed: {rows:#?}"))
+            .position(|row| row["path"] == path)
+            .unwrap_or_else(|| panic!("{path} should be listed: {rows:#?}"))
     };
     let (majority, dissent) = (
-        at("judicial/opinion_122262"),
-        at("judicial/opinion_9434365"),
+        at("judicial/case_122262/opinion_9434364"),
+        at("judicial/case_122262/opinion_9434365"),
     );
 
-    assert_eq!(rows[majority]["cluster_id"], 122262);
-    assert_eq!(rows[dissent]["cluster_id"], 122262);
-    assert_eq!(rows[majority]["opinion_type"], "010combined");
+    for row in [majority, dissent] {
+        assert_eq!(rows[row]["case"], "judicial/case_122262");
+        assert_eq!(rows[row]["cluster_id"], 122262);
+        assert_eq!(rows[row]["combined_records"], serde_json::json!([122262]));
+    }
+    assert_eq!(rows[majority]["opinion_type"], "020lead");
+    assert_eq!(rows[majority]["author"], "Stevens");
     assert_eq!(rows[dissent]["opinion_type"], "040dissent");
     assert_eq!(rows[dissent]["author"], "Thomas");
     assert_eq!(
-        majority.abs_diff(dissent),
-        1,
-        "the two writings of one case should be next to each other: {rows:#?}"
+        dissent,
+        majority + 1,
+        "the two writings of one case are next to each other, in the order the \
+         case prints them: {rows:#?}"
+    );
+    assert!(
+        !rows
+            .iter()
+            .any(|row| row["path"].as_str().unwrap().ends_with("opinion_122262")),
+        "the combined record is not a writing: {rows:#?}"
     );
 }
 
@@ -151,14 +166,14 @@ fn should_count_the_citation_links_each_opinion_makes_when_the_dataset_holds_the
     assert!(!links.is_empty(), "the fixture should hold citation links");
 
     for row in &rows {
-        let work = row["work"].as_str().expect("a work path");
+        let path = row["path"].as_str().expect("a writing path");
         let made = links
             .iter()
-            .filter(|link| link.subject.path() == Some(work))
+            .filter(|link| link.subject.path() == Some(path))
             .count();
         assert_eq!(
             row["cites"], made,
-            "{work} is the subject of {made} judicial.cites link(s): {row:#}"
+            "{path} is the subject of {made} judicial.cites link(s): {row:#}"
         );
     }
     let total: u64 = rows.iter().map(|row| row["cites"].as_u64().unwrap()).sum();
@@ -171,7 +186,7 @@ fn should_count_the_citation_links_each_opinion_makes_when_the_dataset_holds_the
     // Obergefell v. Hodges cites no section of title 26.
     let obergefell = rows
         .iter()
-        .find(|row| row["work"] == "judicial/opinion_2812209")
+        .find(|row| row["path"] == "judicial/case_2812209/opinion_2812209")
         .expect("Obergefell should be listed");
     assert_eq!(obergefell["cites"], 0);
 }
@@ -182,17 +197,26 @@ fn should_name_the_field_each_text_was_read_from_when_the_records_differ() {
 
     let rows = rows_of(&dataset);
 
-    let field_of = |work: &str| {
+    let field_of = |path: &str| {
         rows.iter()
-            .find(|row| row["work"] == work)
-            .unwrap_or_else(|| panic!("{work} should be listed: {rows:#?}"))["text_field"]
+            .find(|row| row["path"] == path)
+            .unwrap_or_else(|| panic!("{path} should be listed: {rows:#?}"))["text_field"]
             .clone()
     };
     // Shami: a court PDF. Snow: the Lawbox donation. The Boeing dissent:
     // Harvard's OCR. See docs/adr/0008.
-    assert_eq!(field_of("judicial/opinion_2651100"), "plain_text");
-    assert_eq!(field_of("judicial/opinion_109019"), "html_lawbox");
-    assert_eq!(field_of("judicial/opinion_9434365"), "xml_harvard");
+    assert_eq!(
+        field_of("judicial/case_2651100/opinion_2651100"),
+        "plain_text"
+    );
+    assert_eq!(
+        field_of("judicial/case_109019/opinion_109019"),
+        "html_lawbox"
+    );
+    assert_eq!(
+        field_of("judicial/case_122262/opinion_9434365"),
+        "xml_harvard"
+    );
 }
 
 #[test]
@@ -207,7 +231,7 @@ fn should_say_the_court_is_not_recorded_when_the_stored_record_does_not_hold_it(
     let printed = stdout_of(&run(&["opinions", &dataset]));
     let boeing = printed
         .lines()
-        .skip_while(|line| !line.starts_with("judicial/opinion_122262@2003-03-04"))
+        .skip_while(|line| !line.starts_with("judicial/case_122262@2003-03-04"))
         .take(2)
         .collect::<Vec<_>>()
         .join("\n");
@@ -224,7 +248,7 @@ fn should_say_it_holds_0_opinions_when_the_dataset_holds_none() {
     let printed = stdout_of(&run(&["opinions", &dataset]));
 
     assert!(
-        printed.contains("This dataset holds 0 opinions"),
+        printed.contains("This dataset holds 0 writings in 0 cases"),
         "an empty answer is said, not left blank, got:\n{printed}"
     );
 }
@@ -235,13 +259,14 @@ fn should_say_how_many_it_did_not_show_when_the_list_stops_at_a_limit() {
 
     let printed = stdout_of(&run(&["opinions", &dataset, "--limit", "3"]));
 
+    // A writing's row is indented under its case.
     let shown = printed
         .lines()
-        .filter(|line| line.starts_with("judicial/"))
+        .filter(|line| line.starts_with("  judicial/"))
         .count();
     assert_eq!(shown, 3, "three rows, got:\n{printed}");
     assert!(
-        printed.contains("This dataset holds 10 opinions")
+        printed.contains("This dataset holds 10 writings in 9 cases")
             && printed.contains("7 more not shown; pass --all for every one of them"),
         "the run says the whole count and what it left out, got:\n{printed}"
     );
@@ -249,7 +274,7 @@ fn should_say_how_many_it_did_not_show_when_the_list_stops_at_a_limit() {
     let all = stdout_of(&run(&["opinions", &dataset, "--all"]));
     let shown = all
         .lines()
-        .filter(|line| line.starts_with("judicial/"))
+        .filter(|line| line.starts_with("  judicial/"))
         .count();
     assert_eq!(shown, 10, "--all shows every row, got:\n{all}");
 }

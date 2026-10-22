@@ -1,39 +1,43 @@
 //! The court opinions a dataset holds, each with the facts a reader needs to
 //! name it (#308).
 //!
-//! `expressions` names an opinion as `judicial/opinion_<id>@<date>` and nothing
+//! `expressions` names a case as `judicial/case_<cluster>@<date>` and nothing
 //! more. An agent that saw only that wrote opinion ids from memory, and could
-//! not tell that two works were the majority and the dissent of one case. This
-//! list reads the facts the dataset already stores, and fetches nothing.
+//! not tell which writing of a case said what. This list gives one row for
+//! each writing, with its case, and fetches nothing.
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 
 use crate::dataset::DatasetError;
-use crate::document::NodeType;
+use crate::document::{DocumentNode, NodeType};
 use crate::link::LinkKind;
 use crate::storage::{DocumentReader, LinkReader};
 
-use super::OpinionFacts;
+use super::{CaseFacts, OpinionFacts};
 
-/// One opinion the dataset holds, as one row of the list.
+/// One writing the dataset holds, as one row of the list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HeldOpinion {
-    /// The opinion's work, such as `judicial/opinion_2812209`.
-    pub work: String,
-    /// The day the court filed it: the date of its expression.
+    /// The writing's path, such as `judicial/case_122262/opinion_9434365`.
+    /// `path`, `search --path` and a citation's subject take it.
+    pub path: String,
+    /// The case the writing belongs to: its work, such as
+    /// `judicial/case_122262`.
+    pub case: String,
+    /// The day the court filed the case: the date of its expression.
     pub date: String,
-    /// The case as it is cited, such as `Obergefell v. Hodges`. `None` when
-    /// the stored node carries no judicial facts and no heading.
+    /// The case as it is cited, such as `Boeing Co. v. United States`. `None`
+    /// when the stored case carries no judicial facts and no heading.
     pub case_name: Option<String>,
     /// What kind of writing it is, in the publisher's vocabulary, such as
-    /// `010combined` or `040dissent`.
+    /// `020lead`, `040dissent`, or `010combined` for one record that holds the
+    /// whole case.
     pub opinion_type: Option<String>,
     /// The judge the publisher names as its author, when it names one.
     pub author: Option<String>,
-    /// The case record this writing belongs to. Two rows with one cluster are
-    /// two writings in one case, such as a majority and its dissent.
+    /// The publisher's id for the case: the cluster.
     pub cluster_id: Option<u64>,
     /// The field of the publisher's record the text was read from, such as
     /// `plain_text` or `xml_harvard`, from the node's provenance
@@ -41,20 +45,27 @@ pub struct HeldOpinion {
     /// A source in another form is given whole. `None` when no provenance is
     /// recorded.
     pub text_field: Option<String>,
+    /// The publisher's combined records of the case that hold the same words
+    /// as its writings and are **not** stored as text
+    /// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+    /// decision 2). Empty when every record of the case is stored.
+    pub combined_records: Vec<u64>,
     /// The court that filed it. Always `None` today: the stored facts hold the
     /// docket and not the court, because the court is one more request per case
     /// (#53). A reader says "not recorded" and fetches nothing.
     pub court: Option<String>,
-    /// How many `judicial.cites` links name this opinion as their subject: the
-    /// U.S. Code citations the dataset holds for it.
+    /// How many `judicial.cites` links name this writing, or a path beneath it,
+    /// as their subject: the U.S. Code citations the dataset holds for it.
     pub cites: usize,
 }
 
-/// Every opinion the dataset holds, one row for each expression of a judicial
-/// work, ordered by date, then by cluster, then by work.
+/// Every writing the dataset holds, one row for each, ordered by date, then by
+/// cluster, then in the order the case prints its writings.
 ///
 /// A judicial work is found by the first segment of its path, which names the
-/// document class (`docs/adr/0006-a-document-node-is-class-neutral.md`).
+/// document class (`docs/adr/0006-a-document-node-is-class-neutral.md`). A
+/// writing is a `judicial.opinion` node: a child of its case, or, in a dataset
+/// built before cases were works, the root of its own work.
 pub fn held_opinions<R: DocumentReader + LinkReader + ?Sized>(
     reader: &R,
 ) -> Result<Vec<HeldOpinion>, DatasetError> {
@@ -68,36 +79,71 @@ pub fn held_opinions<R: DocumentReader + LinkReader + ?Sized>(
             let Some(expression) = reader.get_expression(&info.id)? else {
                 continue;
             };
-            let data = &expression.root.data;
-            let facts = OpinionFacts::of(data).unwrap_or_default();
-            rows.push(HeldOpinion {
-                work: work.to_string(),
-                date: info.id.at.clone(),
-                case_name: Some(facts.case_name)
-                    .filter(|name| !name.is_empty())
-                    .or_else(|| data.heading.as_deref().map(str::to_string)),
-                opinion_type: facts.opinion_type,
-                author: facts.author,
-                cluster_id: facts.cluster_id,
-                text_field: data
-                    .provenance
-                    .as_ref()
-                    .map(|provenance| text_field_of(&provenance.source)),
-                court: None,
-                cites: cites.get(work.as_str()).copied().unwrap_or(0),
-            });
+            let root = &expression.root;
+            let case = CaseFacts::of(&root.data);
+            for (order, writing) in writings_of(root).into_iter().enumerate() {
+                let data = &writing.data;
+                let facts = OpinionFacts::of(data).unwrap_or_default();
+                rows.push((
+                    order,
+                    HeldOpinion {
+                        path: data.path.to_string(),
+                        case: work.to_string(),
+                        date: info.id.at.clone(),
+                        case_name: case
+                            .as_ref()
+                            .map(|case| case.case_name.clone())
+                            .filter(|name| !name.is_empty())
+                            .or_else(|| root.data.heading.as_deref().map(str::to_string)),
+                        opinion_type: facts.opinion_type,
+                        author: facts.author,
+                        cluster_id: case.as_ref().map(|case| case.cluster_id),
+                        text_field: data
+                            .provenance
+                            .as_ref()
+                            .map(|provenance| text_field_of(&provenance.source)),
+                        combined_records: case
+                            .as_ref()
+                            .map(|case| case.combined_records.clone())
+                            .unwrap_or_default(),
+                        court: None,
+                        cites: cites
+                            .iter()
+                            .filter(|(subject, _)| {
+                                crate::uslm::path::covers_path(&data.path, subject)
+                            })
+                            .map(|(_, count)| count)
+                            .sum(),
+                    },
+                ));
+            }
         }
     }
     // The writings of one case share a cluster and its filing date, so this
-    // order keeps them next to each other, and the list reads oldest first.
-    rows.sort_by(|a, b| (&a.date, a.cluster_id, &a.work).cmp(&(&b.date, b.cluster_id, &b.work)));
-    Ok(rows)
+    // order keeps them together, in the order the case prints them, and the
+    // list reads oldest first.
+    rows.sort_by(|(a_order, a), (b_order, b)| {
+        (&a.date, a.cluster_id, &a.case, a_order).cmp(&(&b.date, b.cluster_id, &b.case, b_order))
+    });
+    Ok(rows.into_iter().map(|(_, row)| row).collect())
+}
+
+/// The writings in a stored judicial tree: the root when it is one, and every
+/// child that is one, in document order.
+fn writings_of(root: &DocumentNode) -> Vec<&DocumentNode> {
+    let is_writing = |node: &DocumentNode| node.data.node_type.as_str() == NodeType::OPINION;
+    if is_writing(root) {
+        return vec![root];
+    }
+    root.children
+        .iter()
+        .filter(|child| is_writing(child))
+        .collect()
 }
 
 /// How many `judicial.cites` links each path is the subject of, read once.
 ///
-/// An opinion is one node at its work's path, so the subject of a citation it
-/// makes is that path.
+/// The subject of a citation is the writing that made it.
 fn citations_by_subject<R: LinkReader + ?Sized>(
     reader: &R,
 ) -> Result<BTreeMap<String, usize>, DatasetError> {

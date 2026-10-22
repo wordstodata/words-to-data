@@ -79,9 +79,14 @@ impl NodeType {
     /// Court material. `judicial.opinion`.
     pub const JUDICIAL: &'static str = "judicial";
 
-    /// One court opinion, whole. An opinion is a single node today; it gains
-    /// children later and the type does not change (#53).
+    /// One writing of a case, whole: the Court's opinion, a concurrence or a
+    /// dissent. A child of its case. It gains children later and the type does
+    /// not change (#53, #314).
     pub const OPINION: &'static str = "judicial.opinion";
+
+    /// One case: the work above its writings, `judicial/case_<cluster>`
+    /// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).
+    pub const CASE: &'static str = "judicial.case";
 
     pub fn new(node_type: impl Into<String>) -> Self {
         Self(node_type.into())

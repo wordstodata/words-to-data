@@ -12,7 +12,7 @@
 //! `info --json` keeps every individual run, because a machine reader makes its
 //! own summary and cannot make one from a summary.
 
-use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, opinion_expression};
+use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, case_expression};
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId};
 use words_to_data::document::text_method;
 use words_to_data::method::Method;
@@ -104,8 +104,10 @@ fn dataset_over_two_opinions() -> (Dataset<InMemoryStorage>, Method) {
             .expect("the opinion record should read");
         let cluster = ClusterRecord::from_json(&read(format!("cluster_{cluster_id}.json")))
             .expect("the cluster record should read");
-        let (expression, source, _markup) =
-            opinion_expression(&opinion, &cluster).expect("the opinion should become a document");
+        let case =
+            case_expression(&cluster, &[opinion]).expect("the opinion should become a document");
+        let source = case.writings[0].source;
+        let expression = case.expression;
 
         // The method is the reading that made this text, named by the build
         // rather than by this test.

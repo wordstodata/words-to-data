@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 
 use words_to_data::citation::resolve::{SectionPaths, resolve, stub_heading};
 use words_to_data::citation::{Opinion, cites_links, usc};
-use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, opinion_expression, work_id};
+use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, case_expression};
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
 use words_to_data::judicial::cites::citations_naming;
 use words_to_data::judicial::reliance;
@@ -86,24 +86,20 @@ fn title_26_and_united_stationers() -> Dataset<InMemoryStorage> {
         .expect("the opinion should read");
     let cluster = ClusterRecord::from_json(&read(format!("cluster_{UNITED_STATIONERS}.json")))
         .expect("the cluster should read");
-    let (expression, _, _) =
-        opinion_expression(&opinion, &cluster).expect("the opinion should build");
-    let text = expression
+    let case = case_expression(&cluster, &[opinion]).expect("the case should build");
+    let writing = case.writings[0].path.clone();
+    let text = case
+        .expression
         .root
-        .data
-        .content
-        .clone()
-        .expect("an opinion has text");
+        .find(&writing)
+        .and_then(|node| node.data.content.clone())
+        .expect("a writing has text");
     dataset
-        .add_expression(expression)
-        .expect("the opinion should store");
+        .add_expression(case.expression)
+        .expect("the case should store");
 
     let scope = dataset.scope().expect("the scope should derive");
-    let citing = Opinion::held(
-        work_id(UNITED_STATIONERS),
-        UNITED_STATIONERS.to_string(),
-        cluster.display(),
-    );
+    let citing = Opinion::held(writing, UNITED_STATIONERS.to_string(), cluster.display());
     for citation in usc::find_with_report(&text).0 {
         let cited = resolve(&citation, &scope, &index);
         for link in cites_links(&citing, &citation, &cited) {
@@ -211,7 +207,7 @@ fn should_print_the_stub_heading_when_path_shows_a_citation_of_a_stub() {
         "got:\n{stub}"
     );
     assert!(
-        law.contains("cited by judicial/opinion_1527901"),
+        law.contains("cited by judicial/case_1527901/opinion_1527901"),
         "got:\n{law}"
     );
     assert!(!law.contains("stub"), "§ 174 is not flagged, got:\n{law}");

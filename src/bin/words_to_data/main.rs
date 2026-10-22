@@ -62,7 +62,7 @@ enum Command {
     Settle(settle::Args),
     /// Record an amendment link an agent found, refusing any path that did not change
     LinkAmendment(link_amendment::Args),
-    /// Add court opinions from CourtListener, with their U.S.C. citations as links
+    /// Add court cases from CourtListener, each writing a path, with their U.S.C. citations as links
     AddOpinions(add_opinions::Args),
     /// Add more US Code release points to a dataset that is already there
     AddReleasePoints(add_release_points::Args),
@@ -82,7 +82,7 @@ enum Command {
     Expressions(expressions::Args),
     /// List every bill the dataset holds
     Bills(bills::Args),
-    /// List every court opinion the dataset holds: case, writing type, cluster, citations
+    /// List every court case the dataset holds and its writings: type, author, citations
     Opinions(opinions::Args),
     /// Report every renumbering the dataset's bills state, weakest first
     RedesignationReport(redesignation_report::Args),

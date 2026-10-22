@@ -14,7 +14,7 @@ use words_to_data::citation::resolve::{
 use words_to_data::citation::usc::SkipReason;
 use words_to_data::citation::{Opinion, cites_links, usc};
 use words_to_data::courtlistener::markup::text_of_markup;
-use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, opinion_expression, work_id};
+use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, case_expression};
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, WorkId};
 use words_to_data::judicial::reliance;
 use words_to_data::link::LinkKind;
@@ -40,8 +40,9 @@ fn stored_text(id: u64) -> String {
     text
 }
 
-/// Title 26 as it read on 2025-07-30, one opinion, and the links its text
-/// makes, the way `add-opinions` writes them.
+/// Title 26 as it read on 2025-07-30, the case of one opinion record with that
+/// record as its one writing, and the links its text makes, the way
+/// `add-opinions` writes them.
 fn dataset_with_opinion(opinion_id: u64, cluster_id: u64) -> Dataset<InMemoryStorage> {
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "One opinion and title 26".to_string(),
@@ -60,24 +61,20 @@ fn dataset_with_opinion(opinion_id: u64, cluster_id: u64) -> Dataset<InMemorySto
     let cluster_json = std::fs::read_to_string(format!("{CACHE}/cluster_{cluster_id}.json"))
         .expect("the cluster should be committed");
     let cluster = ClusterRecord::from_json(&cluster_json).expect("the cluster should read");
-    let (expression, _, _) =
-        opinion_expression(&opinion(opinion_id), &cluster).expect("the opinion should build");
-    let text = expression
+    let case = case_expression(&cluster, &[opinion(opinion_id)]).expect("the case should build");
+    let writing = case.writings[0].path.clone();
+    let text = case
+        .expression
         .root
-        .data
-        .content
-        .clone()
-        .expect("an opinion has text");
+        .find(&writing)
+        .and_then(|node| node.data.content.clone())
+        .expect("a writing has text");
     dataset
-        .add_expression(expression)
-        .expect("the opinion should store");
+        .add_expression(case.expression)
+        .expect("the case should store");
 
     let scope = dataset.scope().expect("the scope should derive");
-    let citing = Opinion::held(
-        work_id(opinion_id),
-        opinion_id.to_string(),
-        cluster.display(),
-    );
+    let citing = Opinion::held(writing, opinion_id.to_string(), cluster.display());
     for citation in usc::find_with_report(&text).0 {
         let cited = resolve(&citation, &scope, &index);
         for link in cites_links(&citing, &citation, &cited) {
@@ -145,14 +142,14 @@ fn cited_paths(dataset: &Dataset<InMemoryStorage>) -> Vec<String> {
 
 #[test]
 fn should_link_each_end_of_a_range_when_boeing_cites_sections_991_to_997() {
-    // *Boeing Co. v. United States*, 537 U.S. 437 (2003), opinion 122262,
-    // writes `26 U. S. C. §§ 991-997` three times. Title 26 has no section
+    // *Boeing Co. v. United States*, 537 U.S. 437 (2003): the Court's opinion,
+    // record 9434364, writes `26 U. S. C. §§ 991-997` three times. Title 26 has no section
     // numbered `991-997`, so the hyphen is a range, and both ends are sections
     // of the title.
-    let text = stored_text(122262);
+    let text = stored_text(9434364);
     assert!(text.contains("26 U. S. C. \u{a7}\u{a7} 991-997"));
 
-    let dataset = dataset_with_opinion(122262, 122262);
+    let dataset = dataset_with_opinion(9434364, 122262);
 
     let paths = cited_paths(&dataset);
     for end in ["section_991", "section_997"] {

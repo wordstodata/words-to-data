@@ -1,11 +1,14 @@
 //! `words_to_data add-opinions` — put court opinions into a dataset, by API.
 //!
-//! Each opinion becomes one expression of one work with one node, and every
-//! U.S. Code citation in its text becomes a `judicial.cites` link (#53).
+//! Each opinion id names a case. The case becomes one expression of one work,
+//! `judicial/case_<cluster>`, with each writing as a child, and every U.S. Code
+//! citation in a writing's text becomes a `judicial.cites` link from that
+//! writing (#53, `docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).
 //!
-//! Two requests per opinion: the writing, and the cluster that carries the date
-//! the court filed it. Opinions in the same case share a cluster and the second
-//! request is not made twice. Every response is cached, so running this again
+//! A case is read whole: the cluster, which carries the date the court filed
+//! it, and every opinion record the cluster lists. So a case costs one request
+//! for the cluster and one for each record, and an id of a case already read in
+//! this run costs nothing. Every response is cached, so running this again
 //! costs nothing.
 //!
 //! **This spends the maintainer's quota.** CourtListener allows 125 requests a
@@ -18,9 +21,10 @@ use clap::Args as ClapArgs;
 use words_to_data::citation::resolve::{Resolution, SectionPaths, resolve};
 use words_to_data::citation::{Opinion, cites_links, usc};
 use words_to_data::courtlistener::{
-    ClusterRecord, CourtListenerClient, OpinionRecord, opinion_expression, work_id,
+    ClusterRecord, CourtListenerClient, OpinionRecord, case_expression,
 };
 use words_to_data::dataset::{Dataset, ExpressionId, WorkId};
+use words_to_data::judicial::{CaseFacts, OpinionFacts};
 use words_to_data::storage::Storage;
 
 #[derive(ClapArgs)]
@@ -28,7 +32,8 @@ pub struct Args {
     /// Path to the dataset to add the opinions to (compact JSON or SQLite)
     pub dataset: String,
 
-    /// CourtListener opinion ids, comma-separated
+    /// CourtListener opinion ids, comma-separated. Each names its case, and the
+    /// case is added whole: every writing the cluster lists
     #[arg(long, value_delimiter = ',', required = true)]
     pub opinions: Vec<u64>,
 
@@ -115,88 +120,138 @@ fn build_client(args: &Args) -> CourtListenerClient {
     CourtListenerClient::new(token, cache_dir)
 }
 
-/// Store each opinion, then link every citation its text carries.
-fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClient, ids: &[u64]) {
-    // One cluster per case, not per writing. A lead opinion and its dissent share
-    // a cluster, and fetching it twice would spend a request to learn nothing.
-    let mut clusters: BTreeMap<u64, ClusterRecord> = BTreeMap::new();
-    let mut stored: Vec<(u64, Opinion, String)> = Vec::new();
+/// Read one record through the client, or stop the run and say which.
+fn opinion_record(client: &CourtListenerClient, id: u64) -> OpinionRecord {
+    crate::fail::or_exit(
+        client
+            .opinion(id)
+            .and_then(|json| OpinionRecord::from_json(&json)),
+        &format!("Error reading opinion {id}"),
+    )
+}
 
+/// Store the case of each opinion, then link every citation its writings carry.
+fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClient, ids: &[u64]) {
+    // One case per cluster, however many of its writings were named. The ids
+    // are read in the order given, so the cases are stored in that order.
+    let mut records: BTreeMap<u64, OpinionRecord> = BTreeMap::new();
+    let mut clusters: Vec<ClusterRecord> = Vec::new();
     for &id in ids {
-        let opinion = crate::fail::or_exit(
-            client
-                .opinion(id)
-                .and_then(|json| OpinionRecord::from_json(&json)),
-            &format!("Error reading opinion {id}"),
-        );
+        if records.contains_key(&id) {
+            continue;
+        }
+        let opinion = opinion_record(client, id);
         let cluster_id = opinion.cluster_id.unwrap_or_else(|| {
-            eprintln!("Opinion {id} names no cluster, so its filing date cannot be read");
+            eprintln!("Opinion {id} names no cluster, so its case cannot be read");
             std::process::exit(1);
         });
-
-        let cluster = clusters.entry(cluster_id).or_insert_with(|| {
-            crate::fail::or_exit(
-                client
-                    .cluster(cluster_id)
-                    .and_then(|json| ClusterRecord::from_json(&json)),
-                &format!("Error reading cluster {cluster_id}"),
-            )
-        });
-
-        let (expression, source, report) = crate::fail::or_exit(
-            opinion_expression(&opinion, cluster),
-            &format!("Error building opinion {id}"),
+        records.insert(id, opinion);
+        if clusters.iter().any(|cluster| cluster.id == cluster_id) {
+            continue;
+        }
+        let cluster = crate::fail::or_exit(
+            client
+                .cluster(cluster_id)
+                .and_then(|json| ClusterRecord::from_json(&json)),
+            &format!("Error reading cluster {cluster_id}"),
         );
-        // A character reference this build cannot decode changes the words of the
-        // opinion, and one of those characters is the section sign every U.S.C.
-        // citation needs. Never silent.
-        report.print_to_stderr();
+        // The case is whole or it is not the case: a dissent stored without the
+        // Court's opinion would answer for a case it is only part of.
+        for sibling in cluster.opinion_ids() {
+            records
+                .entry(sibling)
+                .or_insert_with(|| opinion_record(client, sibling));
+        }
+        clusters.push(cluster);
+    }
 
-        let text_length = expression
-            .root
-            .data
-            .content
-            .as_deref()
-            .map_or(0, |text| text.chars().count());
+    let mut stored: Vec<(Opinion, String)> = Vec::new();
+    for cluster in &clusters {
+        let opinions: Vec<OpinionRecord> = records
+            .values()
+            .filter(|record| record.cluster_id == Some(cluster.id))
+            .cloned()
+            .collect();
+        let case = crate::fail::or_exit(
+            case_expression(cluster, &opinions),
+            &format!("Error building case {}", cluster.id),
+        );
+        for report in &case.matter_reports {
+            report.print_to_stderr();
+        }
+        let expression = &case.expression;
         println!(
-            "{} @ {}  {}  [{} / {} / {:?}]  {} chars",
+            "{} @ {}  {}",
             expression.id.work,
             expression.id.at,
             cluster.case_name.as_deref().unwrap_or("unnamed"),
-            source.field,
-            source.method,
-            source.verification,
-            text_length,
         );
-
-        let text = expression
-            .root
-            .data
-            .content
-            .as_deref()
-            .unwrap_or_default()
-            .to_string();
-        stored.push((
-            id,
-            Opinion::held(work_id(id), id.to_string(), cluster.display()),
-            text,
-        ));
+        for writing in &case.writings {
+            // A character reference this build cannot decode changes the words
+            // of the opinion, and one of those characters is the section sign
+            // every U.S.C. citation needs. Never silent.
+            writing.report.print_to_stderr();
+            let node = expression.root.find(&writing.path);
+            let text = node
+                .and_then(|node| node.data.content.as_deref())
+                .unwrap_or_default()
+                .to_string();
+            let facts = node.and_then(|node| OpinionFacts::of(&node.data));
+            println!(
+                "  {}  {}  [{} / {} / {:?}]  {} chars",
+                writing.path,
+                facts
+                    .and_then(|facts| facts.opinion_type)
+                    .as_deref()
+                    .unwrap_or("writing type not recorded"),
+                writing.source.field,
+                writing.source.method,
+                writing.source.verification,
+                text.chars().count(),
+            );
+            stored.push((
+                Opinion::held(
+                    writing.path.clone(),
+                    writing.opinion_id.to_string(),
+                    cluster.display(),
+                ),
+                text,
+            ));
+        }
+        let sources = &cluster_sources(&case.expression);
+        if !sources.is_empty() {
+            println!(
+                "  combined record(s) {sources} hold the same words as the writings: \
+                 kept as a source, not stored as text"
+            );
+        }
         crate::fail::or_exit(
-            dataset.add_expression(expression),
-            &format!("Error storing opinion {id}"),
+            dataset.add_expression(case.expression),
+            &format!("Error storing case {}", cluster.id),
         );
     }
 
     link_citations(dataset, &stored);
 }
 
+/// The combined records a case keeps only as sources, as a list to print.
+fn cluster_sources(expression: &words_to_data::dataset::Expression) -> String {
+    CaseFacts::of(&expression.root.data)
+        .map(|facts| facts.combined_records)
+        .unwrap_or_default()
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Read every U.S. Code citation out of each opinion and write the links.
-fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[(u64, Opinion, String)]) {
+fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[(Opinion, String)]) {
     // What each opinion cites, read once. The text is the text that was stored,
     // so an offset in a link means the same thing as an offset in the file.
     let found: Vec<(&Opinion, Vec<usc::UscCitation>)> = stored
         .iter()
-        .map(|(_, opinion, text)| {
+        .map(|(opinion, text)| {
             let (citations, report) = usc::find_with_report(text);
             report.print_to_stderr();
             (opinion, citations)

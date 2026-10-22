@@ -97,9 +97,10 @@ fn dataset() -> Dataset<SqliteStorage> {
     Dataset::open_sqlite(dataset_path()).expect("the fixture should open")
 }
 
+/// The writing that cites, by its path.
 fn work_of(case: &CitingCase) -> String {
     match &case.citing {
-        Citing::Held { expression, .. } => expression.work.to_string(),
+        Citing::Held { path, .. } => path.clone(),
         Citing::NotHeld { reference, .. } => reference.clone(),
     }
 }
@@ -126,10 +127,10 @@ fn should_list_an_opinion_as_citing_a_subdivision_when_the_subdivision_it_wrote_
     assert_eq!(
         works_where(&cases, Relation::Within),
         set(&[
-            "judicial/opinion_109019",
-            "judicial/opinion_122262",
-            "judicial/opinion_9434365",
-            "judicial/opinion_6248",
+            "judicial/case_109019/opinion_109019",
+            "judicial/case_122262/opinion_9434364",
+            "judicial/case_122262/opinion_9434365",
+            "judicial/case_6248/opinion_6248",
         ]),
         "Snow, Boeing, the Boeing dissent and Harris wrote § 174(a)(1)"
     );
@@ -146,20 +147,20 @@ fn should_list_an_opinion_as_citing_a_path_that_holds_the_asked_path_when_it_wro
         works_where(&cases, Relation::Holds),
         set(&[
             // The section alone.
-            "judicial/opinion_1527901",
-            "judicial/opinion_6931314",
-            "judicial/opinion_8991218",
+            "judicial/case_1527901/opinion_1527901",
+            "judicial/case_7029371/opinion_6931314",
+            "judicial/case_8998794/opinion_8991218",
             // `(e)`, which no held printing has, so only the section is known.
-            "judicial/opinion_2651100",
+            "judicial/case_2651100/opinion_2651100",
             // `(a)`, which holds `(a)(1)`.
-            "judicial/opinion_406879",
+            "judicial/case_406879/opinion_406879",
         ]),
         "an opinion that cites a path above the one asked about is never \"does not cite\""
     );
     assert!(
         !cases
             .iter()
-            .any(|case| work_of(case) == "judicial/opinion_2812209"),
+            .any(|case| work_of(case) == "judicial/case_2812209/opinion_2812209"),
         "Obergefell cites no part of § 174"
     );
 }
@@ -173,11 +174,11 @@ fn should_leave_out_an_opinion_whose_subdivision_resolves_to_another_branch_when
 
     let reached: BTreeSet<String> = cases.iter().map(work_of).collect();
     for wrote_a in [
-        "judicial/opinion_109019",
-        "judicial/opinion_122262",
-        "judicial/opinion_9434365",
-        "judicial/opinion_6248",
-        "judicial/opinion_406879",
+        "judicial/case_109019/opinion_109019",
+        "judicial/case_122262/opinion_9434364",
+        "judicial/case_122262/opinion_9434365",
+        "judicial/case_6248/opinion_6248",
+        "judicial/case_406879/opinion_406879",
     ] {
         assert!(
             !reached.contains(wrote_a),
@@ -205,7 +206,7 @@ fn should_measure_a_change_window_at_the_written_subdivision_when_it_resolves_in
 
     // Boeing wrote § 174(a)(1). Between the two printings § 174 changed at
     // (a), (a)(2)(B), (b) and (d), and not at (a)(1).
-    let boeing = citation_by("judicial/opinion_122262");
+    let boeing = citation_by("judicial/case_122262/opinion_9434364");
     assert_eq!(
         boeing.subdivision,
         Subdivision::Resolved {
@@ -224,7 +225,7 @@ fn should_measure_a_change_window_at_the_written_subdivision_when_it_resolves_in
     );
 
     // Encyclopaedia Britannica wrote § 174(a), and (a) did change.
-    let britannica = citation_by("judicial/opinion_406879");
+    let britannica = citation_by("judicial/case_406879/opinion_406879");
     let subsection_a = format!("{SECTION_174}/subsection_a");
     assert_eq!(britannica.since.windows[0].at, subsection_a);
     assert!(britannica.since.windows[0].changed);
@@ -234,7 +235,7 @@ fn should_measure_a_change_window_at_the_written_subdivision_when_it_resolves_in
 fn should_measure_a_change_window_at_the_whole_section_when_the_written_subdivision_is_not_held() {
     // Shami wrote § 174(e). No held printing has an (e): § 174 runs from (a) to
     // (d) in 2025.
-    let shami = citation_by("judicial/opinion_2651100");
+    let shami = citation_by("judicial/case_2651100/opinion_2651100");
 
     assert_eq!(
         shami.subdivision,
@@ -260,11 +261,12 @@ fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
-/// The works listed under the "do not cite" line, and nothing else.
+/// The cases listed under the "no writing that cites it" line, and nothing
+/// else.
 fn listed_as_not_citing(printed: &str) -> BTreeSet<String> {
     printed
         .lines()
-        .skip_while(|line| !line.contains("do not cite it"))
+        .skip_while(|line| !line.contains("have no writing that cites it"))
         .skip(1)
         .take_while(|line| line.starts_with("  judicial/"))
         .map(|line| line.trim().to_string())
@@ -287,7 +289,7 @@ fn should_print_the_opinions_that_cite_a_path_above_the_asked_path_in_their_own_
     );
     assert_eq!(
         listed_as_not_citing(&printed),
-        set(&["judicial/opinion_2812209"]),
+        set(&["judicial/case_2812209"]),
         "only Obergefell cites no part of § 174, got:\n{printed}"
     );
 }
@@ -362,13 +364,12 @@ fn should_say_the_asked_path_is_in_no_printing_and_keep_the_section_citations_wh
     assert_eq!(
         listed_as_not_citing(&printed),
         set(&[
-            "judicial/opinion_2812209",
+            "judicial/case_2812209",
             // § 174(a) and § 174(a)(1): another branch of the section.
-            "judicial/opinion_109019",
-            "judicial/opinion_122262",
-            "judicial/opinion_9434365",
-            "judicial/opinion_6248",
-            "judicial/opinion_406879",
+            "judicial/case_109019",
+            "judicial/case_122262",
+            "judicial/case_6248",
+            "judicial/case_406879",
         ]),
         "got:\n{printed}"
     );
@@ -379,7 +380,7 @@ fn json_citation<'a>(answer: &'a serde_json::Value, work: &str) -> &'a serde_jso
     let cases = answer["cases"].as_array().expect("cases is a list");
     let case = cases
         .iter()
-        .find(|case| case["citing"]["held"]["expression"]["work"] == work)
+        .find(|case| case["citing"]["held"]["path"] == work)
         .unwrap_or_else(|| panic!("{work} is in the answer: {answer:#}"));
     &case["cites"][0]
 }
@@ -398,7 +399,7 @@ fn should_carry_the_resolved_path_and_whether_it_fell_back_to_the_section_in_jso
     let answer = &answers[0];
     assert_eq!(answer["path"], SECTION_174);
 
-    let harris = json_citation(answer, "judicial/opinion_6248");
+    let harris = json_citation(answer, "judicial/case_6248/opinion_6248");
     assert_eq!(harris["resolution"], "resolved");
     assert_eq!(
         harris["resolved_path"],
@@ -406,16 +407,16 @@ fn should_carry_the_resolved_path_and_whether_it_fell_back_to_the_section_in_jso
     );
     assert_eq!(harris["relation"], "within");
 
-    let shami = json_citation(answer, "judicial/opinion_2651100");
+    let shami = json_citation(answer, "judicial/case_2651100/opinion_2651100");
     assert_eq!(shami["resolution"], "unresolved");
     assert_eq!(shami["unresolved"], "(e)");
     assert_eq!(shami["since"]["windows"][0]["at"], SECTION_174);
 
-    let united_stationers = json_citation(answer, "judicial/opinion_1527901");
+    let united_stationers = json_citation(answer, "judicial/case_1527901/opinion_1527901");
     assert_eq!(united_stationers["resolution"], "section");
 
     assert_eq!(
         answer["not_citing"],
-        serde_json::json!(["judicial/opinion_2812209"])
+        serde_json::json!(["judicial/case_2812209"])
     );
 }

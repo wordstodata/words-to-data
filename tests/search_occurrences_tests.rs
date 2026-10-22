@@ -4,10 +4,11 @@
 //! for each field, so an opinion that names § 174 five times gave "1 match", and
 //! an agent read whole opinions to find the passage it wanted (#306).
 //!
-//! The fixture is title 1 of the US Code and the real CourtListener record of
-//! *Boeing Co. v. United States* (opinion 122262), committed under
-//! `tests/test_data/courtlistener`. Its text holds "174" five times, at the
-//! character offsets 4904, 17847, 24552, 37480 and 37788.
+//! The fixture is title 1 of the US Code and the real CourtListener records of
+//! *Boeing Co. v. United States* (cluster 122262), committed under
+//! `tests/test_data/courtlistener`. The case is stored from its split records
+//! (#313), and the text of the Court's opinion, record 9434364, holds "174"
+//! three times, at the character offsets 3894, 16818 and 23516.
 
 use std::process::{Command, Output};
 
@@ -16,12 +17,14 @@ use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 /// Where the committed CourtListener records are, as a cache directory.
 const CACHE: &str = "tests/test_data";
 
-/// Boeing Co. v. United States, 537 U.S. 437 (2003).
+/// Boeing Co. v. United States, 537 U.S. 437 (2003), named by its combined
+/// record. `add-opinions` reads the whole case.
 const BOEING: &str = "122262";
-const BOEING_WORK: &str = "judicial/opinion_122262";
+/// The Court's opinion in *Boeing*, by Justice Stevens.
+const BOEING_MAJORITY: &str = "judicial/case_122262/opinion_9434364";
 
-/// The character offsets of "174" in the Boeing opinion's text.
-const BOEING_174: [u64; 5] = [4904, 17847, 24552, 37480, 37788];
+/// The character offsets of "174" in the text of the Court's opinion.
+const BOEING_174: [u64; 3] = [3894, 16818, 23516];
 
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_words_to_data"))
@@ -110,8 +113,8 @@ fn should_list_each_occurrence_with_its_offset_when_occurrences_is_asked() {
             "search",
             dataset,
             "174",
-            "--work",
-            BOEING_WORK,
+            "--path",
+            BOEING_MAJORITY,
             "--occurrences",
             "--json",
         ]));
@@ -128,21 +131,21 @@ fn should_list_each_occurrence_with_its_offset_when_occurrences_is_asked() {
                 "each snippet holds its own occurrence, got {hit}"
             );
         }
-        assert_eq!(answer["total"], 5, "in {dataset}");
+        assert_eq!(answer["total"], 3, "in {dataset}");
     });
 }
 
 #[test]
 fn should_state_the_occurrences_in_each_field_when_occurrences_is_not_asked() {
     on_both_backends("default", |dataset| {
-        let printed = stdout_of(&run(&["search", dataset, "174", "--work", BOEING_WORK]));
+        let printed = stdout_of(&run(&["search", dataset, "174", "--path", BOEING_MAJORITY]));
 
         assert!(
-            printed.contains("judicial/opinion_122262  [content]  5 occurrences"),
+            printed.contains("judicial/case_122262/opinion_9434364  [content]  3 occurrences"),
             "the hit says how many times its field holds the query, got:\n{printed}"
         );
         assert!(
-            printed.contains("1 field, 5 occurrences"),
+            printed.contains("1 field, 3 occurrences"),
             "the count says what it counts, so one field is not read as one \
              mention, got:\n{printed}"
         );
@@ -156,8 +159,8 @@ fn should_count_occurrences_against_the_limit_when_occurrences_is_asked() {
             "search",
             dataset,
             "174",
-            "--work",
-            BOEING_WORK,
+            "--path",
+            BOEING_MAJORITY,
             "--occurrences",
             "--limit",
             "2",
@@ -170,20 +173,20 @@ fn should_count_occurrences_against_the_limit_when_occurrences_is_asked() {
             .map(|hit| hit["offset"].as_u64().unwrap())
             .collect();
         assert_eq!(offsets, BOEING_174[..2], "in {dataset}");
-        assert_eq!(answer["total"], 5, "the total counts every occurrence");
+        assert_eq!(answer["total"], 3, "the total counts every occurrence");
 
         let printed = stdout_of(&run(&[
             "search",
             dataset,
             "174",
-            "--work",
-            BOEING_WORK,
+            "--path",
+            BOEING_MAJORITY,
             "--occurrences",
             "--limit",
             "2",
         ]));
         assert!(
-            printed.contains("5 occurrences") && printed.contains("3 more not shown"),
+            printed.contains("3 occurrences") && printed.contains("1 more not shown"),
             "the run says what the limit left out, got:\n{printed}"
         );
     });
@@ -208,7 +211,7 @@ fn should_read_only_the_window_asked_around_an_offset_when_offset_is_given() {
             dataset,
             "",
             "--path",
-            BOEING_WORK,
+            BOEING_MAJORITY,
             "--exact",
             "--snippet",
             "0",
@@ -222,10 +225,10 @@ fn should_read_only_the_window_asked_around_an_offset_when_offset_is_given() {
             dataset,
             "",
             "--path",
-            BOEING_WORK,
+            BOEING_MAJORITY,
             "--exact",
             "--offset",
-            "24552",
+            "23516",
             "--snippet",
             "40",
             "--json",

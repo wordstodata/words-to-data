@@ -58,17 +58,21 @@ three jobs with the command alone:
 words_to_data info <dataset>                     # what it holds, links by kind, review state, methods run
 words_to_data expressions <dataset>              # every work and date
 words_to_data bills <dataset>                    # the bills, and how many amendments each states
-words_to_data opinions <dataset>                 # the court opinions: case, writing type, cluster, citations
+words_to_data opinions <dataset>                 # the court cases and their writings: type, author, citations
 words_to_data validate <dataset>                 # faults, and steps nobody has run
 words_to_data residue <dataset> --bill <bill>    # the amendments with no link, and why
 ```
 
-**Opinions.** `opinions` lists each court opinion the dataset holds: its work
-and date, case name, writing type (such as `010combined` or `040dissent`),
-author, cluster, the field its text was read from, the court, and how many
-`judicial.cites` links it makes. `path <dataset> <work>` shows each of those
-links. Take an opinion id from this list, never from memory. Two rows with one
-cluster are two writings in one case, such as a majority and its dissent.
+**Opinions.** A court case is one work, `judicial/case_<cluster>`, and each
+writing of it (the Court's opinion, a concurrence, a dissent) is a path under
+it, `judicial/case_<cluster>/opinion_<id>`. `opinions` lists each case with its
+date, name, cluster and court, and under it each writing: its path, writing
+type (such as `020lead`, `040dissent`, or `010combined` for one record that
+holds the whole case), author, the field its text was read from, and how many
+`judicial.cites` links it makes. `path <dataset> <writing>` shows each of those
+links. Take a path from this list, never from memory. "combined record … kept
+as a source, not as text" means the publisher also holds the whole case as one
+record with the same words, and the dataset stores the split writings instead.
 "court not recorded" means the dataset does not hold the court; it does not
 mean there is no court.
 
@@ -106,12 +110,12 @@ read the words.
    offset in the field and a snippet around it; `--limit` and `--all` then count
    occurrences:
    ```
-   words_to_data search <dataset> "174" --work judicial/opinion_122262 --occurrences
+   words_to_data search <dataset> "174" --path judicial/case_122262/opinion_9434364 --occurrences
    ```
    To read more around one occurrence, give its offset. `--offset` centres the
    snippet on that character, and `--snippet` says how many characters to show:
    ```
-   words_to_data search <dataset> "" --path judicial/opinion_122262 --exact --offset 24552 --snippet 2000
+   words_to_data search <dataset> "" --path judicial/case_122262/opinion_9434364 --exact --offset 23516 --snippet 2000
    ```
    The offset counts characters in one field, so read the hit whose `[field]` the
    occurrence named. Do this rather than read a whole opinion with `--snippet 0`.
@@ -122,9 +126,13 @@ read the words.
    words_to_data path <dataset> <path> --from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30
    ```
    For a provision that is **new** in the window, `path` prints the words added.
-   `path` also shows citations: on `judicial/opinion_<id>` it lists the sections
-   the opinion cites, and on a Code path the opinions that cite it or the section
-   that holds it.
+   `path` also shows citations: on a writing, `judicial/case_<cluster>/opinion_<id>`,
+   it lists the sections that writing cites; on a case, `judicial/case_<cluster>`,
+   the sections each of its writings cites; and on a Code path the writings that
+   cite it or the section that holds it. A case is one work, and each writing
+   (majority, concurrence, dissent) is its own path under it, so a hit or a
+   citation in a dissent names the dissent. `opinions` lists each writing with
+   its case, type and author.
 3. **Find which amendment made the change.**
    ```
    words_to_data annotations <dataset> --bill <bill> --path <path>

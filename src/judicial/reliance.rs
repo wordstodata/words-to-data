@@ -55,10 +55,16 @@ use crate::uslm::path::covers_path;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Citing {
-    /// The dataset holds it, as one expression of one work. Everything the
-    /// report says about it can be checked against the text in the file.
+    /// The dataset holds it, as one writing in one expression of a case.
+    /// Everything the report says about it can be checked against the text in
+    /// the file.
     Held {
+        /// The case, as it read on the day the court filed it.
         expression: ExpressionId,
+        /// The writing that cites: the link's subject, such as
+        /// `judicial/case_122262/opinion_9434365`. Two writings of one case are
+        /// two entries, so a dissent's citation is never read as the Court's.
+        path: String,
         case_name: Option<String>,
         /// Where the opinion's text came from, from the node's own provenance:
         /// the field it was taken from, how it was obtained, and how far it can
@@ -81,11 +87,12 @@ impl Citing {
         match self {
             Self::Held {
                 expression,
+                path,
                 case_name,
                 ..
             } => match case_name {
-                Some(name) => format!("{name} ({expression})"),
-                None => expression.to_string(),
+                Some(name) => format!("{name} ({path}, filed {})", expression.at),
+                None => format!("{path}, filed {}", expression.at),
             },
             Self::NotHeld { display, .. } => display.clone(),
         }
@@ -344,17 +351,34 @@ fn citing_of<R: DocumentReader + ?Sized>(reader: &R, link: &Link) -> Result<Citi
         });
     };
 
-    let facts = super::OpinionFacts::of(&node.data);
+    let case_name = case_name_of(reader, &expression)?;
     let provenance = node.data.provenance.as_ref();
     Ok(Citing::Held {
         expression,
-        case_name: facts
-            .map(|facts| facts.case_name)
-            .or_else(|| node.data.heading.as_deref().map(str::to_string)),
+        path: path.clone(),
+        case_name: case_name.or_else(|| node.data.heading.as_deref().map(str::to_string)),
         text_source: provenance.map(|provenance| provenance.source.clone()),
         text_method: provenance.and_then(|provenance| provenance.method.clone()),
         text_verification: provenance.map(|provenance| provenance.verification),
     })
+}
+
+/// The name of the case an expression is, from the case root's facts or its
+/// heading. `None` when the root carries neither.
+fn case_name_of<R: DocumentReader + ?Sized>(
+    reader: &R,
+    expression: &ExpressionId,
+) -> Result<Option<String>, DatasetError> {
+    let root = reader
+        .find_nodes(expression.work.as_str())?
+        .into_iter()
+        .find(|(id, _)| id == expression)
+        .map(|(_, root)| root);
+    Ok(root.and_then(|root| {
+        super::CaseFacts::of(&root.data)
+            .map(|facts| facts.case_name)
+            .or_else(|| root.data.heading.as_deref().map(str::to_string))
+    }))
 }
 
 /// What the dataset can say about `path` since `opinion_date`.
@@ -422,8 +446,9 @@ fn since_publication<R: DocumentReader + ?Sized>(
 ///
 /// Read from the scope rather than built from the path, so this stays
 /// class-neutral: `uscode/title_26/.../section_174` belongs to
-/// `uscode/title_26` and `judicial/opinion_109019` is its own work, and nothing
-/// here needs to know which rule made either.
+/// `uscode/title_26`, `judicial/case_109019/opinion_109019` belongs to
+/// `judicial/case_109019`, and nothing here needs to know which rule made
+/// either.
 fn work_holding(scope: &Scope, path: &str) -> Option<WorkId> {
     scope
         .works()

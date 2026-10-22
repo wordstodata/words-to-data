@@ -51,13 +51,13 @@ _Avoid_: Version snapshot, revision, edition
 **Document node**:
 One piece of a document, with its children, as a Dataset stores it. It carries a Structural path, a Node type, a date, up to five text fields, and where its text came from. It carries nothing that belongs to one class of document: those facts sit beside it in a Class payload. An Expression holds the root of a tree of them.
 
-A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: a court opinion is stored as a single node, and its structure is in its text.
+A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: each writing of a court case is stored as a single node, and its structure is in its text (#314).
 _Avoid_: Element, USLM element
 
 **Node type**:
-What kind of thing a Document node is, as an open namespaced string: `uscode.section`, `bill.section`, `judicial.opinion`. The namespace names the document class and the local half names the kind. It is open, so another party adds a document class without our permission, and a type this build has never seen is carried rather than dropped. The core reads the type — two nodes of different types are not one provision across two dates — and owns none of the vocabulary.
+What kind of thing a Document node is, as an open namespaced string: `uscode.section`, `bill.section`, `judicial.opinion`, `judicial.case`. The namespace names the document class and the local half names the kind. It is open, so another party adds a document class without our permission, and a type this build has never seen is carried rather than dropped. The core reads the type — two nodes of different types are not one provision across two dates — and owns none of the vocabulary.
 
-Three namespaces exist: `uscode`, `bill` and `judicial`. A Bill is `bill.*` and never `uscode.*`, because a bill is not part of the US Code. The root node of each class says what the whole document is: `uscode.document` for a US Code file, `bill.public_law` for a Bill that has been enacted, `judicial.opinion` for a court opinion. The two are not named alike on purpose — for the US Code, title-versus-appendix is already in the path and in the child's own type, while for a Bill nothing else says whether it is enacted, and a reader needs that in order to report it.
+Three namespaces exist: `uscode`, `bill` and `judicial`. A Bill is `bill.*` and never `uscode.*`, because a bill is not part of the US Code. The root node of each class says what the whole document is: `uscode.document` for a US Code file, `bill.public_law` for a Bill that has been enacted, `judicial.case` for a court case. The two are not named alike on purpose — for the US Code, title-versus-appendix is already in the path and in the child's own type, while for a Bill nothing else says whether it is enacted, and a reader needs that in order to report it.
 
 A segment of a Structural path uses almost always the same word, and the two document roots are the exception: a path segment is frozen, because moving one renames a Provision, while a type is an interface a person reads.
 _Avoid_: Element type, document type, tag
@@ -79,7 +79,7 @@ _Avoid_: Section, node, element
 **Structural path**:
 The address of a Document node, derived from the hierarchy that the parser found. It locates a Provision at one point in time. It does not identify one. Two provisions can share one path: the law sometimes numbers two provisions alike, and the document records both. A path and a position together locate one provision within one Expression. They still do not identify it.
 
-A segment is `<kind>_<number>`, and the kind is almost always the local half of the node's Node type, so `uscode.section` and `section_174` cannot disagree about what an element is called. The first segment names the document class: `uscode/title_26`, `judicial/opinion_2812209`.
+A segment is `<kind>_<number>`, and the kind is almost always the local half of the node's Node type, so `uscode.section` and `section_174` cannot disagree about what an element is called. The first segment names the document class: `uscode/title_26`, `judicial/case_2812209`.
 
 **A path segment never changes, even where the Node type beside it does.** A Bill's root sits at `publiclawdocument_119-21` while its type reads `bill.public_law`: the type was renamed for a reader, and the path was not, because a root path is a Work id that a Link can point at.
 
@@ -231,14 +231,18 @@ _Avoid_: Extra, metadata, blob
 The Link of kind `legislature.amended_by`. It connects one change in a Diff to the Amendment that caused it.
 _Avoid_: Match, mapping, label
 
+**Case**:
+One court case, as a Work: `judicial/case_<cluster>`, named by CourtListener's cluster id. Each writing of the case — the Court's opinion, a concurrence, a dissent — is a child, `judicial/case_<cluster>/opinion_<id>`, of type `judicial.opinion`, with its type and author as facts. The case root, of type `judicial.case`, carries the case name and the reporter citations. Matter that the source says is no part of the opinion, such as Harvard's head matter, is its own child with a type that says so: `judicial/case_<cluster>/headmatter`, `judicial.headmatter`. When the publisher holds both a combined record of the case and split records of its writings, the split records are the writings and the combined record is kept only as a source, so search never returns the same words twice (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`, #313).
+_Avoid_: Cluster (the publisher's word), opinion (for the whole case)
+
 **Citation**:
-The Link of kind `judicial.cites`. It says a court opinion cited a Provision: the subject is the opinion, the object is the Structural path the citation resolves to, and the text the rule matched travels with it as Evidence. It is always machine suggested — a pattern matched some words and no person has looked at it.
+The Link of kind `judicial.cites`. It says a court opinion cited a Provision: the subject is the writing that cited it, `judicial/case_<cluster>/opinion_<id>`, the object is the Structural path the citation resolves to, and the text the rule matched travels with it as Evidence. It is always machine suggested — a pattern matched some words and no person has looked at it.
 
 It is the statement this project exists to make and nobody publishes. CourtListener finds a U.S. Code citation with eyecite, fails to resolve it, and throws it away; what survives is display markup with no identifier. So the extractor is ours (#52).
 
 The object stops at the section even where the opinion named a subsection, because a citation cannot be trusted at that depth — the published example `981(a)(l)(C)` has a lower-case L where the provision has a paragraph (1) — so the subsection is recorded as written rather than resolved. A reader resolves it when it reads the link, against the printing it reads, and writes nothing back: `cases-citing` reads a change at the subdivision written when the printing holds it, and at the section when it does not, and says which (#302).
 
-Where the Dataset holds the citing opinion, the subject names the node, so a reader can follow the link to the words that made the citation. Where it does not, the subject says plainly that the citing document is outside the file and cannot be checked against it.
+Where the Dataset holds the citing opinion, the subject names the writing's node, so a reader can follow the link to the words that made the citation. Where it does not, the subject says plainly that the citing document is outside the file and cannot be checked against it.
 _Avoid_: Reference, cite, mention
 
 **Redesignation**:

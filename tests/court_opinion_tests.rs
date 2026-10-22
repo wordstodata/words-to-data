@@ -5,148 +5,57 @@
 //! vocabulary. Both are false statements about what the document is, written into
 //! a file and sent to another party. This is the test that they are gone.
 //!
-//! The record is real and cached, not written by hand: *Obergefell v. Hodges*,
+//! The records are real and cached, not written by hand: *Obergefell v. Hodges*,
 //! CourtListener opinion 2812209, with its cluster beside it. **The filing date is
 //! on the cluster.** The opinion's own `date_created` is when CourtListener
 //! ingested the record, and using it would date the expression to the day a third
 //! party scraped it.
 
-use serde_json::Value;
+use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, case_expression};
 use words_to_data::dataset::{Dataset, DatasetMetadata, Expression, ExpressionId, Format, WorkId};
 use words_to_data::document::{ClassPayload, DocumentNode, NodeData, NodeType, text_method};
 use words_to_data::inspect;
-use words_to_data::judicial::OpinionFacts;
-use words_to_data::link::{Provenance, VerificationState};
+use words_to_data::judicial::{CaseFacts, OpinionFacts};
+use words_to_data::link::VerificationState;
 use words_to_data::method::Method;
 use words_to_data::uslm::UslmFacts;
 
 const OPINION_JSON: &str = "tests/test_data/courtlistener/opinion_2812209.json";
 const CLUSTER_JSON: &str = "tests/test_data/courtlistener/cluster_2812209.json";
 
-/// The work an opinion is an expression of: `judicial/opinion_2812209`.
+/// The work a case is an expression of: `judicial/case_2812209`, by the
+/// publisher's cluster id.
 ///
 /// A structural path on the same rule as `uscode/title_26`: a class segment, then
 /// `<kind>_<number>`. The number is the publisher's id, which is the only stable
 /// name the source gives.
-const WORK: &str = "judicial/opinion_2812209";
+const WORK: &str = "judicial/case_2812209";
+
+/// The one writing of the case: CourtListener holds *Obergefell* as one
+/// combined record, 2812209, with every opinion of the case in it.
+const WRITING: &str = "judicial/case_2812209/opinion_2812209";
 
 /// A sentence from the middle of the opinion, used to prove that search reaches
 /// the text rather than the heading.
 const FROM_THE_OPINION: &str = "The Constitution promises liberty to all within its reach";
 
-/// The two cached records, as the API returned them.
-fn cached_records() -> (Value, Value) {
-    let opinion: Value = serde_json::from_str(
-        &std::fs::read_to_string(OPINION_JSON).expect("the cached opinion should read"),
-    )
-    .expect("the cached opinion should be JSON");
-    let cluster: Value = serde_json::from_str(
-        &std::fs::read_to_string(CLUSTER_JSON).expect("the cached cluster should read"),
-    )
-    .expect("the cached cluster should be JSON");
-
-    // The opinion request is a list query, so the record is the single result.
-    let opinion = opinion["results"][0].clone();
-    (opinion, cluster)
-}
-
-/// How the reporters print this opinion: `576 U.S. 644`, `135 S. Ct. 2584`.
-fn parallel_citations(cluster: &Value) -> Vec<String> {
-    cluster["citations"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-        .iter()
-        .map(|citation| {
-            format!(
-                "{} {} {}",
-                citation["volume"].as_str().unwrap_or_default(),
-                citation["reporter"].as_str().unwrap_or_default(),
-                citation["page"].as_str().unwrap_or_default(),
-            )
-        })
-        .collect()
-}
-
-/// Build the expression this dataset would store for the cached opinion.
-///
-/// One node, no children. The structure is in the text and nothing has parsed it:
-/// `xml_harvard` carries `<opinion type="majority">` and is deliberately passed
-/// over here (#53).
+/// Build the expression this dataset would store for the cached case, from the
+/// two committed records.
 fn obergefell() -> Expression {
-    let (opinion, cluster) = cached_records();
+    let read = |path| std::fs::read_to_string(path).expect("the cached record should read");
+    let opinion = OpinionRecord::from_json(&read(OPINION_JSON)).expect("the opinion should read");
+    let cluster = ClusterRecord::from_json(&read(CLUSTER_JSON)).expect("the cluster should read");
+    case_expression(&cluster, &[opinion])
+        .expect("the case should build")
+        .expression
+}
 
-    // The filing date, from the cluster. Not `opinion["date_created"]`.
-    let date_filed = cluster["date_filed"]
-        .as_str()
-        .expect("the cluster should carry a filing date");
-    let date = words_to_data::date::date_str_to_date(date_filed).expect("it should be a date");
-
-    let facts = OpinionFacts {
-        case_name: cluster["case_name"]
-            .as_str()
-            .expect("the cluster should name the case")
-            .to_string(),
-        opinion_type: opinion["type"].as_str().map(str::to_string),
-        author: opinion["author_str"]
-            .as_str()
-            .filter(|author| !author.is_empty())
-            .map(str::to_string),
-        per_curiam: opinion["per_curiam"].as_bool(),
-        panel: cluster["judges"].as_str().map(str::to_string),
-        precedential_status: cluster["precedential_status"].as_str().map(str::to_string),
-        citations: parallel_citations(&cluster),
-        source: cluster["source"].as_str().map(str::to_string),
-        sha1: opinion["sha1"].as_str().map(str::to_string),
-        page_count: opinion["page_count"].as_u64().map(|pages| pages as u32),
-        cluster_id: opinion["cluster_id"].as_u64(),
-        docket_id: cluster["docket_id"].as_u64(),
-        download_url: opinion["download_url"].as_str().map(str::to_string),
-    };
-
-    // How the text was obtained is core provenance, not a judicial fact: a reader
-    // deciding whether to trust a passage must not have to open a payload to
-    // learn that a machine read it off a scan.
-    let extracted_by_ocr = opinion["extracted_by_ocr"]
-        .as_bool()
-        .expect("the record should say whether the text was OCR'd");
-    let provenance = Provenance {
-        source: "courtlistener".to_string(),
-        method: Some(Method::new(
-            match extracted_by_ocr {
-                true => text_method::OCR,
-                false => text_method::TEXT_LAYER,
-            },
-            text_method::VERSION,
-        )),
-        verification: VerificationState::Asserted,
-        evidence: None,
-        raw_score: None,
-        timestamp: None,
-        corroboration: None,
-    };
-
-    let data = NodeData {
-        // The case name is what a reader sees when the opinion is listed, so it
-        // is the node's heading. It stays in the payload too, under the name a
-        // judicial reader asks for it by.
-        heading: Some(facts.case_name.clone().into()),
-        content: Some(
-            opinion["plain_text"]
-                .as_str()
-                .expect("the record should carry the opinion text")
-                .into(),
-        ),
-        ..NodeData::new(WORK, NodeType::new(NodeType::OPINION), date)
-    }
-    .with_provenance(provenance)
-    .with_payload(facts.to_payload().expect("the facts should serialize"));
-
-    Expression {
-        id: ExpressionId::new(WorkId::new(WORK), date_filed),
-        label: None,
-        root: DocumentNode::leaf(data),
-    }
+/// The one writing of the case.
+fn writing(expression: &Expression) -> &DocumentNode {
+    expression
+        .root
+        .find(WRITING)
+        .expect("the case holds its writing")
 }
 
 fn metadata() -> DatasetMetadata {
@@ -178,23 +87,28 @@ fn nodes(node: &DocumentNode, into: &mut Vec<NodeData>) {
 }
 
 #[test]
-fn should_store_the_opinion_as_a_single_node_dated_from_the_cluster() {
+fn should_store_the_opinion_as_one_writing_of_its_case_dated_from_the_cluster() {
     let dataset = dataset_holding_the_opinion();
 
     let id = ExpressionId::new(WorkId::new(WORK), "2015-06-26");
     let stored = dataset
         .get_expression(&id)
         .expect("the dataset should answer")
-        .expect("the opinion should be held");
+        .expect("the case should be held");
 
-    assert_eq!(stored.root.children.len(), 0, "an opinion is one node");
-    assert_eq!(stored.root.data.node_type.as_str(), "judicial.opinion");
-    assert_eq!(stored.root.data.date.to_string(), "2015-06-26");
+    assert_eq!(stored.root.data.node_type.as_str(), "judicial.case");
+    let opinion = writing(&stored);
+    assert!(
+        opinion.children.is_empty(),
+        "a writing is one node until its paragraphs are read (#314)"
+    );
+    assert_eq!(opinion.data.node_type.as_str(), "judicial.opinion");
+    assert_eq!(opinion.data.date.to_string(), "2015-06-26");
+    let stored = opinion;
     // Characters, not bytes: 206,987 is the figure the source reports, and the
     // opinion is full of typographic quotes and section marks.
     assert_eq!(
         stored
-            .root
             .data
             .content
             .as_deref()
@@ -204,7 +118,6 @@ fn should_store_the_opinion_as_a_single_node_dated_from_the_cluster() {
     );
     assert!(
         stored
-            .root
             .data
             .content
             .as_deref()
@@ -244,19 +157,18 @@ fn should_claim_nothing_about_the_us_code_or_a_bill_when_an_opinion_is_stored() 
     }
 }
 
-/// The same statement from the other side: the node carries no USLM facts at all.
+/// The same statement from the other side: the nodes carry no USLM facts at all.
 #[test]
 fn should_carry_no_uslm_facts_when_the_node_is_an_opinion() {
     let expression = obergefell();
 
-    assert!(
-        UslmFacts::of(&expression.root.data).is_none(),
-        "a USLM reader has nothing to say about a court opinion"
-    );
-    assert_eq!(
-        expression.root.data.node_type.namespace(),
-        NodeType::JUDICIAL
-    );
+    for data in [&expression.root.data, &writing(&expression).data] {
+        assert!(
+            UslmFacts::of(data).is_none(),
+            "a USLM reader has nothing to say about a court opinion"
+        );
+        assert_eq!(data.node_type.namespace(), NodeType::JUDICIAL);
+    }
 }
 
 /// `extracted_by_ocr` says how the text was obtained, so it is provenance rather
@@ -264,15 +176,18 @@ fn should_carry_no_uslm_facts_when_the_node_is_an_opinion() {
 #[test]
 fn should_reach_how_the_text_was_obtained_without_opening_a_payload() {
     let expression = obergefell();
+    let opinion = writing(&expression);
 
-    let provenance = expression
-        .root
+    let provenance = opinion
         .data
         .provenance
         .as_ref()
         .expect("an opinion records where its text came from");
 
-    assert_eq!(provenance.source, "courtlistener");
+    assert_eq!(
+        provenance.source,
+        "courtlistener:opinion/2812209:plain_text"
+    );
     assert_eq!(
         provenance.method.as_ref(),
         Some(&Method::new(text_method::TEXT_LAYER, text_method::VERSION)),
@@ -282,8 +197,7 @@ fn should_reach_how_the_text_was_obtained_without_opening_a_payload() {
     assert_eq!(provenance.verification, VerificationState::Asserted);
 
     // And the payload says nothing about it, so there is one place to look.
-    let payload = expression
-        .root
+    let payload = opinion
         .data
         .payload
         .as_ref()
@@ -328,30 +242,33 @@ fn assert_judicial_facts_survived<S: words_to_data::storage::Storage>(dataset: &
         .expect("the dataset should answer")
         .expect("the opinion should still be held");
 
-    let facts = OpinionFacts::of(&stored.root.data).expect("the judicial facts should come back");
-    assert_eq!(facts.case_name, "Obergefell v. Hodges");
+    let case = CaseFacts::of(&stored.root.data).expect("the case facts should come back");
+    assert_eq!(case.case_name, "Obergefell v. Hodges");
+    assert_eq!(case.cluster_id, 2812209);
+    assert_eq!(case.precedential_status.as_deref(), Some("Published"));
+    assert_eq!(case.source.as_deref(), Some("CU"));
+    assert!(
+        case.citations.contains(&"576 U.S. 644".to_string()),
+        "the reporters' citations should survive, got {:?}",
+        case.citations
+    );
+
+    let opinion = writing(&stored);
+    let facts = OpinionFacts::of(&opinion.data).expect("the writing facts should come back");
     assert_eq!(facts.opinion_type.as_deref(), Some("010combined"));
     assert_eq!(facts.author.as_deref(), Some("Kennedy"));
-    assert_eq!(facts.precedential_status.as_deref(), Some("Published"));
-    assert_eq!(facts.source.as_deref(), Some("CU"));
     assert_eq!(facts.page_count, Some(103));
-    assert!(
-        facts.citations.contains(&"576 U.S. 644".to_string()),
-        "the reporters' citations should survive, got {:?}",
-        facts.citations
-    );
 
     // Provenance is core, so it travels beside the payload rather than in it.
     assert_eq!(
-        stored
-            .root
+        opinion
             .data
             .provenance
             .as_ref()
             .and_then(|p| p.method.clone()),
         Some(Method::new(text_method::TEXT_LAYER, text_method::VERSION))
     );
-    assert_eq!(stored.root.data.node_type.as_str(), "judicial.opinion");
+    assert_eq!(opinion.data.node_type.as_str(), "judicial.opinion");
 }
 
 #[test]
@@ -360,14 +277,17 @@ fn should_report_the_opinion_through_search_expressions_and_info() {
 
     let hits = inspect::search(&dataset, FROM_THE_OPINION).expect("the search should run");
     assert!(
-        hits.iter().any(|hit| hit.path == WORK),
+        hits.iter().any(|hit| hit.path == WRITING),
         "search should reach the opinion's text, got {hits:?}"
     );
 
     let listed = inspect::expressions(&dataset, None).expect("the listing should run");
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].id, "judicial/opinion_2812209@2015-06-26");
-    assert_eq!(listed[0].element_count, 1, "one node, and it is counted");
+    assert_eq!(listed[0].id, "judicial/case_2812209@2015-06-26");
+    assert_eq!(
+        listed[0].element_count, 3,
+        "the case, its head matter and its one writing, each counted"
+    );
 
     let info = inspect::info(&dataset).expect("info should run");
     assert_eq!(info.work_count, 1);

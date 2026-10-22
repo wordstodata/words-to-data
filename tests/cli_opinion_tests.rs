@@ -104,9 +104,11 @@ fn should_store_ten_opinions_and_spend_no_request_when_offline() {
         "an offline run reads the committed records and spends nothing, got:\n{printed}"
     );
     for work in [
-        "judicial/opinion_2812209 @ 2015-06-26",
-        "judicial/opinion_109019 @ 1974-05-13",
-        "judicial/opinion_9434365 @ 2003-03-04",
+        "judicial/case_2812209 @ 2015-06-26",
+        "judicial/case_109019 @ 1974-05-13",
+        "judicial/case_122262 @ 2003-03-04",
+        "  judicial/case_122262/opinion_9434364  020lead",
+        "  judicial/case_122262/opinion_9434365  040dissent",
     ] {
         assert!(
             printed.contains(work),
@@ -123,7 +125,7 @@ fn should_store_ten_opinions_and_spend_no_request_when_offline() {
     let listed = run(&["expressions", &dataset]);
     let listed = stdout_of(&listed);
     assert!(
-        listed.contains("judicial/opinion_2812209@2015-06-26"),
+        listed.contains("judicial/case_2812209@2015-06-26"),
         "{listed}"
     );
 }
@@ -187,8 +189,8 @@ fn should_report_no_citing_opinion_when_the_dataset_holds_no_link_to_the_path() 
         "no link was written into material the dataset does not hold, got:\n{printed}"
     );
     assert!(
-        printed.contains("This dataset holds 10 opinion(s)"),
-        "and the opinions it does hold are still counted, got:\n{printed}"
+        printed.contains("This dataset holds 9 case(s)"),
+        "and the cases it does hold are still counted, got:\n{printed}"
     );
     assert!(
         printed.contains("no chain to walk"),
