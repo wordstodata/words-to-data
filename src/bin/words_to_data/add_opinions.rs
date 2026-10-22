@@ -4,6 +4,8 @@
 //! `judicial/case_<cluster>`, with each writing as a child, and every U.S. Code
 //! citation in a writing's text becomes a `judicial.cites` link from that
 //! writing (#53, `docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).
+//! The text read is the writing's whole text, also where its words are stored
+//! in its paragraphs and footnotes (#314), so no citation is lost to the split.
 //!
 //! A case is read whole: the cluster, which carries the date the court filed
 //! it, and every opinion record the cluster lists. So a case costs one request

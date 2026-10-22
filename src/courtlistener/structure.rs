@@ -219,8 +219,6 @@ struct Reader<'a> {
     markup: &'a str,
     at: usize,
     page: Option<String>,
-    /// The label of the first page mark in the body.
-    first_mark: Option<String>,
     /// The label of each page mark in the body, in order.
     marks: Vec<String>,
     block: Option<OpenBlock>,
@@ -234,7 +232,6 @@ impl<'a> Reader<'a> {
             markup,
             at: 0,
             page: None,
-            first_mark: None,
             marks: Vec::new(),
             block: None,
             passages: Vec::new(),
@@ -291,9 +288,6 @@ impl<'a> Reader<'a> {
             && !block.seen_words
         {
             block.page = Some(label.clone());
-        }
-        if self.first_mark.is_none() {
-            self.first_mark = Some(label.clone());
         }
         self.marks.push(label.clone());
         self.page = Some(label);
@@ -419,14 +413,15 @@ impl<'a> Reader<'a> {
                 source_ids,
             });
         }
-        if let Some(first_mark) = &self.first_mark {
+        let first_page_mark = self.marks.first().cloned();
+        if let Some(first_mark) = &first_page_mark {
             first_page(&mut passages, first_mark);
         }
         let pages = pages_printed(&passages, self.marks);
         Structure {
             passages,
             report,
-            first_page_mark: self.first_mark,
+            first_page_mark,
             pages,
         }
     }
@@ -457,7 +452,11 @@ fn pages_printed(passages: &[Passage], marks: Vec<String>) -> Vec<String> {
 fn footnote_kind(label: String, text: &str) -> PassageKind {
     let label = match label.is_empty() {
         false => label,
-        true => text.split_whitespace().next().unwrap_or_default().to_string(),
+        true => text
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string(),
     };
     PassageKind::Footnote { label }
 }

@@ -13,10 +13,11 @@
 //!
 //! A case is one work, `judicial/case_<cluster>`, whose root carries the
 //! [`CaseFacts`]. Each writing — the Court's opinion, a concurrence, a dissent —
-//! is a child, `opinion_<id>`, whose node carries the [`OpinionFacts`] and the
-//! whole text of the writing
+//! is a child, `opinion_<id>`, whose node carries the [`OpinionFacts`]
 //! (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).
-//! Nothing has parsed a writing's own pages and paragraphs yet (#314).
+//! A writing read from a field that marks its structure holds its words in its
+//! children, `page_<p>/paragraph_<n>` and `footnote_<label>`, each with its
+//! [`PassageFacts`]; any other writing holds its whole text itself (#314).
 //!
 //! ## The date is not on the opinion
 //!
