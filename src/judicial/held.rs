@@ -234,6 +234,10 @@ pub struct HeldWriting {
     pub text_source: Option<String>,
     /// How the text was read: `ocr`, `text_layer` or `markup`.
     pub text_method: Option<String>,
+    /// The volume of the official reporter whose pages the writing's
+    /// `page_<p>` paths count, such as `537 U.S.` (#314). `None` when the
+    /// writing has no page level.
+    pub pages: Option<String>,
 }
 
 /// The stored facts of the case that holds `path`, and of the writing at or
@@ -315,6 +319,7 @@ fn held_writing(node: &DocumentNode) -> HeldWriting {
         sha1: recorded(facts.sha1),
         page_count: facts.page_count,
         download_url: recorded(facts.download_url),
+        pages: recorded(facts.pages),
         text_source: data
             .provenance
             .as_ref()

@@ -10,11 +10,19 @@
 //! # A case is a work, and each writing is a child
 //!
 //! The case is `judicial/case_<cluster>`, and each writing is one node under it,
-//! `judicial/case_<cluster>/opinion_<id>`, with its whole text as content. When
+//! `judicial/case_<cluster>/opinion_<id>`. When
 //! the publisher holds both a combined record of the case and split records of
 //! its writings, the split records are the text and the combined record is only
 //! a source (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
-//! decisions 1 and 2). Nothing here parses a writing's own structure yet.
+//! decisions 1 and 2).
+//!
+//! # Inside a writing, the reporter's pages
+//!
+//! A writing read from `xml_harvard` or `html_columbia` holds its words in its
+//! paragraphs and footnotes: `opinion_<id>/page_<p>/paragraph_<n>` by the page of
+//! the official reporter each paragraph starts on, and `opinion_<id>/footnote_<label>`
+//! (decisions 3 and 4, #314). A writing read from any other field is one node
+//! that holds all its words. See [`opinion`] and the `structure` reader.
 //!
 //! # The filing date is on the cluster
 //!
@@ -49,6 +57,7 @@
 pub mod client;
 pub mod markup;
 pub mod opinion;
+mod structure;
 
 pub use client::CourtListenerClient;
 pub use opinion::{

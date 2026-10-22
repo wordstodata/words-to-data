@@ -37,7 +37,11 @@ const WRITING: &str = "judicial/case_2812209/opinion_2812209";
 
 /// A sentence from the middle of the opinion, used to prove that search reaches
 /// the text rather than the heading.
-const FROM_THE_OPINION: &str = "The Constitution promises liberty to all within its reach";
+///
+/// Not the words before it. Harvard's text, which is the text read since ADR
+/// 0014 put structure first, prints "promises libertyto all": OCR, as its
+/// provenance says.
+const FROM_THE_OPINION: &str = "a liberty that includes certain specific rights";
 
 /// Build the expression this dataset would store for the cached case, from the
 /// two committed records.
@@ -98,31 +102,30 @@ fn should_store_the_opinion_as_one_writing_of_its_case_dated_from_the_cluster() 
 
     assert_eq!(stored.root.data.node_type.as_str(), "judicial.case");
     let opinion = writing(&stored);
-    assert!(
-        opinion.children.is_empty(),
-        "a writing is one node until its paragraphs are read (#314)"
-    );
     assert_eq!(opinion.data.node_type.as_str(), "judicial.opinion");
     assert_eq!(opinion.data.date.to_string(), "2015-06-26");
-    let stored = opinion;
-    // Characters, not bytes: 206,987 is the figure the source reports, and the
-    // opinion is full of typographic quotes and section marks.
+    // Since #314 a writing read from Harvard's field holds its words in its
+    // paragraphs and footnotes, and none itself, so search never returns the
+    // same words twice.
+    assert_eq!(opinion.data.content, None);
+    let mut under = Vec::new();
+    for child in &opinion.children {
+        nodes(child, &mut under);
+    }
+    let holding: Vec<&str> = under
+        .iter()
+        .filter(|data| {
+            data.content
+                .as_deref()
+                .is_some_and(|text| text.contains(FROM_THE_OPINION))
+        })
+        .map(|data| &*data.path)
+        .collect();
     assert_eq!(
-        stored
-            .data
-            .content
-            .as_deref()
-            .map(|text| text.chars().count()),
-        Some(206_987),
-        "the opinion text should arrive whole"
-    );
-    assert!(
-        stored
-            .data
-            .content
-            .as_deref()
-            .expect("the opinion should carry text")
-            .contains(FROM_THE_OPINION)
+        holding.len(),
+        2,
+        "the Court's paragraph, and the dissent's footnote that quotes it, got \
+         {holding:?}"
     );
 }
 
@@ -186,15 +189,16 @@ fn should_reach_how_the_text_was_obtained_without_opening_a_payload() {
 
     assert_eq!(
         provenance.source,
-        "courtlistener:opinion/2812209:plain_text"
+        "courtlistener:opinion/2812209:xml_harvard"
     );
     assert_eq!(
         provenance.method.as_ref(),
-        Some(&Method::new(text_method::TEXT_LAYER, text_method::VERSION)),
-        "this record says extracted_by_ocr is false, so the text came from a \
-         text layer, and the version says which reading produced it"
+        Some(&Method::new(text_method::OCR, text_method::VERSION)),
+        "the text is Harvard's, which CAP says is machine OCR, although this \
+         record says extracted_by_ocr is false; the version says which reading \
+         produced it"
     );
-    assert_eq!(provenance.verification, VerificationState::Asserted);
+    assert_eq!(provenance.verification, VerificationState::MachineSuggested);
 
     // And the payload says nothing about it, so there is one place to look.
     let payload = opinion
@@ -266,7 +270,7 @@ fn assert_judicial_facts_survived<S: words_to_data::storage::Storage>(dataset: &
             .provenance
             .as_ref()
             .and_then(|p| p.method.clone()),
-        Some(Method::new(text_method::TEXT_LAYER, text_method::VERSION))
+        Some(Method::new(text_method::OCR, text_method::VERSION))
     );
     assert_eq!(opinion.data.node_type.as_str(), "judicial.opinion");
 }
@@ -277,16 +281,25 @@ fn should_report_the_opinion_through_search_expressions_and_info() {
 
     let hits = inspect::search(&dataset, FROM_THE_OPINION).expect("the search should run");
     assert!(
-        hits.iter().any(|hit| hit.path == WRITING),
-        "search should reach the opinion's text, got {hits:?}"
+        !hits.is_empty()
+            && hits
+                .iter()
+                .all(|hit| hit.path.starts_with(&format!("{WRITING}/"))),
+        "search should reach the opinion's text, in the passage that holds it, \
+         got {hits:?}"
     );
 
     let listed = inspect::expressions(&dataset, None).expect("the listing should run");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, "judicial/case_2812209@2015-06-26");
+    let mut built = Vec::new();
+    nodes(&obergefell().root, &mut built);
+    assert!(built.len() > 3, "the writing holds its passages");
     assert_eq!(
-        listed[0].element_count, 3,
-        "the case, its head matter and its one writing, each counted"
+        listed[0].element_count,
+        built.len(),
+        "the case, its head matter, its one writing and each passage of it, \
+         each counted"
     );
 
     let info = inspect::info(&dataset).expect("info should run");

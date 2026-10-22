@@ -79,10 +79,23 @@ impl NodeType {
     /// Court material. `judicial.opinion`.
     pub const JUDICIAL: &'static str = "judicial";
 
-    /// One writing of a case, whole: the Court's opinion, a concurrence or a
-    /// dissent. A child of its case. It gains children later and the type does
-    /// not change (#53, #314).
+    /// One writing of a case: the Court's opinion, a concurrence or a dissent.
+    /// A child of its case. A writing read from a field that marks its
+    /// structure holds its words in its pages, paragraphs and footnotes;
+    /// otherwise it holds them itself (#53, #314).
     pub const OPINION: &'static str = "judicial.opinion";
+
+    /// A page of the official reporter inside a writing, `page_459`, holding
+    /// the paragraphs that start on it. It holds no words itself
+    /// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+    /// decision 4).
+    pub const PAGE: &'static str = "judicial.page";
+
+    /// One paragraph of a writing, `paragraph_3`.
+    pub const PARAGRAPH: &'static str = "judicial.paragraph";
+
+    /// One footnote of a writing, `footnote_12`.
+    pub const FOOTNOTE: &'static str = "judicial.footnote";
 
     /// One case: the work above its writings, `judicial/case_<cluster>`
     /// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).

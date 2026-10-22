@@ -15,10 +15,11 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::structure::{Passage, PassageKind, Structure, read_structure};
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
-use crate::judicial::{CaseFacts, OpinionFacts};
+use crate::judicial::{CaseFacts, OpinionFacts, PassageFacts};
 use crate::link::{Provenance, VerificationState};
 use crate::method::Method;
 
@@ -142,6 +143,10 @@ pub struct ReporterCitation {
     /// prints `13301-M` (`docs/research/courtlistener-formats.md`, section 5).
     #[serde(default)]
     pub page: String,
+    /// The publisher's kind of citation, as a number: 6 is a LEXIS id and 7 a
+    /// Westlaw id, which name a database record and print no page.
+    #[serde(rename = "type", default)]
+    pub kind: Option<u8>,
 }
 
 impl ReporterCitation {
@@ -149,6 +154,46 @@ impl ReporterCitation {
     pub fn printed(&self) -> String {
         format!("{} {} {}", self.volume, self.reporter, self.page)
     }
+
+    /// `576 U.S.`: the volume whose pages a page label counts.
+    fn volume_printed(&self) -> String {
+        format!("{} {}", self.volume, self.reporter)
+    }
+}
+
+/// Reporters that print the decisions of a court that has an official
+/// reporter, and so are never the official one: the commercial parallels of the
+/// U.S. Reports. A page of one of them is not a path
+/// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 4: the same pin cite must mean the same path in every case).
+const PARALLEL_REPORTERS: [&str; 3] = ["S. Ct.", "L. Ed.", "L. Ed. 2d"];
+
+/// CourtListener's citation kinds that name a database record rather than a
+/// printed page: LEXIS, Westlaw, a neutral citation and a journal.
+const NO_PAGES: [u8; 4] = [6, 7, 8, 9];
+
+/// The citation of the official reporter whose pages a writing's page labels
+/// count, when they count one.
+///
+/// A label belongs to the volume the case starts in: the citation, of those
+/// whose first page is at or before the first label, with the latest first
+/// page. *Boeing*'s first label is 441, and of 537 U.S. 437 and 155 L. Ed. 2d
+/// 17 the case is at 437, so the labels are pages of 537 U.S. *Obergefell*'s
+/// first label is 2594, and its case is at 135 S. Ct. 2584, so its labels are
+/// pages of a commercial reporter and count nothing here.
+fn official_pages<'a>(
+    first_label: &str,
+    citations: &'a [ReporterCitation],
+) -> Option<&'a ReporterCitation> {
+    let label: u64 = first_label.parse().ok()?;
+    let starts = citations
+        .iter()
+        .filter(|citation| !citation.kind.is_some_and(|kind| NO_PAGES.contains(&kind)))
+        .filter_map(|citation| Some((citation.page.parse::<u64>().ok()?, citation)))
+        .filter(|(first_page, _)| *first_page <= label)
+        .max_by_key(|(first_page, _)| *first_page)?;
+    let (_, citation) = starts;
+    (!PARALLEL_REPORTERS.contains(&citation.reporter.as_str())).then_some(citation)
 }
 
 /// Where an opinion's text came from, and what that says about trusting it.
@@ -172,33 +217,35 @@ const ASSERTED: VerificationState = VerificationState::Asserted;
 
 /// The text fields, in the order this crate prefers them, with what each says.
 ///
-/// The order is by **fidelity of the characters**, not by richness of the
-/// markup. `docs/research/courtlistener-formats.md` ranks the fields the other
-/// way round, putting `xml_harvard` near the top, and it is right to: it is
-/// ranking them for a reader that wants structure. This crate stores an opinion
-/// as one node and parses no structure (#53), so the only question left is
-/// whether the characters are the ones the court printed. On that question
-/// Harvard's field is the worst of them, not the best — its case text is raw OCR
-/// that "has not received human review" — and a court's own document is the best.
+/// The order is by **structure**: the writings, the paragraphs with stable ids
+/// and the page labels of the official reporter are in `xml_harvard` and
+/// `html_columbia`, and in nothing else
+/// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 3). It was once by fidelity of the characters, which put a court's
+/// own document first and Harvard's OCR last
+/// (`docs/adr/0008-an-opinions-text-is-one-named-field-chosen-for-fidelity.md`).
+/// The cost of the new order is stated where it is paid: Harvard's case text is
+/// raw OCR that "has not received human review", so it is `MachineSuggested`,
+/// and every reader that shows it says so.
 ///
-/// The whole decision, with what was rejected, is
-/// `docs/adr/0008-an-opinions-text-is-one-named-field-chosen-for-fidelity.md`.
 /// Every entry below is a field this crate has actually met in a fetched record.
 const TEXT_FIELDS: [TextSource; 6] = [
-    // Extracted from the document the publisher supplied — a court's PDF or Word
-    // file. The characters are the publisher's own.
-    text_field("plain_text", text_method::TEXT_LAYER, ASSERTED, false),
-    // Born-digital markup, the richest of the donated archives.
-    text_field("html_anon_2020", text_method::MARKUP, ASSERTED, true),
-    // Editor-prepared HTML from a donated collection; a person handled it.
-    text_field("html_columbia", text_method::MARKUP, ASSERTED, true),
-    text_field("html_lawbox", text_method::MARKUP, ASSERTED, true),
-    // A court website's HTML, or Resource.org's. Quality varies widely.
-    text_field("html", text_method::MARKUP, ASSERTED, true),
     // Harvard's Caselaw Access Project. CAP states that case text "has been
     // generated by machine OCR and has not received human review", so no person
     // has confirmed that these are the court's words.
     text_field("xml_harvard", text_method::OCR, SUGGESTED, true),
+    // Editor-prepared HTML from a donated collection; a person handled it. Its
+    // star pagination names the pages of the reporter.
+    text_field("html_columbia", text_method::MARKUP, ASSERTED, true),
+    // Born-digital markup, the richest of the donated archives.
+    text_field("html_anon_2020", text_method::MARKUP, ASSERTED, true),
+    text_field("html_lawbox", text_method::MARKUP, ASSERTED, true),
+    // A court website's HTML, or Resource.org's. Quality varies widely.
+    text_field("html", text_method::MARKUP, ASSERTED, true),
+    // Extracted from the document the publisher supplied — a court's PDF or Word
+    // file. The characters are the publisher's own, and nothing marks a page or
+    // a paragraph.
+    text_field("plain_text", text_method::TEXT_LAYER, ASSERTED, false),
 ];
 
 /// One entry of [`TEXT_FIELDS`], so the table reads as a table.
@@ -246,6 +293,16 @@ impl OpinionRecord {
     /// machine's reading, and taking the field's own word over that would be
     /// claiming more than we were told.
     pub fn text(&self) -> Option<(String, TextSource, MarkupReport)> {
+        let (source, raw) = self.chosen_field()?;
+        let (text, report) = match source.markup {
+            true => text_of_markup(raw),
+            false => (raw.to_string(), MarkupReport::default()),
+        };
+        Some((text, source, report))
+    }
+
+    /// The field the text is read from, as written, and what it says.
+    fn chosen_field(&self) -> Option<(TextSource, &str)> {
         let mut source = *TEXT_FIELDS
             .iter()
             .find(|candidate| self.field(candidate.field).is_some())?;
@@ -255,12 +312,7 @@ impl OpinionRecord {
             source.method = text_method::OCR;
             source.verification = VerificationState::MachineSuggested;
         }
-
-        let (text, report) = match source.markup {
-            true => text_of_markup(raw),
-            false => (raw.to_string(), MarkupReport::default()),
-        };
-        Some((text, source, report))
+        Some((source, raw))
     }
 }
 
@@ -348,6 +400,11 @@ pub struct WritingText {
     pub path: String,
     pub source: TextSource,
     pub report: MarkupReport,
+    /// The whole text of the writing, as one string: every paragraph and then
+    /// every footnote, in the order the source has them, a blank line between
+    /// two. What the citation reader reads, so that each citation in the
+    /// writing is found once, whichever node holds its words.
+    pub text: String,
 }
 
 /// The cluster fields that hold matter the source says is no part of the
@@ -500,13 +557,14 @@ pub fn case_expression(
     let mut writings = Vec::new();
     for opinion in writing_records {
         let path = writing_path(cluster.id, opinion.id);
-        let (node, source, report) = writing_node(opinion, &path, date)?;
+        let (node, source, report, text) = writing_node(opinion, &path, date, &cluster.citations)?;
         children.push(node);
         writings.push(WritingText {
             opinion_id: opinion.id,
             path,
             source,
             report,
+            text,
         });
     }
 
@@ -548,18 +606,31 @@ pub fn case_expression(
     })
 }
 
-/// One writing as a node at `path`: its text, where the text came from, and
-/// what the publisher says about the writing.
+/// The fields whose markup marks paragraphs and the reporter's pages, so that
+/// a writing read from one of them is stored as its paragraphs and footnotes
+/// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 4).
+const STRUCTURED: [&str; 2] = ["xml_harvard", "html_columbia"];
+
+/// One writing as a node at `path`: its text, where the text came from, what
+/// the publisher says about the writing, and its whole text as one string.
+///
+/// A writing read from a field in [`STRUCTURED`] holds no text itself. Its
+/// paragraphs and footnotes are its children, each with the same provenance,
+/// so a search hit names the paragraph that holds the words.
 fn writing_node(
     opinion: &OpinionRecord,
     path: &str,
     date: time::Date,
-) -> Result<(DocumentNode, TextSource, MarkupReport), CourtListenerError> {
-    let (text, source, report) = opinion.text().ok_or(CourtListenerError::Incomplete {
-        kind: "opinion",
-        id: opinion.id,
-        field: "any text field",
-    })?;
+    citations: &[ReporterCitation],
+) -> Result<(DocumentNode, TextSource, MarkupReport, String), CourtListenerError> {
+    let (source, raw) = opinion
+        .chosen_field()
+        .ok_or(CourtListenerError::Incomplete {
+            kind: "opinion",
+            id: opinion.id,
+            field: "any text field",
+        })?;
 
     let facts = OpinionFacts {
         opinion_type: opinion.opinion_type.clone(),
@@ -571,6 +642,7 @@ fn writing_node(
         sha1: opinion.sha1.clone(),
         page_count: opinion.page_count,
         download_url: opinion.download_url.clone(),
+        pages: None,
     };
 
     // Where the text came from is core provenance, not a judicial fact: a reader
@@ -591,12 +663,131 @@ fn writing_node(
         corroboration: None,
     };
 
-    let data = NodeData {
-        content: Some(text.into()),
-        ..NodeData::new(path, NodeType::new(NodeType::OPINION), date)
-    }
-    .with_provenance(provenance)
-    .with_payload(facts.to_payload().map_err(CourtListenerError::from)?);
+    let writing = |facts: OpinionFacts| -> Result<NodeData, CourtListenerError> {
+        Ok(NodeData::new(path, NodeType::new(NodeType::OPINION), date)
+            .with_provenance(provenance.clone())
+            .with_payload(facts.to_payload()?))
+    };
 
-    Ok((DocumentNode::leaf(data), source, report))
+    if !STRUCTURED.contains(&source.field) {
+        let (text, report) = match source.markup {
+            true => text_of_markup(raw),
+            false => (raw.to_string(), MarkupReport::default()),
+        };
+        let data = NodeData {
+            content: Some(text.clone().into()),
+            ..writing(facts)?
+        };
+        return Ok((DocumentNode::leaf(data), source, report, text));
+    }
+
+    let structure = read_structure(raw);
+    let pages = structure
+        .first_page_mark
+        .as_deref()
+        .and_then(|label| official_pages(label, citations));
+    let structure = match pages {
+        Some(_) => structure,
+        None => structure.without_pages(),
+    };
+    let facts = OpinionFacts {
+        pages: pages.map(ReporterCitation::volume_printed),
+        ..facts
+    };
+    let text = structure
+        .passages
+        .iter()
+        .map(|passage| passage.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let children = passage_nodes(&structure, path, date, &provenance)?;
+    let node = DocumentNode {
+        data: writing(facts)?,
+        children,
+    };
+    Ok((node, source, structure.report, text))
+}
+
+/// The paragraphs of a writing under the pages they start on, then its
+/// footnotes, as nodes.
+///
+/// `page_<p>/paragraph_<n>`, where `n` counts the paragraphs that start on page
+/// `p`, or `paragraph_<n>` alone when the writing has no pages; and
+/// `footnote_<label>`.
+fn passage_nodes(
+    structure: &Structure,
+    writing: &str,
+    date: time::Date,
+    provenance: &Provenance,
+) -> Result<Vec<DocumentNode>, CourtListenerError> {
+    let leaf = |path: String, node_type: &str, passage: &Passage| {
+        let facts = PassageFacts {
+            source_ids: passage.source_ids.clone(),
+        };
+        let data = NodeData {
+            content: Some(passage.text.as_str().into()),
+            ..NodeData::new(path, NodeType::new(node_type), date)
+        }
+        .with_provenance(provenance.clone())
+        .with_payload(facts.to_payload()?);
+        Ok::<_, CourtListenerError>(DocumentNode::leaf(data))
+    };
+
+    // Every page printed, whether or not a paragraph starts on it.
+    let mut children: Vec<DocumentNode> = structure
+        .pages
+        .iter()
+        .map(|page| {
+            DocumentNode::leaf(NodeData::new(
+                format!("{writing}/page_{page}"),
+                NodeType::new(NodeType::PAGE),
+                date,
+            ))
+        })
+        .collect();
+    let mut footnotes = Vec::new();
+    let mut unpaged = 0;
+    for passage in &structure.passages {
+        match &passage.kind {
+            PassageKind::Footnote { label } => footnotes.push(leaf(
+                format!("{writing}/footnote_{label}"),
+                NodeType::FOOTNOTE,
+                passage,
+            )?),
+            PassageKind::Paragraph { page: None } => {
+                unpaged += 1;
+                children.push(leaf(
+                    format!("{writing}/paragraph_{unpaged}"),
+                    NodeType::PARAGRAPH,
+                    passage,
+                )?);
+            }
+            PassageKind::Paragraph { page: Some(page) } => {
+                let page_path = format!("{writing}/page_{page}");
+                let index = match children
+                    .iter()
+                    .position(|child| *child.data.path == *page_path)
+                {
+                    Some(index) => index,
+                    None => {
+                        children.push(DocumentNode::leaf(NodeData::new(
+                            page_path.as_str(),
+                            NodeType::new(NodeType::PAGE),
+                            date,
+                        )));
+                        children.len() - 1
+                    }
+                };
+                let page_node = &mut children[index];
+                let n = page_node.children.len() + 1;
+                page_node.children.push(leaf(
+                    format!("{page_path}/paragraph_{n}"),
+                    NodeType::PARAGRAPH,
+                    passage,
+                )?);
+            }
+        }
+    }
+    children.extend(footnotes);
+    Ok(children)
 }

@@ -51,7 +51,7 @@ _Avoid_: Version snapshot, revision, edition
 **Document node**:
 One piece of a document, with its children, as a Dataset stores it. It carries a Structural path, a Node type, a date, up to five text fields, and where its text came from. It carries nothing that belongs to one class of document: those facts sit beside it in a Class payload. An Expression holds the root of a tree of them.
 
-A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: each writing of a court case is stored as a single node, and its structure is in its text (#314).
+A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: a writing of a court case read from a field that marks no structure (a court's PDF text, Lawbox's or a court website's HTML) is stored as a single node, and its structure is in its text. A writing read from Harvard's `xml_harvard` or Columbia's `html_columbia` is taken apart into its pages, paragraphs and footnotes (see Case, #314).
 _Avoid_: Element, USLM element
 
 **Node type**:
@@ -233,10 +233,21 @@ _Avoid_: Match, mapping, label
 
 **Case**:
 One court case, as a Work: `judicial/case_<cluster>`, named by CourtListener's cluster id. Each writing of the case — the Court's opinion, a concurrence, a dissent — is a child, `judicial/case_<cluster>/opinion_<id>`, of type `judicial.opinion`, with its type and author as facts. The case root, of type `judicial.case`, carries the case name and the reporter citations. Matter that the source says is no part of the opinion, such as Harvard's head matter, is its own child with a type that says so: `judicial/case_<cluster>/headmatter`, `judicial.headmatter`. When the publisher holds both a combined record of the case and split records of its writings, the split records are the writings and the combined record is kept only as a source, so search never returns the same words twice (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`, #313).
+
+A writing's text is read from the first field the record carries in this order: `xml_harvard`, `html_columbia`, `html_anon_2020`, `html_lawbox`, `html`, `plain_text`. Structure comes first, because only the first two mark paragraphs and the pages of the reporter; Harvard's text is OCR, so it is `MachineSuggested`, and its provenance says so (ADR 0014, decision 3).
+
+Inside a writing read from one of those two fields, the paths follow the official reporter's pages (ADR 0014, decision 4; #314):
+
+```
+judicial/case_<cluster>/opinion_<id>/page_<p>/paragraph_<n>
+judicial/case_<cluster>/opinion_<id>/footnote_<label>
+```
+
+`p` is a page of the official reporter, and `n` counts the paragraphs that start on that page: a paragraph that runs over a page break belongs to the page it starts on, and the mark `*459` stays in its words where the page breaks. So a pin cite, "537 U.S. at 459", is the path `…/page_459`. Every page the writing is printed on has a node, also a page on which no paragraph starts; its words are then in the last paragraph of an earlier page, after its mark. The writing's facts name the volume the pages count (`pages: "537 U.S."`). Pages of a commercial reporter (S. Ct., L. Ed.) are not paths: such a writing, and one whose source marks no pages, has `paragraph_<n>` alone. A page node holds no words, a paragraph or a footnote node holds its own, and the writing holds none, so a search hit names the paragraph. Each paragraph and footnote has the writing's provenance, and keeps the source's own paragraph id (CAP's `b693-8`) as a fact, so a later import can match it again. `path` on a writing lists its pages and footnotes.
 _Avoid_: Cluster (the publisher's word), opinion (for the whole case)
 
 **Citation**:
-The Link of kind `judicial.cites`. It says a court opinion cited a Provision: the subject is the writing that cited it, `judicial/case_<cluster>/opinion_<id>`, the object is the Structural path the citation resolves to, and the text the rule matched travels with it as Evidence. It is always machine suggested — a pattern matched some words and no person has looked at it.
+The Link of kind `judicial.cites`. It says a court opinion cited a Provision: the subject is the writing that cited it, `judicial/case_<cluster>/opinion_<id>` — the writing even where its words are in paragraphs, until the subject moves to the paragraph (#316) — the object is the Structural path the citation resolves to, and the text the rule matched travels with it as Evidence. It is always machine suggested — a pattern matched some words and no person has looked at it.
 
 It is the statement this project exists to make and nobody publishes. CourtListener finds a U.S. Code citation with eyecite, fails to resolve it, and throws it away; what survives is display markup with no identifier. So the extractor is ours (#52).
 

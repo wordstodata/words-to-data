@@ -63,12 +63,9 @@ fn dataset_with_opinion(opinion_id: u64, cluster_id: u64) -> Dataset<InMemorySto
     let cluster = ClusterRecord::from_json(&cluster_json).expect("the cluster should read");
     let case = case_expression(&cluster, &[opinion(opinion_id)]).expect("the case should build");
     let writing = case.writings[0].path.clone();
-    let text = case
-        .expression
-        .root
-        .find(&writing)
-        .and_then(|node| node.data.content.clone())
-        .expect("a writing has text");
+    // The whole writing, as `add-opinions` reads it: its words are in its
+    // paragraphs and footnotes.
+    let text = case.writings[0].text.clone();
     dataset
         .add_expression(case.expression)
         .expect("the case should store");
@@ -104,9 +101,13 @@ fn should_link_the_written_subdivision_when_snow_sets_a_space_before_each_bracke
 
 #[test]
 fn should_read_the_subdivision_when_a_space_stands_before_each_bracket() {
-    // *Snow v. Commissioner*, 416 U.S. 500 (1974), opinion 109019. Its text is
-    // from `html_lawbox`, which sets a space before each bracket.
-    let text = stored_text(109019);
+    // *Snow v. Commissioner*, 416 U.S. 500 (1974), opinion 109019. Its
+    // `html_lawbox` sets a space before each bracket. The text stored for Snow
+    // is Harvard's since ADR 0014, so Lawbox's field is read here on its own.
+    let lawbox = opinion(109019)
+        .html_lawbox
+        .expect("Snow carries Lawbox's HTML");
+    let (text, _) = text_of_markup(&lawbox);
     assert!(
         text.contains("26 U. S. C. \u{a7} 174 (a) (1)"),
         "the committed text writes the spaced form"

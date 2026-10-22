@@ -1,8 +1,8 @@
 //! What `search` counts as the same words: white space, and the spellings of
 //! "U.S.C.".
 //!
-//! Court opinions write one citation in more than one way, and plain-text
-//! opinions break lines inside phrases. A search that matched the exact
+//! Court opinions write one citation in more than one way, and the text of an
+//! opinion breaks lines inside phrases. A search that matched the exact
 //! characters found 7 of the 9 opinions that cite § 174 when asked for
 //! "U.S.C. § 174", and 3 when asked for "U. S. C. § 174" (#307).
 //!
@@ -119,12 +119,19 @@ fn hits(args: &[&str]) -> Vec<serde_json::Value> {
 }
 
 /// The writings a search found the query in, by path.
+///
+/// A hit names the paragraph or footnote that holds the words (#314), and its
+/// writing is the first three segments of that path:
+/// `judicial/case_<cluster>/opinion_<id>`.
 fn works_holding(dataset: &str, query: &str) -> BTreeSet<String> {
     hits(&[
         "search", dataset, query, "--path", "judicial", "--all", "--json",
     ])
     .iter()
-    .map(|hit| hit["path"].as_str().unwrap().to_string())
+    .map(|hit| {
+        let path = hit["path"].as_str().unwrap();
+        path.split('/').take(3).collect::<Vec<_>>().join("/")
+    })
     .collect()
 }
 
@@ -146,15 +153,16 @@ fn should_find_the_same_opinions_when_us_code_is_spelt_with_or_without_spaces() 
     });
 }
 
-/// Opinion 2651100 is plain text, and its line breaks fall inside phrases:
-/// "engaged in qualified research\neach year".
+/// Opinion 2651100 is read from Harvard's markup, and an inline tag ends a
+/// line inside a phrase: Harvard sets the ampersand of "R & D" in `<em>`, so
+/// the stored text is "Not all R\n&\nD expenses".
 #[test]
 fn should_find_a_phrase_when_a_line_break_splits_it() {
     on_both_backends("line_break", |dataset| {
         let found = hits(&[
             "search",
             dataset,
-            "engaged in qualified research each year",
+            "Not all R & D expenses are QREs",
             "--path",
             "judicial",
             "--json",
@@ -166,12 +174,12 @@ fn should_find_a_phrase_when_a_line_break_splits_it() {
             .collect();
         assert_eq!(
             paths,
-            ["judicial/case_2651100/opinion_2651100"],
-            "in {dataset}"
+            ["judicial/case_2651100/opinion_2651100/page_563/paragraph_4"],
+            "the paragraph that holds the words, in {dataset}"
         );
         let snippet = found[0]["snippet"].as_str().unwrap();
         assert!(
-            snippet.contains("qualified research\neach year"),
+            snippet.contains("R\n&\nD expenses"),
             "the snippet shows the text as the opinion has it, got {snippet:?}"
         );
     });

@@ -13,10 +13,11 @@
 //!
 //! A case is one work, `judicial/case_<cluster>`, whose root carries the
 //! [`CaseFacts`]. Each writing — the Court's opinion, a concurrence, a dissent —
-//! is a child, `opinion_<id>`, whose node carries the [`OpinionFacts`] and the
-//! whole text of the writing
+//! is a child, `opinion_<id>`, whose node carries the [`OpinionFacts`]
 //! (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).
-//! Nothing has parsed a writing's own pages and paragraphs yet (#314).
+//! A writing read from a field that marks its structure holds its words in its
+//! children, `page_<p>/paragraph_<n>` and `footnote_<label>`, each with its
+//! [`PassageFacts`]; any other writing holds its whole text itself (#314).
 //!
 //! ## The date is not on the opinion
 //!
@@ -173,6 +174,20 @@ pub struct OpinionFacts {
     /// (`docs/adr/0006-a-document-node-is-class-neutral.md`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download_url: Option<String>,
+
+    /// The volume of the official reporter whose pages the writing's
+    /// `page_<p>` segments count, such as `537 U.S.`, so `page_459` reads as
+    /// "537 U.S. at 459". `None` when the writing has no page level: its source
+    /// labels no pages, or labels the pages of a commercial reporter
+    /// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+    /// decision 4).
+    ///
+    /// The review checklist on `ClassPayload`: the path says where a page is,
+    /// and this says only what the class's own page numbers count; no reader
+    /// decides how far to trust the text by it; and nothing outside the
+    /// judicial class reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<String>,
 }
 
 impl OpinionFacts {
@@ -184,6 +199,46 @@ impl OpinionFacts {
     /// Read the facts of a writing, or `None` if the node is not a writing.
     pub fn of(data: &NodeData) -> Option<Self> {
         if data.node_type.as_str() != NodeType::OPINION {
+            return None;
+        }
+        data.payload_in(NodeType::JUDICIAL)?.read().ok()
+    }
+}
+
+/// What a judicial reader knows about one paragraph or footnote of a writing
+/// that the core does not: the ids the source gives its paragraphs.
+///
+/// CAP gives each paragraph an id, such as `b693-7`: the scanned page of the
+/// volume and the paragraph's place on it. The path of a paragraph follows the
+/// reporter's pages and can change when a later import reads the pages again;
+/// the source's id does not, so a later import can match the paragraphs again
+/// by it (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 4).
+///
+/// The review checklist on `ClassPayload`: it does not say where the node is
+/// (the path does), what it is, what it says or how its text was obtained; no
+/// reader decides how far to trust a passage by it; and nothing outside the
+/// judicial class reads it. So it is a payload fact.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PassageFacts {
+    /// The source's id of each paragraph the passage holds, in order: one for a
+    /// paragraph, one or more for a footnote. Empty when the source gives none,
+    /// as Columbia's archive does not.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_ids: Vec<String>,
+}
+
+impl PassageFacts {
+    /// Write these facts into a payload in the `judicial` namespace.
+    pub fn to_payload(&self) -> Result<ClassPayload, serde_json::Error> {
+        ClassPayload::of(NodeType::JUDICIAL, self)
+    }
+
+    /// Read the facts of a paragraph or a footnote, or `None` if the node is
+    /// neither.
+    pub fn of(data: &NodeData) -> Option<Self> {
+        let passage = [NodeType::PARAGRAPH, NodeType::FOOTNOTE];
+        if !passage.contains(&data.node_type.as_str()) {
             return None;
         }
         data.payload_in(NodeType::JUDICIAL)?.read().ok()

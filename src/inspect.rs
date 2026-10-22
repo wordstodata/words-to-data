@@ -506,6 +506,27 @@ pub struct PathReport {
     /// (#327). `None` for a path no judicial work holds. See
     /// [`crate::judicial::held::court_facts`].
     pub judicial: Option<CourtFacts>,
+    /// The nodes directly inside a court writing, a case or a page, in
+    /// document order: the pages of a writing and its footnotes, or the
+    /// paragraphs of a page (#314). Empty for any other path.
+    ///
+    /// A writing is read by its pages, so a reader needs this list to go from
+    /// a pin cite to the words without reading the whole writing. The US Code
+    /// is left out: the law's own numbering already says what a section holds.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub contents: Vec<ContentsEntry>,
+}
+
+/// One node directly inside the path a `path` report is about (#314).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ContentsEntry {
+    pub path: String,
+    /// Such as `judicial.page` or `judicial.footnote`.
+    pub node_type: String,
+    /// How many nodes it holds: for a page, the paragraphs that start on it.
+    pub children: usize,
+    /// How many characters of words it holds itself.
+    pub chars: usize,
 }
 
 /// One statement of the OLRC's classification table about a Code section: a
@@ -684,6 +705,7 @@ pub fn path_report<S: Storage>(
     };
 
     mark_outdated(dataset, &mut provisions, &mut unfollowed_redesignations)?;
+    let contents = judicial_contents(dataset, path, &present_in)?;
 
     let annotations = annotations(
         dataset,
@@ -700,7 +722,46 @@ pub fn path_report<S: Storage>(
         olrc_classifications: olrc_classifications(dataset, path)?,
         citations: citations_naming(dataset, path, matching)?,
         judicial: court_facts(dataset, path)?,
+        contents,
     })
+}
+
+/// The nodes directly inside a court path, in the latest expression that
+/// holds it. See [`PathReport::contents`].
+fn judicial_contents<S: Storage>(
+    dataset: &S,
+    path: &str,
+    present_in: &[PathPresence],
+) -> Result<Vec<ContentsEntry>, DatasetError> {
+    if !path.starts_with("judicial/") {
+        return Ok(Vec::new());
+    }
+    let Some(latest) = present_in
+        .last()
+        .and_then(|presence| presence.expression.parse::<ExpressionId>().ok())
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(expression) = dataset.get_expression(&latest)? else {
+        return Ok(Vec::new());
+    };
+    let Some(node) = expression.root.find(path) else {
+        return Ok(Vec::new());
+    };
+    Ok(node
+        .children
+        .iter()
+        .map(|child| ContentsEntry {
+            path: child.data.path.to_string(),
+            node_type: child.data.node_type.to_string(),
+            children: child.children.len(),
+            chars: child
+                .data
+                .content
+                .as_deref()
+                .map_or(0, |text| text.chars().count()),
+        })
+        .collect())
 }
 
 /// A path that no expression in a command's scope holds.

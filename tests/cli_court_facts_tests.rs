@@ -172,8 +172,9 @@ fn should_print_the_case_facts_and_one_line_per_writing_when_path_names_boeings_
 fn should_print_page_count_download_url_and_sha1_when_the_record_carries_them() {
     let dataset = with_the_ten("facts_obergefell");
 
-    // The Obergefell record is a combined record from the Court's own PDF, so
-    // it carries the facts that Boeing's split records do not.
+    // The Obergefell record is a combined record that also carries the
+    // Court's own PDF, so it carries the facts that Boeing's split records do
+    // not.
     let out = printed(&dataset, "judicial/case_2812209/opinion_2812209");
 
     for line in [
@@ -182,7 +183,8 @@ fn should_print_page_count_download_url_and_sha1_when_the_record_carries_them() 
         "  page count: 103",
         "  download URL: http://www.supremecourt.gov/opinions/14pdf/14-556_3204.pdf",
         "  sha1: 0304bb66d174e0fd2cddceb66f790f70dad355ff",
-        "  text from: courtlistener:opinion/2812209:plain_text (text_layer)",
+        // Harvard's field comes first since ADR 0014, decision 3.
+        "  text from: courtlistener:opinion/2812209:xml_harvard (ocr)",
         "  combined records kept as a source, not as text: none",
     ] {
         assert!(
