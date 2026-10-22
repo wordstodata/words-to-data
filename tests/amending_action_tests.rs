@@ -27,6 +27,10 @@ use words_to_data::uslm::bill_parser::parse_bill_amendments_from_str_with_report
 const PUBLIC_LAW: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
 
 /// Annotations a real `match-amendments` sweep recorded and stored.
+///
+/// The record of the model method #252 removed. It names the bill `119-21`,
+/// so its amendment ids do not match a dataset built today, which names the
+/// bill `119-hr-1`. Do not join its ids to that bill.
 const STORED: &str = "tests/test_data/processed/annotations.json";
 
 /// The publisher's schema, as committed at the root of this repo.
@@ -115,7 +119,7 @@ fn should_refuse_the_word_when_the_schema_cannot_produce_it() {
 fn should_report_nothing_when_every_action_a_real_bill_writes_is_a_schema_value() {
     let xml = std::fs::read_to_string(PUBLIC_LAW).expect("the download should be readable");
 
-    let (bill, report) = parse_bill_amendments_from_str_with_report("119-21", &xml)
+    let (bill, report) = parse_bill_amendments_from_str_with_report("119-hr-1", &xml)
         .expect("the public law should parse");
 
     assert!(

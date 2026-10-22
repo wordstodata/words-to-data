@@ -26,7 +26,7 @@ pub struct ChangeAnnotation {
 /// A reference to a bill instruction that caused a change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillReference {
-    /// The bill identifier (e.g., "119-21" for Pub. L. 119-21)
+    /// The bill identifier (e.g., "119-hr-1", the bill that became Pub. L. 119-21)
     pub bill_id: String,
     /// The amendment ID (content-hash) that links back to the BillAmendment
     pub amendment_id: String,

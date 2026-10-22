@@ -243,7 +243,7 @@ fn should_store_the_node_types_this_vocabulary_publishes() {
     };
     let bill = DocumentType::Bill {
         bill_type: BillType::PublicLaw,
-        bill_id: "119-21".to_string(),
+        bill_id: "119-hr-1".to_string(),
     };
 
     let published: Vec<String> = every_element_type()

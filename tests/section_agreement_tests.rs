@@ -33,6 +33,10 @@ use words_to_data::storage::{InMemoryStorage, LinkReader};
 /// check uses, so all 1195 of its links over the committed corpus agree. A
 /// dataset built before #252 still holds model links like these
 /// (`docs/adr/0005`), and they are what this check is for.
+///
+/// The record of the model method #252 removed. It names the bill `119-21`,
+/// so its amendment ids do not match a dataset built today, which names the
+/// bill `119-hr-1`. Do not join its ids to that bill.
 const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
 const BEFORE: &str = "2025-07-18";
 const AFTER: &str = "2025-07-30";

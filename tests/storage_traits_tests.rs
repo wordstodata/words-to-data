@@ -36,7 +36,7 @@ use words_to_data::uslm::parser::parse;
 const TITLE_9: &str = "tests/test_data/usc/2025-07-18/usc09.xml";
 const EARLY: &str = "2025-07-18";
 const BILL_XML: &str = "tests/test_data/congress_client_cache/bill/119/hr/1/public_law.xml";
-const BILL_ID: &str = "119-21";
+const BILL_ID: &str = "119-hr-1";
 
 /// A documents-only backend. It delegates to real storage, so the data under
 /// test is the real corpus, not an invention.

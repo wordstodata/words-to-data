@@ -630,6 +630,10 @@ fn should_name_the_window_its_link_came_from_when_a_redesignation_report_row_is_
 /// Every annotation names the same annotator, `model:deepseek-v4-pro`. A
 /// dataset built then keeps these links (`docs/adr/0005`), so they are still
 /// what a reader of such a dataset meets.
+///
+/// The record of the model method #252 removed. It names the bill `119-21`,
+/// so its amendment ids do not match a dataset built today, which names the
+/// bill `119-hr-1`. Do not join its ids to that bill.
 const REAL_ANNOTATIONS: &str = "tests/test_data/processed/annotations.json";
 
 /// The `legislature.amended_by` links `link-by-evidence` wrote over the

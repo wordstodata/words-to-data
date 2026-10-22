@@ -154,11 +154,11 @@ fn website_example_diff_json_structure() {
 #[test]
 fn website_example_extract_amendments() {
     let data =
-        parse_bill_amendments("119-21", PL_XML_PATH).expect("Failed to parse bill amendments");
+        parse_bill_amendments("119-hr-1", PL_XML_PATH).expect("Failed to parse bill amendments");
 
-    // Verify bill_id matches website (shows "119-21")
+    // The bill id `build-dataset` gives the bill that became Pub. L. 119-21.
     assert_eq!(
-        data.bill_id, "119-21",
+        data.bill_id, "119-hr-1",
         "Bill ID doesn't match website example. Update index.html if format changed."
     );
 
@@ -176,7 +176,7 @@ fn website_example_extract_amendments() {
 /// If this fails, update the amendment output section in index.html.
 #[test]
 fn website_example_amendment_structure() {
-    let data = parse_bill_amendments("119-21", PL_XML_PATH).unwrap();
+    let data = parse_bill_amendments("119-hr-1", PL_XML_PATH).unwrap();
 
     // Verify amendments have the fields shown on website
     for amendment in data.amendments.values() {
@@ -267,7 +267,7 @@ fn website_example_dataset_workflow() {
     assert_eq!(dataset.expressions(&work).unwrap().len(), 2);
 
     // Add bill
-    let bill = parse_bill_amendments("119-21", PL_XML_PATH).expect("parse bill");
+    let bill = parse_bill_amendments("119-hr-1", PL_XML_PATH).expect("parse bill");
     dataset.add_bill(bill).unwrap();
 
     // Compute diff via dataset

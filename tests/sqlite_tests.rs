@@ -365,6 +365,10 @@ fn should_query_annotations_for_path_via_trait() {
 
 /// The annotations the model method `match-amendments` stored, before it was
 /// removed (#252). A dataset built then still holds them (`docs/adr/0005`).
+///
+/// The record of the model method #252 removed. It names the bill `119-21`,
+/// so its amendment ids do not match a dataset built today, which names the
+/// bill `119-hr-1`. Do not join its ids to that bill.
 fn load_old_model_annotations() -> Vec<ChangeAnnotation> {
     let file = File::open("tests/test_data/processed/annotations.json")
         .expect("should be able to open annotations file");
