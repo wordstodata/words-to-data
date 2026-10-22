@@ -12,6 +12,7 @@
 use words_to_data::courtlistener::{ClusterRecord, OpinionRecord, case_expression};
 use words_to_data::dataset::Expression;
 use words_to_data::document::DocumentNode;
+use words_to_data::judicial::{OpinionFacts, PassageFacts};
 
 const CACHE: &str = "tests/test_data/courtlistener";
 
@@ -130,5 +131,196 @@ fn should_put_each_paragraph_under_the_reporter_page_it_starts_on_when_harvard_l
     assert_eq!(
         node(&case, &format!("{MAJORITY}/page_442")).data.node_type.as_str(),
         "judicial.page"
+    );
+}
+
+/// Justice Thomas's dissent. It starts on page 457 of 537 U.S.
+const DISSENT: &str = "judicial/case_122262/opinion_9434365";
+
+/// CAP's own id of a paragraph, `b693-7`, is kept beside the path, so a later
+/// import can match the paragraphs again whatever their paths are.
+#[test]
+fn should_keep_the_source_paragraph_id_as_a_node_fact_when_harvard_gives_one() {
+    let case = boeing();
+
+    let paragraph = node(&case, &format!("{DISSENT}/page_457/paragraph_3"));
+    let facts = PassageFacts::of(&paragraph.data).expect("a paragraph carries judicial facts");
+    assert_eq!(facts.source_ids, ["b693-7"]);
+
+    let footnote = node(&case, &format!("{MAJORITY}/footnote_12"));
+    let facts = PassageFacts::of(&footnote.data).expect("a footnote carries judicial facts");
+    assert_eq!(
+        facts.source_ids,
+        ["b688-6", "b688-7", "b688-8"],
+        "a footnote of three paragraphs keeps the id of each"
+    );
+}
+
+/// Every node under `node`, itself first.
+fn all_nodes<'a>(node: &'a DocumentNode, into: &mut Vec<&'a DocumentNode>) {
+    into.push(node);
+    for child in &node.children {
+        all_nodes(child, into);
+    }
+}
+
+/// The majority says the dissent argues the point "post, at 458-459". So "537
+/// U.S. at 459" is a path: page 459 of the case is in the dissent, and it holds
+/// the paragraphs that start there.
+#[test]
+fn should_name_an_existing_path_when_a_pin_cite_names_a_page_of_the_case() {
+    let case = boeing();
+    let mut every = Vec::new();
+    all_nodes(&case.root, &mut every);
+
+    let pages: Vec<&str> = every
+        .iter()
+        .filter(|node| node.data.path.ends_with("/page_459"))
+        .map(|node| &*node.data.path)
+        .collect();
+    assert_eq!(pages, [format!("{DISSENT}/page_459")]);
+
+    let page = node(&case, &format!("{DISSENT}/page_459"));
+    assert!(
+        !page.children.is_empty(),
+        "the page holds the paragraphs that start on it"
+    );
+    assert!(
+        words(&case, &format!("{DISSENT}/page_459/paragraph_1")).len() > 100,
+        "and each paragraph holds its words"
+    );
+}
+
+/// A footnote is its own node beside the pages, and its words are in no
+/// paragraph.
+#[test]
+fn should_store_each_footnote_as_its_own_node_when_harvard_marks_footnotes() {
+    let case = boeing();
+
+    let footnote = words(&case, &format!("{MAJORITY}/footnote_13"));
+    assert!(
+        footnote.starts_with("In support of its argument that"),
+        "got {footnote:.80}"
+    );
+    assert_eq!(
+        node(&case, &format!("{MAJORITY}/footnote_13"))
+            .data
+            .node_type
+            .as_str(),
+        "judicial.footnote"
+    );
+
+    let mut every = Vec::new();
+    all_nodes(node(&case, MAJORITY), &mut every);
+    let holding: Vec<&str> = every
+        .iter()
+        .filter(|node| {
+            node.data
+                .content
+                .as_deref()
+                .is_some_and(|text| text.contains("whatever final regulations were ultimately"))
+        })
+        .map(|node| &*node.data.path)
+        .collect();
+    assert_eq!(holding, [format!("{MAJORITY}/footnote_13")]);
+}
+
+/// Each paragraph says where its words came from: the record and the field,
+/// and that the field is OCR.
+#[test]
+fn should_name_the_record_and_the_field_when_a_paragraph_states_its_provenance() {
+    let case = boeing();
+
+    let provenance = node(&case, &format!("{DISSENT}/page_457/paragraph_3"))
+        .data
+        .provenance
+        .as_ref()
+        .expect("a paragraph records where its words came from");
+    assert_eq!(provenance.source, "courtlistener:opinion/9434365:xml_harvard");
+    assert_eq!(
+        provenance.verification,
+        words_to_data::link::VerificationState::MachineSuggested
+    );
+}
+
+/// One case built from its cluster and every record the cluster lists.
+fn case_of(cluster_id: u64) -> Expression {
+    let cluster = cluster(cluster_id);
+    let opinions: Vec<OpinionRecord> = cluster.opinion_ids().into_iter().map(opinion).collect();
+    case_expression(&cluster, &opinions)
+        .expect("the case should build")
+        .expression
+}
+
+/// The paths of the children of the node at `path`.
+fn child_paths(expression: &Expression, path: &str) -> Vec<String> {
+    node(expression, path)
+        .children
+        .iter()
+        .map(|child| child.data.path.to_string())
+        .collect()
+}
+
+/// *Obergefell* is 576 U.S. 644, and Harvard's text of it labels the pages of
+/// 135 S. Ct. 2584, a commercial reporter: `*2594`. A path page names a page of
+/// the official reporter, so the same pin cite means the same path in every
+/// case; this writing has no pages of 576 U.S., so it has no page level at all.
+#[test]
+fn should_give_paragraph_n_only_when_the_labelled_pages_are_not_the_official_reporter() {
+    let case = case_of(2812209);
+    let writing = "judicial/case_2812209/opinion_2812209";
+
+    let children = child_paths(&case, writing);
+    assert!(
+        !children.iter().any(|path| path.contains("/page_")),
+        "no page of 135 S. Ct. is a path, got {:?}",
+        &children[..children.len().min(5)]
+    );
+    assert!(
+        words(&case, &format!("{writing}/paragraph_2"))
+            .starts_with("The Constitution promises"),
+        "the paragraphs are counted through the writing"
+    );
+}
+
+/// *Shami* is 741 F.3d 560. CourtListener's conversion of Harvard's text marks
+/// its pages with `<span class="star-pagination" label="564">`, and those are
+/// pages of F.3d, the reporter the case is cited in.
+#[test]
+fn should_put_paragraphs_under_the_reporter_pages_when_the_conversion_marks_star_pagination() {
+    let case = case_of(2651100);
+    let writing = "judicial/case_2651100/opinion_2651100";
+
+    let opening = words(&case, &format!("{writing}/page_565/paragraph_1"));
+    assert!(
+        opening.starts_with("*565") && opening.contains("Following the trial"),
+        "the paragraph that opens with the mark for 565 keeps the mark, got {opening:.60}"
+    );
+    let footnote = words(&case, &format!("{writing}/footnote_53"));
+    assert!(
+        footnote.starts_with('.') && footnote.contains("See Henry v. Commissioner"),
+        "the footnote's words, without the mark `53` it opens with, got {footnote:.60}"
+    );
+}
+
+/// A page segment is a page of one volume of one reporter, and the writing
+/// says which, so `page_459` reads as "537 U.S. at 459".
+#[test]
+fn should_name_the_reporter_volume_whose_pages_the_writing_counts() {
+    let pages_of = |case: &Expression, writing: &str| {
+        OpinionFacts::of(&node(case, writing).data)
+            .expect("a writing carries judicial facts")
+            .pages
+    };
+
+    assert_eq!(pages_of(&boeing(), DISSENT).as_deref(), Some("537 U.S."));
+    assert_eq!(
+        pages_of(&case_of(2651100), "judicial/case_2651100/opinion_2651100").as_deref(),
+        Some("741 F.3d")
+    );
+    assert_eq!(
+        pages_of(&case_of(2812209), "judicial/case_2812209/opinion_2812209"),
+        None,
+        "Obergefell's labels count pages of no official reporter"
     );
 }

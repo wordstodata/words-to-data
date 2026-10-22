@@ -19,7 +19,7 @@ use super::structure::{Passage, PassageKind, read_structure};
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
-use crate::judicial::{CaseFacts, OpinionFacts};
+use crate::judicial::{CaseFacts, OpinionFacts, PassageFacts};
 use crate::link::{Provenance, VerificationState};
 use crate::method::Method;
 
@@ -143,6 +143,10 @@ pub struct ReporterCitation {
     /// prints `13301-M` (`docs/research/courtlistener-formats.md`, section 5).
     #[serde(default)]
     pub page: String,
+    /// The publisher's kind of citation, as a number: 6 is a LEXIS id and 7 a
+    /// Westlaw id, which name a database record and print no page.
+    #[serde(rename = "type", default)]
+    pub kind: Option<u8>,
 }
 
 impl ReporterCitation {
@@ -150,6 +154,46 @@ impl ReporterCitation {
     pub fn printed(&self) -> String {
         format!("{} {} {}", self.volume, self.reporter, self.page)
     }
+
+    /// `576 U.S.`: the volume whose pages a page label counts.
+    fn volume_printed(&self) -> String {
+        format!("{} {}", self.volume, self.reporter)
+    }
+}
+
+/// Reporters that print the decisions of a court that has an official
+/// reporter, and so are never the official one: the commercial parallels of the
+/// U.S. Reports. A page of one of them is not a path
+/// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 4: the same pin cite must mean the same path in every case).
+const PARALLEL_REPORTERS: [&str; 3] = ["S. Ct.", "L. Ed.", "L. Ed. 2d"];
+
+/// CourtListener's citation kinds that name a database record rather than a
+/// printed page: LEXIS, Westlaw, a neutral citation and a journal.
+const NO_PAGES: [u8; 4] = [6, 7, 8, 9];
+
+/// The citation of the official reporter whose pages a writing's page labels
+/// count, when they count one.
+///
+/// A label belongs to the volume the case starts in: the citation, of those
+/// whose first page is at or before the first label, with the latest first
+/// page. *Boeing*'s first label is 441, and of 537 U.S. 437 and 155 L. Ed. 2d
+/// 17 the case is at 437, so the labels are pages of 537 U.S. *Obergefell*'s
+/// first label is 2594, and its case is at 135 S. Ct. 2584, so its labels are
+/// pages of a commercial reporter and count nothing here.
+fn official_pages<'a>(
+    first_label: &str,
+    citations: &'a [ReporterCitation],
+) -> Option<&'a ReporterCitation> {
+    let label: u64 = first_label.parse().ok()?;
+    let starts = citations
+        .iter()
+        .filter(|citation| !citation.kind.is_some_and(|kind| NO_PAGES.contains(&kind)))
+        .filter_map(|citation| Some((citation.page.parse::<u64>().ok()?, citation)))
+        .filter(|(first_page, _)| *first_page <= label)
+        .max_by_key(|(first_page, _)| *first_page)?;
+    let (_, citation) = starts;
+    (!PARALLEL_REPORTERS.contains(&citation.reporter.as_str())).then_some(citation)
 }
 
 /// Where an opinion's text came from, and what that says about trusting it.
@@ -513,7 +557,7 @@ pub fn case_expression(
     let mut writings = Vec::new();
     for opinion in writing_records {
         let path = writing_path(cluster.id, opinion.id);
-        let (node, source, report, text) = writing_node(opinion, &path, date)?;
+        let (node, source, report, text) = writing_node(opinion, &path, date, &cluster.citations)?;
         children.push(node);
         writings.push(WritingText {
             opinion_id: opinion.id,
@@ -578,6 +622,7 @@ fn writing_node(
     opinion: &OpinionRecord,
     path: &str,
     date: time::Date,
+    citations: &[ReporterCitation],
 ) -> Result<(DocumentNode, TextSource, MarkupReport, String), CourtListenerError> {
     let (source, raw) = opinion
         .chosen_field()
@@ -597,6 +642,7 @@ fn writing_node(
         sha1: opinion.sha1.clone(),
         page_count: opinion.page_count,
         download_url: opinion.download_url.clone(),
+        pages: None,
     };
 
     // Where the text came from is core provenance, not a judicial fact: a reader
@@ -617,9 +663,11 @@ fn writing_node(
         corroboration: None,
     };
 
-    let writing = NodeData::new(path, NodeType::new(NodeType::OPINION), date)
-        .with_provenance(provenance.clone())
-        .with_payload(facts.to_payload().map_err(CourtListenerError::from)?);
+    let writing = |facts: OpinionFacts| -> Result<NodeData, CourtListenerError> {
+        Ok(NodeData::new(path, NodeType::new(NodeType::OPINION), date)
+            .with_provenance(provenance.clone())
+            .with_payload(facts.to_payload()?))
+    };
 
     if !STRUCTURED.contains(&source.field) {
         let (text, report) = match source.markup {
@@ -628,21 +676,33 @@ fn writing_node(
         };
         let data = NodeData {
             content: Some(text.clone().into()),
-            ..writing
+            ..writing(facts)?
         };
         return Ok((DocumentNode::leaf(data), source, report, text));
     }
 
     let structure = read_structure(raw);
+    let pages = structure
+        .first_page_mark
+        .as_deref()
+        .and_then(|label| official_pages(label, citations));
+    let structure = match pages {
+        Some(_) => structure,
+        None => structure.without_pages(),
+    };
+    let facts = OpinionFacts {
+        pages: pages.map(ReporterCitation::volume_printed),
+        ..facts
+    };
     let text = structure
         .passages
         .iter()
         .map(|passage| passage.text.as_str())
         .collect::<Vec<_>>()
         .join("\n\n");
-    let children = passage_nodes(&structure.passages, path, date, &provenance);
+    let children = passage_nodes(&structure.passages, path, date, &provenance)?;
     let node = DocumentNode {
-        data: writing,
+        data: writing(facts)?,
         children,
     };
     Ok((node, source, structure.report, text))
@@ -659,15 +719,18 @@ fn passage_nodes(
     writing: &str,
     date: time::Date,
     provenance: &Provenance,
-) -> Vec<DocumentNode> {
-    let leaf = |path: String, node_type: &str, text: &str| {
-        DocumentNode::leaf(
-            NodeData {
-                content: Some(text.into()),
-                ..NodeData::new(path, NodeType::new(node_type), date)
-            }
-            .with_provenance(provenance.clone()),
-        )
+) -> Result<Vec<DocumentNode>, CourtListenerError> {
+    let leaf = |path: String, node_type: &str, passage: &Passage| {
+        let facts = PassageFacts {
+            source_ids: passage.source_ids.clone(),
+        };
+        let data = NodeData {
+            content: Some(passage.text.as_str().into()),
+            ..NodeData::new(path, NodeType::new(node_type), date)
+        }
+        .with_provenance(provenance.clone())
+        .with_payload(facts.to_payload()?);
+        Ok::<_, CourtListenerError>(DocumentNode::leaf(data))
     };
 
     let mut children: Vec<DocumentNode> = Vec::new();
@@ -677,16 +740,16 @@ fn passage_nodes(
         match &passage.kind {
             PassageKind::Footnote { label } => footnotes.push(leaf(
                 format!("{writing}/footnote_{label}"),
-                FOOTNOTE,
-                &passage.text,
-            )),
+                NodeType::FOOTNOTE,
+                passage,
+            )?),
             PassageKind::Paragraph { page: None } => {
                 unpaged += 1;
                 children.push(leaf(
                     format!("{writing}/paragraph_{unpaged}"),
-                    PARAGRAPH,
-                    &passage.text,
-                ));
+                    NodeType::PARAGRAPH,
+                    passage,
+                )?);
             }
             PassageKind::Paragraph { page: Some(page) } => {
                 let page_path = format!("{writing}/page_{page}");
@@ -698,7 +761,7 @@ fn passage_nodes(
                     None => {
                         children.push(DocumentNode::leaf(NodeData::new(
                             page_path.as_str(),
-                            NodeType::new(PAGE),
+                            NodeType::new(NodeType::PAGE),
                             date,
                         )));
                         children.len() - 1
@@ -708,21 +771,12 @@ fn passage_nodes(
                 let n = page_node.children.len() + 1;
                 page_node.children.push(leaf(
                     format!("{page_path}/paragraph_{n}"),
-                    PARAGRAPH,
-                    &passage.text,
-                ));
+                    NodeType::PARAGRAPH,
+                    passage,
+                )?);
             }
         }
     }
     children.extend(footnotes);
-    children
+    Ok(children)
 }
-
-/// A page of the official reporter, holding the paragraphs that start on it.
-const PAGE: &str = "judicial.page";
-
-/// One paragraph of a writing.
-const PARAGRAPH: &str = "judicial.paragraph";
-
-/// One footnote of a writing.
-const FOOTNOTE: &str = "judicial.footnote";

@@ -174,7 +174,7 @@ fn should_find_a_phrase_when_a_line_break_splits_it() {
             .collect();
         assert_eq!(
             paths,
-            ["judicial/case_2651100/opinion_2651100/page_563/paragraph_5"],
+            ["judicial/case_2651100/opinion_2651100/page_563/paragraph_4"],
             "the paragraph that holds the words, in {dataset}"
         );
         let snippet = found[0]["snippet"].as_str().unwrap();

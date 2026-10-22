@@ -53,6 +53,23 @@ pub(crate) enum PassageKind {
 pub(crate) struct Structure {
     pub passages: Vec<Passage>,
     pub report: MarkupReport,
+    /// The label of the first page mark in the body, such as `441`, when the
+    /// source marks pages.
+    pub first_page_mark: Option<String>,
+}
+
+impl Structure {
+    /// The same passages with no page: what a writing gets when the pages the
+    /// source labels are not pages of the official reporter.
+    pub fn without_pages(mut self) -> Self {
+        for passage in &mut self.passages {
+            if let PassageKind::Paragraph { page } = &mut passage.kind {
+                *page = None;
+            }
+        }
+        self.first_page_mark = None;
+        self
+    }
 }
 
 /// Elements that hold one paragraph. CAP gives each of them an id.
@@ -117,32 +134,27 @@ fn has_class(tag: &str, class: &str) -> bool {
 }
 
 /// The next tag at or after `from`, when there is one.
+///
+/// `<?xml …?>` and a comment come back with an empty name: they are no
+/// element, and no words either.
 fn next_tag(markup: &str, from: usize) -> Option<Tag<'_>> {
-    let mut search = from;
-    loop {
-        let start = markup[search..].find('<')? + search;
-        let end = markup[start..].find('>')? + start + 1;
-        let inner = &markup[start + 1..end - 1];
-        let closing = inner.starts_with('/');
-        let name: String = inner
-            .trim_start_matches('/')
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-            .collect::<String>()
-            .to_ascii_lowercase();
-        if name.is_empty() {
-            // `<?xml …?>`, a comment, or a stray `<`: not an element.
-            search = end;
-            continue;
-        }
-        return Some(Tag {
-            name,
-            closing,
-            inner,
-            start,
-            end,
-        });
-    }
+    let start = markup[from..].find('<')? + from;
+    let end = markup[start..].find('>')? + start + 1;
+    let inner = &markup[start + 1..end - 1];
+    let closing = inner.starts_with('/');
+    let name: String = inner
+        .trim_start_matches('/')
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    Some(Tag {
+        name,
+        closing,
+        inner,
+        start,
+        end,
+    })
 }
 
 /// Whether a tag marks a page break, and what page it names.
@@ -377,6 +389,10 @@ impl<'a> Reader<'a> {
         let mut passages = Vec::new();
         for (kind, raw, source_ids) in self.passages {
             let (text, one) = text_of_markup(raw);
+            if text.is_empty() {
+                // Markup with no words in it, such as `<p></p>`.
+                continue;
+            }
             for (name, count) in one.unknown_entities {
                 *report.unknown_entities.entry(name).or_insert(0) += count;
             }
@@ -394,10 +410,14 @@ impl<'a> Reader<'a> {
                 source_ids,
             });
         }
-        if let Some(first_mark) = self.first_mark {
-            first_page(&mut passages, &first_mark);
+        if let Some(first_mark) = &self.first_mark {
+            first_page(&mut passages, first_mark);
         }
-        Structure { passages, report }
+        Structure {
+            passages,
+            report,
+            first_page_mark: self.first_mark,
+        }
     }
 }
 
