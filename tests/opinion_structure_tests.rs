@@ -324,3 +324,68 @@ fn should_name_the_reporter_volume_whose_pages_the_writing_counts() {
         "Obergefell's labels count pages of no official reporter"
     );
 }
+
+// --- Columbia's archive --------------------------------------------------
+
+/// *Wallace v. City of Fresno*, 42 Cal. 2d 180 (1954), cluster 1197312.
+/// CourtListener holds the Court's opinion and an addendum as split records
+/// from the Columbia archive, in `html_columbia`, and the whole case as one
+/// combined record. Columbia marks a page with
+/// `<span class="star-pagination">*Page 182</span>`, gives no paragraph an id,
+/// and opens each footnote inside a `<p>` that closes inside the footnote.
+const WALLACE: &str = "judicial/case_1197312/opinion_9943788";
+
+#[test]
+fn should_put_paragraphs_under_the_reporter_pages_when_columbia_marks_star_pages() {
+    let case = case_of(1197312);
+
+    assert!(
+        words(&case, &format!("{WALLACE}/page_181/paragraph_1"))
+            .starts_with("R.T. Wallace was a member of the police department"),
+        "the opinion starts on the page before the first mark, *Page 182"
+    );
+    assert!(
+        words(&case, &format!("{WALLACE}/page_182/paragraph_1"))
+            .starts_with("When Wallace entered the police department"),
+        "the first paragraph that starts on 182"
+    );
+    let facts = OpinionFacts::of(&node(&case, WALLACE).data).expect("writing facts");
+    assert_eq!(facts.pages.as_deref(), Some("42 Cal. 2d"));
+
+    let provenance = node(&case, &format!("{WALLACE}/page_182/paragraph_1"))
+        .data
+        .provenance
+        .as_ref()
+        .expect("a paragraph records where its words came from");
+    assert_eq!(provenance.source, "courtlistener:opinion/9943788:html_columbia");
+    assert_eq!(
+        provenance.verification,
+        words_to_data::link::VerificationState::Asserted,
+        "a person prepared Columbia's markup; no OCR"
+    );
+}
+
+/// Columbia's footnotes carry no label but the mark they open with, and here
+/// the marks are `*` and `**`.
+#[test]
+fn should_store_each_footnote_by_its_printed_mark_when_columbia_gives_no_label() {
+    let case = case_of(1197312);
+
+    assert!(
+        words(&case, &format!("{WALLACE}/footnote_*"))
+            .starts_with("Section 2 of the 1923 ordinance provided"),
+        "the footnote's words, without its mark"
+    );
+    assert!(
+        words(&case, &format!("{WALLACE}/footnote_**"))
+            .starts_with("For the rule with respect to the right of a city"),
+    );
+    let last = child_paths(&case, WALLACE);
+    assert!(
+        last.ends_with(&[
+            format!("{WALLACE}/footnote_*"),
+            format!("{WALLACE}/footnote_**")
+        ]),
+        "the footnotes follow the pages, got {last:?}"
+    );
+}
