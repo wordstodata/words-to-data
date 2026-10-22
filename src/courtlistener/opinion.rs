@@ -15,12 +15,17 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::plain::{PARAGRAPHS, read_plain_text};
 use super::structure::{Passage, PassageKind, Structure, read_structure};
+use super::writings::{
+    FoundMatter, FoundWriting, JUSTICE_HEADINGS, RUNNING_HEADS, read_running_heads, rule,
+    split_at_justice_headings,
+};
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
 use crate::judicial::{CaseFacts, OpinionFacts, PassageFacts};
-use crate::link::{Provenance, VerificationState};
+use crate::link::{Evidence, Provenance, VerificationState};
 use crate::method::Method;
 
 /// The work a case is: `judicial/case_122262`.
@@ -554,18 +559,27 @@ pub fn case_expression(
         children.push(node);
         matter_reports.push(report);
     }
+    // A combined record is split by rule only when the case has no split
+    // records (decision 2).
+    let may_split = opinions.iter().all(OpinionRecord::is_combined);
     let mut writings = Vec::new();
     for opinion in writing_records {
         let path = writing_path(cluster.id, opinion.id);
-        let (node, source, report, text) = writing_node(opinion, &path, date, &cluster.citations)?;
-        children.push(node);
-        writings.push(WritingText {
-            opinion_id: opinion.id,
-            path,
-            source,
-            report,
-            text,
-        });
+        let record = writing_nodes(opinion, &path, date, &cluster.citations, may_split)?;
+        for (name, mut node) in record.matter {
+            // The cluster's own field of the same matter keeps the plain name.
+            if children
+                .iter()
+                .any(|child| child.data.path == node.data.path)
+            {
+                node.data.path = format!("{}/{name}_{}", work_id(cluster.id), opinion.id).into();
+            }
+            children.push(node);
+        }
+        for (node, writing) in record.writings {
+            children.push(node);
+            writings.push(writing);
+        }
     }
 
     let facts = CaseFacts {
@@ -612,18 +626,34 @@ pub fn case_expression(
 /// decision 4).
 const STRUCTURED: [&str; 2] = ["xml_harvard", "html_columbia"];
 
-/// One writing as a node at `path`: its text, where the text came from, what
-/// the publisher says about the writing, and its whole text as one string.
+/// What one record gives its case: the writings it holds, and any matter in
+/// it that is no part of a writing, such as a slip opinion's syllabus.
+struct RecordNodes {
+    writings: Vec<(DocumentNode, WritingText)>,
+    /// Each with its name among the case's children, such as `syllabus`.
+    matter: Vec<(&'static str, DocumentNode)>,
+}
+
+/// The writings one record holds, each as a node, with where its text came
+/// from and its whole text as one string, and the matter in it that is no part
+/// of any writing.
 ///
-/// A writing read from a field in [`STRUCTURED`] holds no text itself. Its
-/// paragraphs and footnotes are its children, each with the same provenance,
-/// so a search hit names the paragraph that holds the words.
-fn writing_node(
+/// Most records hold one writing, at `path`. A combined record that
+/// `may_split` holds several when a rule finds them: each is a node at
+/// `<path>-<n>`, `MachineSuggested`, and its provenance names the rule
+/// ([`super::writings`]). A combined record the rules cannot split stays one
+/// writing at `path`, and its provenance says no rule found a second one.
+///
+/// A writing read from a field in [`STRUCTURED`] or from `plain_text` holds no
+/// text itself. Its paragraphs and footnotes are its children, each with the
+/// same provenance, so a search hit names the paragraph that holds the words.
+fn writing_nodes(
     opinion: &OpinionRecord,
     path: &str,
     date: time::Date,
     citations: &[ReporterCitation],
-) -> Result<(DocumentNode, TextSource, MarkupReport, String), CourtListenerError> {
+    may_split: bool,
+) -> Result<RecordNodes, CourtListenerError> {
     let (source, raw) = opinion
         .chosen_field()
         .ok_or(CourtListenerError::Incomplete {
@@ -662,50 +692,276 @@ fn writing_node(
         timestamp: None,
         corroboration: None,
     };
-
-    let writing = |facts: OpinionFacts| -> Result<NodeData, CourtListenerError> {
-        Ok(NodeData::new(path, NodeType::new(NodeType::OPINION), date)
-            .with_provenance(provenance.clone())
-            .with_payload(facts.to_payload()?))
+    // What a rule found, said in the provenance of what it found.
+    let found_by = |reasoning: String| Provenance {
+        verification: VerificationState::MachineSuggested,
+        evidence: Evidence::from_reasoning(Some(reasoning)),
+        ..provenance.clone()
     };
 
-    if !STRUCTURED.contains(&source.field) {
-        let (text, report) = match source.markup {
-            true => text_of_markup(raw),
-            false => (raw.to_string(), MarkupReport::default()),
+    let try_split = may_split && opinion.is_combined();
+    let read = read_writing(raw, source, citations, try_split);
+    let case_path = path.rsplit_once('/').map_or(path, |(case, _)| case);
+    let matter = read
+        .matter
+        .iter()
+        .map(|matter| {
+            let provenance = found_by(format!(
+                "{}: the pages carry the running head \"{}\"",
+                rule(RUNNING_HEADS),
+                matter.heading
+            ));
+            (
+                matter.field,
+                matter_node(matter, case_path, date, provenance),
+            )
+        })
+        .collect();
+
+    let writing = |path: &str, text: String, report: MarkupReport| WritingText {
+        opinion_id: opinion.id,
+        path: path.to_string(),
+        source,
+        report,
+        text,
+    };
+    let found = match try_split {
+        false => None,
+        true if read.headed.len() >= 2 => Some((RUNNING_HEADS, read.headed.clone())),
+        true => split_at_justice_headings(&read.structure.passages)
+            .map(|writings| (JUSTICE_HEADINGS, writings)),
+    };
+
+    let Some((found_rule, found)) = found else {
+        let provenance = match try_split {
+            true => Provenance {
+                evidence: Evidence::from_reasoning(Some(format!(
+                    "{}: no rule found a second writing in this combined record, so it is one writing",
+                    read.rules_tried()
+                ))),
+                ..provenance
+            },
+            false => provenance,
         };
-        let data = NodeData {
-            content: Some(text.clone().into()),
-            ..writing(facts)?
+        let facts = OpinionFacts {
+            pages: read.pages.clone(),
+            ..facts
         };
-        return Ok((DocumentNode::leaf(data), source, report, text));
-    }
+        let (node, text) = read.node(path, date, facts, &provenance)?;
+        return Ok(RecordNodes {
+            writings: vec![(node, writing(path, text, read.structure.report))],
+            matter,
+        });
+    };
 
-    let structure = read_structure(raw);
-    let pages = structure
-        .first_page_mark
-        .as_deref()
-        .and_then(|label| official_pages(label, citations));
-    let structure = match pages {
-        Some(_) => structure,
-        None => structure.without_pages(),
-    };
-    let facts = OpinionFacts {
-        pages: pages.map(ReporterCitation::volume_printed),
-        ..facts
-    };
-    let text = structure
+    let mut report = Some(read.structure.report.clone());
+    let writings = found
+        .into_iter()
+        .enumerate()
+        .map(|(index, found)| {
+            let path = format!("{path}-{}", index + 1);
+            let provenance = found_by(match found_rule {
+                RUNNING_HEADS => format!(
+                    "{}: the writing's pages carry the running head \"{}\"",
+                    rule(found_rule),
+                    found.heading
+                ),
+                _ => format!(
+                    "{}: the writing opens with \"{}\"",
+                    rule(found_rule),
+                    found.heading
+                ),
+            });
+            let facts = OpinionFacts {
+                opinion_type: found.opinion_type.map(str::to_string),
+                author: found.author,
+                per_curiam: found.per_curiam,
+                pages: read.pages.clone(),
+                ..facts.clone()
+            };
+            let part = ReadWriting {
+                structure: Structure::of_passages(found.passages),
+                ..read.clone()
+            };
+            let (node, text) = part.node(&path, date, facts, &provenance)?;
+            // The record's report is said once, with its first writing.
+            let report = report.take().unwrap_or_default();
+            Ok((node, writing(&path, text, report)))
+        })
+        .collect::<Result<_, CourtListenerError>>()?;
+    Ok(RecordNodes { writings, matter })
+}
+
+/// Matter a rule found, as one child of the case that holds its words, with
+/// the node type the publisher's own field of it has: `judicial.syllabus`.
+fn matter_node(
+    matter: &FoundMatter,
+    case_path: &str,
+    date: time::Date,
+    provenance: Provenance,
+) -> DocumentNode {
+    let words = matter
         .passages
         .iter()
         .map(|passage| passage.text.as_str())
         .collect::<Vec<_>>()
         .join("\n\n");
-    let children = passage_nodes(&structure, path, date, &provenance)?;
-    let node = DocumentNode {
-        data: writing(facts)?,
-        children,
+    let data = NodeData {
+        content: Some(words.into()),
+        ..NodeData::new(
+            format!("{case_path}/{}", matter.field),
+            NodeType::new(format!("{}.{}", NodeType::JUDICIAL, matter.field)),
+            date,
+        )
+    }
+    .with_provenance(provenance);
+    DocumentNode::leaf(data)
+}
+
+/// The words of one record, read for the writings in it.
+#[derive(Debug, Clone)]
+struct ReadWriting {
+    /// The passages of the record's writings, without any matter that is no
+    /// part of one.
+    structure: Structure,
+    /// Whether the record's field marks paragraphs, so a writing holds them as
+    /// its children rather than as one text.
+    structured: bool,
+    /// The volume of the official reporter whose pages the paragraphs count.
+    pages: Option<String>,
+    /// The rule that found the paragraphs, when the field does not mark them.
+    passage_rule: Option<&'static str>,
+    /// The writings a slip opinion's running heads name, in order. Empty for
+    /// any field but `plain_text`.
+    headed: Vec<FoundWriting>,
+    /// The matter the running heads name, such as the syllabus.
+    matter: Vec<FoundMatter>,
+}
+
+/// Read a record's chosen field into passages.
+///
+/// A field in [`STRUCTURED`] gives paragraphs and pages. `plain_text` gives
+/// paragraphs and footnotes by rule ([`super::plain`]), and the writings its
+/// running heads name. Any other markup is one passage, or its paragraphs when
+/// a rule is to look for the writings in it; either way a writing read from it
+/// holds its words as one text.
+fn read_writing(
+    raw: &str,
+    source: TextSource,
+    citations: &[ReporterCitation],
+    for_split: bool,
+) -> ReadWriting {
+    let plain = |structure, structured| ReadWriting {
+        structure,
+        structured,
+        pages: None,
+        passage_rule: None,
+        headed: Vec::new(),
+        matter: Vec::new(),
     };
-    Ok((node, source, structure.report, text))
+    if STRUCTURED.contains(&source.field) {
+        let structure = read_structure(raw);
+        let pages = structure
+            .first_page_mark
+            .as_deref()
+            .and_then(|label| official_pages(label, citations));
+        let structure = match pages {
+            Some(_) => structure,
+            None => structure.without_pages(),
+        };
+        return ReadWriting {
+            pages: pages.map(ReporterCitation::volume_printed),
+            ..plain(structure, true)
+        };
+    }
+    if source.field == "plain_text" {
+        let headed = read_running_heads(read_plain_text(raw));
+        let passages = headed
+            .writings
+            .iter()
+            .flat_map(|writing| writing.passages.iter().cloned())
+            .collect();
+        return ReadWriting {
+            passage_rule: Some(PARAGRAPHS),
+            headed: headed.writings,
+            matter: headed.matter,
+            ..plain(Structure::of_passages(passages), true)
+        };
+    }
+    let structure = match for_split {
+        true => read_structure(raw).without_pages(),
+        false => {
+            let (text, report) = text_of_markup(raw);
+            Structure {
+                report,
+                ..Structure::of_passages(vec![Passage::paragraph(text)])
+            }
+        }
+    };
+    plain(structure, false)
+}
+
+impl ReadWriting {
+    /// The rules that looked for the writings in this record: `justice-headings@1`.
+    fn rules_tried(&self) -> String {
+        match self.passage_rule {
+            Some(_) => format!("{} and {}", rule(RUNNING_HEADS), rule(JUSTICE_HEADINGS)),
+            None => rule(JUSTICE_HEADINGS).to_string(),
+        }
+    }
+
+    /// The writing as a node at `path`, and its whole text as one string: every
+    /// paragraph and then every footnote, in the order the source has them, a
+    /// blank line between two.
+    fn node(
+        &self,
+        path: &str,
+        date: time::Date,
+        facts: OpinionFacts,
+        provenance: &Provenance,
+    ) -> Result<(DocumentNode, String), CourtListenerError> {
+        let text = self
+            .structure
+            .passages
+            .iter()
+            .map(|passage| passage.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let data = NodeData::new(path, NodeType::new(NodeType::OPINION), date)
+            .with_provenance(provenance.clone())
+            .with_payload(facts.to_payload()?);
+        if !self.structured {
+            let data = NodeData {
+                content: Some(text.clone().into()),
+                ..data
+            };
+            return Ok((DocumentNode::leaf(data), text));
+        }
+        let children = match self.passage_rule {
+            None => passage_nodes(&self.structure, path, date, provenance)?,
+            Some(found_by) => {
+                let said = format!(
+                    "{}: paragraphs and footnotes read from the layout of the text",
+                    rule(found_by)
+                );
+                let reasoning = match provenance
+                    .evidence
+                    .as_ref()
+                    .and_then(|e| e.reasoning.as_deref())
+                {
+                    Some(writing) => format!("{writing}; {said}"),
+                    None => said,
+                };
+                let provenance = Provenance {
+                    verification: VerificationState::MachineSuggested,
+                    evidence: Evidence::from_reasoning(Some(reasoning)),
+                    ..provenance.clone()
+                };
+                passage_nodes(&self.structure, path, date, &provenance)?
+            }
+        };
+        Ok((DocumentNode { data, children }, text))
+    }
 }
 
 /// The paragraphs of a writing under the pages they start on, then its

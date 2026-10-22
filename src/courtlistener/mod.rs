@@ -21,8 +21,18 @@
 //! A writing read from `xml_harvard` or `html_columbia` holds its words in its
 //! paragraphs and footnotes: `opinion_<id>/page_<p>/paragraph_<n>` by the page of
 //! the official reporter each paragraph starts on, and `opinion_<id>/footnote_<label>`
-//! (decisions 3 and 4, #314). A writing read from any other field is one node
-//! that holds all its words. See [`opinion`] and the `structure` reader.
+//! (decisions 3 and 4, #314). A writing read from `plain_text` holds
+//! `opinion_<id>/paragraph_<n>` and its footnotes, found by rule from the
+//! layout of the lines (the `plain` reader, #315). A writing read from any
+//! other field is one node that holds all its words. See [`opinion`] and the
+//! `structure` reader.
+//!
+//! # Writings found by rule
+//!
+//! When a case has only a combined record, a rule may find the writings in it:
+//! the line that opens each one, or a slip opinion's running heads. Each is
+//! `opinion_<id>-<n>`, `MachineSuggested`, and its provenance names the rule
+//! (decision 2, the `writings` rules, #315).
 //!
 //! # The filing date is on the cluster
 //!
@@ -57,7 +67,9 @@
 pub mod client;
 pub mod markup;
 pub mod opinion;
+mod plain;
 mod structure;
+mod writings;
 
 pub use client::CourtListenerClient;
 pub use opinion::{

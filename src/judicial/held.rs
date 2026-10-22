@@ -57,6 +57,10 @@ pub struct HeldOpinion {
     /// How many `judicial.cites` links name this writing, or a path beneath it,
     /// as their subject: the U.S. Code citations the dataset holds for it.
     pub cites: usize,
+    /// What the writing's provenance says it was based on, when it says: the
+    /// rule that found it in a combined record and the words it found it by,
+    /// or that no rule found a second writing (#315).
+    pub found_by: Option<String>,
 }
 
 /// Every writing the dataset holds, one row for each, ordered by date, then by
@@ -114,6 +118,7 @@ pub fn held_opinions<R: DocumentReader + LinkReader + ?Sized>(
                             })
                             .map(|(_, count)| count)
                             .sum(),
+                        found_by: found_by(data),
                     },
                 ));
             }
@@ -238,6 +243,9 @@ pub struct HeldWriting {
     /// `page_<p>` paths count, such as `537 U.S.` (#314). `None` when the
     /// writing has no page level.
     pub pages: Option<String>,
+    /// The rule that found the writing in a combined record, and by what
+    /// words, as its provenance says (#315).
+    pub found_by: Option<String>,
 }
 
 /// The stored facts of the case that holds `path`, and of the writing at or
@@ -329,7 +337,16 @@ fn held_writing(node: &DocumentNode) -> HeldWriting {
             .as_ref()
             .and_then(|provenance| provenance.method.as_ref())
             .map(|method| method.name.clone()),
+        found_by: found_by(data),
     }
+}
+
+/// What a node's provenance says it was based on, in its own words.
+fn found_by(data: &crate::document::NodeData) -> Option<String> {
+    data.provenance
+        .as_ref()
+        .and_then(|provenance| provenance.evidence.as_ref())
+        .and_then(|evidence| evidence.reasoning.clone())
 }
 
 /// A value the publisher sent, or `None` when it sent nothing or a blank.

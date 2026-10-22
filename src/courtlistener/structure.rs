@@ -28,6 +28,18 @@
 
 use super::markup::{MarkupReport, text_of_markup};
 
+impl Passage {
+    /// A paragraph on no page, with no ids and no footnote references.
+    pub fn paragraph(text: String) -> Self {
+        Self {
+            kind: PassageKind::Paragraph { page: None },
+            text,
+            source_ids: Vec::new(),
+            footnote_marks: Vec::new(),
+        }
+    }
+}
+
 /// One passage of a writing, in document order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Passage {
@@ -37,6 +49,9 @@ pub(crate) struct Passage {
     /// The ids the source gives the paragraphs of this passage, such as CAP's
     /// `b693-8`. Empty when the source gives none.
     pub source_ids: Vec<String>,
+    /// The label of each footnote this passage refers to, in order, when the
+    /// source marks the reference: `1` for `<a class="footnote">1</a>`.
+    pub footnote_marks: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +78,26 @@ pub(crate) struct Structure {
 }
 
 impl Structure {
+    /// Passages that some reader other than [`read_structure`] found, such as
+    /// one writing of several in a combined record. Its pages are the pages
+    /// its paragraphs start on.
+    pub fn of_passages(passages: Vec<Passage>) -> Self {
+        let mut pages: Vec<String> = Vec::new();
+        for passage in &passages {
+            if let PassageKind::Paragraph { page: Some(page) } = &passage.kind
+                && !pages.contains(page)
+            {
+                pages.push(page.clone());
+            }
+        }
+        Self {
+            passages,
+            report: MarkupReport::default(),
+            first_page_mark: None,
+            pages,
+        }
+    }
+
     /// The same passages with no page: what a writing gets when the pages the
     /// source labels are not pages of the official reporter.
     pub fn without_pages(mut self) -> Self {
@@ -411,6 +446,7 @@ impl<'a> Reader<'a> {
                 kind,
                 text,
                 source_ids,
+                footnote_marks: footnote_marks(raw),
             });
         }
         let first_page_mark = self.marks.first().cloned();
@@ -425,6 +461,35 @@ impl<'a> Reader<'a> {
             pages,
         }
     }
+}
+
+/// The label of each footnote a passage refers to, in order.
+///
+/// CourtListener's conversion of Harvard's text writes a reference as
+/// `<a class="footnote" href="#fn1">1</a>`, and CAP's own XML writes
+/// `<footnotemark>1</footnotemark>`. A writing found by rule inside a combined
+/// record takes the footnotes it refers to (`super::writings`).
+fn footnote_marks(raw: &str) -> Vec<String> {
+    let mut marks = Vec::new();
+    let mut at = 0;
+    while let Some(tag) = next_tag(raw, at) {
+        at = tag.end;
+        let is_mark = !tag.closing
+            && (tag.name == "footnotemark"
+                || (tag.name == "a" && has_class(tag.inner, "footnote")));
+        if !is_mark {
+            continue;
+        }
+        let close = format!("</{}", tag.name);
+        let inner_end = raw[tag.end..]
+            .find(&close)
+            .map_or(raw.len(), |end| tag.end + end);
+        let (label, _) = text_of_markup(&raw[tag.end..inner_end]);
+        if !label.is_empty() {
+            marks.push(label);
+        }
+    }
+    marks
 }
 
 /// Every page the body is printed on, in order, once each.

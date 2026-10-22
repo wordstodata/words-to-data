@@ -126,4 +126,8 @@ fn print_row(row: &HeldOpinion) {
         row.text_field.as_deref().unwrap_or(NOT_RECORDED),
         row.cites,
     );
+    // A writing a rule found says so, on a line of its own (#315).
+    if let Some(found_by) = &row.found_by {
+        println!("      found by: {found_by}");
+    }
 }

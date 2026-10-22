@@ -97,10 +97,23 @@ on, and the mark `*459` stays in its words. So a pin cite, "537 U.S. at 459", is
 `…/page_459`. A page that no paragraph starts on still has a path; its words
 are in the last paragraph of an earlier page, after its mark. A writing with no
 reporter pages (none marked, or only pages of S. Ct.) has
-`…/opinion_<id>/paragraph_<n>` alone. Any other writing is one node that holds
-all its words. Harvard's text is OCR: its words are `MachineSuggested`, and a
-citation in it can be misread ("26 V.S.C."), so read the words before you rely
-on them.
+`…/opinion_<id>/paragraph_<n>` alone. A writing whose text field is
+`plain_text` (a court's PDF text) has `paragraph_<n>` and `footnote_<label>`
+found by a rule from the layout of the lines; a word broken at the end of a
+line keeps its hyphen ("sepa-rately"), so search for part of a word when a
+whole word finds nothing. Any other writing is one node that holds all its
+words. Harvard's text is OCR: its words are `MachineSuggested`, and a citation
+in it can be misread ("26 V.S.C."), so read the words before you rely on them.
+
+When the publisher holds a case only as one combined record, a rule may split
+it into its writings: `opinion_<id>-1`, `opinion_<id>-2`, … in the order the
+record prints them. `opinions` and `path` say what found each one, on a line
+"found by:", such as `justice-headings@1: the writing opens with "JUSTICE
+THOMAS, with whom JUSTICE SCALIA joins, dissenting."`. Such a writing is
+`MachineSuggested`: its first and last words are a machine's reading of where
+one writing ends. A combined record that no rule split says so on the same
+line, and it holds every writing of the case. A Supreme Court slip opinion's
+syllabus is `judicial/case_<cluster>/syllabus`, not part of any writing.
 
 "combined record … kept as a source, not as text" means the publisher also holds the whole case as one
 record with the same words, and the dataset stores the split writings instead.

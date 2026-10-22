@@ -243,10 +243,13 @@ fn should_take_the_text_from_the_field_the_record_carries_and_say_which() {
             assert_eq!(facts.combined_records, [122262], "a source, not a writing");
             continue;
         }
-        let provenance = case
-            .expression
-            .root
-            .find(&writing_path(cluster.id, opinion_id))
+        // A combined record a rule splits holds its writings at `<path>-<n>`
+        // (#315); the first says where the words came from as well as any.
+        let path = writing_path(cluster.id, opinion_id);
+        let root = &case.expression.root;
+        let provenance = root
+            .find(&path)
+            .or_else(|| root.find(&format!("{path}-1")))
             .unwrap_or_else(|| panic!("opinion {opinion_id} should be a writing"))
             .data
             .provenance
