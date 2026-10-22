@@ -510,6 +510,11 @@ fn should_list_the_pages_and_footnotes_when_path_is_asked_about_a_writing() {
         "got:\n{printed}"
     );
 
+    assert!(
+        printed.lines().any(|line| line == "  pages: 537 U.S."),
+        "the writing names the volume its pages count, got:\n{printed}"
+    );
+
     let answer: serde_json::Value =
         serde_json::from_str(&stdout_of(&run(&["path", &dataset, DISSENT, "--json"])))
             .expect("--json should print JSON");

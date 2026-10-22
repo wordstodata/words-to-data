@@ -221,6 +221,17 @@ fn print_writing_facts(writing: &HeldWriting) {
             None => source.clone(),
         });
     fact("text from", text_from.as_deref());
+    // A writing with no page level has no reporter volume, and that is a
+    // fact about the source, so it is said rather than left blank (#314).
+    fact(
+        "pages",
+        Some(
+            writing
+                .pages
+                .as_deref()
+                .unwrap_or("none: its paths are paragraph_<n>, or it is one node"),
+        ),
+    );
 }
 
 /// A stored yes-or-no fact in words, or `None` when it is not recorded.

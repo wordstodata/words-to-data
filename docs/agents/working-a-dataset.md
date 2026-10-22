@@ -75,8 +75,9 @@ links. Take a path from this list, never from memory.
 
 `path` also shows every stored fact. On a writing,
 `judicial/case_<cluster>/opinion_<id>`, it shows the writing's type, author,
-per curiam, page count, download URL, sha1, and the record and field its text
-came from, then the facts of its case, then what is inside the writing: each
+per curiam, page count, download URL, sha1, the record and field its text
+came from, and `pages`, the reporter volume its page paths count (such as
+`537 U.S.`), then the facts of its case, then what is inside the writing: each
 page with how many paragraphs start on it, and each footnote. On a case,
 `judicial/case_<cluster>`, it
 shows the case name, cluster, panel, precedential status, reporter citations,
