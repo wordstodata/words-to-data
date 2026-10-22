@@ -538,19 +538,31 @@ fn should_answer_which_opinions_cite_section_174_and_whether_it_changed_after_ea
         );
         let window = &cited.since.windows[0];
         assert_eq!((window.from.as_str(), window.to.as_str()), (EARLIER, LATER));
-        assert!(
-            window.changed,
-            "{name}: section 174 really did change between these printings"
-        );
-        assert!(
-            window
-                .changed_paths
-                .iter()
-                .any(|path| path.ends_with("section_174/subsection_a")),
-            "{name}: subsection (a) is one of the parts that changed, got {:?}",
-            window.changed_paths
-        );
-        assert!(cited.since.changed_in_a_covered_window());
+
+        // The window is read where the opinion pointed (#302). Section 174 did
+        // change between these printings, at (a), (a)(2)(B), (b) and (d), and
+        // not at the (a)(1) that three of the nine wrote.
+        if window.at.ends_with("section_174/subsection_a/paragraph_1") {
+            assert!(
+                !window.changed,
+                "{name}: (a)(1) did not change between these printings, got {:?}",
+                window.changed_paths
+            );
+        } else {
+            assert!(
+                window.changed,
+                "{name}: section 174 really did change between these printings"
+            );
+            assert!(
+                window
+                    .changed_paths
+                    .iter()
+                    .any(|path| path.ends_with("section_174/subsection_a")),
+                "{name}: subsection (a) is one of the parts that changed, got {:?}",
+                window.changed_paths
+            );
+            assert!(cited.since.changed_in_a_covered_window());
+        }
 
         // The honest half. Every one of these cases predates the earliest
         // printing held, and the dataset must say so rather than imply that

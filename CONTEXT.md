@@ -236,7 +236,7 @@ The Link of kind `judicial.cites`. It says a court opinion cited a Provision: th
 
 It is the statement this project exists to make and nobody publishes. CourtListener finds a U.S. Code citation with eyecite, fails to resolve it, and throws it away; what survives is display markup with no identifier. So the extractor is ours (#52).
 
-The object stops at the section even where the opinion named a subsection, because a citation cannot be trusted at that depth — the published example `981(a)(l)(C)` has a lower-case L where the provision has a paragraph (1) — so the subsection is recorded as written rather than resolved.
+The object stops at the section even where the opinion named a subsection, because a citation cannot be trusted at that depth — the published example `981(a)(l)(C)` has a lower-case L where the provision has a paragraph (1) — so the subsection is recorded as written rather than resolved. A reader resolves it when it reads the link, against the printing it reads, and writes nothing back: `cases-citing` reads a change at the subdivision written when the printing holds it, and at the section when it does not, and says which (#302).
 
 Where the Dataset holds the citing opinion, the subject names the node, so a reader can follow the link to the words that made the citation. Where it does not, the subject says plainly that the citing document is outside the file and cannot be checked against it.
 _Avoid_: Reference, cite, mention

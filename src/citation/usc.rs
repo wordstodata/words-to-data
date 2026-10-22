@@ -319,6 +319,28 @@ pub fn section_number(section: &str) -> &str {
         .map_or(section, |(number, _)| number)
 }
 
+/// The designations a citation wrote below the section number, in order:
+/// `a`, `l`, `C` for `981(a)(l)(C)`, and none for `981`.
+///
+/// The other half of [`section_number`]. The text is the section as
+/// [`find`] read it, so this splits what the pattern already took and reads
+/// nothing new. Whether the designations name a provision is a question for the
+/// printing they are resolved in (`super::resolve::resolve_subdivision`).
+///
+/// ```
+/// use words_to_data::citation::usc::subdivisions;
+///
+/// assert_eq!(subdivisions("981(a)(l)(C)"), ["a", "l", "C"]);
+/// assert!(subdivisions("174").is_empty());
+/// ```
+pub fn subdivisions(section: &str) -> Vec<&str> {
+    let after_number = &section[section_number(section).len()..];
+    after_number
+        .split(['(', ')'])
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
 /// Why a piece of text that looks like a citation was not read as one.
 ///
 /// A reason is part of the statement. A hole with no reason cannot be told apart
