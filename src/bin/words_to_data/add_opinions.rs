@@ -215,6 +215,7 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[(u64, Opinion,
     let mut distinct = BTreeSet::new();
     let mut out_of_scope = 0;
     let mut absent = 0;
+    let mut on_a_stub = 0;
     for (opinion, citations) in &found {
         for citation in citations {
             let cited = resolve(citation, &scope, &paths);
@@ -228,6 +229,14 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[(u64, Opinion,
             for link in cites_links(opinion, citation, &cited) {
                 distinct.insert(link.id());
                 stated += 1;
+                if link
+                    .object
+                    .path()
+                    .and_then(|path| paths.stub_at(path))
+                    .is_some()
+                {
+                    on_a_stub += 1;
+                }
                 crate::fail::or_exit(dataset.add_link(link), "Error storing a citation link");
             }
         }
@@ -241,6 +250,12 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[(u64, Opinion,
         "\n{stated} citation(s) resolved to a provision, which is {} distinct \
          judicial.cites link(s).",
         distinct.len()
+    );
+    // A stub is a real node, so its link looks as good as any other (#310).
+    println!(
+        "{on_a_stub} of them land on a stub: a section whose heading in the latest \
+         printing held says Repealed, Renumbered, Transferred or Omitted. `path` \
+         and `cases-citing` give the heading."
     );
     println!(
         "{out_of_scope} cited section(s) name a title this dataset does not carry, and \

@@ -42,7 +42,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::citation::resolve::{Subdivision, resolve_subdivision};
+use crate::citation::resolve::{Subdivision, resolve_subdivision, stub_heading};
 use crate::dataset::{Coverage, DatasetError, ExpressionId, Scope, WorkId};
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
@@ -180,6 +180,11 @@ pub struct CitedProvision {
     /// keeps the subdivision as written, so this is resolved when it is read.
     #[serde(flatten)]
     pub subdivision: Subdivision,
+    /// The heading of the cited section when the latest printing held prints it
+    /// as a stub, such as `[Renumbered § 30]`, and `None` for a section of law
+    /// (`crate::citation::resolve::stub_heading`). The court cited law that
+    /// this printing no longer holds at that number (#310).
+    pub stub_heading: Option<String>,
     /// How this citation stands to the path asked about.
     pub relation: Relation,
     pub since: SincePublication,
@@ -237,12 +242,13 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
         let held = &printings[cited_path];
 
         let written = written_section(&link).unwrap_or_default();
-        let subdivision = held
+        let latest = held
             .iter()
             .max_by(|a, b| a.0.at.cmp(&b.0.at))
-            .map_or(Subdivision::Section, |(_, section)| {
-                resolve_subdivision(section, written)
-            });
+            .map(|(_, section)| section);
+        let subdivision = latest.map_or(Subdivision::Section, |section| {
+            resolve_subdivision(section, written)
+        });
         let Some(relation) = relation_to(&subdivision, cited_path, path) else {
             continue;
         };
@@ -258,6 +264,7 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
                 .and_then(|evidence| evidence.reasoning.clone()),
             verification: link.provenance.verification,
             subdivision,
+            stub_heading: latest.and_then(stub_heading),
             relation,
         };
 

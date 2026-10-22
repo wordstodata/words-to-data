@@ -5,13 +5,17 @@
 //! section" names the object. `path` and `annotations` show the link from both
 //! ends, so neither question needs a command of its own.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde::Serialize;
 
-use crate::dataset::DatasetError;
+use crate::citation::resolve::stub_heading;
+use crate::dataset::{DatasetError, ExpressionId};
 use crate::link::{Link, LinkKind, Target, VerificationState};
 use crate::query::{ObjectPlace, PathMatch, ReviewStatus, links_by_object};
 use crate::review::{Review, newest_naming, short_id};
-use crate::storage::LinkReader;
+use crate::storage::{DocumentReader, LinkReader};
+use crate::uslm::path::covers_path;
 
 /// How a citation link names the path a reader asked about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -45,6 +49,10 @@ pub struct CitationLink {
     pub opinion_held: bool,
     /// The provision the opinion cites: the link's object.
     pub cited_path: String,
+    /// The heading of the cited provision when the latest printing held prints
+    /// it as a stub, such as `[Renumbered § 30]`, and `None` for a provision of
+    /// law (`crate::citation::resolve::stub_heading`, #310).
+    pub stub_heading: Option<String>,
     /// The words the rule matched in the opinion, such as `26 U.S.C. § 174(e)`.
     /// From the link's evidence. `None` when the link carries no evidence.
     pub matched_words: Option<String>,
@@ -63,7 +71,7 @@ pub struct CitationLink {
 ///
 /// `matching` decides which paths name it, as it does for annotations: the
 /// path and every path beneath it, or the path alone.
-pub fn citations_naming<R: LinkReader + ?Sized>(
+pub fn citations_naming<R: DocumentReader + LinkReader + ?Sized>(
     reader: &R,
     path: &str,
     matching: PathMatch,
@@ -91,7 +99,48 @@ pub fn citations_naming<R: LinkReader + ?Sized>(
         }
     }
     rows.sort_by(|a, b| (&a.cited_path, &a.opinion).cmp(&(&b.cited_path, &b.opinion)));
+
+    let cited: BTreeSet<&str> = rows.iter().map(|row| row.cited_path.as_str()).collect();
+    let stubs = stub_headings(reader, &cited)?;
+    for row in &mut rows {
+        row.stub_heading = stubs.get(&row.cited_path).cloned();
+    }
     Ok(rows)
+}
+
+/// The stub heading of every cited path that is a stub, read from the latest
+/// printing held of the work that holds it.
+///
+/// Each work is read once, however many of its paths are cited: a title of the
+/// Code is tens of thousands of nodes.
+fn stub_headings<R: DocumentReader + ?Sized>(
+    reader: &R,
+    cited: &BTreeSet<&str>,
+) -> Result<BTreeMap<String, String>, DatasetError> {
+    let mut stubs = BTreeMap::new();
+    for work in reader.works()? {
+        let paths: Vec<&str> = cited
+            .iter()
+            .copied()
+            .filter(|path| covers_path(work.as_str(), path))
+            .collect();
+        if paths.is_empty() {
+            continue;
+        }
+        let Some(latest) = reader.expressions(&work)?.pop() else {
+            continue;
+        };
+        let id = ExpressionId::new(work, latest.id.at);
+        let Some(printing) = reader.get_expression(&id)? else {
+            continue;
+        };
+        for path in paths {
+            if let Some(heading) = printing.root.find(path).and_then(stub_heading) {
+                stubs.insert(path.to_string(), heading);
+            }
+        }
+    }
+    Ok(stubs)
 }
 
 /// One link, read back into the row a reader prints, with the newest of
@@ -105,6 +154,8 @@ fn row_of(link: &Link, role: PathRole, reviews: &[Link]) -> Option<CitationLink>
         opinion: link.subject.name(),
         opinion_held: matches!(link.subject, Target::Node(_)),
         cited_path: link.object.path()?.to_string(),
+        // Read for every row at once, by `citations_naming`.
+        stub_heading: None,
         matched_words: link
             .provenance
             .evidence

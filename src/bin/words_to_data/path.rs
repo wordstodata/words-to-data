@@ -176,6 +176,13 @@ pub fn print_citations(citations: &[CitationLink], total: usize) {
             trust_of(citation.verification, citation.review.as_ref()),
             citation.id
         );
+        if let Some(stub) = &citation.stub_heading {
+            println!(
+                "    the cited {} is now a stub: {stub}. That is its heading in the latest \
+                 printing held, which holds no law at that number.",
+                holder(&citation.cited_path)
+            );
+        }
     }
 }
 
