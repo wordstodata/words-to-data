@@ -119,12 +119,19 @@ fn hits(args: &[&str]) -> Vec<serde_json::Value> {
 }
 
 /// The writings a search found the query in, by path.
+///
+/// A hit names the paragraph or footnote that holds the words (#314), and its
+/// writing is the first three segments of that path:
+/// `judicial/case_<cluster>/opinion_<id>`.
 fn works_holding(dataset: &str, query: &str) -> BTreeSet<String> {
     hits(&[
         "search", dataset, query, "--path", "judicial", "--all", "--json",
     ])
     .iter()
-    .map(|hit| hit["path"].as_str().unwrap().to_string())
+    .map(|hit| {
+        let path = hit["path"].as_str().unwrap();
+        path.split('/').take(3).collect::<Vec<_>>().join("/")
+    })
     .collect()
 }
 
@@ -167,8 +174,8 @@ fn should_find_a_phrase_when_a_line_break_splits_it() {
             .collect();
         assert_eq!(
             paths,
-            ["judicial/case_2651100/opinion_2651100"],
-            "in {dataset}"
+            ["judicial/case_2651100/opinion_2651100/page_563/paragraph_5"],
+            "the paragraph that holds the words, in {dataset}"
         );
         let snippet = found[0]["snippet"].as_str().unwrap();
         assert!(

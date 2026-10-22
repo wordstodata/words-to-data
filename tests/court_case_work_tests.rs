@@ -135,12 +135,18 @@ fn should_store_the_head_matter_as_its_own_child_when_the_cluster_carries_it() {
         !words.contains('<'),
         "the markup is stripped, got {words:.300}"
     );
-    for writing in children_of_type(&case.root, "judicial.opinion") {
-        let text = writing.data.content.as_deref().unwrap_or_default();
+    // A writing's words are in its paragraphs and footnotes, so its whole text
+    // is read, as `add-opinions` reads it.
+    let built = case_expression(
+        &cluster(122262),
+        &[opinion(122262), opinion(9434364), opinion(9434365)],
+    )
+    .expect("the case should build");
+    for writing in &built.writings {
         assert!(
-            !text.contains("argued the cause for petitioners"),
+            !writing.text.contains("argued the cause for petitioners"),
             "{} holds head matter",
-            writing.data.path
+            writing.path
         );
     }
 }
@@ -212,9 +218,11 @@ fn should_find_the_thomas_quote_once_in_the_dissent_when_only_the_dissent_is_nam
         .map(|hit| hit["path"].as_str().expect("each hit names a path"))
         .collect();
 
+    // The paragraph that holds the words, since #314: the third that starts on
+    // page 457 of 537 U.S., where the dissent begins.
     assert_eq!(
         paths,
-        ["judicial/case_122262/opinion_9434365"],
+        ["judicial/case_122262/opinion_9434365/page_457/paragraph_3"],
         "once, from the dissent: the combined record is a source and not text"
     );
 }

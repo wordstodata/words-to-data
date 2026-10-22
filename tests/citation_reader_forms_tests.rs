@@ -63,12 +63,9 @@ fn dataset_with_opinion(opinion_id: u64, cluster_id: u64) -> Dataset<InMemorySto
     let cluster = ClusterRecord::from_json(&cluster_json).expect("the cluster should read");
     let case = case_expression(&cluster, &[opinion(opinion_id)]).expect("the case should build");
     let writing = case.writings[0].path.clone();
-    let text = case
-        .expression
-        .root
-        .find(&writing)
-        .and_then(|node| node.data.content.clone())
-        .expect("a writing has text");
+    // The whole writing, as `add-opinions` reads it: its words are in its
+    // paragraphs and footnotes.
+    let text = case.writings[0].text.clone();
     dataset
         .add_expression(case.expression)
         .expect("the case should store");

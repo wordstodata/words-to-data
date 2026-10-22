@@ -102,31 +102,30 @@ fn should_store_the_opinion_as_one_writing_of_its_case_dated_from_the_cluster() 
 
     assert_eq!(stored.root.data.node_type.as_str(), "judicial.case");
     let opinion = writing(&stored);
-    assert!(
-        opinion.children.is_empty(),
-        "a writing is one node until its paragraphs are read (#314)"
-    );
     assert_eq!(opinion.data.node_type.as_str(), "judicial.opinion");
     assert_eq!(opinion.data.date.to_string(), "2015-06-26");
-    let stored = opinion;
-    // Characters, not bytes: 177,810 is Harvard's text with the markup off, and
-    // the opinion is full of typographic quotes and section marks.
+    // Since #314 a writing read from Harvard's field holds its words in its
+    // paragraphs and footnotes, and none itself, so search never returns the
+    // same words twice.
+    assert_eq!(opinion.data.content, None);
+    let mut under = Vec::new();
+    for child in &opinion.children {
+        nodes(child, &mut under);
+    }
+    let holding: Vec<&str> = under
+        .iter()
+        .filter(|data| {
+            data.content
+                .as_deref()
+                .is_some_and(|text| text.contains(FROM_THE_OPINION))
+        })
+        .map(|data| &*data.path)
+        .collect();
     assert_eq!(
-        stored
-            .data
-            .content
-            .as_deref()
-            .map(|text| text.chars().count()),
-        Some(177_810),
-        "the opinion text should arrive whole"
-    );
-    assert!(
-        stored
-            .data
-            .content
-            .as_deref()
-            .expect("the opinion should carry text")
-            .contains(FROM_THE_OPINION)
+        holding.len(),
+        2,
+        "the Court's paragraph, and the dissent's footnote that quotes it, got \
+         {holding:?}"
     );
 }
 
@@ -282,16 +281,25 @@ fn should_report_the_opinion_through_search_expressions_and_info() {
 
     let hits = inspect::search(&dataset, FROM_THE_OPINION).expect("the search should run");
     assert!(
-        hits.iter().any(|hit| hit.path == WRITING),
-        "search should reach the opinion's text, got {hits:?}"
+        !hits.is_empty()
+            && hits
+                .iter()
+                .all(|hit| hit.path.starts_with(&format!("{WRITING}/"))),
+        "search should reach the opinion's text, in the passage that holds it, \
+         got {hits:?}"
     );
 
     let listed = inspect::expressions(&dataset, None).expect("the listing should run");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, "judicial/case_2812209@2015-06-26");
+    let mut built = Vec::new();
+    nodes(&obergefell().root, &mut built);
+    assert!(built.len() > 3, "the writing holds its passages");
     assert_eq!(
-        listed[0].element_count, 3,
-        "the case, its head matter and its one writing, each counted"
+        listed[0].element_count,
+        built.len(),
+        "the case, its head matter, its one writing and each passage of it, \
+         each counted"
     );
 
     let info = inspect::info(&dataset).expect("info should run");

@@ -147,13 +147,9 @@ fn dataset_holding_the_ten(titles: &[(&str, &str, &str)]) -> Dataset<InMemorySto
             .expect("a case carries its facts")
             .case_name;
         for writing in &case.writings {
-            let text = case
-                .expression
-                .root
-                .find(&writing.path)
-                .and_then(|node| node.data.content.as_deref())
-                .expect("a writing carries text")
-                .to_string();
+            // The whole writing, as `add-opinions` reads it: its words are in
+            // its paragraphs and footnotes.
+            let text = writing.text.clone();
             texts.push((
                 Opinion::held(
                     writing.path.clone(),

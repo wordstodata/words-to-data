@@ -49,6 +49,7 @@
 pub mod client;
 pub mod markup;
 pub mod opinion;
+mod structure;
 
 pub use client::CourtListenerClient;
 pub use opinion::{

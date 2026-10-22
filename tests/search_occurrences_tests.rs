@@ -7,8 +7,10 @@
 //! The fixture is title 1 of the US Code and the real CourtListener records of
 //! *Boeing Co. v. United States* (cluster 122262), committed under
 //! `tests/test_data/courtlistener`. The case is stored from its split records
-//! (#313), and the text of the Court's opinion, record 9434364, holds "174"
-//! three times, at the character offsets 3894, 16818 and 23516.
+//! (#313), and since #314 each writing read from Harvard's field is stored as
+//! its paragraphs. The third paragraph that starts on page 444 of the Court's
+//! opinion, record 9434364, holds "R&D" three times, at the character offsets
+//! 300, 783 and 943.
 
 use std::process::{Command, Output};
 
@@ -20,11 +22,15 @@ const CACHE: &str = "tests/test_data";
 /// Boeing Co. v. United States, 537 U.S. 437 (2003), named by its combined
 /// record. `add-opinions` reads the whole case.
 const BOEING: &str = "122262";
-/// The Court's opinion in *Boeing*, by Justice Stevens.
-const BOEING_MAJORITY: &str = "judicial/case_122262/opinion_9434364";
+/// One paragraph of the Court's opinion in *Boeing*, by Justice Stevens: the
+/// third that starts on page 444 of 537 U.S.
+const BOEING_MAJORITY: &str = "judicial/case_122262/opinion_9434364/page_444/paragraph_3";
 
-/// The character offsets of "174" in the text of the Court's opinion.
-const BOEING_174: [u64; 3] = [3894, 16818, 23516];
+/// What the paragraph holds three times.
+const QUERY: &str = "R&D";
+
+/// The character offsets of [`QUERY`] in the paragraph.
+const OFFSETS: [u64; 3] = [300, 783, 943];
 
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_words_to_data"))
@@ -112,7 +118,7 @@ fn should_list_each_occurrence_with_its_offset_when_occurrences_is_asked() {
         let answer = json_of(&run(&[
             "search",
             dataset,
-            "174",
+            QUERY,
             "--path",
             BOEING_MAJORITY,
             "--occurrences",
@@ -124,10 +130,10 @@ fn should_list_each_occurrence_with_its_offset_when_occurrences_is_asked() {
             .iter()
             .map(|hit| hit["offset"].as_u64().expect("each hit has an offset"))
             .collect();
-        assert_eq!(offsets, BOEING_174, "in {dataset}");
+        assert_eq!(offsets, OFFSETS, "in {dataset}");
         for hit in hits {
             assert!(
-                hit["snippet"].as_str().unwrap().contains("174"),
+                hit["snippet"].as_str().unwrap().contains(QUERY),
                 "each snippet holds its own occurrence, got {hit}"
             );
         }
@@ -138,10 +144,10 @@ fn should_list_each_occurrence_with_its_offset_when_occurrences_is_asked() {
 #[test]
 fn should_state_the_occurrences_in_each_field_when_occurrences_is_not_asked() {
     on_both_backends("default", |dataset| {
-        let printed = stdout_of(&run(&["search", dataset, "174", "--path", BOEING_MAJORITY]));
+        let printed = stdout_of(&run(&["search", dataset, QUERY, "--path", BOEING_MAJORITY]));
 
         assert!(
-            printed.contains("judicial/case_122262/opinion_9434364  [content]  3 occurrences"),
+            printed.contains(&format!("{BOEING_MAJORITY}  [content]  3 occurrences")),
             "the hit says how many times its field holds the query, got:\n{printed}"
         );
         assert!(
@@ -158,7 +164,7 @@ fn should_count_occurrences_against_the_limit_when_occurrences_is_asked() {
         let answer = json_of(&run(&[
             "search",
             dataset,
-            "174",
+            QUERY,
             "--path",
             BOEING_MAJORITY,
             "--occurrences",
@@ -172,13 +178,13 @@ fn should_count_occurrences_against_the_limit_when_occurrences_is_asked() {
             .iter()
             .map(|hit| hit["offset"].as_u64().unwrap())
             .collect();
-        assert_eq!(offsets, BOEING_174[..2], "in {dataset}");
+        assert_eq!(offsets, OFFSETS[..2], "in {dataset}");
         assert_eq!(answer["total"], 3, "the total counts every occurrence");
 
         let printed = stdout_of(&run(&[
             "search",
             dataset,
-            "174",
+            QUERY,
             "--path",
             BOEING_MAJORITY,
             "--occurrences",
@@ -228,7 +234,7 @@ fn should_read_only_the_window_asked_around_an_offset_when_offset_is_given() {
             BOEING_MAJORITY,
             "--exact",
             "--offset",
-            "23516",
+            "943",
             "--snippet",
             "40",
             "--json",
@@ -242,7 +248,7 @@ fn should_read_only_the_window_asked_around_an_offset_when_offset_is_given() {
             "the window holds the characters asked for and no more, got {read:?}"
         );
         assert!(
-            text.contains("174"),
+            text.contains(QUERY),
             "the window holds the text at the offset, got {read:?}"
         );
         assert!(

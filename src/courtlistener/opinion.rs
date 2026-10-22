@@ -15,6 +15,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::structure::{Passage, PassageKind, read_structure};
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
 use crate::document::{DocumentNode, NodeData, NodeType, text_method};
@@ -248,6 +249,16 @@ impl OpinionRecord {
     /// machine's reading, and taking the field's own word over that would be
     /// claiming more than we were told.
     pub fn text(&self) -> Option<(String, TextSource, MarkupReport)> {
+        let (source, raw) = self.chosen_field()?;
+        let (text, report) = match source.markup {
+            true => text_of_markup(raw),
+            false => (raw.to_string(), MarkupReport::default()),
+        };
+        Some((text, source, report))
+    }
+
+    /// The field the text is read from, as written, and what it says.
+    fn chosen_field(&self) -> Option<(TextSource, &str)> {
         let mut source = *TEXT_FIELDS
             .iter()
             .find(|candidate| self.field(candidate.field).is_some())?;
@@ -257,12 +268,7 @@ impl OpinionRecord {
             source.method = text_method::OCR;
             source.verification = VerificationState::MachineSuggested;
         }
-
-        let (text, report) = match source.markup {
-            true => text_of_markup(raw),
-            false => (raw.to_string(), MarkupReport::default()),
-        };
-        Some((text, source, report))
+        Some((source, raw))
     }
 }
 
@@ -350,6 +356,11 @@ pub struct WritingText {
     pub path: String,
     pub source: TextSource,
     pub report: MarkupReport,
+    /// The whole text of the writing, as one string: every paragraph and then
+    /// every footnote, in the order the source has them, a blank line between
+    /// two. What the citation reader reads, so that each citation in the
+    /// writing is found once, whichever node holds its words.
+    pub text: String,
 }
 
 /// The cluster fields that hold matter the source says is no part of the
@@ -502,13 +513,14 @@ pub fn case_expression(
     let mut writings = Vec::new();
     for opinion in writing_records {
         let path = writing_path(cluster.id, opinion.id);
-        let (node, source, report) = writing_node(opinion, &path, date)?;
+        let (node, source, report, text) = writing_node(opinion, &path, date)?;
         children.push(node);
         writings.push(WritingText {
             opinion_id: opinion.id,
             path,
             source,
             report,
+            text,
         });
     }
 
@@ -550,18 +562,30 @@ pub fn case_expression(
     })
 }
 
-/// One writing as a node at `path`: its text, where the text came from, and
-/// what the publisher says about the writing.
+/// The fields whose markup marks paragraphs and the reporter's pages, so that
+/// a writing read from one of them is stored as its paragraphs and footnotes
+/// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 4).
+const STRUCTURED: [&str; 2] = ["xml_harvard", "html_columbia"];
+
+/// One writing as a node at `path`: its text, where the text came from, what
+/// the publisher says about the writing, and its whole text as one string.
+///
+/// A writing read from a field in [`STRUCTURED`] holds no text itself. Its
+/// paragraphs and footnotes are its children, each with the same provenance,
+/// so a search hit names the paragraph that holds the words.
 fn writing_node(
     opinion: &OpinionRecord,
     path: &str,
     date: time::Date,
-) -> Result<(DocumentNode, TextSource, MarkupReport), CourtListenerError> {
-    let (text, source, report) = opinion.text().ok_or(CourtListenerError::Incomplete {
-        kind: "opinion",
-        id: opinion.id,
-        field: "any text field",
-    })?;
+) -> Result<(DocumentNode, TextSource, MarkupReport, String), CourtListenerError> {
+    let (source, raw) = opinion
+        .chosen_field()
+        .ok_or(CourtListenerError::Incomplete {
+            kind: "opinion",
+            id: opinion.id,
+            field: "any text field",
+        })?;
 
     let facts = OpinionFacts {
         opinion_type: opinion.opinion_type.clone(),
@@ -593,12 +617,112 @@ fn writing_node(
         corroboration: None,
     };
 
-    let data = NodeData {
-        content: Some(text.into()),
-        ..NodeData::new(path, NodeType::new(NodeType::OPINION), date)
-    }
-    .with_provenance(provenance)
-    .with_payload(facts.to_payload().map_err(CourtListenerError::from)?);
+    let writing = NodeData::new(path, NodeType::new(NodeType::OPINION), date)
+        .with_provenance(provenance.clone())
+        .with_payload(facts.to_payload().map_err(CourtListenerError::from)?);
 
-    Ok((DocumentNode::leaf(data), source, report))
+    if !STRUCTURED.contains(&source.field) {
+        let (text, report) = match source.markup {
+            true => text_of_markup(raw),
+            false => (raw.to_string(), MarkupReport::default()),
+        };
+        let data = NodeData {
+            content: Some(text.clone().into()),
+            ..writing
+        };
+        return Ok((DocumentNode::leaf(data), source, report, text));
+    }
+
+    let structure = read_structure(raw);
+    let text = structure
+        .passages
+        .iter()
+        .map(|passage| passage.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let children = passage_nodes(&structure.passages, path, date, &provenance);
+    let node = DocumentNode {
+        data: writing,
+        children,
+    };
+    Ok((node, source, structure.report, text))
 }
+
+/// The paragraphs of a writing under the pages they start on, then its
+/// footnotes, as nodes.
+///
+/// `page_<p>/paragraph_<n>`, where `n` counts the paragraphs that start on page
+/// `p`, or `paragraph_<n>` alone when the writing has no pages; and
+/// `footnote_<label>`.
+fn passage_nodes(
+    passages: &[Passage],
+    writing: &str,
+    date: time::Date,
+    provenance: &Provenance,
+) -> Vec<DocumentNode> {
+    let leaf = |path: String, node_type: &str, text: &str| {
+        DocumentNode::leaf(
+            NodeData {
+                content: Some(text.into()),
+                ..NodeData::new(path, NodeType::new(node_type), date)
+            }
+            .with_provenance(provenance.clone()),
+        )
+    };
+
+    let mut children: Vec<DocumentNode> = Vec::new();
+    let mut footnotes = Vec::new();
+    let mut unpaged = 0;
+    for passage in passages {
+        match &passage.kind {
+            PassageKind::Footnote { label } => footnotes.push(leaf(
+                format!("{writing}/footnote_{label}"),
+                FOOTNOTE,
+                &passage.text,
+            )),
+            PassageKind::Paragraph { page: None } => {
+                unpaged += 1;
+                children.push(leaf(
+                    format!("{writing}/paragraph_{unpaged}"),
+                    PARAGRAPH,
+                    &passage.text,
+                ));
+            }
+            PassageKind::Paragraph { page: Some(page) } => {
+                let page_path = format!("{writing}/page_{page}");
+                let index = match children
+                    .iter()
+                    .position(|child| *child.data.path == *page_path)
+                {
+                    Some(index) => index,
+                    None => {
+                        children.push(DocumentNode::leaf(NodeData::new(
+                            page_path.as_str(),
+                            NodeType::new(PAGE),
+                            date,
+                        )));
+                        children.len() - 1
+                    }
+                };
+                let page_node = &mut children[index];
+                let n = page_node.children.len() + 1;
+                page_node.children.push(leaf(
+                    format!("{page_path}/paragraph_{n}"),
+                    PARAGRAPH,
+                    &passage.text,
+                ));
+            }
+        }
+    }
+    children.extend(footnotes);
+    children
+}
+
+/// A page of the official reporter, holding the paragraphs that start on it.
+const PAGE: &str = "judicial.page";
+
+/// One paragraph of a writing.
+const PARAGRAPH: &str = "judicial.paragraph";
+
+/// One footnote of a writing.
+const FOOTNOTE: &str = "judicial.footnote";

@@ -191,11 +191,11 @@ fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClie
             // of the opinion, and one of those characters is the section sign
             // every U.S.C. citation needs. Never silent.
             writing.report.print_to_stderr();
+            // The whole writing, whichever of its nodes holds the words. The
+            // citation links stay on the writing until #316 starts them at the
+            // paragraph.
             let node = expression.root.find(&writing.path);
-            let text = node
-                .and_then(|node| node.data.content.as_deref())
-                .unwrap_or_default()
-                .to_string();
+            let text = writing.text.clone();
             let facts = node.and_then(|node| OpinionFacts::of(&node.data));
             println!(
                 "  {}  {}  [{} / {} / {:?}]  {} chars",

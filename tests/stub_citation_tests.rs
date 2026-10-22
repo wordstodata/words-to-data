@@ -88,12 +88,9 @@ fn title_26_and_united_stationers() -> Dataset<InMemoryStorage> {
         .expect("the cluster should read");
     let case = case_expression(&cluster, &[opinion]).expect("the case should build");
     let writing = case.writings[0].path.clone();
-    let text = case
-        .expression
-        .root
-        .find(&writing)
-        .and_then(|node| node.data.content.clone())
-        .expect("a writing has text");
+    // The whole writing, as `add-opinions` reads it: its words are in its
+    // paragraphs and footnotes.
+    let text = case.writings[0].text.clone();
     dataset
         .add_expression(case.expression)
         .expect("the case should store");
