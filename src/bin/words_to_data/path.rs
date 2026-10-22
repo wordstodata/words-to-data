@@ -221,6 +221,9 @@ fn print_writing_facts(writing: &HeldWriting) {
             None => source.clone(),
         });
     fact("text from", text_from.as_deref());
+    if let Some(found_by) = &writing.found_by {
+        fact("found by", Some(found_by));
+    }
     // A writing with no page level has no reporter volume, and that is a
     // fact about the source, so it is said rather than left blank (#314).
     fact(

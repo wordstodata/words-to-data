@@ -31,9 +31,10 @@ const CLUSTER_JSON: &str = "tests/test_data/courtlistener/cluster_2812209.json";
 /// name the source gives.
 const WORK: &str = "judicial/case_2812209";
 
-/// The one writing of the case: CourtListener holds *Obergefell* as one
-/// combined record, 2812209, with every opinion of the case in it.
-const WRITING: &str = "judicial/case_2812209/opinion_2812209";
+/// The Court's opinion. CourtListener holds *Obergefell* as one combined
+/// record, 2812209, with every opinion of the case in it, and a rule splits it
+/// into its five writings; this is the first (#315).
+const WRITING: &str = "judicial/case_2812209/opinion_2812209-1";
 
 /// A sentence from the middle of the opinion, used to prove that search reaches
 /// the text rather than the heading.
@@ -54,7 +55,7 @@ fn obergefell() -> Expression {
         .expression
 }
 
-/// The one writing of the case.
+/// The Court's opinion.
 fn writing(expression: &Expression) -> &DocumentNode {
     expression
         .root
@@ -122,10 +123,10 @@ fn should_store_the_opinion_as_one_writing_of_its_case_dated_from_the_cluster() 
         .map(|data| &*data.path)
         .collect();
     assert_eq!(
-        holding.len(),
-        2,
-        "the Court's paragraph, and the dissent's footnote that quotes it, got \
-         {holding:?}"
+        holding,
+        [format!("{WRITING}/paragraph_2")],
+        "the Court's paragraph alone: the dissent's footnote that quotes it is in \
+         the dissent's own writing since #315"
     );
 }
 
@@ -259,7 +260,11 @@ fn assert_judicial_facts_survived<S: words_to_data::storage::Storage>(dataset: &
 
     let opinion = writing(&stored);
     let facts = OpinionFacts::of(&opinion.data).expect("the writing facts should come back");
-    assert_eq!(facts.opinion_type.as_deref(), Some("010combined"));
+    assert_eq!(
+        facts.opinion_type.as_deref(),
+        Some("020lead"),
+        "the rule read the writing's kind from the line that opens it"
+    );
     assert_eq!(facts.author.as_deref(), Some("Kennedy"));
     assert_eq!(facts.page_count, Some(103));
 
@@ -280,13 +285,15 @@ fn should_report_the_opinion_through_search_expressions_and_info() {
     let dataset = dataset_holding_the_opinion();
 
     let hits = inspect::search(&dataset, FROM_THE_OPINION).expect("the search should run");
-    assert!(
-        !hits.is_empty()
-            && hits
-                .iter()
-                .all(|hit| hit.path.starts_with(&format!("{WRITING}/"))),
+    let paths: Vec<&str> = hits.iter().map(|hit| &*hit.path).collect();
+    assert_eq!(
+        paths,
+        [
+            &format!("{WRITING}/paragraph_2"),
+            "judicial/case_2812209/opinion_2812209-3/footnote_22"
+        ],
         "search should reach the opinion's text, in the passage that holds it, \
-         got {hits:?}"
+         and Justice Scalia's footnote that quotes it, in his own writing"
     );
 
     let listed = inspect::expressions(&dataset, None).expect("the listing should run");

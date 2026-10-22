@@ -100,10 +100,12 @@ fn should_list_ten_opinions_with_their_case_names_when_the_ten_are_added() {
 
     let rows = rows_of(&dataset);
 
-    assert_eq!(rows.len(), 10, "one row for each held writing: {rows:#?}");
+    // Fourteen writings: Obergefell's one combined record is split by rule
+    // into its five writings (#315).
+    assert_eq!(rows.len(), 14, "one row for each held writing: {rows:#?}");
     let obergefell = rows
         .iter()
-        .find(|row| row["path"] == "judicial/case_2812209/opinion_2812209")
+        .find(|row| row["path"] == "judicial/case_2812209/opinion_2812209-1")
         .expect("Obergefell should be listed");
     assert_eq!(obergefell["case"], "judicial/case_2812209");
     assert_eq!(obergefell["date"], "2015-06-26");
@@ -183,12 +185,13 @@ fn should_count_the_citation_links_each_opinion_makes_when_the_dataset_holds_the
         "every citation link has a held opinion"
     );
 
-    // Obergefell v. Hodges cites no section of title 26.
-    let obergefell = rows
+    // Obergefell v. Hodges cites no section of title 26, in any of its writings.
+    let obergefell: Vec<_> = rows
         .iter()
-        .find(|row| row["path"] == "judicial/case_2812209/opinion_2812209")
-        .expect("Obergefell should be listed");
-    assert_eq!(obergefell["cites"], 0);
+        .filter(|row| row["case"] == "judicial/case_2812209")
+        .collect();
+    assert_eq!(obergefell.len(), 5, "Obergefell should be listed");
+    assert!(obergefell.iter().all(|row| row["cites"] == 0));
 }
 
 #[test]
@@ -267,8 +270,8 @@ fn should_say_how_many_it_did_not_show_when_the_list_stops_at_a_limit() {
         .count();
     assert_eq!(shown, 3, "three rows, got:\n{printed}");
     assert!(
-        printed.contains("This dataset holds 10 writings in 9 cases")
-            && printed.contains("7 more not shown; pass --all for every one of them"),
+        printed.contains("This dataset holds 14 writings in 9 cases")
+            && printed.contains("11 more not shown; pass --all for every one of them"),
         "the run says the whole count and what it left out, got:\n{printed}"
     );
 
@@ -277,5 +280,31 @@ fn should_say_how_many_it_did_not_show_when_the_list_stops_at_a_limit() {
         .lines()
         .filter(|line| line.starts_with("  judicial/"))
         .count();
-    assert_eq!(shown, 10, "--all shows every row, got:\n{all}");
+    assert_eq!(shown, 14, "--all shows every row, got:\n{all}");
+}
+
+/// A writing a rule found in a combined record says which rule found it and
+/// by what words, in the list and in its JSON (#315).
+#[test]
+fn should_name_the_rule_that_found_each_writing_when_a_rule_split_the_record() {
+    let dataset = with_the_ten("opinions_rule_split");
+
+    let rows = rows_of(&dataset);
+    let dissent = rows
+        .iter()
+        .find(|row| row["path"] == "judicial/case_2812209/opinion_2812209-4")
+        .expect("Justice Thomas's dissent should be listed");
+    assert_eq!(
+        dissent["found_by"],
+        "justice-headings@1: the writing opens with \"Justice THOMAS, with whom Justice SCALIA \
+         joins, dissenting.\""
+    );
+
+    let printed = stdout_of(&run(&["opinions", &dataset, "--all"]));
+    assert!(
+        printed.lines().any(|line| line
+            == "      found by: justice-headings@1: the writing opens with \"Justice THOMAS, with \
+                whom Justice SCALIA joins, dissenting.\""),
+        "the row says what found it, got:\n{printed}"
+    );
 }

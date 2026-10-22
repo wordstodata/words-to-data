@@ -51,7 +51,7 @@ _Avoid_: Version snapshot, revision, edition
 **Document node**:
 One piece of a document, with its children, as a Dataset stores it. It carries a Structural path, a Node type, a date, up to five text fields, and where its text came from. It carries nothing that belongs to one class of document: those facts sit beside it in a Class payload. An Expression holds the root of a tree of them.
 
-A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: a writing of a court case read from a field that marks no structure (a court's PDF text, Lawbox's or a court website's HTML) is stored as a single node, and its structure is in its text. A writing read from Harvard's `xml_harvard` or Columbia's `html_columbia` is taken apart into its pages, paragraphs and footnotes (see Case, #314).
+A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: a writing of a court case read from a field that marks no structure (a court's PDF text, Lawbox's or a court website's HTML) is stored as a single node, and its structure is in its text. A writing read from Harvard's `xml_harvard` or Columbia's `html_columbia` is taken apart into its pages, paragraphs and footnotes (see Case, #314), and one read from a court's PDF text (`plain_text`) into paragraphs and footnotes by rule (#315).
 _Avoid_: Element, USLM element
 
 **Node type**:
@@ -236,6 +236,8 @@ One court case, as a Work: `judicial/case_<cluster>`, named by CourtListener's c
 
 A writing's text is read from the first field the record carries in this order: `xml_harvard`, `html_columbia`, `html_anon_2020`, `html_lawbox`, `html`, `plain_text`. Structure comes first, because only the first two mark paragraphs and the pages of the reporter; Harvard's text is OCR, so it is `MachineSuggested`, and its provenance says so (ADR 0014, decision 3).
 
+When a case has only a combined record, a rule may find the writings inside it (ADR 0014, decision 2; #315). `justice-headings@1` splits at the line a reporter prints at the head of each writing, "JUSTICE THOMAS, with whom JUSTICE SCALIA joins, dissenting."; `running-heads@1` splits a Supreme Court slip opinion where the running head on its pages changes ("Opinion of the Court", "ROBERTS, C. J., dissenting"). Each writing a rule finds is `judicial/case_<cluster>/opinion_<id>-<n>`, numbered in the order the record prints them; it is `MachineSuggested`, its type and author are read from its heading, and its provenance names the rule and the words it found the writing by. Each footnote goes to the writing that refers to it. A slip opinion's syllabus, which says it "constitutes no part of the opinion of the Court", is `judicial/case_<cluster>/syllabus`, as the head matter is. A combined record that no rule splits stays one writing at `opinion_<id>`, and its provenance says that no rule found a second writing. `opinions` and `path` show what found each writing ("found by").
+
 Inside a writing read from one of those two fields, the paths follow the official reporter's pages (ADR 0014, decision 4; #314):
 
 ```
@@ -244,6 +246,8 @@ judicial/case_<cluster>/opinion_<id>/footnote_<label>
 ```
 
 `p` is a page of the official reporter, and `n` counts the paragraphs that start on that page: a paragraph that runs over a page break belongs to the page it starts on, and the mark `*459` stays in its words where the page breaks. So a pin cite, "537 U.S. at 459", is the path `…/page_459`. Every page the writing is printed on has a node, also a page on which no paragraph starts; its words are then in the last paragraph of an earlier page, after its mark. The writing's facts name the volume the pages count (`pages: "537 U.S."`). Pages of a commercial reporter (S. Ct., L. Ed.) are not paths: such a writing, and one whose source marks no pages, has `paragraph_<n>` alone. A page node holds no words, a paragraph or a footnote node holds its own, and the writing holds none, so a search hit names the paragraph. Each paragraph and footnote has the writing's provenance, and keeps the source's own paragraph id (CAP's `b693-8`) as a fact, so a later import can match it again. `path` on a writing lists its pages and footnotes.
+
+A writing read from `plain_text` has `paragraph_<n>` and `footnote_<label>` by the rule `plain-text-paragraphs@1` (ADR 0014, decision 3; #315). The text is a PDF's text layer: a line ends where the printed line ended and a blank line is no paragraph break (*Harris* is double spaced: 374 blank-line blocks for 36 paragraphs). The rule takes off page numbers and running heads, takes footnotes out of the paragraphs they interrupt, and starts a paragraph at an indented first line, a block quotation, a heading or, in a text that is not double spaced, a blank line. It joins lines with one space and changes no other character: a word broken at a hyphen keeps the hyphen ("sepa-rately"). Its paragraphs and footnotes are `MachineSuggested`, and their provenance names the rule. A slip opinion's pages are no pages of a reporter, so it has no page level; Tax Court `[*N]` marks count the slip pages from 2, and they stay in the words.
 _Avoid_: Cluster (the publisher's word), opinion (for the whole case)
 
 **Citation**:

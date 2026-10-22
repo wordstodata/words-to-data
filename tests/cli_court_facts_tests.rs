@@ -174,11 +174,12 @@ fn should_print_page_count_download_url_and_sha1_when_the_record_carries_them() 
 
     // The Obergefell record is a combined record that also carries the
     // Court's own PDF, so it carries the facts that Boeing's split records do
-    // not.
-    let out = printed(&dataset, "judicial/case_2812209/opinion_2812209");
+    // not. A rule splits it into its writings (#315), and each writing keeps
+    // the facts of the record it was found in.
+    let out = printed(&dataset, "judicial/case_2812209/opinion_2812209-1");
 
     for line in [
-        "  writing type: 010combined",
+        "  writing type: 020lead",
         "  author: Kennedy",
         "  page count: 103",
         "  download URL: http://www.supremecourt.gov/opinions/14pdf/14-556_3204.pdf",
@@ -206,5 +207,28 @@ fn should_give_no_court_facts_when_the_path_is_not_judicial() {
     assert!(
         !out.lines().any(|line| line.starts_with("Case ")),
         "a Code path has no case:\n{out}"
+    );
+}
+
+/// A writing a rule found says so, and says which rule and by what words, so a
+/// reader knows the boundary is a machine's reading (#315).
+#[test]
+fn should_print_the_rule_that_found_a_writing_when_a_rule_split_its_record() {
+    let dataset = with_the_ten("facts_rule_split");
+
+    let out = printed(&dataset, "judicial/case_2812209/opinion_2812209-2");
+    let line = "  found by: justice-headings@1: the writing opens with \"Chief Justice ROBERTS, \
+                with whom Justice SCALIA and Justice THOMAS join, dissenting.\"";
+    assert!(
+        out.lines().any(|printed| printed == line),
+        "`path` should print {line:?}:\n{out}"
+    );
+
+    let out = printed(&dataset, "judicial/case_6248/opinion_6248");
+    let line = "  found by: justice-headings@1: no rule found a second writing in this combined \
+                record, so it is one writing";
+    assert!(
+        out.lines().any(|printed| printed == line),
+        "`path` should print {line:?}:\n{out}"
     );
 }

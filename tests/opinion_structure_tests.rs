@@ -275,7 +275,8 @@ fn child_paths(expression: &Expression, path: &str) -> Vec<String> {
 #[test]
 fn should_give_paragraph_n_only_when_the_labelled_pages_are_not_the_official_reporter() {
     let case = case_of(2812209);
-    let writing = "judicial/case_2812209/opinion_2812209";
+    // The Court's opinion, which a rule finds in the combined record (#315).
+    let writing = "judicial/case_2812209/opinion_2812209-1";
 
     let children = child_paths(&case, writing);
     assert!(
@@ -325,7 +326,7 @@ fn should_name_the_reporter_volume_whose_pages_the_writing_counts() {
         Some("741 F.3d")
     );
     assert_eq!(
-        pages_of(&case_of(2812209), "judicial/case_2812209/opinion_2812209"),
+        pages_of(&case_of(2812209), "judicial/case_2812209/opinion_2812209-1"),
         None,
         "Obergefell's labels count pages of no official reporter"
     );

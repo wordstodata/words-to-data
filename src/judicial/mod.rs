@@ -17,7 +17,9 @@
 //! (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).
 //! A writing read from a field that marks its structure holds its words in its
 //! children, `page_<p>/paragraph_<n>` and `footnote_<label>`, each with its
-//! [`PassageFacts`]; any other writing holds its whole text itself (#314).
+//! [`PassageFacts`], and so does one read from `plain_text`, by rule (#315);
+//! any other writing holds its whole text itself (#314). A writing a rule
+//! found inside a combined record is `opinion_<id>-<n>` (#315).
 //!
 //! ## The date is not on the opinion
 //!
