@@ -324,3 +324,45 @@ fn should_answer_as_before_when_search_and_annotations_are_given_a_held_path() {
     assert!(output.status.success());
     assert_eq!(stdout(&output), "0 annotation(s)\n");
 }
+
+/// `path` is the command an agent uses to check a path, so it most needs the
+/// notice (#326). It still exits zero: an absent path is an answer for `path`.
+#[test]
+fn should_name_the_nearest_held_path_when_path_is_given_a_guessed_path() {
+    let output = run(&["path", cli_fixture(), GUESSED]);
+    assert!(output.status.success(), "an absent path should exit zero");
+    let text = stdout(&output);
+    assert!(
+        text.contains("Present in: (no expression)\nNearest held path: uscode/title_9/chapter_1\n"),
+        "{text}"
+    );
+
+    let output = run(&["path", cli_fixture(), GUESSED, "--json"]);
+    assert!(output.status.success(), "an absent path should exit zero");
+    let answer: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("path --json should emit json");
+    assert_eq!(answer["absent_path"]["path"], GUESSED);
+    assert_eq!(
+        answer["absent_path"]["nearest_held"],
+        "uscode/title_9/chapter_1"
+    );
+}
+
+/// A held path answers as it did: no notice, and no new field.
+#[test]
+fn should_answer_as_before_when_path_is_given_a_held_path() {
+    let output = run(&["path", cli_fixture(), SECTION_16]);
+    assert!(output.status.success());
+    let text = stdout(&output);
+    assert!(text.contains("Present in: uscode/title_9@"), "{text}");
+    assert!(!text.contains("Nearest held path"), "{text}");
+
+    let output = run(&["path", cli_fixture(), SECTION_16, "--json"]);
+    assert!(output.status.success());
+    // The keys keep the order of the report, so the bytes are as they were.
+    let text = stdout(&output);
+    assert!(text.starts_with("{\n  \"path\": "), "{text}");
+    let answer: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("path --json should emit json");
+    assert!(answer.get("absent_path").is_none(), "{answer}");
+}
