@@ -17,6 +17,7 @@ use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
 use crate::link::{Link, LinkKind, Provenance, Target, Window};
 use crate::query::{Locator, PathMatch};
+use crate::search::Query;
 use crate::storage::memory::{ExpressionsByWork, require_same_work};
 use crate::storage::{
     DocumentReader, DocumentWriter, EvidenceReader, EvidenceWriter, Hits, InMemoryStorage,
@@ -1112,7 +1113,12 @@ impl DocumentReader for SqliteStorage {
         // The ordering reproduces the in-memory walk exactly, so the two
         // backends answer alike: work, then date, then document position, then
         // the field order that backend declares.
-        let query_pattern = format!("%{}%", query.to_lowercase());
+        //
+        // `LIKE` cannot state the match rule, so it only narrows the rows: a
+        // match holds every piece of the query, in order. `Query` then decides,
+        // as it does for the in-memory store.
+        let query = Query::new(query);
+        let query_pattern = format!("%{}%", query.pieces().join("%"));
         let scope = ScopeClause::of(locator);
         let mut stmt = self.conn.prepare(&format!(
             "SELECT work, date, path, ordinal, 0 AS field_rank, 'heading' AS field, heading AS snippet
@@ -1143,17 +1149,18 @@ impl DocumentReader for SqliteStorage {
             let path: String = row.get(2)?;
             let field: String = row.get(5)?;
             let snippet: Option<String> = row.get(6)?;
-            if let Some(snippet) = snippet {
-                hits.offer(crate::search::occurrences(&snippet, query), |offsets| {
-                    SearchResult {
-                        expression: ExpressionId::new(WorkId::new(work), date),
-                        path,
-                        field,
-                        snippet,
-                        offsets,
-                    }
-                });
+            let Some(snippet) = snippet else { continue };
+            let offsets = query.occurrences(&snippet);
+            if offsets.is_empty() {
+                continue;
             }
+            hits.offer(offsets, |offsets| SearchResult {
+                expression: ExpressionId::new(WorkId::new(work), date),
+                path,
+                field,
+                snippet,
+                offsets,
+            });
         }
 
         Ok(hits.answer())

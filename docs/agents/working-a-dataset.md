@@ -83,6 +83,12 @@ read the words.
    Search the date **after** the change you care about, then the date **before**,
    and compare: a provision present after and absent before was added.
 
+   Case is ignored, and a line break or several spaces in the text match one
+   space in the query, so a phrase that a line break splits is still found.
+   "U.S.C." and "U. S. C." match each other; "U.S.C.A." is a different
+   spelling. Other spellings of a citation are not made equal: search for each
+   one.
+
    Each hit is one field, and its line says how often the field holds the words
    (`[content]  5 occurrences`). The last line counts both: `1 field, 5
    occurrences`. A court opinion is one field, so one hit is not one mention.
