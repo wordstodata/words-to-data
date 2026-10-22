@@ -58,9 +58,19 @@ three jobs with the command alone:
 words_to_data info <dataset>                     # what it holds, links by kind, review state, methods run
 words_to_data expressions <dataset>              # every work and date
 words_to_data bills <dataset>                    # the bills, and how many amendments each states
+words_to_data opinions <dataset>                 # the court opinions: case, writing type, cluster, citations
 words_to_data validate <dataset>                 # faults, and steps nobody has run
 words_to_data residue <dataset> --bill <bill>    # the amendments with no link, and why
 ```
+
+**Opinions.** `opinions` lists each court opinion the dataset holds: its work
+and date, case name, writing type (such as `010combined` or `040dissent`),
+author, cluster, the field its text was read from, the court, and how many
+`judicial.cites` links it makes. `path <dataset> <work>` shows each of those
+links. Take an opinion id from this list, never from memory. Two rows with one
+cluster are two writings in one case, such as a majority and its dissent.
+"court not recorded" means the dataset does not hold the court; it does not
+mean there is no court.
 
 **Scope.** `info` prints `Covers:`, the works the dataset holds. If the dataset
 has a declaration, `info` also prints `Declared:`, any `Excluded:` path with its
