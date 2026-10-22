@@ -112,8 +112,11 @@ impl Opinion {
 /// citation it used to miss, or stops reading one it used to take. Editing a
 /// comment or renaming a variable is not such a change
 /// (`crate::method::Method`).
+///
+/// Version 2 (#309) reads a space before a subdivision's bracket, reads a dash
+/// of any kind between two numbers, and resolves each end of a range.
 fn citation_rule() -> Method {
-    Method::new("reporters-db laws.json U.S.C. patterns", 1)
+    Method::new("reporters-db laws.json U.S.C. patterns", 2)
 }
 
 /// A link for every provision a citation resolved to, saying the opinion cites
