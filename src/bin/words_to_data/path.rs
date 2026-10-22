@@ -5,7 +5,7 @@ use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
 use words_to_data::judicial::cites::{CitationLink, PathRole};
-use words_to_data::query::DEFAULT_LIMIT;
+use words_to_data::query::{DEFAULT_LIMIT, Locator, PathMatch};
 
 use crate::load::{self, with_dataset};
 
@@ -47,12 +47,35 @@ pub fn run(args: Args) {
     let matching = crate::annotations::path_matching(args.exact);
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let report = crate::fail::or_exit(
-        with_dataset!(ds, d => inspect::path_report(&d, &args.path, pair, matching)),
+        with_dataset!(&ds, d => inspect::path_report(d, &args.path, pair, matching)),
         "Error building path report",
     );
+    // Asked only when no expression holds the path. "(no expression)" alone
+    // sent an agent to SQL to find the real path (#326). "Present in" is about
+    // the path itself, so the question is too.
+    let absent = if report.present_in.is_empty() {
+        let locator = Locator::new().at_path(&args.path, PathMatch::Exact);
+        crate::fail::or_exit(
+            with_dataset!(&ds, d => inspect::absent_path(d, &locator)),
+            "Error checking the path",
+        )
+    } else {
+        None
+    };
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        // Only when the path is absent, so the answer over a real path is the
+        // same as it was. A `Value` sorts its keys, so the report is printed
+        // as itself when there is nothing to add.
+        let answer = match &absent {
+            None => serde_json::to_string_pretty(&report),
+            Some(absent) => {
+                let mut answer = serde_json::json!(report);
+                answer["absent_path"] = serde_json::json!(absent);
+                serde_json::to_string_pretty(&answer)
+            }
+        };
+        println!("{}", answer.unwrap());
         return;
     }
 
@@ -70,6 +93,9 @@ pub fn run(args: Args) {
                 .join(", ")
         }
     );
+    if let Some(nearest) = absent.as_ref().and_then(|a| a.nearest_held.as_ref()) {
+        println!("Nearest held path: {nearest}");
+    }
 
     if let (Some(from), Some(to)) = (&args.from, &args.to) {
         println!(
