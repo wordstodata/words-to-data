@@ -313,6 +313,15 @@ fn check_schema_version(conn: &Connection) -> Result<(), DatasetError> {
     }
 }
 
+/// Whether the file holds a schema already.
+///
+/// `init_schema` writes the version last, so a version means every table is
+/// there. Run after `check_schema_version`, so the version is this build's.
+fn has_schema(conn: &Connection) -> bool {
+    conn.query_row("SELECT 1 FROM schema_version LIMIT 1", [], |_| Ok(()))
+        .is_ok()
+}
+
 /// Refuse a search index that predates the columns this build searches.
 ///
 /// `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a file built
@@ -363,20 +372,34 @@ fn check_search_index(conn: &Connection, path: &str) -> Result<(), DatasetError>
     }
 }
 
+/// How long a connection waits for another process's lock before it fails.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl SqliteStorage {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DatasetError> {
         let shown = path.as_ref().display().to_string();
         let conn = Connection::open(path)?;
+        // A short write by another process (a `settle` verdict, a grow
+        // command) makes this connection wait, not fail. rusqlite sets the
+        // same value today; it is stated here so that a change there cannot
+        // remove it.
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         // Check before init_schema, which would otherwise add this build's
         // tables to an older file and leave a hybrid that answers queries with
         // nothing rather than saying it cannot read them.
         check_schema_version(&conn)?;
         check_search_index(&conn, &shown)?;
+        let has_schema = has_schema(&conn);
         let mut storage = Self {
             conn,
             metadata: DatasetMetadata::default(),
         };
-        storage.init_schema()?;
+        // Only a new file gets the schema. Writing it into a file that has it
+        // already takes a write lock, so a reader beside another reader failed
+        // with "database is locked" (#331).
+        if !has_schema {
+            storage.init_schema()?;
+        }
         storage.metadata = storage.load_metadata().unwrap_or_default();
         Ok(storage)
     }
