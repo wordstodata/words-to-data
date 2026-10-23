@@ -1,0 +1,116 @@
+//! What `search` reads as the same characters, beyond case and white space
+//! (#338).
+//!
+//! The stored text holds forms that an agent does not type: a soft hyphen
+//! inside a word of the Code, a ligature in a court opinion, "§7" for "§ 7",
+//! "U. S." for "U.S." in a reporter cite, and a hyphen that a line break left
+//! inside a word of a slip opinion. A search that compared the characters as
+//! they are did not find words that the dataset holds, and an agent then said
+//! "the text is not in the dataset".
+//!
+//! The fixtures are real data: title 13 of the US Code at 2025-07-18, and
+//! CourtListener records committed under `tests/test_data/courtlistener`.
+
+use std::collections::BTreeSet;
+use std::process::{Command, Output};
+
+use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
+
+/// Where the committed CourtListener records are, as a cache directory.
+const CACHE: &str = "tests/test_data";
+
+fn run(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(args)
+        .output()
+        .expect("the binary should run")
+}
+
+/// A dataset of one release-point file, in the format the extension names.
+///
+/// `name` names this test's file, so tests that run at the same time do not
+/// share one.
+fn with_title(name: &str, extension: &str, xml: &str) -> String {
+    let path = format!(
+        "{}/search_folding_{name}.{extension}",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let _ = std::fs::remove_file(&path);
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    dataset
+        .add_uslm_xml(xml, "2025-07-18", None)
+        .expect("the title should parse");
+    match extension {
+        "sqlite" => dataset.save_to_sqlite(&path),
+        _ => dataset.save(&path, Format::Compact),
+    }
+    .expect("the fixture should save");
+    path
+}
+
+/// Run one check on a SQLite dataset and on a compact JSON one.
+///
+/// SQLite finds a hit in its element index and the in-memory store walks the
+/// tree, so each question is asked of both.
+fn on_both_backends(make: impl Fn(&str) -> String, check: impl Fn(&str)) {
+    check(&make("sqlite"));
+    check(&make("json"));
+}
+
+/// The hits of one search, as `--json` gives them.
+fn hits(args: &[&str]) -> Vec<serde_json::Value> {
+    let output = run(args);
+    assert!(
+        output.status.success(),
+        "search should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let answer: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("--json should print JSON");
+    answer["hits"]
+        .as_array()
+        .expect("hits should be a list")
+        .clone()
+}
+
+/// The paths of the hits of one search.
+fn paths_of(found: &[serde_json::Value]) -> BTreeSet<String> {
+    found
+        .iter()
+        .map(|hit| hit["path"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// 13 U.S.C. § 9(b) ends "public rec\u{ad}ords": the Code puts a soft hyphen
+/// (U+00AD) inside the word. About 600 fields of each printing hold one.
+#[test]
+fn should_find_a_word_when_a_soft_hyphen_splits_it() {
+    let title_13 = |extension: &str| {
+        with_title(
+            "soft_hyphen",
+            extension,
+            "tests/test_data/usc/2025-07-18/usc13.xml",
+        )
+    };
+    on_both_backends(title_13, |dataset| {
+        let found = hits(&[
+            "search",
+            dataset,
+            "public records",
+            "--path",
+            "uscode/title_13/chapter_1/subchapter_I/section_9",
+            "--json",
+        ]);
+
+        assert_eq!(
+            paths_of(&found),
+            BTreeSet::from(["uscode/title_13/chapter_1/subchapter_I/section_9/subsection_b".to_string()]),
+            "the subsection that holds the words, in {dataset}"
+        );
+        let snippet = found[0]["snippet"].as_str().unwrap();
+        assert!(
+            snippet.contains("public rec\u{ad}ords"),
+            "the snippet shows the text as the Code has it, got {snippet:?}"
+        );
+    });
+}

@@ -16,6 +16,8 @@
 //! - The spellings in [`CLOSED_UP`] are read without their spaces, so "U. S. C."
 //!   and "U.S.C." match each other. Court opinions write the citation both
 //!   ways (#307).
+//! - The characters in [`IGNORED`] are not read. The Code puts a soft hyphen
+//!   inside about 600 words of each printing, such as "rec\u{ad}ords" (#338).
 //!
 //! Offsets are counted in characters, not bytes. The corpus holds `§`, and a
 //! byte offset that a reader takes as a character offset points at the wrong
@@ -29,38 +31,53 @@
 /// and stays a different spelling.
 pub const CLOSED_UP: &[&str] = &["u. s. c."];
 
+/// Characters that search does not read, in the text or in the query.
+///
+/// Each is a format character: it does not show in the text, and a person who
+/// types the words does not type it. The soft hyphen (U+00AD) is the one the
+/// Code holds; the zero-width characters and the byte order mark are the others
+/// of the same kind.
+pub const IGNORED: &[char] = &[
+    '\u{00AD}', // soft hyphen
+    '\u{200B}', // zero width space
+    '\u{200C}', // zero width non-joiner
+    '\u{200D}', // zero width joiner
+    '\u{2060}', // word joiner
+    '\u{FEFF}', // zero width no-break space (byte order mark)
+];
+
 /// A search query, ready to compare with text.
 #[derive(Debug, Clone)]
 pub struct Query {
     /// The query as it is compared: see [`comparable`].
     wanted: Vec<char>,
-    /// Runs of characters that every match holds, in order.
-    pieces: Vec<String>,
+    /// The query as [`bare`] reads it, for the quick test in [`Query::is_in`].
+    bare: String,
 }
 
 impl Query {
     pub fn new(query: &str) -> Self {
-        let wanted: Vec<char> = comparable(query).into_iter().map(|(c, _)| c).collect();
-
-        // A spelling that was closed up can appear with its spaces in the
-        // text, so it gives one piece for each part between the spaces. The
-        // closed-up form holds each part too, in the same order.
-        let mut spaced: String = wanted.iter().collect();
-        for spelling in CLOSED_UP {
-            spaced = spaced.replace(&closed_up(spelling), spelling);
+        let wanted = comparable(query).into_iter().map(|(c, _)| c).collect();
+        Self {
+            wanted,
+            bare: bare(query),
         }
-        let pieces = spaced.split_whitespace().map(str::to_string).collect();
-
-        Self { wanted, pieces }
     }
 
-    /// Runs of lower-case characters that every match holds, in this order.
+    /// Whether `text` holds at least one match.
     ///
-    /// A necessary condition and not a sufficient one: a back end can use it
-    /// to skip text quickly, for example as a SQL `LIKE` pattern, and must then
-    /// ask [`Query::occurrences`] for the answer.
-    pub fn pieces(&self) -> &[String] {
-        &self.pieces
+    /// A back end uses this to keep only the fields that match, and then asks
+    /// [`Query::occurrences`] where the matches are. The rule is the one rule
+    /// of this module: a back end cannot state it in its own terms, such as a
+    /// SQL `LIKE` pattern, because a character that search does not read can
+    /// be inside any word.
+    ///
+    /// Most fields hold no match, so a quick test comes first: the field read
+    /// by [`bare`] must hold the query read by [`bare`]. That test cannot
+    /// refuse a field that matches, because each rule after [`read_char`]
+    /// only takes out spaces and hyphens, and [`bare`] takes out all of them.
+    pub fn is_in(&self, text: &str) -> bool {
+        bare(text).contains(&self.bare) && !self.occurrences(text).is_empty()
     }
 
     /// The character offset of each match in `text`, first to last.
@@ -113,26 +130,64 @@ pub fn occurrences(text: &str, query: &str) -> Vec<usize> {
 /// The text as search compares it, each character with the offset of the
 /// character in `text` it came from.
 ///
-/// Each character is lowercased, each run of white space becomes one space,
-/// and each spelling in [`CLOSED_UP`] loses its spaces. Lowercasing can change how many characters a string holds, so the
+/// Each character in [`IGNORED`] is dropped, each character is lowercased,
+/// each run of white space becomes one space, and each spelling in
+/// [`CLOSED_UP`] loses its spaces. Lowercasing can change how many characters a string holds, so the
 /// offsets are carried along rather than counted again: an offset counted in
 /// the compared form would point at the wrong place in the original.
 fn comparable(text: &str) -> Vec<(char, usize)> {
     let mut folded: Vec<(char, usize)> = Vec::new();
     for (offset, c) in text.chars().enumerate() {
-        if c.is_whitespace() {
-            // A run keeps the offset of its first character.
-            if folded.last().is_none_or(|(last, _)| *last != ' ') {
-                folded.push((' ', offset));
+        read_char(c, |read| {
+            // A run of white space keeps the offset of its first character.
+            if read != ' ' || folded.last().is_none_or(|(last, _)| *last != ' ') {
+                folded.push((read, offset));
             }
-        } else {
-            folded.extend(c.to_lowercase().map(|lower| (lower, offset)));
-        }
+        });
     }
     for spelling in CLOSED_UP {
         folded = close_up(folded, spelling);
     }
     folded
+}
+
+/// The characters that search reads for `c`, given one at a time to `read`.
+///
+/// A character in [`IGNORED`] gives none, white space gives one space, and any
+/// other character gives its lower case. This is the part of the rule that
+/// reads one character alone; [`comparable`] and [`bare`] both start here, so
+/// they cannot come to disagree about it.
+fn read_char(c: char, mut read: impl FnMut(char)) {
+    // Most of the corpus is ASCII, and no ASCII character is in `IGNORED`.
+    // This path gives the same characters as the general one, faster.
+    if c.is_ascii() {
+        read(if c.is_whitespace() { ' ' } else { c.to_ascii_lowercase() });
+        return;
+    }
+    if IGNORED.contains(&c) {
+        return;
+    }
+    if c.is_whitespace() {
+        read(' ');
+    } else {
+        c.to_lowercase().for_each(read);
+    }
+}
+
+/// `text` as [`read_char`] reads it, with no space and no hyphen.
+///
+/// Quick to make, and with no offsets. [`Query::is_in`] compares the two bare
+/// forms before it asks where the matches are.
+fn bare(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        read_char(c, |read| {
+            if read != ' ' && read != '-' {
+                out.push(read);
+            }
+        });
+    }
+    out
 }
 
 /// `folded` with the spaces taken out of each place that spells `spelling`.
@@ -151,9 +206,4 @@ fn close_up(folded: Vec<(char, usize)>, spelling: &str) -> Vec<(char, usize)> {
         }
     }
     out
-}
-
-/// `spelling` with its spaces taken out.
-fn closed_up(spelling: &str) -> String {
-    spelling.chars().filter(|c| !c.is_whitespace()).collect()
 }
