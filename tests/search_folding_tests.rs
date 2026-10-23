@@ -142,7 +142,9 @@ fn should_find_a_word_when_a_soft_hyphen_splits_it() {
 
         assert_eq!(
             paths_of(&found),
-            BTreeSet::from(["uscode/title_13/chapter_1/subchapter_I/section_9/subsection_b".to_string()]),
+            BTreeSet::from([
+                "uscode/title_13/chapter_1/subchapter_I/section_9/subsection_b".to_string()
+            ]),
             "the subsection that holds the words, in {dataset}"
         );
         let snippet = found[0]["snippet"].as_str().unwrap();
@@ -157,8 +159,7 @@ fn should_find_a_word_when_a_soft_hyphen_splits_it() {
 /// and its text writes "qualified" with the ligature "\u{fb01}" (U+FB01).
 #[test]
 fn should_find_a_word_when_a_ligature_spells_two_of_its_letters() {
-    let little_sandy_coal =
-        |extension: &str| with_opinions("ligature", extension, "9377344");
+    let little_sandy_coal = |extension: &str| with_opinions("ligature", extension, "9377344");
     on_both_backends(little_sandy_coal, |dataset| {
         let search = |query: &str| {
             hits(&[
@@ -262,8 +263,7 @@ fn should_find_the_same_paragraphs_when_us_reports_is_spelt_with_or_without_spac
 /// broke a word: "substan-tially", "experimenta-tion" (#338).
 #[test]
 fn should_find_a_word_when_a_line_break_left_a_hyphen_inside_it() {
-    let little_sandy_coal =
-        |extension: &str| with_opinions("broken_word", extension, "9377344");
+    let little_sandy_coal = |extension: &str| with_opinions("broken_word", extension, "9377344");
     on_both_backends(little_sandy_coal, |dataset| {
         let search = |query: &str| {
             hits(&[

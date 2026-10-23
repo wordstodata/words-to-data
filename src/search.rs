@@ -148,6 +148,11 @@ impl Query {
 /// assert_eq!(occurrences("Section 174", ""), vec![0]);
 /// assert_eq!(occurrences("26 U. S. C. § 174", "U.S.C. § 174"), vec![3]);
 /// assert_eq!(occurrences("qualified research\neach year", "research each"), vec![10]);
+/// assert_eq!(occurrences("public rec\u{ad}ords", "public records"), vec![0]);
+/// assert_eq!(occurrences("quali\u{fb01}ed", "qualified"), vec![0]);
+/// assert_eq!(occurrences("IRC §7508(a)", "§ 7508(a)"), vec![4]);
+/// assert_eq!(occurrences("596 U. S. 212", "596 U.S. 212"), vec![0]);
+/// assert_eq!(occurrences("comply substan-tially", "substantially"), vec![7]);
 /// ```
 pub fn occurrences(text: &str, query: &str) -> Vec<usize> {
     Query::new(query).occurrences(text)
@@ -231,7 +236,11 @@ fn read_char(c: char, mut read: impl FnMut(char)) {
     // Most of the corpus is ASCII, and no ASCII character is in `IGNORED`.
     // This path gives the same characters as the general one, faster.
     if c.is_ascii() {
-        read(if c.is_whitespace() { ' ' } else { c.to_ascii_lowercase() });
+        read(if c.is_whitespace() {
+            ' '
+        } else {
+            c.to_ascii_lowercase()
+        });
         return;
     }
     if IGNORED.contains(&c) {

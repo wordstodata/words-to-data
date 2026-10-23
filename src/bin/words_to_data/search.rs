@@ -38,8 +38,11 @@ pub struct Args {
     ///
     /// Case is ignored. A run of white space in the text, such as a line
     /// break, matches one space in the query. "U.S.C." and "U. S. C." match
-    /// each other; no other spellings are made equal ("U.S.C.A." stays as it
-    /// is). Snippets show the text as stored
+    /// each other, and so do "U.S." and "U. S.", and "§7" and "§ 7". A soft
+    /// hyphen or a zero-width character is not read, a ligature such as "ﬁ"
+    /// matches its letters, and a hyphen between two letters is not read, so
+    /// "substantially" matches "substan-tially". No other spellings are made
+    /// equal ("U.S.C.A." stays as it is). Snippets show the text as stored
     pub query: String,
 
     /// Search only this work, e.g. `uscode/title_26`
