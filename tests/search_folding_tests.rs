@@ -226,3 +226,34 @@ fn should_find_the_same_paragraphs_when_a_section_sign_is_written_with_or_withou
         );
     });
 }
+
+/// A reporter cite is written "308 U. S. 488" in one opinion and
+/// "308 U.S. 488" in another: *Snow* (109019) and *Encyclopaedia Britannica*
+/// (406879) cite *Deputy v. du Pont* each in its own way.
+#[test]
+fn should_find_the_same_paragraphs_when_us_reports_is_spelt_with_or_without_spaces() {
+    let two_cases = |extension: &str| with_opinions("us_reports", extension, "109019,406879");
+    on_both_backends(two_cases, |dataset| {
+        let search = |query: &str| {
+            paths_of(&hits(&[
+                "search", dataset, query, "--path", "judicial", "--all", "--json",
+            ]))
+        };
+        let closed = search("308 U.S. 488");
+        let spaced = search("308 U. S. 488");
+
+        assert_eq!(
+            closed, spaced,
+            "\"U.S.\" and \"U. S.\" find the same paragraphs, in {dataset}"
+        );
+        let cases: BTreeSet<&str> = closed
+            .iter()
+            .map(|path| path.split('/').nth(1).unwrap())
+            .collect();
+        assert_eq!(
+            cases,
+            BTreeSet::from(["case_109019", "case_406879"]),
+            "both opinions cite the case, in {dataset}"
+        );
+    });
+}

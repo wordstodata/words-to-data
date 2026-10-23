@@ -14,8 +14,8 @@
 //!   the text match one space in the query. Plain-text opinions break lines
 //!   inside phrases (#307).
 //! - The spellings in [`CLOSED_UP`] are read without their spaces, so "U. S. C."
-//!   and "U.S.C." match each other. Court opinions write the citation both
-//!   ways (#307).
+//!   and "U.S.C." match each other, and so do "U. S." and "U.S.". Court
+//!   opinions write the citations both ways (#307, #338).
 //! - A ligature in [`LIGATURES`] is read as its letters, so "qualified"
 //!   matches "quali\u{fb01}ed". Opinions stored from a PDF hold them (#338).
 //! - A space between "§" and a digit is not read, so "§ 7508" and "§7508"
@@ -33,7 +33,11 @@
 /// The list is short on purpose. It is not fuzzy matching: each entry is one
 /// spelling that the sources really use for another. "U.S.C.A." is not here,
 /// and stays a different spelling.
-pub const CLOSED_UP: &[&str] = &["u. s. c."];
+///
+/// "U. S." is the United States Reports in a cite such as "596 U. S. 212",
+/// which slip opinions write with spaces (#338). The entries are closed up in
+/// this order, so "U. S. C." is closed up whole before "U. S." is looked for.
+pub const CLOSED_UP: &[&str] = &["u. s. c.", "u. s."];
 
 /// Characters that search does not read, in the text or in the query.
 ///
