@@ -55,6 +55,9 @@ pub struct CitationLink {
     pub stub_heading: Option<String>,
     /// The words the rule matched in the opinion, such as `26 U.S.C. § 174(e)`.
     /// From the link's evidence. `None` when the link carries no evidence.
+    /// When the rule repaired an OCR form to read them, the repair follows the
+    /// words: `26 V.S.C. §§ 1361(a)(1), 1363(a) (OCR repair: "V.S.C." read as
+    /// "U.S.C.")`.
     pub matched_words: Option<String>,
     /// What the link's maker recorded. A rule made every citation, so this is
     /// `machine_suggested`.

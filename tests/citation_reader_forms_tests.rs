@@ -245,42 +245,117 @@ fn should_resolve_each_end_of_a_range_when_the_second_end_is_written_short() {
 }
 
 #[test]
-fn should_report_a_skip_when_ocr_reads_the_reporter_as_v_s_c() {
+fn should_link_sections_1361_and_1363_and_name_the_repair_when_ocr_reads_the_reporter_as_v_s_c() {
     // *Shami v. Commissioner* (5th Cir. 2014), opinion 2651100. Its Harvard
-    // text is OCR, and footnote 6 reads `26 V.S.C.` where the court wrote
-    // `26 U.S.C.`. The citation is not read, because the reporter is not one the
-    // reader knows, and it is reported, so nobody takes the silence for "this
-    // footnote cites no statute".
-    let harvard = opinion(2651100)
-        .xml_harvard
-        .expect("the record carries Harvard text");
-    let (text, _) = text_of_markup(&harvard);
+    // text is OCR, and footnote 6 reads `26 V.S.C. §§ 1361(a)(1), 1363(a)` where
+    // the court wrote `26 U.S.C.`. Until #341 the citation was reported and not
+    // read, and both links were lost. "V.S.C." is a known OCR form of "U.S.C.",
+    // so it is read, and the evidence of each link says that it was repaired.
+    let text = stored_text(2651100);
+    assert!(
+        text.contains("26 V.S.C."),
+        "the committed text writes the OCR form"
+    );
+
+    let dataset = dataset_with_opinion(2651100, 2651100);
+
+    let links = dataset
+        .links_by_kind(LinkKind::CITES)
+        .expect("storage should answer");
+    for section in ["section_1361", "section_1363"] {
+        let link = links
+            .iter()
+            .find(|link| {
+                link.object
+                    .path()
+                    .is_some_and(|path| path.ends_with(&format!("/{section}")))
+            })
+            .unwrap_or_else(|| panic!("Shami cites {section}, got {links:?}"));
+        let evidence = link
+            .provenance
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.reasoning.as_deref())
+            .expect("a citation link carries the words it read");
+        assert!(
+            evidence.starts_with("26 V.S.C."),
+            "the evidence keeps the words as the text wrote them, got {evidence:?}"
+        );
+        assert!(
+            evidence.contains("OCR repair: \"V.S.C.\" read as \"U.S.C.\""),
+            "the evidence names the repair, got {evidence:?}"
+        );
+    }
+
+    let (_, report) = usc::find_with_report(&text);
+    assert!(
+        report
+            .skipped
+            .iter()
+            .all(|skipped| skipped.reason != SkipReason::NearMissReporter),
+        "a citation that is read is not reported as a skip, got {report:?}"
+    );
+}
+
+#[test]
+fn should_read_the_citation_when_the_reporter_is_written_u_s_c_with_no_last_point() {
+    // *District of Columbia v. USDA* (D.D.C. 2020), opinion 4578098, paragraph
+    // 97 writes `7 U.S.C § 2015(o)(4)(A)`, with no point after the C. The marker
+    // and the number make it a citation, and no character is changed to read it,
+    // so it is read as written and is no repair (#341).
+    let text = stored_text(4578098);
+    assert!(
+        text.contains("7 U.S.C \u{a7} 2015(o)(4)(A)"),
+        "the committed text writes the form"
+    );
 
     let (found, report) = usc::find_with_report(&text);
 
-    assert!(
-        found
-            .iter()
-            .all(|citation| !citation.text.contains("V.S.C.")),
-        "a near-miss reporter is not linked, got {found:?}"
-    );
-    let skipped: Vec<_> = report
-        .skipped
+    let citation = found
         .iter()
-        .filter(|skipped| skipped.reason == SkipReason::NearMissReporter)
-        .collect();
-    assert_eq!(skipped.len(), 1, "one skip, got {report:?}");
-    assert!(
-        skipped[0].text.starts_with("26 V.S.C.") && skipped[0].text.ends_with("1361(a)(1)"),
-        "the skip carries the text, got {:?}",
-        skipped[0].text
-    );
+        .find(|citation| citation.text == "7 U.S.C \u{a7} 2015(o)(4)(A)")
+        .unwrap_or_else(|| panic!("the citation is read, got {report:?}"));
+    assert_eq!(citation.title, "7");
+    assert_eq!(citation.sections, ["2015(o)(4)(A)"]);
+    assert_eq!(citation.repair, None, "nothing was repaired");
     assert!(
         report
-            .summary()
+            .skipped
             .iter()
-            .any(|line| line.contains("26 V.S.C.")),
-        "and the report a command prints names it, got {:?}",
-        report.summary()
+            .all(|skipped| skipped.reason != SkipReason::NearMissReporter),
+        "no near miss is left, got {report:?}"
     );
+}
+
+#[test]
+fn should_read_a_citation_with_no_section_marker_when_a_subdivision_is_written_onto_the_number() {
+    // With no marker, a bare number after the reporter can be a page or an
+    // edition year ("26 U.S.C. 1958 ed."), so it stays unread. A page or a year
+    // never carries a bracketed subdivision, so `2015(o)(6)(G)` is a section
+    // (#341). *District of Columbia v. USDA*, opinion 4578098, writes
+    // `7 U.S.C. 2015(o)(6)(G)` and `7 U.S.C. 2015(o)(4)(A)`; *BMW (US) Holding
+    // Corp.*, opinion 11409814, writes `26 U.S.C. 7508A(a)`.
+    for (opinion_id, written, section) in [
+        (4578098, "7 U.S.C. 2015(o)(6)(G)", "2015(o)(6)(G)"),
+        (4578098, "7 U.S.C. 2015(o)(4)(A)", "2015(o)(4)(A)"),
+        (11409814, "26 U.S.C. 7508A(a)", "7508A(a)"),
+    ] {
+        let text = stored_text(opinion_id);
+        assert!(
+            text.contains(written),
+            "the committed text writes {written}"
+        );
+
+        let (found, report) = usc::find_with_report(&text);
+
+        let citation = found
+            .iter()
+            .find(|citation| citation.text == written)
+            .unwrap_or_else(|| panic!("{written} is read, got {report:?}"));
+        assert_eq!(citation.sections, [section]);
+        assert!(
+            report.skipped.iter().all(|skipped| skipped.text != written),
+            "{written} is not also reported, got {report:?}"
+        );
+    }
 }

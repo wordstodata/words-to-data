@@ -105,15 +105,21 @@ fn should_name_and_place_every_skip_when_real_prose_writes_the_marker_less_form(
             "{skipped:?} sits inside a citation that was read"
         );
     }
-    // `42 U.S.C. 2014(y)`, in the notes to Rule 6. Marker-less, and it names a
-    // subsection, so a reason of "no section number" would be wrong too.
+    // `42 U.S.C. 2014(y)`, in the notes to Rule 6. Marker-less, and a
+    // subdivision is written onto the number, so it is no page and no year and
+    // is read since #341.
+    assert!(
+        found.iter().any(
+            |citation| citation.text == "42 U.S.C. 2014(y)" && citation.sections == ["2014(y)"]
+        ),
+        "the notes to Rule 6 cite 42 U.S.C. 2014(y) with no marker, and it is read"
+    );
     assert!(
         report
             .skipped
             .iter()
-            .any(|skipped| skipped.text.contains("42 U.S.C. 2014(y)")
-                && skipped.reason == SkipReason::NoSectionMarker),
-        "the notes to Rule 6 cite 42 U.S.C. 2014(y) with no marker"
+            .all(|skipped| !skipped.text.contains("42 U.S.C. 2014(y)")),
+        "a citation that is read is not also a skip"
     );
 }
 
@@ -129,7 +135,9 @@ fn should_say_the_count_and_an_example_for_each_reason_when_the_report_is_summar
     //
     // One reason is met here since #141. The notes cite `25 U.S.C. § 479a–1`
     // twice, which was the second reason until the dash family was read, and
-    // both are now read and resolved rather than declined.
+    // both are now read and resolved rather than declined. Six marker-less
+    // citations with a subdivision written onto the number, such as
+    // `42 U.S.C. 2014(y)`, are read since #341, so 83 of the 89 are left.
     assert_eq!(summary.len(), 1, "one reason met, got {summary:?}");
     assert!(summary.iter().all(|line| line.starts_with("warning: ")));
     assert!(
@@ -137,7 +145,7 @@ fn should_say_the_count_and_an_example_for_each_reason_when_the_report_is_summar
         "the reason met must be named: {summary:?}"
     );
     assert!(
-        summary[0].contains("89 U.S.C. citation"),
+        summary[0].contains("83 U.S.C. citation"),
         "the count must say how much was declined: {summary:?}"
     );
     assert!(
