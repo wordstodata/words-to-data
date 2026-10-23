@@ -44,3 +44,6 @@ plans/
 
 # Generated sqlite datasets
 *.sqlite
+# The citation links of a dataset built before #313, the real old links that
+# the review carry tests carry reviews from (#319).
+!tests/test_data/review_carry/*.json

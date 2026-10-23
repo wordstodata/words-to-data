@@ -11,6 +11,7 @@ mod amendment_addresses;
 mod annotations;
 mod bills;
 mod build_dataset;
+mod carry_reviews;
 mod cases_citing;
 mod congress_bills;
 mod contradictions;
@@ -61,6 +62,8 @@ enum Command {
     Redesignations(redesignations::Args),
     /// Settle one link: say whether it is right, and record the review as its own link
     Settle(settle::Args),
+    /// Carry the reviews of citation links from an old dataset to the new links of its rebuild
+    CarryReviews(carry_reviews::Args),
     /// Record an amendment link an agent found, refusing any path that did not change
     LinkAmendment(link_amendment::Args),
     /// Add court cases from CourtListener, each writing a path, with their U.S.C. citations as links
@@ -124,6 +127,7 @@ fn main() {
         Command::LinkByEvidence(args) => link_by_evidence::run(args),
         Command::Redesignations(args) => redesignations::run(args),
         Command::Settle(args) => settle::run(args),
+        Command::CarryReviews(args) => carry_reviews::run(args),
         Command::LinkAmendment(args) => link_amendment::run(args),
         Command::AddOpinions(args) => add_opinions::run(args),
         Command::AddReleasePoints(args) => add_release_points::run(args),
