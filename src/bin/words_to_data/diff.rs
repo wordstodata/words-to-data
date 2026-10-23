@@ -61,8 +61,15 @@ pub fn run(args: Args) {
     // documents, and a change is found before anybody can ask whether it is
     // inside the scope.
     summary.changed_paths.retain(|path| locates(&locator, path));
-    summary.added_paths.retain(|path| locates(&locator, path));
-    summary.removed_paths.retain(|path| locates(&locator, path));
+    // A provision added or removed whole is one path, with nothing listed
+    // beneath it. A scope inside it was added or removed with it, so the
+    // provision that holds the scope is kept (#336).
+    summary
+        .added_paths
+        .retain(|path| locates(&locator, path) || holds_the_scope(&locator, path));
+    summary
+        .removed_paths
+        .retain(|path| locates(&locator, path) || holds_the_scope(&locator, path));
     // A move has two ends. Either one inside the scope makes it a move the
     // reader asked about: a section that moved out of the subtree is a change to
     // that subtree, and dropping it would say the subtree is unchanged.
@@ -84,6 +91,19 @@ pub fn run(args: Args) {
     print_paths("Changed", &summary.changed_paths);
     print_paths("Added", &summary.added_paths);
     print_paths("Removed", &summary.removed_paths);
+    // Said aloud, because the path listed is not the path asked for.
+    for (whole, how) in [
+        (&summary.added_paths, "added"),
+        (&summary.removed_paths, "removed"),
+    ] {
+        for path in whole {
+            if let Some(asked) = args.path.as_deref().filter(|asked| asked != path)
+                && holds_the_scope(&locator, path)
+            {
+                println!("\n{asked} is inside {path}, which was {how} whole.");
+            }
+        }
+    }
 
     // A move is not a removal plus an addition, so it gets its own list. An
     // empty one is not printed: every dataset has none until `redesignations`
@@ -146,6 +166,15 @@ fn locates(locator: &Locator, path: &str) -> bool {
         (Some(asked), PathMatch::Subtree) => words_to_data::uslm::path::covers_path(asked, path),
         (Some(asked), PathMatch::Exact) => asked == path,
     }
+}
+
+/// Whether a path is a provision above the locator's path: the scope is
+/// inside it.
+fn holds_the_scope(locator: &Locator, path: &str) -> bool {
+    locator
+        .path
+        .as_deref()
+        .is_some_and(|asked| words_to_data::uslm::path::covers_path(path, asked))
 }
 
 fn print_paths(label: &str, paths: &[String]) {

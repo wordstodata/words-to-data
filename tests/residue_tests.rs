@@ -420,6 +420,49 @@ fn should_report_an_amendment_as_quiet_and_not_as_work_when_nothing_under_its_ad
 }
 
 #[test]
+fn should_not_report_an_amendment_as_quiet_when_the_window_added_a_parent_of_its_address() {
+    // Section 70204(a)(1) of the law: "Subchapter F of chapter 1 is amended
+    // by adding at the end the following new part: PART IX ... § 530A". The
+    // OLRC classifies it to 26 U.S.C. 530A. The diff reports the new part as
+    // one added node and lists no path beneath it, so nothing is at or below
+    // § 530A. The section is new all the same: its part was added in the
+    // window (#336).
+    let rows = residue_rows(unlinked());
+
+    let row = row_of(&rows, "7bdf27afebe2").expect("the amendment is listed");
+    assert_eq!(row["address"]["section"], "/us/usc/t26/s530A");
+    assert_ne!(row["category"], "quiet", "the row: {row}");
+    assert!(
+        row["changes"]
+            .as_array()
+            .expect("a list of changes")
+            .contains(&serde_json::json!(
+                "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_IX"
+            )),
+        "the change that holds its address: {}",
+        row["changes"]
+    );
+}
+
+#[test]
+fn should_say_the_olrc_table_gave_the_address_when_the_markup_names_no_section() {
+    // `amendment-addresses` reads the markup alone, and says that 70204(a)(1)
+    // names no section. `residue` gives it 26 U.S.C. 530A, from the OLRC's
+    // classification table. The row says which, so the two do not read as a
+    // disagreement (#336).
+    let rows = residue_rows(unlinked());
+
+    let row = row_of(&rows, "7bdf27afebe2").expect("the amendment is listed");
+    assert_eq!(row["address"]["section"], "/us/usc/t26/s530A");
+    assert_eq!(
+        row["address_source"]["olrc"]["law_sections"],
+        serde_json::json!(["70204(a)(1)"]),
+        "the source: {}",
+        row["address_source"]
+    );
+}
+
+#[test]
 fn should_show_the_olrc_classification_of_the_amendments_section_of_the_law_when_one_is_stored() {
     // The amendment sits at section 10101(b)(3) of the law, and the table
     // classifies 10101(b)(3) to 7 U.S.C. 2036, as an amendment of the section.
