@@ -6,6 +6,8 @@ The removal in **What this removes** was made in #252.
 
 Elimination in stage 4 gives an amendment only a change its own words can have made (#274): a change in a unit its words name, and of a kind its action makes. A strike brings no new words, and an addition removes no provision.
 
+The address in stage 2 keeps every container the bill states (#339): a scope phrase after *is amended* (*"is further amended, in subsection (c)"*), every designation of a scope phrase (*"in subsection (d)(2)"*), the units named before the section (*"Paragraph (2) of section 6213(b)"*), and the designations of a section *"of the Internal Revenue Code of 1986"*, which names title 26. In stage 4, a provision placed by quoted words does not carry a change that another amendment is addressed to, and that amendment takes the provision at its own address by elimination (#339).
+
 The window rule in stage 3 applies to renumbering too (#172): the redesignation step records a statement in the first window after the law's enactment in which the text under the statement's container changed, and names a later such window for review.
 
 Matching asks which change to the US Code each amendment of a public law made. Until now it was answered by content. `extract-changes` asked a model for the words each amendment removes and adds. `score-amendments` scored those words against every changed path in a title with a precision-weighted F1 and dropped scores at or below a cutoff. `match-amendments` asked a model to choose among what was left. `scan_for_mentions` added paths whose section a regex found anywhere in the amendment's text.

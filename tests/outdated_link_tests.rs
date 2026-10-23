@@ -191,8 +191,9 @@ fn should_list_the_outdated_link_as_review_work_when_residue_is_asked_for_the_bi
         .unwrap_or_else(|| panic!("residue should print the section: {printed}"));
     assert!(section.contains(&dropped().id()[..12]), "{section}");
     assert!(section.contains(SECTION_174A), "{section}");
+    let current = evidence_method().version;
     assert!(
-        section.contains("@3") && section.contains("@4"),
+        section.contains(&format!("@{}", current - 1)) && section.contains(&format!("@{current}")),
         "{section}"
     );
 }
@@ -250,8 +251,9 @@ fn should_say_the_link_is_outdated_and_which_version_re_made_the_window_when_set
         .lines()
         .find(|line| line.trim_start().starts_with("Outdated:"))
         .unwrap_or_else(|| panic!("settle --explain should say the link is outdated: {printed}"));
+    let version = evidence_method().version;
     assert!(
-        line.contains("@3") && line.contains("@4"),
+        line.contains(&format!("@{}", version - 1)) && line.contains(&format!("@{version}")),
         "the line names both versions: {line}"
     );
 

@@ -388,3 +388,83 @@ fn should_not_give_an_amendment_that_only_adds_a_change_that_removes_a_provision
         ),
     }
 }
+
+/// 26 U.S.C. 24(h), where two amendments of the law meet.
+const SECTION_24_H: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_24/subsection_h";
+
+#[test]
+fn should_not_give_a_change_inside_a_provision_to_its_editor_when_another_amendments_address_is_the_change()
+ {
+    // Pub. L. 119-21 § 70104:
+    //
+    // - (a) "Section 24(h) is amended—(1) in paragraph (1), by striking …,
+    //   (2) in paragraph (2), by striking "$2,000" and inserting "$2,200", and
+    //   (3) by striking "2018 Through 2025" in the heading …". Its words place
+    //   the edit of the heading of (h).
+    // - (b) "Section 24(h)(7) is amended to read as follows: …".
+    //
+    // (h)(7) changed. It is inside (h), but (a) says nothing of (h)(7), and
+    // (b) is addressed to it. The change is not (a)'s (#339).
+    let matches = title_26_matches();
+    let paragraph_7 = format!("{SECTION_24_H}/paragraph_7");
+
+    let of_a = linked_paths(matches, "9d4f2ae0b2be");
+    assert!(
+        !of_a.contains(&paragraph_7),
+        "§ 70104(a) should not hold (h)(7): {of_a:?}"
+    );
+    let of_b = linked_paths(matches, "6c0a0ef049ab");
+    assert!(
+        of_b.contains(&paragraph_7),
+        "§ 70104(b) should hold (h)(7): {of_b:?}"
+    );
+}
+
+#[test]
+fn should_give_a_change_inside_a_rewritten_provision_to_its_amendment_when_a_wider_amendment_edits_the_provision_around_it()
+ {
+    // Pub. L. 119-21 § 70104(d): "Section 24(h)(5) is amended to read as
+    // follows". Its new subparagraphs (A) and (B) are inside (h)(5), which it
+    // rewrote. § 70104(a) edits the heading of (h), which holds (h)(5), but
+    // (h)(5) is the provision nearest to the change.
+    let matches = title_26_matches();
+    let paragraph_5 = format!("{SECTION_24_H}/paragraph_5");
+
+    let of_d = linked_paths(matches, "000b7e5b4e86");
+    for below in ["subparagraph_A", "subparagraph_B"] {
+        let path = format!("{paragraph_5}/{below}");
+        assert!(
+            of_d.contains(&path),
+            "§ 70104(d) should hold {path}: {of_d:?}"
+        );
+    }
+}
+
+#[test]
+fn should_give_the_provision_at_its_address_by_elimination_only_to_an_amendment_that_rewrites_it() {
+    // Pub. L. 119-21 § 70434:
+    //
+    // - (e) "Section 181 is amended by redesignating subsections (f) and (g)
+    //   as subsections (g) and (h), respectively, and by inserting after
+    //   subsection (e) the following new subsection: …". Its words place the
+    //   new subsection (f).
+    // - (g)(1) "The heading for section 181 is amended to read as follows:
+    //   …". The change to the words of § 181 itself is its own.
+    //
+    // (e) does not rewrite § 181, so elimination does not give it the
+    // section's own change (#339).
+    let matches = title_26_matches();
+    let section_181 = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_181";
+
+    let of_e = linked_paths(matches, "6a37a668013d");
+    assert!(
+        !of_e.iter().any(|path| path == section_181),
+        "§ 70434(e) should not hold § 181 itself: {of_e:?}"
+    );
+    let of_heading = linked_paths(matches, "f3ee50d2b145");
+    assert!(
+        of_heading.iter().any(|path| path == section_181),
+        "the heading amendment should hold § 181: {of_heading:?}"
+    );
+}
