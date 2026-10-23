@@ -25,6 +25,7 @@
 //! with the corpus that needs them. `Pub. L.`, `Stat.` and `C.F.R.` are named in
 //! #52 as out of scope, along with the two eyecite defects that belong to them.
 
+pub mod carry;
 pub mod default_code;
 pub mod resolve;
 pub mod usc;
@@ -165,6 +166,10 @@ pub fn cites_links(opinion: &Opinion, citation: &UscCitation, cited: &[CitedSect
 }
 
 /// One link: this opinion cites the provision at this path.
+///
+/// A change to its subject, object or payload must keep [`carry::Statement::of`]
+/// able to read it, or a rebuild cannot carry the reviews of the old links
+/// (#319).
 fn cites_link(
     opinion: &Opinion,
     citation: &UscCitation,

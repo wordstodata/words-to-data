@@ -11,6 +11,8 @@
 //! - [`RUNNING_HEADS`] reads the running head a Supreme Court slip opinion
 //!   prints on each page: "Opinion of the Court", "JACKSON, J., dissenting".
 //!   The running heads are found by `super::plain`.
+//! - [`JUDGE_HEADINGS`] reads the words that open each writing of a Tax Court
+//!   opinion: "TORO, Judge:" and "JENKINS, J., dissenting:".
 //!
 //! One more rule finds matter that is no part of any writing:
 //! [`STAFF_SUMMARY`] takes out the summary that court staff print before a
@@ -24,7 +26,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::plain::Section;
+use super::plain::{PARAGRAPHS, REPORTERS_NOTE, Section};
 use super::structure::{Passage, PassageKind};
 use crate::method::Method;
 
@@ -35,24 +37,39 @@ pub(crate) const JUSTICE_HEADINGS: &str = "justice-headings";
 /// changes.
 pub(crate) const RUNNING_HEADS: &str = "running-heads";
 
+/// The rule that splits a Tax Court opinion at the words that open each
+/// writing.
+pub(crate) const JUDGE_HEADINGS: &str = "judge-headings";
+
 /// The rule that takes a court staff summary out of the writing it opens.
 pub(crate) const STAFF_SUMMARY: &str = "staff-summary";
 
-/// The version of the rules here. Raise it when the writings a rule finds change
-/// (`crate::method::Method`).
-pub(crate) const VERSION: u32 = 1;
-
 /// A rule, as a provenance names it: `justice-headings@1`.
+///
+/// Each rule has its own version. Raise it when what the rule finds changes
+/// (`crate::method::Method`):
+///
+/// - `running-heads@2` (#315): a running head names its writing in mixed case
+///   too, has only words in lower case after "dissenting" or "concurring",
+///   and a writing starts at its opening line when that line is not the first
+///   of its page. The cover and the Reporter's Note of a preliminary print are
+///   no writing.
+/// - `plain-text-paragraphs@2` (#315): a rule of em dashes is a footnote rule
+///   only at the left margin.
 pub(crate) fn rule(name: &str) -> Method {
-    Method::new(name, VERSION)
+    let version = match name {
+        RUNNING_HEADS | PARAGRAPHS => 2,
+        _ => 1,
+    };
+    Method::new(name, version)
 }
 
 /// One writing a rule found.
 #[derive(Debug, Clone)]
 pub(crate) struct FoundWriting {
-    /// The words the rule found the writing by: the line that opens it, or its
-    /// running head.
-    pub heading: String,
+    /// What the rule found the writing by, as its provenance says it:
+    /// `justice-headings@1: the writing opens with "…"`.
+    pub found_by: String,
     /// The kind of writing, in CourtListener's vocabulary, such as `040dissent`.
     pub opinion_type: Option<&'static str>,
     /// The Justice who wrote it, as CourtListener names an author: `Thomas`.
@@ -113,9 +130,76 @@ fn heading(passage: &Passage) -> Option<FoundWriting> {
         opinion_type: Some(opinion_type(rest)),
         author: Some(author_name(&found["name"])),
         per_curiam: Some(false),
-        heading: text.clone(),
+        found_by: opens_with(JUSTICE_HEADINGS, &text),
         passages: Vec::new(),
     })
+}
+
+/// What a rule found a writing by, when it found the words that open it.
+fn opens_with(name: &str, words: &str) -> String {
+    format!("{}: the writing opens with \"{words}\"", rule(name))
+}
+
+/// The words that open a separate writing of a Tax Court opinion, at the start
+/// of a line: "JENKINS, J., dissenting:", "URDA, C.J., concurring in the
+/// result:". The colon is part of them; the words after it are the first
+/// sentence of the writing. "JENKINS, J., dissents." and "JENKINS, J., wrote a
+/// dissenting opinion." name the writing, and do not open it.
+static SEPARATE_WRITING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?P<name>[A-Z][A-Z'’\-]+(?:\s[A-Z][A-Z'’\-]+)*),\s(?:C\.\s?J|J)\.,\s(?P<rest>(?:concurring|dissenting)(?:,?\s[a-z]+)*):",
+    )
+    .expect("the heading pattern is valid")
+});
+
+/// The words that open the opinion of a Tax Court, at the start of a
+/// paragraph: "TORO, Judge:", "CARLUZZO, Chief Special Trial Judge:".
+static JUDGE_OPINION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?P<name>[A-Z][A-Z'’\-]+(?:\s[A-Z][A-Z'’\-]+)*),\s(?:Chief\s)?(?:Special\sTrial\s)?Judge:",
+    )
+    .expect("the heading pattern is valid")
+});
+
+/// The words that open a separate writing of a Tax Court opinion, when a line
+/// starts with them ([`SEPARATE_WRITING`]).
+pub(crate) fn separate_writing_heading(line: &str) -> Option<String> {
+    let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    SEPARATE_WRITING
+        .find(&line)
+        .map(|found| found.as_str().to_string())
+}
+
+/// The writing a Tax Court heading opens: the heading of a separate writing,
+/// or else the first paragraph that opens the opinion of the Court.
+fn judge_writing(opened_by: Option<&str>, passages: &[Passage]) -> FoundWriting {
+    let mut writing = FoundWriting {
+        found_by: format!(
+            "{}: the words before the first separate writing",
+            rule(JUDGE_HEADINGS)
+        ),
+        opinion_type: None,
+        author: None,
+        per_curiam: None,
+        passages: Vec::new(),
+    };
+    let found = match opened_by {
+        Some(heading) => SEPARATE_WRITING
+            .captures(heading)
+            .map(|found| (found, Some(opinion_type(&heading.replace(':', ""))))),
+        None => passages
+            .iter()
+            .filter(|passage| matches!(passage.kind, PassageKind::Paragraph { .. }))
+            .find_map(|passage| JUDGE_OPINION.captures(&passage.text))
+            .map(|found| (found, Some("020lead"))),
+    };
+    if let Some((found, kind)) = found {
+        writing.found_by = opens_with(JUDGE_HEADINGS, &found[0]);
+        writing.author = Some(author_name(&found["name"]));
+        writing.opinion_type = kind;
+        writing.per_curiam = Some(false);
+    }
+    writing
 }
 
 /// The kind of writing a heading or a running head says it opens, in
@@ -239,7 +323,8 @@ pub(crate) struct RunningHeads {
     pub matter: Vec<FoundMatter>,
 }
 
-/// Read each section of a slip opinion as a writing, or as the syllabus.
+/// Read each section of a `plain_text` record as a writing, or as the
+/// syllabus.
 ///
 /// The syllabus says it "constitutes no part of the opinion of the Court", so
 /// it is matter of the case and no writing. The other running heads name the
@@ -249,10 +334,43 @@ pub(crate) struct RunningHeads {
 /// "JUSTICE KENNEDY delivered the opinion of the Court." "Opinion of
 /// SOTOMAYOR, J." heads a plurality, a concurrence or a dissent, so its kind is
 /// read from that line too.
+///
+/// A Tax Court opinion has no running heads. When a section starts at the
+/// words that open a separate writing, "JENKINS, J., dissenting:", each
+/// section is a writing found by [`JUDGE_HEADINGS`] ([`judge_writing`]).
 pub(crate) fn read_running_heads(sections: Vec<Section>) -> RunningHeads {
     let mut found = RunningHeads::default();
-    for section in sections {
+    let judged = sections.iter().any(|section| section.opened_by.is_some());
+    let headed = sections
+        .iter()
+        .any(|section| section.running_head.is_some());
+    for (index, section) in sections.into_iter().enumerate() {
+        if index == 0 && headed && is_cover(&section) {
+            found.matter.push(FoundMatter {
+                field: "headmatter",
+                found_by: format!(
+                    "{}: the first page carries no running head and says \"PRELIMINARY PRINT\"",
+                    rule(RUNNING_HEADS)
+                ),
+                passages: section.passages,
+            });
+            continue;
+        }
+        if judged && section.running_head.is_none() {
+            let mut writing = judge_writing(section.opened_by.as_deref(), &section.passages);
+            writing.passages = section.passages;
+            found.writings.push(writing);
+            continue;
+        }
         let head = section.running_head.unwrap_or_default();
+        if head == REPORTERS_NOTE {
+            found.matter.push(FoundMatter {
+                field: "reporters_note",
+                found_by: format!("{}: the page is headed \"{head}\"", rule(RUNNING_HEADS)),
+                passages: section.passages,
+            });
+            continue;
+        }
         if head == "Syllabus" {
             found.matter.push(FoundMatter {
                 field: "syllabus",
@@ -288,26 +406,45 @@ pub(crate) fn read_running_heads(sections: Vec<Section>) -> RunningHeads {
     found
 }
 
+/// Whether a section is the cover of a preliminary print of the United States
+/// Reports: it carries no running head, and it says "PRELIMINARY PRINT". The
+/// running heads of the writings start on the pages after it.
+fn is_cover(section: &Section) -> bool {
+    section.running_head.is_none()
+        && section.opened_by.is_none()
+        && section
+            .passages
+            .iter()
+            .any(|passage| passage.text.trim() == "PRELIMINARY PRINT")
+}
+
 /// How many passages into a writing its opening line may stand: after the
 /// caption, the docket numbers and the parties of every case decided with it.
 const OPENING_WITHIN: usize = 40;
 
-/// "SCALIA, J., dissenting", "ROBERTS, C. J., dissenting".
+/// "SCALIA, J., dissenting", "ROBERTS, C. J., dissenting", and in a
+/// preliminary print "Jackson, J., concurring".
 static JUSTICE_HEAD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?P<name>[A-Z][A-Z'’\-]+),\s+(?:C\.\s+)?J\.,\s+(?P<rest>.+)$")
+    Regex::new(r"^(?P<name>[A-Z][A-Za-z'’\-]+),\s+(?:C\.\s+)?J\.,\s+(?P<rest>.+)$")
         .expect("the running head pattern is valid")
 });
 
-/// "Opinion of ALITO, J.", "Statement of SOTOMAYOR, J."
+/// "Opinion of ALITO, J.", "Statement of SOTOMAYOR, J.", "Opinion of Gorsuch,
+/// J."
 static OF_JUSTICE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?P<kind>Opinion|Statement)\s+of\s+(?P<name>[A-Z][A-Z'’\-]+),\s+(?:C\.\s+)?J\.$")
-        .expect("the running head pattern is valid")
+    Regex::new(
+        r"^(?P<kind>Opinion|Statement)\s+of\s+(?P<name>[A-Z][A-Za-z'’\-]+),\s+(?:C\.\s+)?J\.$",
+    )
+    .expect("the running head pattern is valid")
 });
 
 /// The writing a running head names, with no passages yet.
 fn writing_of_head(head: &str) -> FoundWriting {
     let mut writing = FoundWriting {
-        heading: head.to_string(),
+        found_by: format!(
+            "{}: the writing's pages carry the running head \"{head}\"",
+            rule(RUNNING_HEADS)
+        ),
         opinion_type: None,
         author: None,
         per_curiam: None,

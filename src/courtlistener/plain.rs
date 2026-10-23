@@ -40,7 +40,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::structure::{Passage, PassageKind};
-use super::writings::opens_writing;
+use super::writings::{opens_writing, separate_writing_heading};
 
 /// The rule that reads `plain_text` into paragraphs and footnotes.
 pub(crate) const PARAGRAPHS: &str = "plain-text-paragraphs";
@@ -59,9 +59,11 @@ static NUMBER_THEN_WORDS: LazyLock<Regex> =
 static STARS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(\*{1,3})(?:\s+(\S.*))?$").expect("valid pattern"));
 
-/// The rule of em dashes the Supreme Court prints above its footnotes.
+/// The rule of em dashes the Supreme Court prints above its footnotes, at the
+/// left margin. A rule set in the middle of the line, as the Tax Court prints
+/// one under its caption, is no footnote rule.
 static FOOTNOTE_RULE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*—{4,}\s*$").expect("valid pattern"));
+    LazyLock::new(|| Regex::new(r"^ {0,3}—{4,}\s*$").expect("valid pattern"));
 
 /// A line at the head of a page that prints the page number too:
 /// "2     OBERGEFELL v. HODGES" or "Cite as: 576 U. S. ____ (2015)     3".
@@ -77,6 +79,10 @@ pub(crate) struct Section {
     /// Court" or "ROBERTS, C. J., dissenting". `None` when the pages print
     /// none.
     pub running_head: Option<String>,
+    /// The words that open the writing, when the section starts at them and
+    /// not at a running head: a Tax Court writing such as "JENKINS, J.,
+    /// dissenting:" ([`separate_writing_heading`]).
+    pub opened_by: Option<String>,
     /// Its paragraphs, then its footnotes.
     pub passages: Vec<Passage>,
 }
@@ -85,8 +91,9 @@ pub(crate) struct Section {
 /// sections by running head.
 ///
 /// A page with no running head that names a writing goes on with the section
-/// before it, and so does an appendix to a writing. Each writing numbers its
-/// footnotes from 1, so each section reads its own.
+/// before it, and so does an appendix to a writing. A line that opens a Tax
+/// Court writing, "JENKINS, J., dissenting:", starts a section where it stands.
+/// Each writing numbers its footnotes from 1, so each section reads its own.
 pub(crate) fn read_plain_text(text: &str) -> Vec<Section> {
     let pages: Vec<Vec<&str>> = text
         .split('\u{c}')
@@ -94,35 +101,125 @@ pub(crate) fn read_plain_text(text: &str) -> Vec<Section> {
         .collect();
     let heads = running_heads(&pages);
     let layout = Layout::of(&pages);
-    let mut sections: Vec<(Option<String>, Vec<Line>, Footnotes)> = Vec::new();
+    let mut sections: Vec<OpenSection> = Vec::new();
     for page in &pages {
-        let (lines, label) = without_furniture(page, &heads);
+        let (mut lines, label) = without_furniture(page, &heads);
         let opens = match (&label, sections.last()) {
             (_, None) => true,
-            (Some(label), Some((current, _, _))) => {
-                !label.contains("Appendix") && current.as_ref() != Some(label)
+            (Some(label), Some(current)) => {
+                !label.contains("Appendix") && current.running_head.as_ref() != Some(label)
             }
             (None, Some(_)) => false,
         };
         if opens {
-            sections.push((label, Vec::new(), Footnotes::default()));
+            // In the United States Reports a writing starts on the page where
+            // the one before it ends. The words above its opening line end the
+            // writing before.
+            if let Some(current) = sections.last_mut()
+                && let Some(start) = opening_line_below_the_top(&lines)
+            {
+                let rest = lines.split_off(start);
+                current.add_lines(lines, layout);
+                lines = rest;
+            }
+            sections.push(OpenSection::new(label, None));
         }
-        let (_, body, footnotes) = sections.last_mut().expect("a section is open");
-        let (page_body, page_notes) = split_footnotes(lines, footnotes, layout);
-        footnotes.read(page_notes);
-        body.extend(from_page_margin(page_body));
+        // A Tax Court writing opens where its line stands, so the page is cut
+        // there, and the lines from it on start a new section.
+        let openings: Vec<(usize, String)> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(index, line)| separate_writing_heading(line).map(|found| (index, found)))
+            .collect();
+        let mut parts = Vec::new();
+        for (index, heading) in openings.into_iter().rev() {
+            parts.push((Some(heading), lines.split_off(index)));
+        }
+        parts.push((None, lines));
+        for (opened_by, part) in parts.into_iter().rev() {
+            if opened_by.is_some() {
+                sections.push(OpenSection::new(None, opened_by));
+            }
+            sections
+                .last_mut()
+                .expect("a section is open")
+                .add_lines(part, layout);
+        }
     }
     sections
         .into_iter()
-        .map(|(running_head, body, footnotes)| {
-            let mut passages = paragraphs(&body, layout);
-            passages.extend(footnotes.into_passages());
+        .map(|section| {
+            let mut passages = paragraphs(&section.body, layout);
+            passages.extend(section.footnotes.into_passages());
             Section {
-                running_head,
+                running_head: section.running_head,
+                opened_by: section.opened_by,
                 passages,
             }
         })
         .collect()
+}
+
+/// How many lines the line that opens a writing may be printed over.
+const OPENING_LINES: usize = 4;
+
+/// Where the line that opens a writing starts, when it is not the first line
+/// of the page: "Justice Jackson, with whom Justice Gorsuch joins, /
+/// concurring."
+///
+/// `None` when the page holds the caption a slip opinion prints at the head of
+/// each writing, "SUPREME COURT OF THE UNITED STATES": the words above the
+/// opening line are then the writing's own caption.
+fn opening_line_below_the_top(lines: &[&str]) -> Option<usize> {
+    let start = (1..lines.len()).find(|&index| {
+        let first = lines[index].trim_start();
+        [
+            "Justice",
+            "JUSTICE",
+            "Chief Justice",
+            "CHIEF JUSTICE",
+            "Mr. Justice",
+            "MR. JUSTICE",
+        ]
+        .iter()
+        .any(|title| first.starts_with(title))
+            && (1..=OPENING_LINES).any(|count| {
+                let end = (index + count).min(lines.len());
+                opens_writing(&joined(lines[index..end].iter().copied()))
+            })
+    })?;
+    let captioned = lines[..start]
+        .iter()
+        .any(|line| line.trim() == "SUPREME COURT OF THE UNITED STATES");
+    let words_above = lines[..start].iter().any(|line| !line.trim().is_empty());
+    (words_above && !captioned).then_some(start)
+}
+
+/// A section while its pages are read.
+struct OpenSection<'a> {
+    running_head: Option<String>,
+    opened_by: Option<String>,
+    body: Vec<Line<'a>>,
+    footnotes: Footnotes,
+}
+
+impl<'a> OpenSection<'a> {
+    fn new(running_head: Option<String>, opened_by: Option<String>) -> Self {
+        Self {
+            running_head,
+            opened_by,
+            body: Vec::new(),
+            footnotes: Footnotes::default(),
+        }
+    }
+
+    /// Add lines of one page: its body to the body, and its footnotes to the
+    /// footnotes.
+    fn add_lines(&mut self, lines: Vec<&'a str>, layout: Layout) {
+        let (body, notes) = split_footnotes(lines, &self.footnotes, layout);
+        self.footnotes.read(notes);
+        self.body.extend(from_page_margin(body));
+    }
 }
 
 /// One line of the body, with what the paragraph rule needs to know of it.
@@ -200,6 +297,13 @@ fn running_heads(pages: &[Vec<&str>]) -> Vec<String> {
 /// page belongs to: "Syllabus", "Per Curiam", "Opinion of the Court",
 /// "Opinion of ALITO, J.", "ROBERTS, C. J., dissenting", "Statement of
 /// SOTOMAYOR, J.", and an appendix, which pdftotext may print over two lines.
+/// The preliminary print of the United States Reports prints the name in mixed
+/// case: "Jackson, J., concurring".
+///
+/// After "dissenting" or "concurring" a running head has only words in lower
+/// case: "concurring in part and dissenting in part". A Tax Court dissent
+/// opens with "JENKINS, J., dissenting: Respondent concedes that", which is
+/// the first line of its words, so it is no running head.
 static WRITING_HEAD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)^(?:
@@ -209,7 +313,7 @@ static WRITING_HEAD: LazyLock<Regex> = LazyLock::new(|| {
           | Statement\s+of\s+.+
           | Appendix.*
           | .*\bof\s+the\s+Court
-          | [A-Z][A-Z'’\-]+,\s+(?:C\.\s+)?J\.,\s+\S.*
+          | [A-Z][A-Za-z'’\-]+,\s+(?:C\.\s+)?J\.,\s+(?:concurring|dissenting)(?:,?\s+[a-z]+)*
         )$",
     )
     .expect("valid pattern")
@@ -250,9 +354,19 @@ fn without_furniture<'a>(page: &[&'a str], heads: &[String]) -> (Vec<&'a str>, O
     while lines.get(start).is_some_and(|line| line.trim().is_empty()) {
         start += 1;
     }
-    let label = (!names.is_empty()).then(|| shape(&names.join(" ")));
+    let mut label = (!names.is_empty()).then(|| shape(&names.join(" ")));
+    // The Reporter's Note heads its page as a title, and it is kept in the
+    // words.
+    let title = lines[start..].iter().find(|line| !line.trim().is_empty());
+    if label.is_none() && title.is_some_and(|line| line.trim() == REPORTERS_NOTE) {
+        label = Some(REPORTERS_NOTE.to_string());
+    }
     (lines.split_off(start), label)
 }
+
+/// The title of the note the Reporter of Decisions prints at the end of a
+/// preliminary print of the United States Reports.
+pub(crate) const REPORTERS_NOTE: &str = "Reporter’s Note";
 
 /// What the whole text says about how it is set.
 #[derive(Debug, Clone, Copy)]
