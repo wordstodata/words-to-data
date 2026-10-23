@@ -1,0 +1,199 @@
+//! The case law rebuild carries each review of a citation link to the new
+//! links that say the same thing (#319,
+//! `docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+//! decision 9).
+//!
+//! A rebuild gives every citation link a new id, because the id is a hash of
+//! the subject and the object (ADR 0004), and ADR 0014 moves both. A review
+//! names the link it reviews by that id (ADR 0012). So without a carry, every
+//! review of a citation stays in the old dataset and names nothing in the new
+//! one.
+//!
+//! **The old links are real.** `tests/test_data/review_carry/citation_links_before_313.json`
+//! holds the 39 `judicial.cites` links of a dataset built on 2026-10-21, before
+//! #313 made a case the work. Each subject is `judicial/opinion_<id>`, so every
+//! one of them has a new id today. The new dataset is title 26 and the ten
+//! committed opinions, added with `add-opinions --offline`, as
+//! `cli_opinions_tests.rs` builds it.
+
+mod common;
+
+use std::process::{Command, Output};
+
+use words_to_data::citation::carry::Carried;
+use words_to_data::dataset::{Dataset, DatasetMetadata};
+use words_to_data::link::{Link, LinkKind};
+use words_to_data::review::{self, Review, Verdict};
+use words_to_data::storage::{InMemoryStorage, LinkReader};
+
+/// The ten opinions, as `add-opinions` takes them.
+const TEN: &str = "2812209,109019,122262,9434365,2651100,6248,6931314,8991218,1527901,406879";
+
+/// Where the committed CourtListener records are, as a cache directory.
+const CACHE: &str = "tests/test_data";
+
+/// The citation links of a dataset built before #313.
+const OLD_LINKS: &str = "tests/test_data/review_carry/citation_links_before_313.json";
+
+const SECTION_174: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174";
+
+fn run(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(args)
+        .output()
+        .expect("the binary should run")
+}
+
+fn stdout_of(output: &Output) -> String {
+    assert!(
+        output.status.success(),
+        "the command should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn metadata(name: &str) -> DatasetMetadata {
+    DatasetMetadata {
+        name: name.to_string(),
+        description: "Citation links and their reviews".to_string(),
+        author: "words_to_data tests".to_string(),
+        license: "Public Domain".to_string(),
+        version: "1.0".to_string(),
+        ..Default::default()
+    }
+}
+
+fn path_for(name: &str) -> String {
+    let path = format!("{}/{name}.sqlite", env!("CARGO_TARGET_TMPDIR"));
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+/// The rebuilt dataset: title 26 as it read on 2025-07-18, and the ten
+/// committed opinions added to it.
+fn rebuilt(name: &str) -> String {
+    let path = path_for(name);
+    let mut dataset: Dataset<InMemoryStorage> = Dataset::new(metadata("Rebuilt"));
+    common::add_uslm_xml(
+        &mut dataset,
+        "tests/test_data/usc/2025-07-18/usc26.xml",
+        "2025-07-18",
+    );
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the fixture should save");
+    stdout_of(&run(&[
+        "add-opinions",
+        &path,
+        "--offline",
+        "--cache-dir",
+        CACHE,
+        "--opinions",
+        TEN,
+    ]));
+    path
+}
+
+/// The citation links of the dataset built before #313.
+fn old_links() -> Vec<Link> {
+    let text = std::fs::read_to_string(OLD_LINKS).expect("the old links should be committed");
+    serde_json::from_str(&text).expect("the old links should read as links")
+}
+
+/// The old link from `subject` to the section at `object`.
+fn old_link(subject: &str, object: &str) -> Link {
+    old_links()
+        .into_iter()
+        .find(|link| link.subject.path() == Some(subject) && link.object.path() == Some(object))
+        .unwrap_or_else(|| panic!("the old dataset should hold {subject} -> {object}"))
+}
+
+/// The old dataset: its citation links, and a review of some of them.
+fn old_with_reviews(name: &str, reviews: &[(Link, Review)]) -> String {
+    let path = path_for(name);
+    let mut dataset: Dataset<InMemoryStorage> = Dataset::new(metadata("Old"));
+    for link in old_links() {
+        dataset.add_link(link).expect("an old link should store");
+    }
+    for (reviewed, said) in reviews {
+        review::record(&mut dataset, said.about(reviewed)).expect("the review should record");
+    }
+    dataset
+        .save_to_sqlite(&path)
+        .expect("the old dataset should save");
+    path
+}
+
+/// The time the tester reviewed, 2026-10-22 at 10:00 UTC.
+fn morning_of_2026_10_22() -> time::OffsetDateTime {
+    time::OffsetDateTime::new_utc(
+        time::Date::from_calendar_date(2026, time::Month::October, 22).expect("a real date"),
+        time::Time::from_hms(10, 0, 0).expect("a real time"),
+    )
+}
+
+fn confirmed_by_tester() -> Review {
+    Review {
+        verdict: Verdict::Confirmed,
+        reviewer: "human:tester".to_string(),
+        reasoning: Some("The opinion cites § 174(a)(1) here.".to_string()),
+        at: morning_of_2026_10_22(),
+    }
+}
+
+/// The citation links in the rebuilt dataset from `subject` to `object`.
+fn new_links(dataset: &str, subject: &str, object: &str) -> Vec<Link> {
+    let dataset = Dataset::open_sqlite(dataset).expect("the rebuilt dataset should open");
+    dataset
+        .links_by_kind(LinkKind::CITES)
+        .expect("the links should read")
+        .into_iter()
+        .filter(|link| link.subject.path() == Some(subject) && link.object.path() == Some(object))
+        .collect()
+}
+
+/// Every review record in `dataset` that names `link`.
+fn reviews_of(dataset: &str, link: &Link) -> Vec<Link> {
+    let dataset = Dataset::open_sqlite(dataset).expect("the rebuilt dataset should open");
+    dataset
+        .reviews_of(&link.id())
+        .expect("the reviews should read")
+}
+
+#[test]
+fn should_carry_a_confirmation_to_the_new_link_when_the_rebuild_moved_the_citing_writing() {
+    // Snow v. Commissioner cites § 174(a)(1). Before #313 the writing was
+    // `judicial/opinion_109019`; now it is a child of its case.
+    let reviewed = old_link("judicial/opinion_109019", SECTION_174);
+    let old = old_with_reviews(
+        "carry_snow_old",
+        &[(reviewed.clone(), confirmed_by_tester())],
+    );
+    let new = rebuilt("carry_snow_new");
+    let [renamed] = new_links(&new, "judicial/case_109019/opinion_109019", SECTION_174)
+        .try_into()
+        .expect("the rebuild holds one link from Snow's writing to § 174");
+    assert_ne!(
+        renamed.id(),
+        reviewed.id(),
+        "the rebuild gave the link a new id"
+    );
+
+    stdout_of(&run(&["carry-reviews", &new, "--from", &old]));
+
+    let records = reviews_of(&new, &renamed);
+    let winning = review::newest(&records).expect("the new link carries the review");
+    assert_eq!(winning.verdict, Verdict::Confirmed);
+    assert_eq!(
+        winning.reviewer, "human:tester",
+        "the reviewer is still the reviewer"
+    );
+    assert_eq!(
+        winning.at,
+        morning_of_2026_10_22(),
+        "and the time is theirs"
+    );
+    let carried = Carried::read(&records[0]).expect("the record says it was carried");
+    assert_eq!(carried.link, reviewed.id(), "the record names the old link");
+}
