@@ -233,6 +233,9 @@ pub struct CarryReport {
     /// How many reviews no new link says the same thing as. Each is in
     /// `reviews`, with its reason.
     pub not_carried: usize,
+    /// How many reviews name a link that is not a citation link in the old
+    /// dataset. They are not carried: #295 is for every other kind of record.
+    pub not_a_citation: usize,
     /// Each review of an old citation link, and where it went.
     pub reviews: Vec<CarriedReview>,
 }
@@ -283,13 +286,11 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
         let Some(said) = Review::read(&record) else {
             continue;
         };
-        let Some(old_id) = review::names(&record) else {
-            continue;
-        };
-        let Some((reviewed, statement)) = old_links
-            .get(old_id)
+        let Some((reviewed, statement)) = review::names(&record)
+            .and_then(|old_id| old_links.get(old_id))
             .and_then(|link| Statement::of(link).map(|statement| (link, statement)))
         else {
+            report.not_a_citation += 1;
             continue;
         };
         let carried_from = Carried {

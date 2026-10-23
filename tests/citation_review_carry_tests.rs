@@ -349,3 +349,31 @@ fn should_carry_a_review_to_the_writing_a_rule_found_when_the_old_link_named_the
     let winning = review::newest(&records).expect("the Court's opinion carries the review");
     assert_eq!(winning.verdict, Verdict::Confirmed);
 }
+
+#[test]
+fn should_count_and_not_carry_a_review_of_a_link_that_is_not_a_citation() {
+    // A reviewer may review any link, also another review. This command
+    // carries the reviews of citation links only (#319); the rest wait for
+    // #295. They are counted, never passed over in silence.
+    let reviewed = old_link("judicial/opinion_109019", SECTION_174);
+    let first = confirmed_by_tester().about(&reviewed);
+    let old = old_with_reviews(
+        "carry_other_old",
+        &[
+            (reviewed, confirmed_by_tester()),
+            (first, confirmed_by_tester()),
+        ],
+    );
+    let new = rebuilt("carry_other_new");
+
+    let printed = stdout_of(&run(&["carry-reviews", &new, "--from", &old, "--json"]));
+    let report: serde_json::Value = serde_json::from_str(&printed).expect("--json prints JSON");
+    assert_eq!(report["carried"], 1);
+    assert_eq!(report["not_a_citation"], 1, "{report:#}");
+
+    let printed = stdout_of(&run(&["carry-reviews", &new, "--from", &old]));
+    assert!(
+        printed.contains("1 review(s) name a link that is not a citation link"),
+        "the text report counts it: {printed}"
+    );
+}

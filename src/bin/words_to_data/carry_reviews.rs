@@ -112,6 +112,13 @@ fn print_report(report: &CarryReport) {
                 .join(", "),
         );
     }
+    if report.not_a_citation > 0 {
+        println!(
+            "{} review(s) name a link that is not a citation link. This command carries only \
+             the reviews of citation links (#295 is for the rest).",
+            ui::figure(report.not_a_citation),
+        );
+    }
     if report.not_carried == 0 {
         return;
     }
