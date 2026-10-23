@@ -102,8 +102,13 @@ reporter pages (none marked, or only pages of S. Ct.) has
 found by a rule from the layout of the lines; a word broken at the end of a
 line keeps its hyphen ("sepa-rately"), so search for part of a word when a
 whole word finds nothing. Any other writing is one node that holds all its
-words. Harvard's text is OCR: its words are `MachineSuggested`, and a citation
-in it can be misread ("26 V.S.C."), so read the words before you rely on them.
+words. When the text marks the pages of two reporters in one run (*Windsor*
+marks 570 U.S. and 133 S. Ct.), only the pages of the official reporter are
+paths; the mark of the other reporter (`*2697`) stays in the words. Harvard's
+text is OCR: its words are `MachineSuggested`, and a citation in it can be
+misread ("26 V.S.C."), so read the words before you rely on them. The rule reads
+"V.S.C." as "U.S.C.", and the link's evidence then ends with `(OCR repair:
+"V.S.C." read as "U.S.C.")`.
 
 When the publisher holds a case only as one combined record, a rule may split
 it into its writings: `opinion_<id>-1`, `opinion_<id>-2`, … in the order the

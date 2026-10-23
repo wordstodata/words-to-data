@@ -110,6 +110,54 @@ impl Structure {
         self.pages.clear();
         self
     }
+
+    /// The same passages with only the pages of one reporter: the reporter of
+    /// the first page.
+    ///
+    /// Harvard's text of *United States v. Windsor* marks the pages of 570 U.S.
+    /// and of 133 S. Ct. 2675 in one run, with the same markup: `*776`,
+    /// `*2697`, `*777`. A page of the parallel reporter is not a path (ADR 0014,
+    /// decision 4), so its mark is no page break here, and a paragraph that
+    /// starts after it starts on the page of the first reporter before it
+    /// (#341). The mark's own text stays in the words.
+    ///
+    /// Which reporter a mark counts is not in the markup, so the rule reads it
+    /// from the numbers. Each page of a writing is marked, so two pages of one
+    /// reporter in one writing are never further apart than the count of pages
+    /// marked. A footnote can go back to an earlier page (*Boeing* goes back 15
+    /// pages of 19), and that is inside the bound. The pages of the parallel
+    /// reporter in *Windsor* are 1,921 pages away from those of 570 U.S. A label
+    /// that is not a number is kept, because the rule cannot measure it.
+    pub fn pages_of_one_reporter(mut self) -> Self {
+        let bound = self.pages.len() as u64;
+        let mut last: Option<u64> = None;
+        let mut kept: Vec<String> = Vec::new();
+        for label in &self.pages {
+            let near = match (label.parse::<u64>(), last) {
+                (Ok(page), Some(before)) => page.abs_diff(before) <= bound,
+                _ => true,
+            };
+            if near {
+                if let Ok(page) = label.parse::<u64>() {
+                    last = Some(page);
+                }
+                kept.push(label.clone());
+            }
+        }
+
+        let mut current: Option<String> = None;
+        for passage in &mut self.passages {
+            if let PassageKind::Paragraph { page: Some(page) } = &mut passage.kind {
+                if kept.contains(page) {
+                    current = Some(page.clone());
+                } else if let Some(official) = &current {
+                    *page = official.clone();
+                }
+            }
+        }
+        self.pages = kept;
+        self
+    }
 }
 
 /// Elements that hold one paragraph. CAP gives each of them an id.
