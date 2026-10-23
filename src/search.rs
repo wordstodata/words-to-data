@@ -16,6 +16,8 @@
 //! - The spellings in [`CLOSED_UP`] are read without their spaces, so "U. S. C."
 //!   and "U.S.C." match each other. Court opinions write the citation both
 //!   ways (#307).
+//! - A ligature in [`LIGATURES`] is read as its letters, so "qualified"
+//!   matches "quali\u{fb01}ed". Opinions stored from a PDF hold them (#338).
 //! - The characters in [`IGNORED`] are not read. The Code puts a soft hyphen
 //!   inside about 600 words of each printing, such as "rec\u{ad}ords" (#338).
 //!
@@ -44,6 +46,21 @@ pub const IGNORED: &[char] = &[
     '\u{200D}', // zero width joiner
     '\u{2060}', // word joiner
     '\u{FEFF}', // zero width no-break space (byte order mark)
+];
+
+/// The Latin ligatures, each with the letters it is written for.
+///
+/// These are the characters U+FB00 to U+FB06, and the letters are their
+/// compatibility decomposition (NFKC). A PDF or an OCR text can hold them;
+/// a person types the letters.
+pub const LIGATURES: &[(char, &str)] = &[
+    ('\u{FB00}', "ff"),
+    ('\u{FB01}', "fi"),
+    ('\u{FB02}', "fl"),
+    ('\u{FB03}', "ffi"),
+    ('\u{FB04}', "ffl"),
+    ('\u{FB05}', "st"),
+    ('\u{FB06}', "st"),
 ];
 
 /// A search query, ready to compare with text.
@@ -130,7 +147,8 @@ pub fn occurrences(text: &str, query: &str) -> Vec<usize> {
 /// The text as search compares it, each character with the offset of the
 /// character in `text` it came from.
 ///
-/// Each character in [`IGNORED`] is dropped, each character is lowercased,
+/// Each character in [`IGNORED`] is dropped, each ligature becomes its
+/// letters, each other character is lowercased,
 /// each run of white space becomes one space, and each spelling in
 /// [`CLOSED_UP`] loses its spaces. Lowercasing can change how many characters a string holds, so the
 /// offsets are carried along rather than counted again: an offset counted in
@@ -153,8 +171,9 @@ fn comparable(text: &str) -> Vec<(char, usize)> {
 
 /// The characters that search reads for `c`, given one at a time to `read`.
 ///
-/// A character in [`IGNORED`] gives none, white space gives one space, and any
-/// other character gives its lower case. This is the part of the rule that
+/// A character in [`IGNORED`] gives none, white space gives one space, a
+/// ligature in [`LIGATURES`] gives its letters, and any other character gives
+/// its lower case. This is the part of the rule that
 /// reads one character alone; [`comparable`] and [`bare`] both start here, so
 /// they cannot come to disagree about it.
 fn read_char(c: char, mut read: impl FnMut(char)) {
@@ -169,6 +188,8 @@ fn read_char(c: char, mut read: impl FnMut(char)) {
     }
     if c.is_whitespace() {
         read(' ');
+    } else if let Some((_, letters)) = LIGATURES.iter().find(|(ligature, _)| *ligature == c) {
+        letters.chars().for_each(read);
     } else {
         c.to_lowercase().for_each(read);
     }

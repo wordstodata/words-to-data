@@ -48,6 +48,44 @@ fn with_title(name: &str, extension: &str, xml: &str) -> String {
     path
 }
 
+/// Title 1 and the court cases of `opinions`, in the format the extension
+/// names.
+fn with_opinions(name: &str, extension: &str, opinions: &str) -> String {
+    let path = format!(
+        "{}/search_folding_{name}.{extension}",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    let _ = std::fs::remove_file(&path);
+    // A compact JSON dataset is written whole, so `add-opinions` writes it to a
+    // new file rather than back over its input. SQLite grows in place.
+    let base = with_title(
+        &format!("{name}_base"),
+        extension,
+        "tests/test_data/usc/2025-07-18/usc01.xml",
+    );
+    let target = if extension == "sqlite" { &base } else { &path };
+
+    let mut add = vec![
+        "add-opinions",
+        &base,
+        "--offline",
+        "--cache-dir",
+        CACHE,
+        "--opinions",
+        opinions,
+    ];
+    if extension != "sqlite" {
+        add.extend(["--output", &path]);
+    }
+    let added = run(&add);
+    assert!(
+        added.status.success(),
+        "add-opinions should exit zero, stderr: {}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+    target.to_string()
+}
+
 /// Run one check on a SQLite dataset and on a compact JSON one.
 ///
 /// SQLite finds a hit in its element index and the in-memory store walks the
@@ -111,6 +149,45 @@ fn should_find_a_word_when_a_soft_hyphen_splits_it() {
         assert!(
             snippet.contains("public rec\u{ad}ords"),
             "the snippet shows the text as the Code has it, got {snippet:?}"
+        );
+    });
+}
+
+/// *Little Sandy Coal v. Commissioner* (opinion 9377344) is stored from a PDF,
+/// and its text writes "qualified" with the ligature "\u{fb01}" (U+FB01).
+#[test]
+fn should_find_a_word_when_a_ligature_spells_two_of_its_letters() {
+    let little_sandy_coal =
+        |extension: &str| with_opinions("ligature", extension, "9377344");
+    on_both_backends(little_sandy_coal, |dataset| {
+        let search = |query: &str| {
+            hits(&[
+                "search",
+                dataset,
+                query,
+                "--path",
+                "judicial/case_9381868",
+                "--all",
+                "--json",
+            ])
+        };
+        let as_stored = search("quali\u{fb01}ed research expenses");
+        assert!(
+            !as_stored.is_empty(),
+            "the opinion holds the words with the ligature, in {dataset}"
+        );
+
+        let as_typed = search("qualified research expenses");
+
+        assert_eq!(
+            paths_of(&as_typed),
+            paths_of(&as_stored),
+            "\"fi\" finds the paragraphs that write \"\u{fb01}\", in {dataset}"
+        );
+        let snippet = as_typed[0]["snippet"].as_str().unwrap();
+        assert!(
+            snippet.contains("quali\u{fb01}ed"),
+            "the snippet shows the text as the opinion has it, got {snippet:?}"
         );
     });
 }
