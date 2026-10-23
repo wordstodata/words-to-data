@@ -27,12 +27,16 @@
 //! This is the first case of #295, which asks for the same for every record a
 //! person or an agent writes.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
+use crate::dataset::DatasetError;
+use crate::judicial::CaseFacts;
 use crate::link::{KindPayload, Link, LinkKind, Target};
 use crate::method::Method;
 use crate::review::{self, Refused, Review, Verdict};
-use crate::storage::{LinkReader, Storage};
+use crate::storage::{DocumentReader, LinkReader, Storage};
 
 /// The carry, named, at the version it is at now. Raise the version when the
 /// map gives other answers.
@@ -55,6 +59,10 @@ pub struct Statement {
     /// The CourtListener opinion record that holds the words: `109019`, or
     /// `2812209-1` for a writing a rule found inside a combined record.
     pub record: String,
+    /// The case the writing is part of, `judicial/case_<cluster>`, when the
+    /// subject names one. A link made before #313 names no case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case: Option<String>,
     /// The section cited, as its title's work and its section segment:
     /// `uscode/title_26/section_174`.
     pub section: String,
@@ -78,6 +86,14 @@ impl Statement {
                 .find_map(|segment| segment.strip_prefix("opinion_"))?
                 .to_string(),
         };
+        let case = link.subject.path().and_then(|path| {
+            let mut segments = path.split('/');
+            let class = segments.next()?;
+            let case = segments
+                .next()
+                .filter(|segment| segment.starts_with("case_"))?;
+            Some(format!("{class}/{case}"))
+        });
         let object = link.object.path()?;
         let mut segments = object.split('/');
         let title = format!("{}/{}", segments.next()?, segments.next()?);
@@ -90,20 +106,59 @@ impl Statement {
             .unwrap_or_default();
         Some(Self {
             record,
+            case,
             section: format!("{title}/{section}"),
             written,
         })
     }
 
     /// Whether `new` says what this old statement said.
-    fn said_again_by(&self, new: &Statement) -> bool {
-        self.record == new.record
+    fn said_again_by(&self, new: &Statement, sources: &Sources) -> bool {
+        self.same_words_as(new, sources)
             && self.section == new.section
             && self
                 .written
                 .iter()
                 .any(|form| new.written.iter().any(|other| same_form(form, other)))
     }
+
+    /// Whether the new statement's record holds the words this old statement
+    /// was read from: it is the same record, or the old record is a combined
+    /// record that the new case keeps only as a source, because its split
+    /// records are the writings (ADR 0014, decision 2).
+    fn same_words_as(&self, new: &Statement, sources: &Sources) -> bool {
+        self.record == new.record
+            || new
+                .case
+                .as_ref()
+                .is_some_and(|case| sources.get(&self.record) == Some(case))
+    }
+}
+
+/// The combined records each case keeps only as a source: record id to case.
+type Sources = BTreeMap<String, String>;
+
+/// The combined records that the cases in `dataset` keep only as sources.
+fn sources<D: DocumentReader>(dataset: &D) -> Result<Sources, DatasetError> {
+    let mut sources = Sources::new();
+    for work in dataset.works()? {
+        if !work.as_str().starts_with("judicial/case_") {
+            continue;
+        }
+        let Some(latest) = dataset.expressions(&work)?.pop() else {
+            continue;
+        };
+        let Some(expression) = dataset.get_expression(&latest.id)? else {
+            continue;
+        };
+        for record in CaseFacts::of(&expression.root.data)
+            .map(|facts| facts.combined_records)
+            .unwrap_or_default()
+        {
+            sources.insert(record.to_string(), work.as_str().to_string());
+        }
+    }
+    Ok(sources)
 }
 
 /// Two written forms are the same when they differ only in white space:
@@ -179,6 +234,7 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
         .filter_map(|link| Statement::of(&link).map(|statement| (link, statement)))
         .collect();
 
+    let sources = sources(new)?;
     let mut report = CarryReport::default();
     for record in old.links_by_namespace(LinkKind::REVIEW)? {
         let Some(said) = Review::read(&record) else {
@@ -201,7 +257,7 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
         let mut carried_to = Vec::new();
         for (target, _) in new_links
             .iter()
-            .filter(|(_, new)| statement.said_again_by(new))
+            .filter(|(_, new)| statement.said_again_by(new, &sources))
         {
             let mut carried = said.about(target);
             carried.provenance.method = Some(carry_method());

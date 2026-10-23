@@ -197,3 +197,44 @@ fn should_carry_a_confirmation_to_the_new_link_when_the_rebuild_moved_the_citing
     let carried = Carried::read(&records[0]).expect("the record says it was carried");
     assert_eq!(carried.link, reviewed.id(), "the record names the old link");
 }
+
+const SECTION_994: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_IV/subpart_A/section_994";
+
+#[test]
+fn should_carry_a_refutation_to_the_writing_that_wrote_the_same_form_when_the_old_record_is_now_only_a_source()
+ {
+    // Before #313, Boeing was the combined record 122262, and it cited
+    // § 994 as "994(a)(2)". Now 122262 is only a source, and the writings are
+    // the split records: the Court's opinion (9434364) writes "994(a)(2)", and
+    // the dissent (9434365) writes "994". Only the first says the same thing.
+    let reviewed = old_link("judicial/opinion_122262", SECTION_994);
+    let refuted = Review {
+        verdict: Verdict::Refuted,
+        reviewer: "human:tester".to_string(),
+        reasoning: Some("A test refutation.".to_string()),
+        at: morning_of_2026_10_22(),
+    };
+    let old = old_with_reviews("carry_boeing_old", &[(reviewed.clone(), refuted)]);
+    let new = rebuilt("carry_boeing_new");
+    let [majority] = new_links(&new, "judicial/case_122262/opinion_9434364", SECTION_994)
+        .try_into()
+        .expect("the Court's opinion cites § 994 once");
+    let [dissent] = new_links(&new, "judicial/case_122262/opinion_9434365", SECTION_994)
+        .try_into()
+        .expect("the dissent cites § 994 once");
+
+    stdout_of(&run(&["carry-reviews", &new, "--from", &old]));
+
+    let records = reviews_of(&new, &majority);
+    let winning = review::newest(&records).expect("the Court's opinion carries the review");
+    assert_eq!(winning.verdict, Verdict::Refuted);
+    assert_eq!(
+        Carried::read(&records[0]).map(|carried| carried.link),
+        Some(reviewed.id())
+    );
+    assert!(
+        reviews_of(&new, &dissent).is_empty(),
+        "the dissent wrote another form, so the review is not about its link"
+    );
+}
