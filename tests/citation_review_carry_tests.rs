@@ -241,13 +241,15 @@ fn should_carry_a_refutation_to_the_writing_that_wrote_the_same_form_when_the_ol
     );
 }
 
-const SECTION_1361: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_S/part_I/section_1361";
+const SECTION_636: &str = "uscode/title_28/part_III/chapter_43/section_636";
 
 #[test]
 fn should_report_a_review_and_write_nothing_when_no_new_link_says_what_the_old_link_said() {
-    // Before #313 the opinion 2651100 cited § 1361 as "1361(a)(1)". The
-    // rebuild reads another text of it, and holds no citation of § 1361 by it.
-    let reviewed = old_link("judicial/opinion_2651100", SECTION_1361);
+    // Before #313 United Stationers (1527901) cited 28 U.S.C. § 636 as
+    // "636(b)(1)(C)". The rebuilt dataset does not hold title 28, so it holds no
+    // citation of § 636. (Shami's "26 V.S.C. § 1361" was the case here until #341
+    // read that citation.)
+    let reviewed = old_link("judicial/opinion_1527901", SECTION_636);
     let old = old_with_reviews(
         "carry_unmatched_old",
         &[(reviewed.clone(), confirmed_by_tester())],
@@ -269,13 +271,13 @@ fn should_report_a_review_and_write_nothing_when_no_new_link_says_what_the_old_l
     );
     let row = &report["reviews"][0];
     assert_eq!(row["old_link"], reviewed.id());
-    assert_eq!(row["statement"]["record"], "2651100");
-    assert_eq!(row["statement"]["written"][0], "1361(a)(1)");
+    assert_eq!(row["statement"]["record"], "1527901");
+    assert_eq!(row["statement"]["written"][0], "636(b)(1)(C)");
     assert_eq!(row["new_links"].as_array().map(Vec::len), Some(0));
     assert!(
         row["why"]
             .as_str()
-            .is_some_and(|why| why.contains("no citation of uscode/title_26/section_1361")),
+            .is_some_and(|why| why.contains("no citation of uscode/title_28/section_636")),
         "the row says why: {row:#}"
     );
     let after = Dataset::open_sqlite(&new)
