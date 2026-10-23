@@ -29,6 +29,13 @@
 //! opinion and the first printing held, which is out of scope. A reader can then
 //! tell "this provision did not change" from "we were not looking".
 //!
+//! Two more lines are true and easy to misread (#340). A window that starts
+//! before the opinion and ends after it holds the decision date, so a change in
+//! it may be from before the decision; [`ChangeWindow::starts_before_opinion`]
+//! says so. And with no window at all, [`SincePublication::printings_after`]
+//! tells "no printing after the opinion" from "one printing, and nothing to
+//! compare it with".
+//!
 //! # Below the section
 //!
 //! A citation link targets the section, and the subdivision the opinion wrote,
@@ -36,7 +43,10 @@
 //! resolved when it is read, against the printing being read, and nothing is
 //! written back (#302). A change window is read at that subdivision where both
 //! of its printings hold it, and at the whole section where they do not, and
-//! [`ChangeWindow::at`] says which.
+//! [`ChangeWindow::at`] says which. The words of a subdivision can stay the
+//! same while the chapeau above them changes what they mean, so a window read
+//! at a subdivision also names every provision above it whose own words
+//! changed ([`ChangeWindow::changed_above`]).
 
 use std::collections::BTreeMap;
 
@@ -45,7 +55,7 @@ use serde::Serialize;
 use crate::citation::resolve::{Subdivision, resolve_subdivision, stub_heading};
 use crate::dataset::{Coverage, DatasetError, ExpressionId, Scope, WorkId};
 use crate::diff::TreeDiff;
-use crate::document::DocumentNode;
+use crate::document::{DocumentNode, TextContentField};
 use crate::link::{Link, LinkKind, Target, VerificationState};
 use crate::method::Method;
 use crate::storage::{DocumentReader, LinkReader};
@@ -117,9 +127,27 @@ pub struct ChangeWindow {
     pub at: String,
     /// True when the provision does not say the same thing on both dates.
     pub changed: bool,
+    /// True when the window starts before the day the opinion was filed and
+    /// ends after it. A change in such a window can be from before the decision
+    /// or from after it, and the two printings cannot say which (#340).
+    pub starts_before_opinion: bool,
     /// Every path at or under the provision whose text differs, in document
     /// order. Empty when nothing changed.
     pub changed_paths: Vec<String>,
+    /// Every provision above [`ChangeWindow::at`], up to the section, whose own
+    /// words differ: the chapeau of (a) above an (a)(1) that reads the same.
+    /// The words of `at` can stay the same while their meaning changes, so a
+    /// reader must not take `changed: false` alone as "means the same" (#340).
+    /// Empty when the window is read at the whole section.
+    pub changed_above: Vec<ChangedAbove>,
+}
+
+/// A provision above the one a window was read at, whose own words changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChangedAbove {
+    pub path: String,
+    /// Which of its own text fields differ, such as its chapeau or its heading.
+    pub fields: Vec<TextContentField>,
 }
 
 /// A period the dataset says nothing about.
@@ -141,6 +169,10 @@ pub struct SincePublication {
     /// Every consecutive pair of printings held whose later date falls after the
     /// opinion, oldest first.
     pub windows: Vec<ChangeWindow>,
+    /// How many printings of the cited work the dataset holds that are dated
+    /// after the opinion. With no window, this tells "holds none after it"
+    /// from "holds one, and nothing to compare it with" (#340).
+    pub printings_after: usize,
     /// The period between the opinion and the first printing held, when there is
     /// one. `None` means the dataset holds a printing from on or before the day
     /// the opinion was filed, so nothing is missing at that end.
@@ -290,6 +322,21 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
     Ok(cases)
 }
 
+/// Every window of consecutive printings this dataset holds, and whether the
+/// provision at `path` changed in it, with no opinion to measure from. The
+/// coverage says whether the dataset carries the provision at all.
+///
+/// This is what a reader can still say about a provision that no opinion
+/// cites: "no opinion cites it" is not "it did not change" (#340).
+pub fn changes_held<R: DocumentReader + ?Sized>(
+    reader: &R,
+    path: &str,
+) -> Result<SincePublication, DatasetError> {
+    let scope = Scope::derive(reader)?;
+    let held = reader.find_nodes(path)?;
+    since_publication(reader, &scope, path, &held, "", None)
+}
+
 /// How a citation of the section at `cited_path` stands to the path `asked`.
 ///
 /// A citation to `26 U.S.C. § 174` resolves to the section, and a caller asking
@@ -399,6 +446,7 @@ fn since_publication<R: DocumentReader + ?Sized>(
         return Ok(SincePublication {
             coverage,
             windows: Vec::new(),
+            printings_after: 0,
             uncovered: None,
         });
     };
@@ -418,13 +466,19 @@ fn since_publication<R: DocumentReader + ?Sized>(
         if opinion_date.is_some_and(|filed| to.as_str() <= filed) {
             continue;
         }
-        let (at, changed_paths) = changed_between(held, &work, path, written, from, to);
+        let Changes {
+            at,
+            changed_paths,
+            changed_above,
+        } = changed_between(held, &work, path, written, from, to);
         windows.push(ChangeWindow {
             from: from.clone(),
             to: to.clone(),
             at,
             changed: !changed_paths.is_empty(),
+            starts_before_opinion: opinion_date.is_some_and(|filed| from.as_str() < filed),
             changed_paths,
+            changed_above,
         });
     }
 
@@ -435,9 +489,15 @@ fn since_publication<R: DocumentReader + ?Sized>(
         })
     });
 
+    let printings_after = dates
+        .iter()
+        .filter(|date| opinion_date.is_none_or(|filed| date.as_str() > filed))
+        .count();
+
     Ok(SincePublication {
         coverage,
         windows,
+        printings_after,
         uncovered,
     })
 }
@@ -456,8 +516,15 @@ fn work_holding(scope: &Scope, path: &str) -> Option<WorkId> {
         .cloned()
 }
 
-/// Where to look for a change, and every path there whose text differs between
-/// the two printings.
+/// What changed in one window, read at one path.
+struct Changes {
+    at: String,
+    changed_paths: Vec<String>,
+    changed_above: Vec<ChangedAbove>,
+}
+
+/// Where to look for a change, every path there whose text differs between
+/// the two printings, and every provision above it whose own words differ.
 ///
 /// The subdivision the opinion wrote is resolved in each printing, because a
 /// subdivision can be added or removed between them. Where both printings hold
@@ -475,7 +542,7 @@ fn changed_between(
     written: &str,
     from: &str,
     to: &str,
-) -> (String, Vec<String>) {
+) -> Changes {
     let at = |date: &str| {
         held.iter()
             .find(|(id, _)| &id.work == work && id.at == date)
@@ -484,8 +551,13 @@ fn changed_between(
     let (Some(before), Some(after)) = (at(from), at(to)) else {
         // The provision is not at this path on both dates. Added or removed
         // rather than changed, and neither is this function's question.
-        return (section.to_string(), Vec::new());
+        return Changes {
+            at: section.to_string(),
+            changed_paths: Vec::new(),
+            changed_above: Vec::new(),
+        };
     };
+    let whole_section = TreeDiff::from_nodes(before, after);
 
     let (before, after) = match (
         resolve_subdivision(before, written),
@@ -501,9 +573,37 @@ fn changed_between(
         _ => (before, after),
     };
 
-    let mut paths = Vec::new();
-    collect_changed(&TreeDiff::from_nodes(before, after), &mut paths);
-    (before.data.path.to_string(), paths)
+    let at = before.data.path.to_string();
+    let mut changed_paths = Vec::new();
+    collect_changed(&TreeDiff::from_nodes(before, after), &mut changed_paths);
+    let mut changed_above = Vec::new();
+    collect_changed_above(&whole_section, &at, &mut changed_above);
+    Changes {
+        at,
+        changed_paths,
+        changed_above,
+    }
+}
+
+/// The provisions strictly above `at` whose own text fields differ, from the
+/// section down.
+fn collect_changed_above(diff: &TreeDiff, at: &str, into: &mut Vec<ChangedAbove>) {
+    if diff.root_path == at || !covers_path(&diff.root_path, at) {
+        return;
+    }
+    if !diff.changes.is_empty() {
+        into.push(ChangedAbove {
+            path: diff.root_path.clone(),
+            fields: diff
+                .changes
+                .iter()
+                .map(|change| change.field_name)
+                .collect(),
+        });
+    }
+    for child in &diff.child_diffs {
+        collect_changed_above(child, at, into);
+    }
 }
 
 /// The paths a diff records a text change at, root first.
