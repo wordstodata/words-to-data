@@ -123,11 +123,19 @@ impl Statement {
     }
 
     /// Whether the new statement's record holds the words this old statement
-    /// was read from: it is the same record, or the old record is a combined
-    /// record that the new case keeps only as a source, because its split
-    /// records are the writings (ADR 0014, decision 2).
+    /// was read from (ADR 0014, decision 2):
+    ///
+    /// - it is the same record;
+    /// - it is a writing that a rule found inside the old record, `<old>-<n>`
+    ///   (#315);
+    /// - or the old record is a combined record that the new case keeps only
+    ///   as a source, because its split records are the writings.
     fn same_words_as(&self, new: &Statement, sources: &Sources) -> bool {
         self.record == new.record
+            || new
+                .record
+                .split_once('-')
+                .is_some_and(|(whole, _)| whole == self.record)
             || new
                 .case
                 .as_ref()

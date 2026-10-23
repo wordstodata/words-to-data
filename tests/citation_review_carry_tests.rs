@@ -12,7 +12,7 @@
 //! **The old links are real.** `tests/test_data/review_carry/citation_links_before_313.json`
 //! holds the 39 `judicial.cites` links of a dataset built on 2026-10-21, before
 //! #313 made a case the work. Each subject is `judicial/opinion_<id>`, so every
-//! one of them has a new id today. The new dataset is title 26 and the ten
+//! one of them has a new id today. The new dataset is titles 1 and 26 and the ten
 //! committed opinions, added with `add-opinions --offline`, as
 //! `cli_opinions_tests.rs` builds it.
 
@@ -70,16 +70,18 @@ fn path_for(name: &str) -> String {
     path
 }
 
-/// The rebuilt dataset: title 26 as it read on 2025-07-18, and the ten
+/// The rebuilt dataset: titles 1 and 26 as they read on 2025-07-18, and the ten
 /// committed opinions added to it.
 fn rebuilt(name: &str) -> String {
     let path = path_for(name);
     let mut dataset: Dataset<InMemoryStorage> = Dataset::new(metadata("Rebuilt"));
-    common::add_uslm_xml(
-        &mut dataset,
-        "tests/test_data/usc/2025-07-18/usc26.xml",
-        "2025-07-18",
-    );
+    for title in ["usc01.xml", "usc26.xml"] {
+        common::add_uslm_xml(
+            &mut dataset,
+            &format!("tests/test_data/usc/2025-07-18/{title}"),
+            "2025-07-18",
+        );
+    }
     dataset
         .save_to_sqlite(&path)
         .expect("the fixture should save");
@@ -317,4 +319,33 @@ fn should_copy_the_review_as_it_is_when_the_rebuild_made_the_same_link_again() {
         [written],
         "the record is copied as it is: {printed}"
     );
+}
+
+#[test]
+fn should_carry_a_review_to_the_writing_a_rule_found_when_the_old_link_named_the_whole_record() {
+    // Before #313, Obergefell was one combined record, 2812209, and it cited
+    // 1 U.S.C. § 7. Now a rule splits that record into its writings
+    // (#315), and the Court's opinion, `opinion_2812209-1`, holds the citation.
+    let reviewed = old_link(
+        "judicial/opinion_2812209",
+        "uscode/title_1/chapter_1/section_7",
+    );
+    let old = old_with_reviews(
+        "carry_split_old",
+        &[(reviewed.clone(), confirmed_by_tester())],
+    );
+    let new = rebuilt("carry_split_new");
+    let [court] = new_links(
+        &new,
+        "judicial/case_2812209/opinion_2812209-1",
+        "uscode/title_1/chapter_1/section_7",
+    )
+    .try_into()
+    .expect("the Court's opinion cites 1 U.S.C. § 7 once");
+
+    stdout_of(&run(&["carry-reviews", &new, "--from", &old]));
+
+    let records = reviews_of(&new, &court);
+    let winning = review::newest(&records).expect("the Court's opinion carries the review");
+    assert_eq!(winning.verdict, Verdict::Confirmed);
 }
