@@ -53,6 +53,26 @@ pub(super) struct Change {
     /// `legislature.redesignated_as` links say made it. Empty for every other
     /// change.
     pub renumbered_by: Vec<String>,
+    /// Whether the provision was added or removed whole. The diff lists no
+    /// path beneath such a provision, so the change also holds every provision
+    /// below it (#336). `None` for every other change.
+    pub whole: Option<Whole>,
+}
+
+/// How a provision changed whole.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Whole {
+    Added,
+    Removed,
+}
+
+impl std::fmt::Display for Whole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Added => "added",
+            Self::Removed => "removed",
+        })
+    }
 }
 
 impl Change {

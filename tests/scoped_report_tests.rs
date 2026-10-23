@@ -70,19 +70,60 @@ fn should_list_only_the_changes_inside_a_path_when_diff_names_one() {
     );
 }
 
+/// A path inside a provision the window added is new too, and the diff says
+/// so by the added provision that holds it (#336).
+///
+/// Public Law 119-21 added subchapter V, with § 1181 in it, to chapter 11 of
+/// title 14. The diff lists the subchapter as one added path and nothing
+/// beneath it, so a scope of § 1181 kept no change at all and read as
+/// "nothing changed here".
+#[test]
+fn should_list_the_added_parent_when_diff_names_a_path_inside_it() {
+    let scoped = diff_json_in(
+        coast_guard_fixture(),
+        "uscode/title_14",
+        &["--path", SECTION_1181],
+    );
+
+    assert_eq!(
+        scoped["added_paths"],
+        serde_json::json!([SUBCHAPTER_V]),
+        "the report: {scoped}"
+    );
+}
+
+const SUBCHAPTER_V: &str = "uscode/title_14/subtitle_I/chapter_11/subchapter_V";
+const SECTION_1181: &str = "uscode/title_14/subtitle_I/chapter_11/subchapter_V/section_1181";
+
+/// Title 14 at both release points, written once for every test here.
+fn coast_guard_fixture() -> &'static str {
+    static FIXTURE: OnceLock<String> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let path = format!("{}/scoped_report_usc14.sqlite", env!("CARGO_TARGET_TMPDIR"));
+        let _ = std::fs::remove_file(&path);
+        let mut dataset = Dataset::new(DatasetMetadata::default());
+        for date in [EARLY, LATE] {
+            dataset
+                .add_uslm_xml(&format!("tests/test_data/usc/{date}/usc14.xml"), date, None)
+                .expect("the corpus should parse and load");
+        }
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
 /// One `diff --json` run over the fixture, with any extra arguments.
 fn diff_json(extra: &[&str]) -> serde_json::Value {
-    let from = format!("{SPACE}@{EARLY}");
-    let to = format!("{SPACE}@{LATE}");
-    let mut args = vec![
-        "diff",
-        amended_fixture(),
-        "--from",
-        &from,
-        "--to",
-        &to,
-        "--json",
-    ];
+    diff_json_in(amended_fixture(), SPACE, extra)
+}
+
+/// One `diff --json` run over a fixture of one work, with any extra arguments.
+fn diff_json_in(fixture: &str, work: &str, extra: &[&str]) -> serde_json::Value {
+    let from = format!("{work}@{EARLY}");
+    let to = format!("{work}@{LATE}");
+    let mut args = vec!["diff", fixture, "--from", &from, "--to", &to, "--json"];
     args.extend_from_slice(extra);
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_words_to_data"))

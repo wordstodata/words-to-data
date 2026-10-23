@@ -12,7 +12,11 @@
 //! 2. **Window.** The first window of the Code after the law's enactment date
 //!    in which something under the address changed. The enactment date is the
 //!    date of the law's stored expression, such as
-//!    `publiclawdocument_119-21@2025-07-04`.
+//!    `publiclawdocument_119-21@2025-07-04`. Where nothing under the address
+//!    changed in any window, but a window added or removed a provision the
+//!    address is inside, the amendment is residue that names that provision,
+//!    and not quiet: the diff lists the provision as one path and nothing
+//!    beneath it (#336).
 //! 3. **Resolve.** The changes under one section in that window, assigned to
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
@@ -60,7 +64,7 @@ use crate::uslm::UslmFacts;
 use crate::uslm::amendment_address::{AmendmentAddress, addresses_in, units_named_in};
 
 use quoted_words::QuotedWords;
-use resolve::{Change, Contender, Resolution, resolve};
+use resolve::{Change, Contender, Resolution, Whole, resolve};
 
 mod olrc;
 mod quoted_words;
@@ -664,6 +668,10 @@ fn match_in_work<S: Storage + LegislatureReader>(
     // quiet: nothing changed there because nothing is there.
     let mut looked_for: BTreeSet<usize> = BTreeSet::new();
     let mut found: BTreeSet<usize> = BTreeSet::new();
+    // The amendments whose address is inside a provision a window added or
+    // removed whole: the first such window, and the changes that hold the
+    // address.
+    let mut enclosed: BTreeMap<usize, Placed> = BTreeMap::new();
     for (window, view) in windows.iter().enumerate() {
         let later = SectionIndex::of(&view.later);
         let earlier = SectionIndex::of(&view.earlier);
@@ -686,7 +694,25 @@ fn match_in_work<S: Storage + LegislatureReader>(
                     section,
                     candidates,
                 });
+                continue;
             }
+            // The diff lists a provision added or removed whole as one path,
+            // and nothing beneath it. An address inside it changed all the
+            // same (#336).
+            let enclosing: Vec<usize> = (0..view.changes.len())
+                .filter(|&change| {
+                    let change = &view.changes[change];
+                    change.whole.is_some() && is_at_or_below(&under, &change.path)
+                })
+                .collect();
+            if enclosing.is_empty() {
+                continue;
+            }
+            enclosed.entry(at).or_insert(Placed {
+                window,
+                section,
+                candidates: enclosing,
+            });
         }
     }
 
@@ -699,6 +725,36 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 .entry((first.window, first.section.as_str()))
                 .or_default()
                 .push(at),
+            None if enclosed.contains_key(&at) => {
+                let inside = &enclosed[&at];
+                let view = &windows[inside.window];
+                let holders: Vec<String> = inside
+                    .candidates
+                    .iter()
+                    .map(|&change| {
+                        let change = &view.changes[change];
+                        let how = change.whole.map(|whole| whole.to_string());
+                        format!("{} ({})", change.path, how.unwrap_or_default())
+                    })
+                    .collect();
+                outcomes[at] = Some(Outcome::Residue(Residue {
+                    stage: Stage::Window,
+                    reason: format!(
+                        "{} is inside {}, which the window changed whole. The diff lists that \
+                         provision alone, and the method links no amendment to it",
+                        address_text(&stated[at].address),
+                        holders.join(", ")
+                    ),
+                    quiet: false,
+                    from: Some(view.from.clone()),
+                    to: Some(view.to.clone()),
+                    changes: inside
+                        .candidates
+                        .iter()
+                        .map(|&change| view.changes[change].path.clone())
+                        .collect(),
+                }));
+            }
             None if looked_for.contains(&at) && !found.contains(&at) => {
                 let amendment = &stated[at];
                 outcomes[at] = Some(residue(
@@ -988,6 +1044,7 @@ fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut V
             before: joined(|field| &field.old_value),
             after: joined(|field| &field.new_value),
             renumbered_by: Vec::new(),
+            whole: None,
         });
     }
     changes.extend(diff.added.iter().map(|node| Change {
@@ -995,12 +1052,14 @@ fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut V
         before: String::new(),
         after: own_text(node),
         renumbered_by: Vec::new(),
+        whole: Some(Whole::Added),
     }));
     changes.extend(diff.removed.iter().map(|node| Change {
         path: node.path.to_string(),
         before: own_text(node),
         after: String::new(),
         renumbered_by: Vec::new(),
+        whole: Some(Whole::Removed),
     }));
     changes.extend(diff.moved.iter().map(|moved| {
         let paths = (moved.from.path.to_string(), moved.to.path.to_string());
@@ -1009,6 +1068,7 @@ fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut V
             before: own_text(&moved.from),
             after: own_text(&moved.to),
             renumbered_by: renumberings.get(&paths).cloned().unwrap_or_default(),
+            whole: None,
         }
     }));
     for child in &diff.child_diffs {

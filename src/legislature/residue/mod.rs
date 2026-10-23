@@ -47,7 +47,7 @@ use time::OffsetDateTime;
 
 use crate::dataset::{Dataset, DatasetError, ExpressionId};
 use crate::legislature::evidence_matching::{
-    AmendmentMatch, Outcome, Stage, is_a_note, match_by_evidence,
+    AddressSource, AmendmentMatch, Outcome, Stage, is_a_note, match_by_evidence,
 };
 use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
@@ -70,8 +70,12 @@ pub struct Unlinked {
     pub amendment_id: String,
     /// The amendment's words, as the bill states them.
     pub amending_text: String,
-    /// Where the bill's markup says the amendment acts.
+    /// Where the amendment acts.
     pub address: AmendmentAddress,
+    /// Which evidence gave the address: the bill's markup or, when it names no
+    /// section, the OLRC's classification table. `amendment-addresses` reads
+    /// the markup alone (#336).
+    pub address_source: AddressSource,
     /// Where the amendment sits in its public law, as the OLRC writes it:
     /// `10101(b)(3)`.
     pub law_section: Option<String>,
@@ -234,6 +238,7 @@ fn unlinked(
         amendment_id: amendment.amendment_id,
         amending_text: amendment.amending_text,
         address: amendment.address,
+        address_source: amendment.address_source,
         law_section: place.map(|place| place.to_string()),
         olrc,
         category,
