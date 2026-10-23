@@ -15,7 +15,7 @@ use std::io::Write;
 use clap::Args as ClapArgs;
 use serde::Serialize;
 use words_to_data::dataset::{ExpressionId, SearchAnswer, SearchResult};
-use words_to_data::inspect::{AbsentPath, absent_path};
+use words_to_data::inspect::{AbsentPath, AbsentScope, FEW_WORKS, absent_path, absent_scope};
 use words_to_data::query::{DEFAULT_LIMIT, Locator};
 
 use crate::annotations::{absent_notice, path_matching};
@@ -143,14 +143,12 @@ pub fn run(args: Args) {
         with_dataset!(&ds, d => d.search_text_in(&args.query, &locator, limit)),
         "Error searching dataset",
     );
-    // Asked only when nothing matched: a hit proves the path is held. An empty
-    // search over a guessed path must not read like one over a real path (#305).
+    // Asked only when nothing matched: a hit proves the work, the date and the
+    // path are held. An empty search over a guessed path must not read like one
+    // over a real path (#305), nor one over a work or date not held (#337).
     let absent = match found.total {
-        0 => crate::fail::or_exit(
-            with_dataset!(&ds, d => absent_path(d, &locator)),
-            "Error checking the path",
-        ),
-        _ => None,
+        0 => Absent::find(&ds, &locator, &args.dataset),
+        _ => Absent::default(),
     };
 
     if args.occurrences {
@@ -161,7 +159,7 @@ pub fn run(args: Args) {
         if let Some(limit) = limit {
             listed.truncate(limit);
         }
-        if let Err(error) = report_occurrences(&args, &listed, found.occurrences, absent.as_ref())
+        if let Err(error) = report_occurrences(&args, &listed, found.occurrences, &absent)
             && error.kind() != std::io::ErrorKind::BrokenPipe
         {
             crate::fail::refuse(&format!("Error writing the answer: {error}"));
@@ -188,7 +186,7 @@ pub fn run(args: Args) {
     // A reader that closed the pipe has read enough, which is a clean stop and
     // not a failure. `println!` panics on a broken pipe, so `search | head`
     // exited 101 where the same run without a pipe exited 0 (#235).
-    if let Err(error) = report(&args, &hits, &found, absent.as_ref())
+    if let Err(error) = report(&args, &hits, &found, &absent)
         && error.kind() != std::io::ErrorKind::BrokenPipe
     {
         crate::fail::refuse(&format!("Error writing the answer: {error}"));
@@ -203,7 +201,7 @@ fn report(
     args: &Args,
     hits: &[SearchResult],
     found: &SearchAnswer,
-    absent: Option<&AbsentPath>,
+    absent: &Absent,
 ) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
 
@@ -213,21 +211,13 @@ fn report(
             "total": found.total,
             "occurrences": found.occurrences,
         });
-        // Only when the path is absent, so the answer over a real path is the
-        // same as it was.
-        if let Some(absent) = absent {
-            answer["absent_path"] = serde_json::json!(absent);
-        }
+        absent.add_to(&mut answer);
         writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
         return out.flush();
     }
 
-    if let Some(absent) = absent {
-        writeln!(
-            out,
-            "{}",
-            absent_notice(absent, args.exact, "this search reads")
-        )?;
+    if let Some(notice) = absent.notice(args.exact) {
+        writeln!(out, "{notice}")?;
     }
 
     for hit in hits {
@@ -259,6 +249,123 @@ fn report(
         )?;
     }
     out.flush()
+}
+
+/// What an empty search reached nothing of: a work or a date not held, or else
+/// a path not held. Both are empty when the search found something.
+#[derive(Default)]
+struct Absent {
+    scope: Option<AbsentScope>,
+    path: Option<AbsentPath>,
+    /// The dataset file, for the command a notice names.
+    dataset: String,
+}
+
+impl Absent {
+    /// Check the work and the date first. A path is "not held" only inside a
+    /// work and a date that are held: when the date is not held, the path is
+    /// not the filter that matched nothing (#337).
+    fn find(ds: &load::OpenDataset, locator: &Locator, dataset: &str) -> Self {
+        let scope = crate::fail::or_exit(
+            with_dataset!(ds, d => absent_scope(d, locator)),
+            "Error checking the work and the date",
+        );
+        let path = match scope {
+            Some(_) => None,
+            None => crate::fail::or_exit(
+                with_dataset!(ds, d => absent_path(d, locator)),
+                "Error checking the path",
+            ),
+        };
+        Self {
+            scope,
+            path,
+            dataset: dataset.to_string(),
+        }
+    }
+
+    /// Put what is absent into the `--json` answer. Only when something is, so
+    /// the answer over a held scope is the same as it was.
+    fn add_to(&self, answer: &mut serde_json::Value) {
+        if let Some(scope) = &self.scope {
+            answer["absent_scope"] = serde_json::json!(scope);
+        }
+        if let Some(path) = &self.path {
+            answer["absent_path"] = serde_json::json!(path);
+        }
+    }
+
+    /// The lines a person reads before the count.
+    fn notice(&self, exact: bool) -> Option<String> {
+        if let Some(scope) = &self.scope {
+            return Some(scope_notice(scope, &self.dataset, exact));
+        }
+        let path = self.path.as_ref()?;
+        Some(absent_notice(path, exact, "this search reads"))
+    }
+}
+
+/// The lines that say which filter matched no expression, and what is held
+/// near it.
+fn scope_notice(scope: &AbsentScope, dataset: &str, exact: bool) -> String {
+    match scope {
+        AbsentScope::Work {
+            work,
+            works_held,
+            held,
+            beneath,
+        } => {
+            let mut notice = format!("This dataset holds no work {work}.");
+            if !beneath.is_empty() {
+                notice.push_str(&format!("\nHeld works beneath it: {}", first_few(beneath)));
+            } else if !held.is_empty() {
+                notice.push_str(&format!("\nHeld works: {}", held.join(", ")));
+            } else {
+                notice.push_str(&format!(
+                    "\nIt holds {works_held} works. \
+                     `words_to_data expressions {dataset}` lists them."
+                ));
+            }
+            notice
+        }
+        AbsentScope::Date {
+            date,
+            work,
+            path,
+            held_before,
+            held_after,
+        } => {
+            let missing = match (path, work) {
+                (Some(path), _) => {
+                    format!("No expression dated {date} holds {path}{}.", beneath(exact))
+                }
+                (None, Some(work)) => {
+                    format!("This dataset holds no expression of {work} dated {date}.")
+                }
+                (None, None) => format!("This dataset holds no expression dated {date}."),
+            };
+            let none = || "none".to_string();
+            format!(
+                "{missing}\nHeld dates around it: {} before, {} after",
+                held_before.clone().unwrap_or_else(none),
+                held_after.clone().unwrap_or_else(none),
+            )
+        }
+    }
+}
+
+/// The words that say a subtree was asked for, as `absent_notice` says them.
+fn beneath(exact: bool) -> &'static str {
+    if exact { "" } else { " or a path beneath it" }
+}
+
+/// The first few names, and how many more there are.
+fn first_few(names: &[String]) -> String {
+    let shown = names[..names.len().min(FEW_WORKS)].join(", ");
+    match names.len().saturating_sub(FEW_WORKS) {
+        0 => shown,
+        more => format!("{shown}, and {more} more"),
+    }
 }
 
 /// `n` and the noun, singular or plural as `n` asks.
@@ -293,7 +400,7 @@ fn report_occurrences(
     args: &Args,
     listed: &[Occurrence],
     total: usize,
-    absent: Option<&AbsentPath>,
+    absent: &Absent,
 ) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
 
@@ -302,19 +409,13 @@ fn report_occurrences(
             "hits": listed,
             "total": total,
         });
-        if let Some(absent) = absent {
-            answer["absent_path"] = serde_json::json!(absent);
-        }
+        absent.add_to(&mut answer);
         writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
         return out.flush();
     }
 
-    if let Some(absent) = absent {
-        writeln!(
-            out,
-            "{}",
-            absent_notice(absent, args.exact, "this search reads")
-        )?;
+    if let Some(notice) = absent.notice(args.exact) {
+        writeln!(out, "{notice}")?;
     }
 
     for hit in listed {
