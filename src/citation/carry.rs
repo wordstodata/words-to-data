@@ -212,13 +212,44 @@ pub struct CarriedReview {
     /// the old link said: the review is then reported, and stays in the old
     /// dataset.
     pub new_links: Vec<String>,
+    /// Why no new link says what the old link said, when none does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 /// What a carry did.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CarryReport {
+    /// How many reviews were carried to at least one new link.
+    pub carried: usize,
+    /// How many reviews no new link says the same thing as. Each is in
+    /// `reviews`, with its reason.
+    pub not_carried: usize,
     /// Each review of an old citation link, and where it went.
     pub reviews: Vec<CarriedReview>,
+}
+
+/// Why no new link says what `old` said: the new dataset holds no citation of
+/// that section by those words, or holds one only in other written forms.
+fn why_not_carried(old: &Statement, new_links: &[(Link, Statement)], sources: &Sources) -> String {
+    let other_forms: Vec<&str> = new_links
+        .iter()
+        .filter(|(_, new)| old.same_words_as(new, sources) && new.section == old.section)
+        .flat_map(|(_, new)| new.written.iter().map(String::as_str))
+        .collect();
+    if other_forms.is_empty() {
+        format!(
+            "the new dataset holds no citation of {} by opinion record {}",
+            old.section, old.record
+        )
+    } else {
+        format!(
+            "opinion record {} cites {} in the new dataset only as {}",
+            old.record,
+            old.section,
+            other_forms.join(", ")
+        )
+    }
 }
 
 /// Carry every review of a citation link in `old` to the links in `new` that
@@ -234,6 +265,10 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
         .filter_map(|link| Statement::of(&link).map(|statement| (link, statement)))
         .collect();
 
+    let old_links: BTreeMap<String, Link> = old_links
+        .into_iter()
+        .map(|link| (link.id(), link))
+        .collect();
     let sources = sources(new)?;
     let mut report = CarryReport::default();
     for record in old.links_by_namespace(LinkKind::REVIEW)? {
@@ -244,8 +279,7 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
             continue;
         };
         let Some((reviewed, statement)) = old_links
-            .iter()
-            .find(|link| link.id() == old_id)
+            .get(old_id)
             .and_then(|link| Statement::of(link).map(|statement| (link, statement)))
         else {
             continue;
@@ -265,6 +299,13 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
             review::record(new, carried)?;
             carried_to.push(target.id());
         }
+        let why = if carried_to.is_empty() {
+            report.not_carried += 1;
+            Some(why_not_carried(&statement, &new_links, &sources))
+        } else {
+            report.carried += 1;
+            None
+        };
         report.reviews.push(CarriedReview {
             review: record.id(),
             verdict: said.verdict,
@@ -272,6 +313,7 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
             old_link: reviewed.id(),
             statement,
             new_links: carried_to,
+            why,
         });
     }
     Ok(report)

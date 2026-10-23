@@ -238,3 +238,57 @@ fn should_carry_a_refutation_to_the_writing_that_wrote_the_same_form_when_the_ol
         "the dissent wrote another form, so the review is not about its link"
     );
 }
+
+const SECTION_1361: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_S/part_I/section_1361";
+
+#[test]
+fn should_report_a_review_and_write_nothing_when_no_new_link_says_what_the_old_link_said() {
+    // Before #313 the opinion 2651100 cited § 1361 as "1361(a)(1)". The
+    // rebuild reads another text of it, and holds no citation of § 1361 by it.
+    let reviewed = old_link("judicial/opinion_2651100", SECTION_1361);
+    let old = old_with_reviews(
+        "carry_unmatched_old",
+        &[(reviewed.clone(), confirmed_by_tester())],
+    );
+    let new = rebuilt("carry_unmatched_new");
+    let before = Dataset::open_sqlite(&new)
+        .expect("the rebuilt dataset should open")
+        .links_by_namespace(LinkKind::REVIEW)
+        .expect("the reviews should read")
+        .len();
+
+    let printed = stdout_of(&run(&["carry-reviews", &new, "--from", &old, "--json"]));
+
+    let report: serde_json::Value = serde_json::from_str(&printed).expect("--json prints JSON");
+    assert_eq!(report["carried"], 0);
+    assert_eq!(
+        report["not_carried"], 1,
+        "the review is reported: {report:#}"
+    );
+    let row = &report["reviews"][0];
+    assert_eq!(row["old_link"], reviewed.id());
+    assert_eq!(row["statement"]["record"], "2651100");
+    assert_eq!(row["statement"]["written"][0], "1361(a)(1)");
+    assert_eq!(row["new_links"].as_array().map(Vec::len), Some(0));
+    assert!(
+        row["why"]
+            .as_str()
+            .is_some_and(|why| why.contains("no citation of uscode/title_26/section_1361")),
+        "the row says why: {row:#}"
+    );
+    let after = Dataset::open_sqlite(&new)
+        .expect("the rebuilt dataset should open")
+        .links_by_namespace(LinkKind::REVIEW)
+        .expect("the reviews should read")
+        .len();
+    assert_eq!(
+        after, before,
+        "nothing is written for a review with no new link"
+    );
+
+    let printed = stdout_of(&run(&["carry-reviews", &new, "--from", &old]));
+    assert!(
+        printed.contains("1 review(s) have no new link"),
+        "the text report counts it: {printed}"
+    );
+}

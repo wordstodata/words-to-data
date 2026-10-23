@@ -92,21 +92,15 @@ fn carry_into<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> CarryReport {
 }
 
 fn print_report(report: &CarryReport) {
-    let carried = report
-        .reviews
-        .iter()
-        .filter(|review| !review.new_links.is_empty())
-        .count();
     println!(
         "{} review(s) of citation links in the old dataset. {} carried to the new links that \
          say the same thing.",
-        ui::figure(&report.reviews.len().to_string()),
-        ui::figure(&carried.to_string()),
+        ui::figure(report.reviews.len()),
+        ui::figure(report.carried),
     );
-    for review in &report.reviews {
+    for review in report.reviews.iter().filter(|review| review.why.is_none()) {
         println!(
-            "  {} {} by {}: link {} -> {}",
-            short_id(&review.review),
+            "  {} by {}: link {} -> {}",
             review.verdict,
             review.reviewer,
             short_id(&review.old_link),
@@ -116,6 +110,30 @@ fn print_report(report: &CarryReport) {
                 .map(|id| short_id(id))
                 .collect::<Vec<_>>()
                 .join(", "),
+        );
+    }
+    if report.not_carried == 0 {
+        return;
+    }
+    // Never dropped: each one is named, with its reason, so a reviewer can look
+    // at it again. The record stays in the old dataset.
+    println!(
+        "\n{} review(s) have no new link that says the same thing. They stay in the old \
+         dataset, and nothing is written for them:",
+        ui::figure(report.not_carried),
+    );
+    for review in report.reviews.iter() {
+        let Some(why) = &review.why else {
+            continue;
+        };
+        println!(
+            "  {} by {}: link {} ({} cites {} as {}): {why}",
+            review.verdict,
+            review.reviewer,
+            short_id(&review.old_link),
+            review.statement.record,
+            review.statement.section,
+            review.statement.written.join(", "),
         );
     }
 }
