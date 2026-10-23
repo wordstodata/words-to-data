@@ -193,8 +193,17 @@ fn should_report_no_citing_opinion_when_the_dataset_holds_no_link_to_the_path() 
         "and the cases it does hold are still counted, got:\n{printed}"
     );
     assert!(
-        printed.contains("no chain to walk"),
-        "nothing changed in a covered window, so there is no chain, got:\n{printed}"
+        printed.contains("so there is no window to walk"),
+        "no opinion cites it, so there is no chain, got:\n{printed}"
+    );
+    // No opinion cites it, and that is not "it did not change" (#340). The
+    // dataset does not carry title 26, so it can say nothing about a change.
+    assert!(!printed.contains("did not change"), "got:\n{printed}");
+    assert!(
+        printed.contains(
+            "This dataset does not carry the provision, so it cannot say whether it changed."
+        ),
+        "got:\n{printed}"
     );
 }
 

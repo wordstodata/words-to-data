@@ -38,9 +38,9 @@ use words_to_data::citation::resolve::{
 };
 use words_to_data::citation::usc;
 use words_to_data::dataset::{Coverage, Expression, ExpressionId, WorkId};
-use words_to_data::document::{DocumentNode, NodeType};
+use words_to_data::document::{DocumentNode, NodeType, TextContentField};
 use words_to_data::judicial::reliance::{
-    self, ChangeWindow, CitedProvision, Citing, CitingCase, Relation,
+    self, ChangeWindow, ChangedAbove, CitedProvision, Citing, CitingCase, Relation,
 };
 use words_to_data::link::{LinkKind, Target, amendment_reference_parts};
 use words_to_data::method::Method;
@@ -122,7 +122,7 @@ fn report<S: Storage>(dataset: &S, args: &Args) {
             println!("\n{ONE_LINK_PER_SECTION}");
         }
         if args.chain {
-            report_chain(dataset, &cases);
+            report_chain(dataset, path, &cases);
         }
     }
 
@@ -300,21 +300,57 @@ fn report_cases(cases: &[CitingCase], none_holds_it: bool) {
     println!("\n{} opinion(s) cite it:\n", cases.len());
     report_each(cases);
 
-    // The tally the question actually asks for.
-    let changed: Vec<&CitingCase> = cases
-        .iter()
-        .filter(|case| {
-            case.cites
-                .iter()
-                .any(|cited| cited.since.changed_in_a_covered_window())
-        })
-        .collect();
+    // The tally the question actually asks for. A change that cannot be put
+    // after the opinion is counted apart, never as a change after it (#340).
+    let count = |kind: Tally| cases.iter().filter(|case| tally(case) == kind).count();
     println!(
         "{} of {} citing opinion(s) cite a provision that changed in a window \
-         this dataset covers.",
-        changed.len(),
+         this dataset covers that starts on or after the opinion.",
+        count(Tally::ChangedAfter),
         cases.len()
     );
+    let unplaced = count(Tally::ChangedInAWindowThatStartsBefore);
+    if unplaced > 0 {
+        println!(
+            "{unplaced} more cite a provision that changed only in a window that \
+             starts before the opinion, so this dataset cannot say whether that change \
+             came before or after the decision."
+        );
+    }
+    let above = count(Tally::ChangedAbove);
+    if above > 0 {
+        println!(
+            "{above} more cite a subdivision whose own words did not change, under \
+             a provision above it that changed in a window this dataset covers."
+        );
+    }
+}
+
+/// How one citing opinion counts in the tally, from the strongest answer down.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tally {
+    /// A cited provision changed in a window that starts on or after the
+    /// opinion.
+    ChangedAfter,
+    /// A cited provision changed only in a window that starts before the
+    /// opinion and ends after it, so the change can be from either side.
+    ChangedInAWindowThatStartsBefore,
+    /// No cited provision changed, and a provision above one of them did.
+    ChangedAbove,
+    Unchanged,
+}
+
+fn tally(case: &CitingCase) -> Tally {
+    let windows = || case.cites.iter().flat_map(|cited| &cited.since.windows);
+    if windows().any(|window| window.changed && !window.starts_before_opinion) {
+        Tally::ChangedAfter
+    } else if windows().any(|window| window.changed) {
+        Tally::ChangedInAWindowThatStartsBefore
+    } else if windows().any(|window| !window.changed_above.is_empty()) {
+        Tally::ChangedAbove
+    } else {
+        Tally::Unchanged
+    }
 }
 
 /// The opinions that cite a provision above the path asked about: the section
@@ -415,10 +451,17 @@ fn report_since(cited: &CitedProvision) {
     }
 
     if since.windows.is_empty() {
-        println!(
-            "      this dataset holds fewer than two printings after the opinion, \
-             so it cannot say whether the provision changed"
-        );
+        match since.printings_after {
+            0 => println!(
+                "      this dataset holds no printing of the cited work after the \
+                 opinion, so it cannot say whether the provision changed since"
+            ),
+            _ => println!(
+                "      this dataset holds one printing of the cited work after the \
+                 opinion, and no printing before it to compare it with, so it \
+                 cannot say whether the provision changed since"
+            ),
+        }
     }
     for window in &since.windows {
         let ChangeWindow {
@@ -431,11 +474,18 @@ fn report_since(cited: &CitedProvision) {
         let at = window_place(cited, window);
         match changed {
             true => println!(
-                "      {from} → {to}: CHANGED {at}; {} path(s) changed{}",
+                "      {from} → {to}: CHANGED {at}{}; {} path(s) changed{}",
+                match window.starts_before_opinion {
+                    true => STARTS_BEFORE_THE_OPINION,
+                    false => "",
+                },
                 changed_paths.len(),
                 first_paths(changed_paths),
             ),
-            false => println!("      {from} → {to}: unchanged {at}"),
+            false => println!(
+                "      {from} → {to}: unchanged {at}{}",
+                changed_above(&window.changed_above)
+            ),
         }
     }
 
@@ -449,6 +499,12 @@ fn report_since(cited: &CitedProvision) {
     }
 }
 
+/// Said on a CHANGED line whose window starts before the opinion and ends after
+/// it. The change is not a change after the decision until a printing says so
+/// (#340).
+const STARTS_BEFORE_THE_OPINION: &str = ", in a window that starts before the opinion: \
+this dataset cannot say whether the change came before or after the decision";
+
 /// Where a window was read, said so that a reader can tell the subdivision the
 /// opinion wrote from the whole section.
 fn window_place(cited: &CitedProvision, window: &ChangeWindow) -> String {
@@ -460,6 +516,33 @@ fn window_place(cited: &CitedProvision, window: &ChangeWindow) -> String {
              written does not resolve in these printings)",
             window.at
         ),
+    }
+}
+
+/// The provisions above the cited subdivision whose own words changed, said on
+/// the line that calls the subdivision unchanged. Its words can stay the same
+/// while a chapeau above them gives them another meaning (#340).
+fn changed_above(above: &[ChangedAbove]) -> String {
+    above
+        .iter()
+        .map(|provision| {
+            let fields: Vec<&str> = provision.fields.iter().map(field_name).collect();
+            format!(
+                "; the {} of {} changed",
+                fields.join(" and "),
+                provision.path
+            )
+        })
+        .collect()
+}
+
+fn field_name(field: &TextContentField) -> &'static str {
+    match field {
+        TextContentField::Heading => "heading",
+        TextContentField::Chapeau => "chapeau",
+        TextContentField::Proviso => "proviso",
+        TextContentField::Content => "content",
+        TextContentField::Continuation => "continuation",
     }
 }
 
@@ -534,7 +617,7 @@ fn report_silent_opinions(held: usize, silent: &[WorkId]) {
 /// changed, a bill changed it, a member sponsored the bill and the House voted on
 /// it. Each step is a link or a stored record, and a step the dataset cannot take
 /// is named rather than skipped.
-fn report_chain<S: Storage>(dataset: &S, cases: &[CitingCase]) {
+fn report_chain<S: Storage>(dataset: &S, path: &str, cases: &[CitingCase]) {
     let changed: BTreeSet<&str> = cases
         .iter()
         .flat_map(|case| &case.cites)
@@ -544,6 +627,10 @@ fn report_chain<S: Storage>(dataset: &S, cases: &[CitingCase]) {
         .collect();
 
     println!("\n--- the chain out of the change");
+    if cases.is_empty() {
+        report_changes_held(dataset, path);
+        return;
+    }
     if changed.is_empty() {
         println!("Nothing changed in a covered window, so there is no chain to walk.");
         return;
@@ -612,6 +699,48 @@ fn report_chain<S: Storage>(dataset: &S, cases: &[CitingCase]) {
             Ok(_) => println!("  roll call: the dataset holds no recorded vote for this bill"),
             Err(error) => println!("  roll call: {error}"),
         }
+    }
+}
+
+/// What `--chain` can say when no opinion cites the path: there is no window
+/// to walk, and the provision may still have changed in a window held (#340).
+fn report_changes_held<S: Storage>(dataset: &S, path: &str) {
+    println!("No opinion in this dataset cites it, so there is no window to walk.");
+    let held = crate::fail::or_exit(
+        reliance::changes_held(dataset, path),
+        "Error reading the printings",
+    );
+    if held.coverage != Coverage::InScope {
+        println!("This dataset does not carry the provision, so it cannot say whether it changed.");
+        return;
+    }
+    let windows = &held.windows;
+    if windows.is_empty() {
+        println!(
+            "This dataset holds fewer than two printings of the provision, so it \
+             cannot say whether it changed."
+        );
+        return;
+    }
+    let changed: Vec<&ChangeWindow> = windows.iter().filter(|window| window.changed).collect();
+    if changed.is_empty() {
+        println!(
+            "The provision did not change in any of the {} window(s) of printings \
+             this dataset holds.",
+            windows.len()
+        );
+        return;
+    }
+    println!("The provision changed in these windows of printings this dataset holds:");
+    for window in changed {
+        println!(
+            "  {} → {}: CHANGED at {}; {} path(s) changed{}",
+            window.from,
+            window.to,
+            window.at,
+            window.changed_paths.len(),
+            first_paths(&window.changed_paths),
+        );
     }
 }
 
