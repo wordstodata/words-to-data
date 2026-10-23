@@ -14,9 +14,9 @@
 //!    date of the law's stored expression, such as
 //!    `publiclawdocument_119-21@2025-07-04`. Where nothing under the address
 //!    changed in any window, but a window added or removed a provision the
-//!    address is inside, the amendment is residue that names that provision,
-//!    and not quiet: the diff lists the provision as one path and nothing
-//!    beneath it (#336).
+//!    address is inside, that provision is the change: the diff lists it as
+//!    one path and nothing beneath it (#336). The method gives it only to an
+//!    amendment that only adds, and only when the provision was added.
 //! 3. **Resolve.** The changes under one section in that window, assigned to
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
@@ -715,6 +715,24 @@ fn match_in_work<S: Storage + LegislatureReader>(
             });
         }
     }
+    // A new part that holds a new section is the change of the amendment that
+    // adds the section, where no window changed anything under its address.
+    // Any other amendment, such as one that amends a section a later
+    // amendment moved out, did not make that change, so a person looks at it.
+    for (at, inside) in std::mem::take(&mut enclosed) {
+        if placed.contains_key(&at) {
+            continue;
+        }
+        let added_whole = inside
+            .candidates
+            .iter()
+            .all(|&change| windows[inside.window].changes[change].whole == Some(Whole::Added));
+        if added_whole && only_inserts(&stated[at]) {
+            placed.insert(at, vec![inside]);
+        } else {
+            enclosed.insert(at, inside);
+        }
+    }
 
     // Stage 3: resolve, in the first window that holds a change, with every
     // amendment addressed to the same section in the same window.
@@ -740,8 +758,9 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 outcomes[at] = Some(Outcome::Residue(Residue {
                     stage: Stage::Window,
                     reason: format!(
-                        "{} is inside {}, which the window changed whole. The diff lists that \
-                         provision alone, and the method links no amendment to it",
+                        "{} is inside {}, which the window changed whole. The method links \
+                         such a provision only to an amendment that only adds, and only when \
+                         the provision was added",
                         address_text(&stated[at].address),
                         holders.join(", ")
                     ),
