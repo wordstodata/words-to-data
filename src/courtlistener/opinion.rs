@@ -19,7 +19,7 @@ use super::plain::{PARAGRAPHS, read_plain_text};
 use super::structure::{Passage, PassageKind, Structure, read_structure};
 use super::writings::{
     FoundMatter, FoundWriting, JUSTICE_HEADINGS, RUNNING_HEADS, read_running_heads, rule,
-    split_at_justice_headings,
+    split_at_justice_headings, take_staff_summary,
 };
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
@@ -706,11 +706,7 @@ fn writing_nodes(
         .matter
         .iter()
         .map(|matter| {
-            let provenance = found_by(format!(
-                "{}: the pages carry the running head \"{}\"",
-                rule(RUNNING_HEADS),
-                matter.heading
-            ));
+            let provenance = found_by(matter.found_by.clone());
             (
                 matter.field,
                 matter_node(matter, case_path, date, provenance),
@@ -875,7 +871,15 @@ fn read_writing(
         };
     }
     if source.field == "plain_text" {
-        let headed = read_running_heads(read_plain_text(raw));
+        let mut headed = read_running_heads(read_plain_text(raw));
+        // A staff summary opens the first page of the writing it is printed
+        // with, and it is no part of that writing.
+        let summaries: Vec<FoundMatter> = headed
+            .writings
+            .iter_mut()
+            .filter_map(|writing| take_staff_summary(&mut writing.passages))
+            .collect();
+        headed.matter.extend(summaries);
         let passages = headed
             .writings
             .iter()

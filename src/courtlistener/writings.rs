@@ -12,6 +12,10 @@
 //!   prints on each page: "Opinion of the Court", "JACKSON, J., dissenting".
 //!   The running heads are found by `super::plain`.
 //!
+//! One more rule finds matter that is no part of any writing:
+//! [`STAFF_SUMMARY`] takes out the summary that court staff print before a
+//! Ninth Circuit opinion ([`take_staff_summary`]).
+//!
 //! A rule is a machine's reading of the text, so every writing it finds is
 //! `MachineSuggested`, and its provenance names the rule. A rule that finds
 //! fewer than two writings splits nothing.
@@ -31,7 +35,10 @@ pub(crate) const JUSTICE_HEADINGS: &str = "justice-headings";
 /// changes.
 pub(crate) const RUNNING_HEADS: &str = "running-heads";
 
-/// The version of both rules. Raise it when the writings a rule finds change
+/// The rule that takes a court staff summary out of the writing it opens.
+pub(crate) const STAFF_SUMMARY: &str = "staff-summary";
+
+/// The version of the rules here. Raise it when the writings a rule finds change
 /// (`crate::method::Method`).
 pub(crate) const VERSION: u32 = 1;
 
@@ -218,8 +225,9 @@ pub(crate) struct FoundMatter {
     /// The cluster field the same matter has when the publisher fills it, and
     /// so the node's name: `syllabus`.
     pub field: &'static str,
-    /// The words the rule found it by: its running head.
-    pub heading: String,
+    /// What the rule found it by, as its provenance says it:
+    /// `running-heads@1: the pages carry the running head "Syllabus"`.
+    pub found_by: String,
     pub passages: Vec<Passage>,
 }
 
@@ -248,7 +256,10 @@ pub(crate) fn read_running_heads(sections: Vec<Section>) -> RunningHeads {
         if head == "Syllabus" {
             found.matter.push(FoundMatter {
                 field: "syllabus",
-                heading: head,
+                found_by: format!(
+                    "{}: the pages carry the running head \"{head}\"",
+                    rule(RUNNING_HEADS)
+                ),
                 passages: section.passages,
             });
             continue;
@@ -319,4 +330,88 @@ fn writing_of_head(head: &str) -> FoundWriting {
         writing.per_curiam = Some(false);
     }
     writing
+}
+
+/// The words with which court staff say a summary is theirs: "This summary
+/// constitutes no part of the opinion of the court."
+static DISCLAIMER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)this\s+summary\s+constitutes\s+no\s+part\s+of\s+the\s+opinion\s+of\s+the\s+court\.?",
+    )
+    .expect("the disclaimer pattern is valid")
+});
+
+/// The heading a staff summary opens with, and the star of the footnote that
+/// holds the disclaimer: "SUMMARY *".
+static SUMMARY_HEADING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^SUMMARY\s*\**$").expect("the heading pattern is valid"));
+
+/// A heading in capitals on a line of its own, such as "COUNSEL", "OPINION"
+/// or "ORDER": no digit, and no letter in lower case.
+fn capital_heading(text: &str) -> bool {
+    text.chars().filter(|c| c.is_alphabetic()).count() >= 2
+        && text.chars().all(|c| {
+            c.is_uppercase() || matches!(c, ' ' | ',' | '.' | '&' | '\'' | '’' | '-' | '*')
+        })
+}
+
+/// Take a court staff summary out of the passages of a writing.
+///
+/// The Ninth Circuit prints a summary after the caption of a published
+/// opinion, under the heading "SUMMARY", and its footnote says: "This summary
+/// constitutes no part of the opinion of the court. It has been prepared by
+/// court staff for the convenience of the reader." So the summary is matter of
+/// the case and no writing
+/// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 1). It runs from its heading to the next heading in capitals, such
+/// as "COUNSEL" or "OPINION", and the footnote that says it is no part of the
+/// opinion goes with it.
+///
+/// `None`, and the passages do not change, unless the passages hold the
+/// disclaimer, the heading and a heading after it. A rule that cannot find
+/// where the summary ends takes nothing out.
+pub(crate) fn take_staff_summary(passages: &mut Vec<Passage>) -> Option<FoundMatter> {
+    let words = |passage: &Passage| {
+        passage
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let paragraph = |passage: &Passage| matches!(passage.kind, PassageKind::Paragraph { .. });
+    let (disclaimer, said) = passages.iter().enumerate().find_map(|(index, passage)| {
+        DISCLAIMER
+            .find(&words(passage))
+            .map(|found| (index, found.as_str().to_string()))
+    })?;
+    let start = passages
+        .iter()
+        .position(|passage| paragraph(passage) && SUMMARY_HEADING.is_match(&words(passage)))?;
+    let end = start
+        + 1
+        + passages[start + 1..]
+            .iter()
+            .position(|passage| paragraph(passage) && capital_heading(&words(passage)))?;
+    let inside = (start..end).contains(&disclaimer);
+    // The footnote that holds the disclaimer is printed with the other
+    // footnotes, after the paragraphs.
+    let footnote = !inside && matches!(passages[disclaimer].kind, PassageKind::Footnote { .. });
+    if !inside && !footnote {
+        return None;
+    }
+
+    let mut summary: Vec<Passage> = passages.drain(start..end).collect();
+    if footnote {
+        let index = if disclaimer >= end {
+            disclaimer - (end - start)
+        } else {
+            disclaimer
+        };
+        summary.push(passages.remove(index));
+    }
+    Some(FoundMatter {
+        field: "summary",
+        found_by: format!("{}: the summary says \"{said}\"", rule(STAFF_SUMMARY)),
+        passages: summary,
+    })
 }
