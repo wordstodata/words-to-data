@@ -18,6 +18,8 @@
 //!   ways (#307).
 //! - A ligature in [`LIGATURES`] is read as its letters, so "qualified"
 //!   matches "quali\u{fb01}ed". Opinions stored from a PDF hold them (#338).
+//! - A space between "§" and a digit is not read, so "§ 7508" and "§7508"
+//!   match each other. Opinions write the section both ways (#338).
 //! - The characters in [`IGNORED`] are not read. The Code puts a soft hyphen
 //!   inside about 600 words of each printing, such as "rec\u{ad}ords" (#338).
 //!
@@ -148,11 +150,12 @@ pub fn occurrences(text: &str, query: &str) -> Vec<usize> {
 /// character in `text` it came from.
 ///
 /// Each character in [`IGNORED`] is dropped, each ligature becomes its
-/// letters, each other character is lowercased,
-/// each run of white space becomes one space, and each spelling in
-/// [`CLOSED_UP`] loses its spaces. Lowercasing can change how many characters a string holds, so the
-/// offsets are carried along rather than counted again: an offset counted in
-/// the compared form would point at the wrong place in the original.
+/// letters, each other character is lowercased, each run of white space
+/// becomes one space, each spelling in [`CLOSED_UP`] loses its spaces, and so
+/// does a section sign before a digit. Lowercasing can change how many
+/// characters a string holds, so the offsets are carried along rather than
+/// counted again: an offset counted in the compared form would point at the
+/// wrong place in the original.
 fn comparable(text: &str) -> Vec<(char, usize)> {
     let mut folded: Vec<(char, usize)> = Vec::new();
     for (offset, c) in text.chars().enumerate() {
@@ -166,7 +169,26 @@ fn comparable(text: &str) -> Vec<(char, usize)> {
     for spelling in CLOSED_UP {
         folded = close_up(folded, spelling);
     }
-    folded
+    join_section_numbers(folded)
+}
+
+/// `folded` with no space between a section sign and the digit after it.
+///
+/// Opinions write "§ 7508(a)" and "§7508(a)" for one section, so both read as
+/// "§7508(a)". "§§ 991" reads as "§§991", which still holds "§991".
+fn join_section_numbers(folded: Vec<(char, usize)>) -> Vec<(char, usize)> {
+    let mut out: Vec<(char, usize)> = Vec::with_capacity(folded.len());
+    for (at, &(c, offset)) in folded.iter().enumerate() {
+        let after_sign = out.last().is_some_and(|(last, _)| *last == '§');
+        let before_digit = folded
+            .get(at + 1)
+            .is_some_and(|(next, _)| next.is_ascii_digit());
+        if c == ' ' && after_sign && before_digit {
+            continue;
+        }
+        out.push((c, offset));
+    }
+    out
 }
 
 /// The characters that search reads for `c`, given one at a time to `read`.

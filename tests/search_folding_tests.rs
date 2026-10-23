@@ -191,3 +191,38 @@ fn should_find_a_word_when_a_ligature_spells_two_of_its_letters() {
         );
     });
 }
+
+/// *BMW (US) Holding Corp. v. United States* (opinion 11409814) writes both
+/// "IRC §7508(a)" and "26 U.S.C. § 7508(a)".
+#[test]
+fn should_find_the_same_paragraphs_when_a_section_sign_is_written_with_or_without_a_space() {
+    let one_case = |extension: &str| with_opinions("section_sign", extension, "11409814");
+    on_both_backends(one_case, |dataset| {
+        let search = |query: &str| {
+            paths_of(&hits(&[
+                "search",
+                dataset,
+                query,
+                "--path",
+                "judicial/case_10942231",
+                "--all",
+                "--json",
+            ]))
+        };
+        let spaced = search("§ 7508(a)");
+        let closed = search("§7508(a)");
+
+        assert_eq!(
+            spaced, closed,
+            "\"§ 7508(a)\" and \"§7508(a)\" find the same paragraphs, in {dataset}"
+        );
+        assert_eq!(
+            closed,
+            search("IRC §7508(a)")
+                .union(&search("U.S.C. § 7508(a)"))
+                .cloned()
+                .collect(),
+            "both written forms are found, in {dataset}"
+        );
+    });
+}
