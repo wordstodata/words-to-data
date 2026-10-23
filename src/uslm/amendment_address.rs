@@ -202,10 +202,9 @@ impl<'a> Scope<'a> {
             };
             // The clause's own `in clause (i),` prefix counts as well: a bill
             // writes a one-line instruction either way.
-            if let Some(step) = leading_in_phrase(&text) {
-                steps.push(step);
-            }
+            steps.extend(leading_in_phrase(&text).into_iter().rev());
             if let Some(line) = amending_line_of(&text) {
+                steps.extend(in_phrase_after_amending_line(&text).into_iter().rev());
                 amending_line = Some((line, *level));
                 break;
             }
@@ -554,28 +553,70 @@ pub(crate) fn collapse_spaces(text: &str) -> String {
 /// says *is further amended*: *"Section 6213(g)(2), as amended by this Act, is
 /// further amended"* (#259).
 pub(crate) fn amending_line_of(text: &str) -> Option<String> {
-    static AMENDED: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"\b(?:is|are)\s+(?:each\s+|further\s+)?amended").unwrap());
     let found = AMENDED.find(text)?;
     Some(text[..found.start()].to_string())
 }
 
-/// The step a leading `in subsection (a)` phrase names.
+/// `is amended`, `are each amended`, `is further amended`.
+static AMENDED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:is|are)\s+(?:each\s+|further\s+)?amended").unwrap());
+
+/// The steps a leading `in subsection (a)` phrase names, outermost first.
 ///
 /// Only at the front of the text, and only with the level spelt out, so a
 /// mention further along the instruction — "by inserting after paragraph (6)" —
-/// cannot be read as a scope.
-pub(crate) fn leading_in_phrase(text: &str) -> Option<Step> {
+/// cannot be read as a scope. `in subsection (d)(2)` names two steps: the
+/// subsection, and the paragraph in it (#339). Empty when the text opens with
+/// no such phrase.
+pub(crate) fn leading_in_phrase(text: &str) -> Vec<Step> {
     static IN_PHRASE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)^\s*(?:\([0-9A-Za-z]{1,6}\)\s*)?in\s+([a-z]+)\s+\(([0-9A-Za-z]{1,6})\)")
-            .unwrap()
+        Regex::new(
+            r"(?i)^\s*(?:\([0-9A-Za-z]{1,6}\)\s*)?in\s+([a-z]+)\s+((?:\([0-9A-Za-z]{1,6}\))+)",
+        )
+        .unwrap()
     });
-    let found = IN_PHRASE.captures(text)?;
+    let Some(found) = IN_PHRASE.captures(text) else {
+        return Vec::new();
+    };
     let level = match element_type_of(&found[1]) {
-        ElementType::Unknown | ElementType::Level => return None,
+        ElementType::Unknown | ElementType::Level => return Vec::new(),
         level => level,
     };
-    Some(Step::named(level, &found[2]))
+    let mut designations = designations_in(&found[2]).into_iter();
+    let Some(first) = designations.next() else {
+        return Vec::new();
+    };
+    let mut steps = vec![Step::named(level, first)];
+    steps.extend(designations.map(Step::numbered));
+    steps
+}
+
+/// The steps an `in subsection (c)` phrase right after *is amended* names,
+/// outermost first.
+///
+/// > Such section is further amended, in subsection (c)—
+///
+/// The phrase opens a scope for every clause below the line, as a leading
+/// phrase does (#339). Only the words right after *is amended* count, so a
+/// mention further along the instruction cannot be read as a scope.
+///
+/// Where the line names its target as *"Such subsection"*, the phrase names
+/// a unit inside a unit this reader does not name, so it gives no step.
+pub(crate) fn in_phrase_after_amending_line(text: &str) -> Vec<Step> {
+    static SUCH_UNIT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?i)\bsuch\s+(?:subsection|paragraph|subparagraph|clause|subclause|item|subitem)\b",
+        )
+        .expect("the such-unit pattern must compile")
+    });
+    let Some(found) = AMENDED.find(text) else {
+        return Vec::new();
+    };
+    if SUCH_UNIT.is_match(&text[..found.start()]) {
+        return Vec::new();
+    }
+    let after = text[found.end()..].trim_start().trim_start_matches(',');
+    leading_in_phrase(after)
 }
 
 /// The section number an amending line cites, and the designations below it.
@@ -587,12 +628,52 @@ pub(crate) fn leading_in_phrase(text: &str) -> Option<Step> {
 /// back as a hyphen. The bill writes `Section 1400Z–2` with an en dash, the
 /// publisher's identifiers write `s1400Z-2`, and a number cut at the dash names
 /// § 1400Z, which is a different section (#135, #141).
+///
+/// A unit the line names before the section is a step below the citation:
+/// *"Paragraph (2) of section 6213(b)"* reaches 6213(b)(2), and *"Paragraph
+/// (2) of subsection (f) of section 149"* reaches 149(f)(2) (#339).
 pub(crate) fn citation_in(line: &str) -> Option<(String, Vec<String>)> {
     let cited = CITATION.captures(line)?;
-    Some((
-        crate::citation::usc::fold_dashes(&cited[1]),
-        designations_in(&cited[2]),
-    ))
+    let start = cited.get(0).map_or(0, |whole| whole.start());
+    let mut trail = designations_in(&cited[2]);
+    trail.extend(units_before_the_citation(&line[..start]));
+    Some((crate::citation::usc::fold_dashes(&cited[1]), trail))
+}
+
+/// The designations of the units the words right before a citation name, the
+/// outermost first: `Paragraph (2) of subsection (f) of ` gives `f`, `2`.
+///
+/// A unit named in a plural, *"Subparagraphs (A) and (B) of"*, is several
+/// units, so it gives none. A unit that only places other words, *"the matter
+/// preceding paragraph (1) of"*, is not where the instruction acts, so it gives
+/// none either.
+fn units_before_the_citation(before: &str) -> Vec<String> {
+    static UNITS_OF: LazyLock<Regex> = LazyLock::new(|| {
+        let unit = r"(?:subsection|paragraph|subparagraph|clause|subclause|item|subitem)\s+(?:\([0-9A-Za-z]{1,6}\))+\s+of\s+";
+        Regex::new(&format!(r"(?i)(\S+\s+)?\b((?:{unit})+)$"))
+            .expect("the units-before-a-citation pattern must compile")
+    });
+    static ONE_UNIT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?:\([0-9A-Za-z]{1,6}\))+").expect("the designation pattern must compile")
+    });
+    let Some(found) = UNITS_OF.captures(before) else {
+        return Vec::new();
+    };
+    let places_other_words = found.get(1).is_some_and(|word| {
+        let word = word.as_str().trim().to_lowercase();
+        ["preceding", "following", "before", "after"].contains(&word.as_str())
+    });
+    if places_other_words {
+        return Vec::new();
+    }
+    // The bill names the innermost unit first.
+    ONE_UNIT
+        .find_iter(&found[2])
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .flat_map(|unit| designations_in(unit.as_str()))
+        .collect()
 }
 
 /// `section 898(c)`: a section number, and the designations that follow it.
@@ -628,10 +709,27 @@ fn cites_a_section_of_another_law(line: &str) -> bool {
 }
 
 /// The title of the US Code an amending line names outright: `of title 10`.
+///
+/// `Section 6213(b)(1) of the Internal Revenue Code of 1986` names title 26
+/// outright too. Read as the section of an Act, the publisher's `26 USC 6213`
+/// beside it gave the address and lost the citation's (b)(1) (#339).
 pub(crate) fn title_named_in(line: &str) -> Option<String> {
     static OF_TITLE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"(?i)of\s+title\s+([0-9]+[A-Za-z]?)\b").unwrap());
-    Some(OF_TITLE.captures(line)?[1].to_string())
+    if let Some(title) = OF_TITLE.captures(line) {
+        return Some(title[1].to_string());
+    }
+    cites_a_section_of_the_internal_revenue_code(line).then(|| INTERNAL_REVENUE_CODE.to_string())
+}
+
+/// Whether the words right after the citation are `of the Internal Revenue
+/// Code`.
+fn cites_a_section_of_the_internal_revenue_code(line: &str) -> bool {
+    CITATION.find(line).is_some_and(|citation| {
+        line[citation.end()..]
+            .trim_start()
+            .starts_with("of the Internal Revenue Code")
+    })
 }
 
 /// The title of the US Code the Internal Revenue Code of 1986 is.
