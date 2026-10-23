@@ -148,9 +148,6 @@ impl InMemoryStorage {
         if locates_path(locator, &path) {
             for (field_name, field_value) in fields {
                 let Some(text) = field_value else { continue };
-                if !might_match(text, query) {
-                    continue;
-                }
                 let offsets = query.occurrences(text);
                 if offsets.is_empty() {
                     continue;
@@ -269,18 +266,6 @@ impl DocumentReader for InMemoryStorage {
             .filter(|e| locates_expression(locator, &e.id))
             .any(|e| reaches(&e.root, locator)))
     }
-}
-
-/// Whether `text` holds every piece of the query, so a match is possible.
-///
-/// A quick test before [`Query::occurrences`], which is slower: most fields
-/// of a title hold no match, and this skips them.
-fn might_match(text: &str, query: &Query) -> bool {
-    let lower: String = text.chars().flat_map(char::to_lowercase).collect();
-    query
-        .pieces()
-        .iter()
-        .all(|piece| lower.contains(piece.as_str()))
 }
 
 /// Fetch both expressions of a diff, refusing a pair that names two works.

@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use rusqlite::functions::FunctionFlags;
+use rusqlite::types::ValueRef;
 use rusqlite::{Connection, params};
 
 use crate::congress::{BillVotes, HouseRollCall, Member, MemberVote, SponsorInfo, VotePosition};
@@ -1137,32 +1139,43 @@ impl DocumentReader for SqliteStorage {
         // backends answer alike: work, then date, then document position, then
         // the field order that backend declares.
         //
-        // `LIKE` cannot state the match rule, so it only narrows the rows: a
-        // match holds every piece of the query, in order. `Query` then decides,
-        // as it does for the in-memory store.
+        // `LIKE` cannot state the match rule: a character that search does not
+        // read can be inside any word (#338). So SQLite asks `Query` itself,
+        // through a function that this search registers, and the two back ends
+        // keep one rule.
         let query = Query::new(query);
-        let query_pattern = format!("%{}%", query.pieces().join("%"));
+        let in_sql = query.clone();
+        self.conn.create_scalar_function(
+            "search_matches",
+            1,
+            FunctionFlags::SQLITE_UTF8,
+            move |ctx| {
+                Ok(match ctx.get_raw(0) {
+                    ValueRef::Text(bytes) => in_sql.is_in(&String::from_utf8_lossy(bytes)),
+                    _ => false,
+                })
+            },
+        )?;
         let scope = ScopeClause::of(locator);
         let mut stmt = self.conn.prepare(&format!(
             "SELECT work, date, path, ordinal, 0 AS field_rank, 'heading' AS field, heading AS snippet
-                 FROM element_index WHERE LOWER(heading) LIKE :pattern{scope}
+                 FROM element_index WHERE search_matches(heading){scope}
              UNION ALL
              SELECT work, date, path, ordinal, 1, 'chapeau', chapeau
-                 FROM element_index WHERE LOWER(chapeau) LIKE :pattern{scope}
+                 FROM element_index WHERE search_matches(chapeau){scope}
              UNION ALL
              SELECT work, date, path, ordinal, 2, 'content', content
-                 FROM element_index WHERE LOWER(content) LIKE :pattern{scope}
+                 FROM element_index WHERE search_matches(content){scope}
              UNION ALL
              SELECT work, date, path, ordinal, 3, 'proviso', proviso
-                 FROM element_index WHERE LOWER(proviso) LIKE :pattern{scope}
+                 FROM element_index WHERE search_matches(proviso){scope}
              UNION ALL
              SELECT work, date, path, ordinal, 4, 'continuation', continuation
-                 FROM element_index WHERE LOWER(continuation) LIKE :pattern{scope}
+                 FROM element_index WHERE search_matches(continuation){scope}
              ORDER BY work, date, ordinal, field_rank",
             scope = scope.sql,
         ))?;
-        let mut bound: Vec<(&str, &dyn rusqlite::ToSql)> = vec![(":pattern", &query_pattern)];
-        bound.extend(scope.bindings());
+        let bound = scope.bindings();
         let mut rows = stmt.query(&bound[..])?;
 
         let mut hits = Hits::with_limit(limit);

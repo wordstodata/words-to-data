@@ -144,9 +144,12 @@ read the words.
 
    Case is ignored, and a line break or several spaces in the text match one
    space in the query, so a phrase that a line break splits is still found.
-   "U.S.C." and "U. S. C." match each other; "U.S.C.A." is a different
-   spelling. Other spellings of a citation are not made equal: search for each
-   one.
+   "U.S.C." and "U. S. C." match each other, and so do "U.S." and "U. S.",
+   and "§7" and "§ 7"; "U.S.C.A." is a different spelling. A soft hyphen or a
+   zero-width character in the text is not read, a ligature such as "ﬁ"
+   matches its letters, and a hyphen between two letters is not read, so
+   "substantially" finds "substan-tially". Other spellings of a citation are
+   not made equal: search for each one.
 
    Each hit is one field, and its line says how often the field holds the words
    (`[content]  5 occurrences`). The last line counts both: `1 field, 5
