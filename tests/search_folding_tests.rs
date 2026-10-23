@@ -257,3 +257,42 @@ fn should_find_the_same_paragraphs_when_us_reports_is_spelt_with_or_without_spac
         );
     });
 }
+
+/// The text of *Little Sandy Coal* keeps the hyphen where a line of the PDF
+/// broke a word: "substan-tially", "experimenta-tion" (#338).
+#[test]
+fn should_find_a_word_when_a_line_break_left_a_hyphen_inside_it() {
+    let little_sandy_coal =
+        |extension: &str| with_opinions("broken_word", extension, "9377344");
+    on_both_backends(little_sandy_coal, |dataset| {
+        let search = |query: &str| {
+            hits(&[
+                "search",
+                dataset,
+                query,
+                "--path",
+                "judicial/case_9381868",
+                "--all",
+                "--json",
+            ])
+        };
+        let as_stored = paths_of(&search("substan-tially"));
+        assert!(
+            !as_stored.is_empty(),
+            "the opinion holds the broken word, in {dataset}"
+        );
+
+        let as_typed = search("substantially");
+
+        assert!(
+            paths_of(&as_typed).is_superset(&as_stored),
+            "\"substantially\" finds each paragraph that writes \"substan-tially\", in {dataset}"
+        );
+        assert!(
+            as_typed
+                .iter()
+                .any(|hit| hit["snippet"].as_str().unwrap().contains("substan-tially")),
+            "a snippet shows the text as the opinion has it, in {dataset}"
+        );
+    });
+}

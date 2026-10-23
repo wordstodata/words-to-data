@@ -20,6 +20,9 @@
 //!   matches "quali\u{fb01}ed". Opinions stored from a PDF hold them (#338).
 //! - A space between "§" and a digit is not read, so "§ 7508" and "§7508"
 //!   match each other. Opinions write the section both ways (#338).
+//! - A hyphen between two letters is not read, so "substantially" matches
+//!   "substan-tially", where a line broke the word in a plain-text opinion
+//!   (#338). "well-known" still matches "well-known".
 //! - The characters in [`IGNORED`] are not read. The Code puts a soft hyphen
 //!   inside about 600 words of each printing, such as "rec\u{ad}ords" (#338).
 //!
@@ -156,7 +159,8 @@ pub fn occurrences(text: &str, query: &str) -> Vec<usize> {
 /// Each character in [`IGNORED`] is dropped, each ligature becomes its
 /// letters, each other character is lowercased, each run of white space
 /// becomes one space, each spelling in [`CLOSED_UP`] loses its spaces, and so
-/// does a section sign before a digit. Lowercasing can change how many
+/// does a section sign before a digit, and a hyphen between two letters is
+/// dropped. Lowercasing can change how many
 /// characters a string holds, so the offsets are carried along rather than
 /// counted again: an offset counted in the compared form would point at the
 /// wrong place in the original.
@@ -173,7 +177,28 @@ fn comparable(text: &str) -> Vec<(char, usize)> {
     for spelling in CLOSED_UP {
         folded = close_up(folded, spelling);
     }
-    join_section_numbers(folded)
+    join_broken_words(join_section_numbers(folded))
+}
+
+/// `folded` with no hyphen between two letters.
+///
+/// A plain-text opinion keeps the hyphen where a line broke a word:
+/// "substan-tially". The hyphen of a word such as "well-known" is read the same
+/// way, in the text and in the query, so "well-known" still finds it. The one
+/// cost is that "wellknown" finds it too.
+fn join_broken_words(folded: Vec<(char, usize)>) -> Vec<(char, usize)> {
+    let mut out: Vec<(char, usize)> = Vec::with_capacity(folded.len());
+    for (at, &(c, offset)) in folded.iter().enumerate() {
+        let after_letter = out.last().is_some_and(|(last, _)| last.is_alphabetic());
+        let before_letter = folded
+            .get(at + 1)
+            .is_some_and(|(next, _)| next.is_alphabetic());
+        if c == '-' && after_letter && before_letter {
+            continue;
+        }
+        out.push((c, offset));
+    }
+    out
 }
 
 /// `folded` with no space between a section sign and the digit after it.
