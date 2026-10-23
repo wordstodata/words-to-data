@@ -1,0 +1,1367 @@
+[
+ {
+  "subject": {
+   "node": "judicial/opinion_109019"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 174 (a) (1)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174(a)(1)",
+    "start": 600,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_122262"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 174(a)(1)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174(a)(1)",
+    "start": 37874,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_122262"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_I/section_861"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 861(b)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "861(b)",
+    "start": 40184,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s861"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_122262"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_IV/subpart_A/section_991"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7\u00a7 991-997",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "991-997",
+    "start": 10817,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s991"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_122262"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_IV/subpart_A/section_992"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 992(a)(1)(A)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "992(a)(1)(A)",
+    "start": 42388,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s992"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_122262"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_IV/subpart_A/section_994"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 994(a)(2)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "994(a)(2)",
+    "start": 42899,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s994"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_122262"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_IV/subpart_B/section_997"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7\u00a7 991-997",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "991-997",
+    "start": 10817,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s997"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_122262"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_F/chapter_80/subchapter_A/section_7805"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 7805(a)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "7805(a)",
+    "start": 20513,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s7805"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_1527901"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_41"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 41",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "41",
+    "start": 28777,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s41"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_1527901"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_44F"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 44F",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "44F",
+    "start": 17792,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s44F"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_1527901"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 174",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174",
+    "start": 4514,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_1527901"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_28/part_III/chapter_43/section_636"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "28 U.S.C. \u00a7 636(b)(1)(C)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "636(b)(1)(C)",
+    "start": 29799,
+    "title": "28",
+    "uslm_id": "/us/usc/t28/s636"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2651100"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_D/section_41"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 41(d)(2)(B)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "41(d)(2)(B)",
+    "start": 38553,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s41"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2651100"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 174(e)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174(e)",
+    "start": 38459,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2651100"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_S/part_I/section_1361"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7\u00a7 1361(a)(1), 1363(a)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "1361(a)(1)",
+    "start": 5457,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s1361"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2651100"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_S/part_I/section_1363"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7\u00a7 1361(a)(1), 1363(a)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "1363(a)",
+    "start": 5457,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s1363"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2651100"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_F/chapter_61/subchapter_A/part_I/section_6001"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 6001",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "6001",
+    "start": 18720,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s6001"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2651100"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_F/chapter_76/subchapter_C/part_II/section_7453"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 7453",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "7453",
+    "start": 9695,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s7453"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2812209"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_1/chapter_1/section_7"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "1 U. S. C. \u00a77",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "7",
+    "start": 31039,
+    "title": "1",
+    "uslm_id": "/us/usc/t1/s7"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_2812209"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_42/chapter_21B/section_2000bb"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "42\nU. S. C. \u00a72000bb",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "2000bb",
+    "start": 189096,
+    "title": "42",
+    "uslm_id": "/us/usc/t42/s2000bb"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_406879"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_161"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 161",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "161",
+    "start": 783,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s161"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_406879"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_162"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 162(a)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "162(a)",
+    "start": 586,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s162"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_406879"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 174(a)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174(a)",
+    "start": 18784,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_406879"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_F/chapter_76/subchapter_D/section_7482"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 7482",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "7482",
+    "start": 3168,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s7482"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6248"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_162"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 162",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "162",
+    "start": 7540,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s162"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6248"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 174(a)(1)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174(a)(1)",
+    "start": 755,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6931314"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 163",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "163",
+    "start": 9858,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s163"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6931314"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 174",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174",
+    "start": 11756,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6931314"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_183"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 183",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "183",
+    "start": 4460,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s183"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6931314"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_P/part_IV/section_1253"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 1253",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "1253",
+    "start": 956,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s1253"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6931314"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_F/chapter_67/subchapter_A/section_6601"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7\u00a7 6601 and 6621(c)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "6601",
+    "start": 10367,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s6601"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6931314"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_F/chapter_67/subchapter_C/section_6621"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7\u00a7 6601 and 6621(c)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "6621(c)",
+    "start": 10367,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s6621"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_6931314"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_F/chapter_76/subchapter_D/section_7482"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 7482(a)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "7482(a)",
+    "start": 2728,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s7482"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_8991218"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_162"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 162",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "162",
+    "start": 4394,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s162"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_8991218"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 174",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174",
+    "start": 4506,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_8991218"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VII/section_212"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U.S.C. \u00a7 212",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "212",
+    "start": 4611,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s212"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_9434365"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 174(a)(1)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "174(a)(1)",
+    "start": 7961,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s174"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_9434365"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_I/section_861"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 861(b)",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "861(b)",
+    "start": 10293,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s861"
+   }
+  }
+ },
+ {
+  "subject": {
+   "node": "judicial/opinion_9434365"
+  },
+  "kind": "judicial.cites",
+  "object": {
+   "node": "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_IV/subpart_A/section_994"
+  },
+  "provenance": {
+   "source": "rule:usc_citation",
+   "method": {
+    "name": "reporters-db laws.json U.S.C. patterns",
+    "version": 2
+   },
+   "verification": "machine_suggested",
+   "evidence": {
+    "reasoning": "26 U. S. C. \u00a7 994",
+    "reply": null,
+    "model": null,
+    "prompt_hash": null
+   },
+   "raw_score": null,
+   "timestamp": null,
+   "corroboration": null
+  },
+  "payload": {
+   "namespace": "judicial",
+   "value": {
+    "section": "994",
+    "start": 3447,
+    "title": "26",
+    "uslm_id": "/us/usc/t26/s994"
+   }
+  }
+ }
+]
