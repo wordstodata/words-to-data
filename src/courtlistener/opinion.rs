@@ -18,8 +18,8 @@ use serde_json::Value;
 use super::plain::{PARAGRAPHS, read_plain_text};
 use super::structure::{Passage, PassageKind, Structure, read_structure};
 use super::writings::{
-    FoundMatter, FoundWriting, JUSTICE_HEADINGS, RUNNING_HEADS, read_running_heads, rule,
-    split_at_justice_headings, take_staff_summary,
+    FoundMatter, FoundWriting, JUDGE_HEADINGS, JUSTICE_HEADINGS, RUNNING_HEADS, read_running_heads,
+    rule, split_at_justice_headings, take_staff_summary,
 };
 use super::{CourtListenerError, markup::MarkupReport, markup::text_of_markup};
 use crate::dataset::{Expression, ExpressionId, WorkId};
@@ -481,11 +481,23 @@ fn case_matter_nodes(
 /// text.
 const COMBINED: &str = "010combined";
 
+/// CourtListener's types for a record of one writing beside the Court's: a
+/// concurrence, a concurrence in part, a dissent.
+const SEPARATE: [&str; 3] = ["030concurrence", "035concurrenceinpart", "040dissent"];
+
 impl OpinionRecord {
     /// Whether the publisher says this record holds the whole case in one text,
     /// rather than one writing of it.
     fn is_combined(&self) -> bool {
         self.opinion_type.as_deref() == Some(COMBINED)
+    }
+
+    /// Whether the publisher says this record is one concurrence or one
+    /// dissent.
+    fn is_separate(&self) -> bool {
+        self.opinion_type
+            .as_deref()
+            .is_some_and(|kind| SEPARATE.contains(&kind))
     }
 }
 
@@ -644,6 +656,12 @@ struct RecordNodes {
 /// ([`super::writings`]). A combined record the rules cannot split stays one
 /// writing at `path`, and its provenance says no rule found a second one.
 ///
+/// A record the publisher types as one concurrence or one dissent can hold more
+/// than one: *Windsor*'s dissent record, author "Roberts", holds the dissents
+/// of Roberts, Scalia and Alito. [`super::writings::split_at_justice_headings`]
+/// splits such a record when the first writing it finds is by the record's own
+/// author. Otherwise the record stays one writing, as the publisher gives it.
+///
 /// A writing read from a field in [`STRUCTURED`] or from `plain_text` holds no
 /// text itself. Its paragraphs and footnotes are its children, each with the
 /// same provenance, so a search hit names the paragraph that holds the words.
@@ -722,13 +740,19 @@ fn writing_nodes(
         text,
     };
     let found = match try_split {
+        true if read.headed.len() >= 2 => Some(read.headed.clone()),
+        true => split_at_justice_headings(&read.structure.passages),
+        false if opinion.is_separate() => {
+            let passages = read_writing(raw, source, citations, true)
+                .structure
+                .passages;
+            split_at_justice_headings(&passages)
+                .filter(|found| by_the_author(&found[0], facts.author.as_deref()))
+        }
         false => None,
-        true if read.headed.len() >= 2 => Some((RUNNING_HEADS, read.headed.clone())),
-        true => split_at_justice_headings(&read.structure.passages)
-            .map(|writings| (JUSTICE_HEADINGS, writings)),
     };
 
-    let Some((found_rule, found)) = found else {
+    let Some(found) = found else {
         let provenance = match try_split {
             true => Provenance {
                 evidence: Evidence::from_reasoning(Some(format!(
@@ -756,18 +780,7 @@ fn writing_nodes(
         .enumerate()
         .map(|(index, found)| {
             let path = format!("{path}-{}", index + 1);
-            let provenance = found_by(match found_rule {
-                RUNNING_HEADS => format!(
-                    "{}: the writing's pages carry the running head \"{}\"",
-                    rule(found_rule),
-                    found.heading
-                ),
-                _ => format!(
-                    "{}: the writing opens with \"{}\"",
-                    rule(found_rule),
-                    found.heading
-                ),
-            });
+            let provenance = found_by(found.found_by.clone());
             let facts = OpinionFacts {
                 opinion_type: found.opinion_type.map(str::to_string),
                 author: found.author,
@@ -786,6 +799,15 @@ fn writing_nodes(
         })
         .collect::<Result<_, CourtListenerError>>()?;
     Ok(RecordNodes { writings, matter })
+}
+
+/// Whether the publisher's author of a record wrote the first writing a rule
+/// found in it. A record with no author is not split.
+fn by_the_author(found: &FoundWriting, author: Option<&str>) -> bool {
+    match (&found.author, author) {
+        (Some(found), Some(author)) => found.eq_ignore_ascii_case(author.trim()),
+        _ => false,
+    }
 }
 
 /// Matter a rule found, as one child of the case that holds its words, with
@@ -909,7 +931,12 @@ impl ReadWriting {
     /// The rules that looked for the writings in this record: `justice-headings@1`.
     fn rules_tried(&self) -> String {
         match self.passage_rule {
-            Some(_) => format!("{} and {}", rule(RUNNING_HEADS), rule(JUSTICE_HEADINGS)),
+            Some(_) => format!(
+                "{}, {} and {}",
+                rule(RUNNING_HEADS),
+                rule(JUDGE_HEADINGS),
+                rule(JUSTICE_HEADINGS)
+            ),
             None => rule(JUSTICE_HEADINGS).to_string(),
         }
     }

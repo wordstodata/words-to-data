@@ -112,9 +112,16 @@ record prints them. `opinions` and `path` say what found each one, on a line
 THOMAS, with whom JUSTICE SCALIA joins, dissenting."`. Such a writing is
 `MachineSuggested`: its first and last words are a machine's reading of where
 one writing ends. A combined record that no rule split says so on the same
-line, and it holds every writing of the case. A Supreme Court slip opinion's
-syllabus is `judicial/case_<cluster>/syllabus`, and a Ninth Circuit staff
-summary is `judicial/case_<cluster>/summary`. Neither is part of any writing.
+line, and it holds every writing of the case. A record the publisher gives
+as one dissent or one concurrence is split the same way when it holds more
+than one and the first is by the record's author: *Windsor*'s dissent record
+is `opinion_9515914-1` (Roberts), `-2` (Scalia) and `-3` (Alito). A Supreme
+Court slip opinion's syllabus is `judicial/case_<cluster>/syllabus`, and a
+Ninth Circuit staff summary is `judicial/case_<cluster>/summary`. The cover of
+a preliminary print of the United States Reports is
+`judicial/case_<cluster>/headmatter`, and its "Reporter’s Note" is
+`judicial/case_<cluster>/reporters_note`. None of these is part of any
+writing.
 
 "combined record … kept as a source, not as text" means the publisher also holds the whole case as one
 record with the same words, and the dataset stores the split writings instead.
