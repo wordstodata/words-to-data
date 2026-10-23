@@ -229,8 +229,15 @@ pub enum Stage {
 /// words can have made. The change must be in a unit its words name, and of a
 /// kind its action makes: a strike brings no new words, and an addition removes
 /// no provision.
+///
+/// Version 5 (#339): the address keeps every container the bill states
+/// (*"is amended, in subsection (c)"*, *"Paragraph (2) of section 6213(b)"*,
+/// *"Section 6213(b)(1) of the Internal Revenue Code"*). A provision placed
+/// by quoted words does not carry a change that another amendment is
+/// addressed to, and that amendment takes the provision at its own address by
+/// elimination.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 4)
+    Method::new("address, window and quoted words", 5)
 }
 
 /// Who a link this method writes says made it.
@@ -813,6 +820,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 units_named: units_its_words_name(&stated[*at]),
                 only_strikes: only_strikes(&stated[*at]),
                 only_inserts: only_inserts(&stated[*at]),
+                rewrites: stated[*at].amending_text.contains("to read as follows"),
                 evidence: &stated[*at].evidence,
                 candidates: placed[at][0].candidates.clone(),
             })

@@ -1417,8 +1417,13 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// earlier window is not placed in a later one. Version 2 saw only the windows
 /// it was given, so a dataset that grew one window at a time recorded a move a
 /// second time.
+///
+/// Version 4 (#339): the container keeps every step the bill states: a scope
+/// phrase after *is amended* (*"is amended, in subsection (d)(2)"*), every
+/// designation of a scope phrase, and the units named before the section
+/// (*"Paragraph (2) of section 6213(b)"*).
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 3)
+    Method::new("amendingAction type=redesignate", 4)
 }
 
 /// How far the words at a redesignation's two ends agree.

@@ -39,8 +39,8 @@ use crate::io::load_xml_file;
 use crate::legislature::redesignation::{Reason, StatedRedesignation, Step, read_clause};
 use crate::uslm::amendment_address::{
     INTERNAL_REVENUE_CODE, Scope, amending_line_of, citation_in, collapse_spaces, element_type_of,
-    is_stored_level, leading_in_phrase, section_of_an_act, stored_titles_declaring_the_1986_code,
-    title_named_in, uslm_section_id,
+    in_phrase_after_amending_line, is_stored_level, leading_in_phrase, section_of_an_act,
+    stored_titles_declaring_the_1986_code, title_named_in, uslm_section_id,
 };
 use crate::uslm::parser::{ParseError, normalize_quotes};
 use crate::uslm::{ElementType, UscReference, UslmFacts};
@@ -317,10 +317,9 @@ fn read_action(bill_id: &str, action: Node, code_of_1986: &[String]) -> StatedRe
         };
         // The clause's own `in clause (i),` prefix counts as well: a bill writes
         // a one-line instruction either way.
-        if let Some(step) = leading_in_phrase(&text) {
-            container.push(step);
-        }
+        container.extend(leading_in_phrase(&text).into_iter().rev());
         if let Some(line) = amending_line_of(&text) {
+            container.extend(in_phrase_after_amending_line(&text).into_iter().rev());
             amending_line = Some((line, *level));
             break;
         }

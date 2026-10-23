@@ -13,10 +13,11 @@ use std::process::Command;
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, Format};
 use words_to_data::document::DocumentNode;
-use words_to_data::legislature::redesignation::Reason;
-use words_to_data::uslm::UslmFacts;
+use words_to_data::legislature::redesignation::{Reason, StatedRedesignation};
 use words_to_data::uslm::amendment_address::{AmendmentAddress, addresses_in};
 use words_to_data::uslm::bill_parser::{amendment_paths, bill_expression};
+use words_to_data::uslm::bill_redesignation::{redesignations_stated, redesignations_stated_in};
+use words_to_data::uslm::{ElementType, UslmFacts};
 
 /// The committed public law, as the Congress client leaves it in the cache.
 const BILL_DIR: &str = "tests/test_data/congress_client_cache/bill/119/hr/1";
@@ -476,4 +477,216 @@ fn should_not_address_a_section_when_the_act_is_placed_only_as_a_range() {
         address.unresolved,
         Some(Reason::SectionOfAnotherLaw("1899C".to_string()))
     );
+}
+
+// --- A scope phrase after the amending line (#339) ---------------------------
+
+/// The committed National Defense Authorization Act for Fiscal Year 2026,
+/// Public Law 119-60, as the dataset stores it.
+fn committed_ndaa() -> DocumentNode {
+    static BILL: std::sync::OnceLock<DocumentNode> = std::sync::OnceLock::new();
+    BILL.get_or_init(|| {
+        let xml = std::fs::read_to_string(
+            "tests/test_data/congress_client_cache/bill/119/s/1071/public_law.xml",
+        )
+        .expect("the public law should be committed");
+        let document = roxmltree::Document::parse(&xml).expect("the public law should parse");
+        let (bill, _) = bill_expression(&document, "119-s-1071").expect("the bill should read");
+        bill.root
+    })
+    .clone()
+}
+
+/// The steps of an address with the level each names, outermost first.
+fn named_steps(address: &AmendmentAddress) -> Vec<(Option<ElementType>, &str)> {
+    address
+        .container
+        .iter()
+        .map(|step| (step.level, step.number.as_str()))
+        .collect()
+}
+
+/// Pub. L. 119-60 § 1702(b):
+///
+/// > Such section is further amended, in subsection (c)—
+/// > (1) in paragraph (1), by striking "subparagraphs (A) through (K) of
+/// > subsection (d)(2) and subparagraph (L)" and inserting …
+///
+/// The scope phrase follows *is further amended*, not the start of the line.
+/// The clause acts in 17 U.S.C. 105(c)(1), and not in a paragraph (1) of
+/// § 105, which does not exist (#339).
+#[test]
+fn should_keep_the_subsection_the_amending_line_opens_after_the_words_is_amended() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "in paragraph (1), by striking \"subparagraphs (A) through (K) of subsection (d)(2)",
+    );
+
+    assert_eq!(
+        named_steps(&address),
+        [
+            (Some(ElementType::Subsection), "c"),
+            (Some(ElementType::Paragraph), "1")
+        ]
+    );
+}
+
+/// Pub. L. 119-60 § 1702(a):
+///
+/// > Section 105 of title 17, United States Code, is amended, in subsection
+/// > (d)(2)—
+/// > (1) by redesignating subparagraphs (L) through (N) as subparagraphs (M)
+/// > through (O), respectively;
+///
+/// The phrase names a subsection and a paragraph in it. Both are steps of the
+/// address (#339). The bill states § 1702(a) as one amendment, so its own
+/// words are the line.
+#[test]
+fn should_keep_every_designation_the_scope_phrase_gives_when_it_names_more_than_one() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Section 105 of title 17, United States Code, is amended, in subsection (d)(2)",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t17/s105"));
+    assert_eq!(
+        named_steps(&address),
+        [(Some(ElementType::Subsection), "d"), (None, "2")]
+    );
+}
+
+/// The renumbering in Pub. L. 119-60 § 1702(a)(1) acts in 17 U.S.C.
+/// 105(d)(2): both readers of a bill read the scope phrase after *is
+/// amended*, so the renumbering is placed in the right paragraph (#339).
+#[test]
+fn should_give_both_readers_the_steps_the_scope_phrase_names_when_a_clause_renumbers() {
+    let xml = std::fs::read_to_string(
+        "tests/test_data/congress_client_cache/bill/119/s/1071/public_law.xml",
+    )
+    .expect("the public law should be committed");
+    let from_markup = redesignations_stated("119-s-1071", &xml).expect("the markup should read");
+    let from_document = redesignations_stated_in("119-s-1071", &committed_ndaa());
+
+    for (reader, stated) in [("markup", from_markup), ("document", from_document)] {
+        let found: Vec<&StatedRedesignation> = stated
+            .iter()
+            .filter(|statement| {
+                statement.section.as_deref() == Some("/us/usc/t17/s105")
+                    && statement
+                        .text
+                        .contains("redesignating subparagraphs (L) through (N)")
+            })
+            .collect();
+        let [statement] = found[..] else {
+            panic!("the {reader} reader should state the renumbering once: {found:?}");
+        };
+        let steps: Vec<(Option<ElementType>, &str)> = statement
+            .container
+            .iter()
+            .map(|step| (step.level, step.number.as_str()))
+            .collect();
+        assert_eq!(
+            steps,
+            [(Some(ElementType::Subsection), "d"), (None, "2")],
+            "the {reader} reader"
+        );
+    }
+}
+
+/// Public Law 119-39 (bill `119-hr-998`), as the dataset stores it.
+fn committed_hr_998() -> DocumentNode {
+    let xml = std::fs::read_to_string(
+        "tests/test_data/congress_client_cache/bill/119/hr/998/public_law.xml",
+    )
+    .expect("the public law should be committed");
+    let document = roxmltree::Document::parse(&xml).expect("the public law should parse");
+    let (bill, _) = bill_expression(&document, "119-hr-998").expect("the bill should read");
+    bill.root
+}
+
+/// > (a) In General.—Section 6213(b)(1) of the Internal Revenue Code of 1986
+/// > is amended—
+///
+/// The line names the Internal Revenue Code, not an Act that the Code places
+/// somewhere. The publisher's marginal note `26 USC 6213` gives the section
+/// and no designations, and the citation's own (b)(1) stays (#339).
+#[test]
+fn should_keep_the_citations_designations_when_the_line_names_the_internal_revenue_code() {
+    let bill = committed_hr_998();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Section 6213(b)(1) of the Internal Revenue Code",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s6213"));
+    assert_eq!(step_numbers(&address), ["b", "1"]);
+}
+
+/// > (b) Notice of Abatement.—Paragraph (2) of section 6213(b) is amended by
+/// > adding at the end the following new subparagraph: …
+///
+/// The unit before the citation is a step below it: the address is
+/// 26 U.S.C. 6213(b)(2), and not the whole of subsection (b) (#339).
+#[test]
+fn should_address_the_unit_the_line_names_before_the_section_when_it_names_one() {
+    let bill = committed_hr_998();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(&addresses, "Paragraph (2) of section 6213(b) is amended");
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t26/s6213"));
+    assert_eq!(step_numbers(&address), ["b", "2"]);
+}
+
+/// Pub. L. 119-60:
+///
+/// > Paragraph (2) of subsection (f) of section 149 of title 10, United States
+/// > Code, is amended …
+///
+/// The bill names the innermost unit first. The address is 10 U.S.C.
+/// 149(f)(2) (#339).
+#[test]
+fn should_address_every_unit_the_line_names_before_the_section_when_it_names_a_chain() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Paragraph (2) of subsection (f) of section 149 of title 10",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t10/s149"));
+    assert_eq!(step_numbers(&address), ["f", "2"]);
+}
+
+/// Pub. L. 119-60 § 571(c):
+///
+/// > Such subsection is further amended, in paragraph (4), by adding at the
+/// > end the following new subparagraph: …
+///
+/// *Such subsection* is subsection (a) of 10 U.S.C. 1142, which this reader
+/// does not name. Paragraph (4) is in that subsection, so a step `(4)` under
+/// the section would name a paragraph (4) of § 1142 that does not exist. The
+/// phrase after *is amended* gives a step only below a section or a unit the
+/// line names (#339).
+#[test]
+fn should_not_read_the_scope_phrase_after_the_amending_line_when_the_line_names_such_a_unit() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Such subsection is further amended, in paragraph (4), by adding at the end",
+    );
+
+    assert_eq!(address.section, None);
+    assert!(address.container.is_empty(), "{:?}", address.container);
 }

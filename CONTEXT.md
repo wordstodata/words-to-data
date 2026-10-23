@@ -124,7 +124,7 @@ The words an Amendment **enacts** are not a Provision. They are quoted text, not
 _Avoid_: Edit, modification, revision
 
 **Address**:
-Where in the Code an Amendment acts, as its Bill's markup states it: the section its amending line names, the designations its citation gives below that section, and the containers its scope phrases open (*"in paragraph (2)"*). It is read from the publisher's markup and never from a model, and it is derived, never stored. An Amendment whose address cannot be read carries the reason instead. One resolver reads it, for every Amendment and for every renumbering (#248, `docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`). An address is where to look, not the change: it names a section and a container, and a Link still points at the Provision that changed.
+Where in the Code an Amendment acts, as its Bill's markup states it: the section its amending line names, the designations its citation gives below that section (*"Section 6213(b)"*, and the units named before the section in *"Paragraph (2) of section 6213(b)"*), and the containers its scope phrases open (*"in paragraph (2)"*, or *"is amended, in subsection (d)(2)"* after the amending line). It is read from the publisher's markup and never from a model, and it is derived, never stored. An Amendment whose address cannot be read carries the reason instead. One resolver reads it, for every Amendment and for every renumbering (#248, `docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`). An address is where to look, not the change: it names a section and a container, and a Link still points at the Provision that changed.
 _Avoid_: target, citation
 
 ## The legislature

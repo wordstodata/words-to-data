@@ -24,12 +24,19 @@
 //!    was given in step 1, and under that amendment's address, goes to it: a
 //!    paragraph struck and enacted anew carries its subparagraphs with it. A
 //!    provision several amendments edited does not say which of them made a
-//!    change inside it, so it gives nothing this way.
+//!    change inside it, so it gives nothing this way. Nor does a provision
+//!    that another amendment, addressed inside it, is nearer to: 24(h) does
+//!    not carry a change in 24(h)(7) when another amendment is addressed to
+//!    24(h)(7) (#339).
 //! 3. **Elimination.** What is left goes to the one amendment whose address
-//!    covers it. An amendment that quotes words its changes do not show only
-//!    takes a change this way when a single change is left to it, because its
-//!    own words speak against every other. An amendment that only renumbers
-//!    takes nothing this way: its changes are moves, and step 0 gives them.
+//!    covers it. An amendment given changes in the steps above takes no
+//!    other this way, except an amendment that says the provision at its
+//!    address *is amended to read as follows*: it takes the change that holds
+//!    every change under that address (#339). An amendment that quotes words its changes do not show
+//!    only takes a change this way when a single change is left to it,
+//!    because its own words speak against every other. An amendment that only
+//!    renumbers takes nothing this way: its changes are moves, and step 0
+//!    gives them.
 //!    An amendment whose words name the units it acts on, *"by striking
 //!    subsection (g)"*, takes only changes in those units this way: its
 //!    address is the whole section the line names, and a change elsewhere in
@@ -125,6 +132,10 @@ pub(super) struct Contender<'a> {
     /// The amendment only adds and inserts: the markup states no other
     /// action. Elimination gives it no removal of a whole provision.
     pub only_inserts: bool,
+    /// The amendment's words say the provision at its address *is amended to
+    /// read as follows*. Elimination can give it the change to that
+    /// provision, also when it was given other changes (#339).
+    pub rewrites: bool,
 }
 
 impl Contender<'_> {
@@ -345,6 +356,7 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
             .copied()
             .collect::<Vec<_>>()
             .as_slice()
+            && !addressed_inside(changes, contenders, at, path, *who)
         {
             cause.insert(at, vec![(*who, Found::Inside(path.clone()))]);
         }
@@ -354,14 +366,22 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
     let has_a_cause: BTreeSet<usize> = cause.values().flatten().map(|(who, _)| *who).collect();
     let mut wanted: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for (who, contender) in contenders.iter().enumerate() {
-        if has_a_cause.contains(&who) || contender.only_renumbers {
+        if contender.only_renumbers {
             continue;
         }
+        // An amendment given changes already takes no other this way, except
+        // the provision at its own address that it rewrote: the one that
+        // holds every change under it.
+        if has_a_cause.contains(&who) && !contender.rewrites {
+            continue;
+        }
+        let given_some = has_a_cause.contains(&who);
         let free: Vec<usize> = contender
             .candidates
             .iter()
             .copied()
             .filter(|at| !cause.contains_key(at) && !held_back.contains(at))
+            .filter(|&at| !given_some || holds_every_candidate(changes, contender, at))
             .filter(|&at| contender.can_have_made(&changes[at]))
             .collect();
         let may_take = !contender.evidence.quotes_anything() || free.len() == 1;
@@ -399,6 +419,47 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
             Resolution::Stopped(why_stopped(changes, contenders, who, &held_back))
         })
         .collect()
+}
+
+/// Whether another amendment than `who` is addressed inside the provision at
+/// `path`, which `who` was given, and the change is under its address.
+///
+/// Such an amendment is nearer to the change than the provision around it.
+/// 26 U.S.C. 24(h): § 70104(a) of Pub. L. 119-21 edits the heading of (h),
+/// and § 70104(b) is addressed to (h)(7). A change in (h)(7) is not
+/// § 70104(a)'s because it sits inside (h) (#339).
+///
+/// An amendment is addressed inside the provision when the provision is not
+/// one of its own changes: its address is below it.
+fn addressed_inside(
+    changes: &[Change],
+    contenders: &[Contender],
+    at: usize,
+    path: &str,
+    who: usize,
+) -> bool {
+    contenders.iter().enumerate().any(|(other, contender)| {
+        other != who
+            && contender.candidates.contains(&at)
+            && !contender
+                .candidates
+                .iter()
+                .any(|&change| changes[change].path == path)
+    })
+}
+
+/// Whether the change is the provision at the amendment's address: every
+/// change under the address is at it or below it.
+///
+/// § 70104(b) of Pub. L. 119-21 reads "Section 24(h)(7) is amended to read as
+/// follows". Its words place the new subparagraphs of (h)(7), and the change
+/// to the words of (h)(7) itself is its as well (#339).
+fn holds_every_candidate(changes: &[Change], contender: &Contender, at: usize) -> bool {
+    let path = &changes[at].path;
+    contender
+        .candidates
+        .iter()
+        .all(|&other| changes[other].path == *path || is_below(&changes[other].path, path))
 }
 
 /// A change given by the words it shows, said as a reviewer reads them.
