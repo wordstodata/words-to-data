@@ -868,6 +868,7 @@ impl Dataset<InMemoryStorage> {
     /// A file written by a different schema is refused rather than half-read.
     /// Datasets are rebuilt, not migrated, so the break has to be loud.
     pub fn load(path: &str, format: Format) -> Result<Self, DatasetError> {
+        require_file(path)?;
         match format {
             Format::Compact => {
                 use crate::compact::{DatasetCompact, check_schema_version};
@@ -905,11 +906,28 @@ impl Dataset<InMemoryStorage> {
     }
 }
 
+/// Refuse a dataset path that names no file, before anything opens it.
+fn require_file(path: impl AsRef<Path>) -> Result<(), DatasetError> {
+    let path = path.as_ref();
+    if path.exists() {
+        Ok(())
+    } else {
+        Err(DatasetError::NotFound {
+            path: path.display().to_string(),
+        })
+    }
+}
+
 // --- SqliteStorage-specific methods ---
 
 impl Dataset<SqliteStorage> {
-    /// Open a SQLite-backed dataset
+    /// Open a SQLite-backed dataset that is already on disk.
+    ///
+    /// A path that names no file is refused. SQLite would make a new, empty
+    /// database there, and a read of it answers "nothing" for a typing error
+    /// (#337). [`Dataset::save_to_sqlite`] is the door that makes a file.
     pub fn open_sqlite<P: AsRef<Path>>(path: P) -> Result<Self, DatasetError> {
+        require_file(path.as_ref())?;
         Ok(Self::with_storage(SqliteStorage::open(path)?))
     }
 

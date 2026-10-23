@@ -26,6 +26,14 @@ pub enum DatasetError {
     #[error("A diff needs two expressions of one work, and `{from}` and `{to}` are two works")]
     WorkMismatch { from: WorkId, to: WorkId },
 
+    /// A dataset path that names no file. Opening SQLite there would make a new,
+    /// empty dataset, and a read of it would answer "nothing" for a typing
+    /// error (#337).
+    #[error(
+        "No dataset file at {path}. Only build-dataset and convert-dataset make a new dataset."
+    )]
+    NotFound { path: String },
+
     #[error("Failed to load folder '{0}': folder is empty or unreadable")]
     FolderLoadFailed(String),
 

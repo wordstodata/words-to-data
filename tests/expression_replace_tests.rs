@@ -150,6 +150,9 @@ fn should_give_the_same_answer_in_both_backends_when_an_expression_is_replaced()
 fn should_keep_the_previous_expression_when_a_replace_stops_part_way() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let path = dir.path().join("dataset.db");
+    Dataset::new(metadata())
+        .save_to_sqlite(&path)
+        .expect("an empty SQLite dataset on disk");
 
     let mut dataset = Dataset::open_sqlite(&path).expect("a SQLite dataset on disk");
     dataset
