@@ -234,6 +234,51 @@ pub fn bills<S: Storage + LegislatureReader>(
     Ok(summaries)
 }
 
+/// A bill that a command was given and the dataset does not hold (#337).
+///
+/// Part of the answer, as [`AbsentPath`] is: `votes` answered "No votes for
+/// bill" for a bill not held and for a held bill with no roll call, and
+/// `residue --bill` answered "0 amendment(s)" for a bill not held. An agent
+/// read both as facts about the bill.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BillNotHeld {
+    /// The bill that was asked for.
+    pub bill_id: String,
+    /// The held bills with the same number, in id order, such as `119-s-1071`
+    /// for `119-hr-1071`. A wrong chamber is the usual typing error.
+    pub same_number: Vec<String>,
+    /// How many bills the dataset holds.
+    pub bills_held: usize,
+}
+
+/// Whether the dataset holds no bill `bill_id`.
+///
+/// `None` when it holds the bill. Every command that takes one bill asks this
+/// one question, so they cannot come to disagree about what "not held" means.
+pub fn bill_not_held<S: LegislatureReader + ?Sized>(
+    dataset: &S,
+    bill_id: &str,
+) -> Result<Option<BillNotHeld>, DatasetError> {
+    let mut held = dataset.list_bill_ids()?;
+    if held.iter().any(|id| id == bill_id) {
+        return Ok(None);
+    }
+    held.sort();
+
+    // An id is `<congress>-<type>-<number>`; the number is its last part.
+    let number = |id: &str| id.rsplit('-').next().map(str::to_string);
+    let same_number = held
+        .iter()
+        .filter(|id| number(id) == number(bill_id))
+        .cloned()
+        .collect();
+    Ok(Some(BillNotHeld {
+        bill_id: bill_id.to_string(),
+        same_number,
+        bills_held: held.len(),
+    }))
+}
+
 /// Count every element in a tree, including the root.
 fn count_elements(element: &DocumentNode) -> usize {
     1 + element.children.iter().map(count_elements).sum::<usize>()

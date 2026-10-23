@@ -56,6 +56,9 @@ struct Listing {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    if let Some(bill) = &args.bill {
+        crate::held::refuse_unless_bill_held(&ds, &args.dataset, bill);
+    }
     let (rows, outdated) = crate::fail::or_exit(
         with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref())
             .and_then(|rows| Ok((rows, outdated_links(&d, args.bill.as_deref())?)))),

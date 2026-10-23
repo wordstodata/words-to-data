@@ -325,8 +325,9 @@ fn should_read_one_bill_when_the_report_command_is_given_a_bill_id() {
         serde_json::from_slice(&output.stdout).expect("the report should emit json");
     assert_eq!(report["totals"]["bills"], 1);
 
-    // A bill this dataset does not hold reports nothing, rather than failing.
-    // An empty answer is the truthful one: there is no document to read.
+    // A bill this dataset does not hold is refused by name, as every command
+    // that takes one bill refuses it (#337). An empty report read as "this
+    // bill renumbered nothing".
     let missing = run(&[
         "redesignation-report",
         bill_dataset_file(),
@@ -334,11 +335,13 @@ fn should_read_one_bill_when_the_report_command_is_given_a_bill_id() {
         "119-hr-999",
         "--json",
     ]);
-    assert!(missing.status.success());
-    let report: serde_json::Value =
-        serde_json::from_slice(&missing.stdout).expect("the report should emit json");
-    assert_eq!(report["totals"]["bills"], 0);
-    assert_eq!(report["rows"].as_array().map(Vec::len), Some(0));
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(missing.stdout.is_empty(), "no report should be printed");
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(
+        stderr.contains("This dataset holds no bill 119-hr-999."),
+        "{stderr}"
+    );
 }
 
 #[test]

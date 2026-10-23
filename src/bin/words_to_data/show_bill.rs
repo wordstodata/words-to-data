@@ -21,6 +21,7 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    crate::held::refuse_unless_bill_held(&ds, &args.dataset, &args.bill_id);
     let summary = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::show_bill(&d, &args.bill_id)),
         "Error reading bill",

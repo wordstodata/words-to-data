@@ -25,13 +25,17 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    crate::held::refuse_unless_bill_held(&ds, &args.dataset, &args.bill_id);
     let tallies = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::votes(&d, &args.bill_id)),
         "Error reading votes",
     );
 
     let Some(tallies) = tallies else {
-        eprintln!("No votes for bill: {}", args.bill_id);
+        eprintln!(
+            "This dataset holds bill {}, and no House roll call for it.",
+            args.bill_id
+        );
         std::process::exit(1);
     };
 
