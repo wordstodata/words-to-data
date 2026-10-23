@@ -819,6 +819,163 @@ pub fn absent_path<R: DocumentReader + ?Sized>(
     }))
 }
 
+/// A work or a date that no expression in the dataset holds (#337).
+///
+/// Part of the answer, as [`AbsentPath`] is. `search --work uscode/title_99`
+/// and `search --at 2025-12-01` answered "0 fields", the same output as a held
+/// work in which the word does not occur. With `--path` as well, the notice
+/// blamed the path when only the date was not held.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "filter", rename_all = "snake_case")]
+pub enum AbsentScope {
+    /// No expression is of the work.
+    Work {
+        /// The work that was asked for.
+        work: String,
+        /// How many works the dataset holds.
+        works_held: usize,
+        /// Every held work, when there are few enough to read in one line.
+        held: Vec<String>,
+        /// The held works whose paths begin with the asked work, such as each
+        /// title for `uscode`.
+        beneath: Vec<String>,
+    },
+    /// The work is held, or no work was asked for, and no expression of it is
+    /// dated on the date.
+    Date {
+        /// The date that was asked for.
+        date: String,
+        /// The work that was asked for, if one was.
+        work: Option<String>,
+        /// The path that was asked for, when the path is held at other dates
+        /// and so is not the filter that matched nothing. The dates around are
+        /// then the dates the path is held.
+        path: Option<String>,
+        /// The latest held date before it, of the work or of any work.
+        held_before: Option<String>,
+        /// The earliest held date after it, of the work or of any work.
+        held_after: Option<String>,
+    },
+}
+
+/// Whether the locator's work or date reaches no expression in the dataset.
+///
+/// `None` when the locator names neither, or when an expression of the work is
+/// dated in the window and holds the path. A path held at other dates gives a
+/// [`AbsentScope::Date`] that names the path, because the date is the filter
+/// that matched nothing. A path held at no date gives `None`: [`absent_path`]
+/// answers for it.
+pub fn absent_scope<R: DocumentReader + ?Sized>(
+    reader: &R,
+    locator: &Locator,
+) -> Result<Option<AbsentScope>, DatasetError> {
+    let works = reader.works()?;
+    if let Some(work) = &locator.work
+        && !works.iter().any(|held| held.as_str() == work)
+    {
+        let parent = format!("{work}/");
+        return Ok(Some(AbsentScope::Work {
+            work: work.clone(),
+            works_held: works.len(),
+            held: match works.len() <= FEW_WORKS {
+                true => works.iter().map(ToString::to_string).collect(),
+                false => vec![],
+            },
+            beneath: works
+                .iter()
+                .filter(|held| held.as_str().starts_with(&parent))
+                .map(ToString::to_string)
+                .collect(),
+        }));
+    }
+
+    let Some(window) = &locator.window else {
+        return Ok(None);
+    };
+    let dates = dates_of(reader, &works, |work| {
+        locator.work.as_deref().is_none_or(|asked| asked == work)
+    })?;
+    let date = match window.from_date == window.to_date {
+        true => window.from_date.clone(),
+        false => format!("{} to {}", window.from_date, window.to_date),
+    };
+    let in_window = |dates: &BTreeSet<String>| {
+        dates
+            .range(window.from_date.clone()..)
+            .next()
+            .is_some_and(|date| *date <= window.to_date)
+    };
+    let before =
+        |dates: &BTreeSet<String>| dates.range(..window.from_date.clone()).next_back().cloned();
+    let after = |dates: &BTreeSet<String>| dates.range(window.to_date.clone()..).next().cloned();
+
+    if !in_window(&dates) {
+        return Ok(Some(AbsentScope::Date {
+            date,
+            work: locator.work.clone(),
+            path: None,
+            held_before: before(&dates),
+            held_after: after(&dates),
+        }));
+    }
+
+    // The date is held. A path that no expression at the date holds, and that
+    // an expression at another date does hold, is held: the date is the filter
+    // that matched nothing, so the dates around are the path's own. A path held
+    // at no date is the concern of `absent_path`.
+    let Some(path) = &locator.path else {
+        return Ok(None);
+    };
+    if reader.holds_any(locator)? {
+        return Ok(None);
+    }
+    // Only the dates of the works the path can sit in: a work's id begins the
+    // paths it holds, as `Locator` reads it. One holds_any for each date of a
+    // large dataset is slow.
+    let mut path_dates = BTreeSet::new();
+    for held in &dates_of(reader, &works, |work| {
+        locator.work.as_deref().is_none_or(|asked| asked == work)
+            && (path == work
+                || path.starts_with(&format!("{work}/"))
+                || (locator.matching == PathMatch::Subtree
+                    && work.starts_with(&format!("{path}/"))))
+    })? {
+        if reader.holds_any(&locator.clone().in_window(held, held))? {
+            path_dates.insert(held.clone());
+        }
+    }
+    if path_dates.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(AbsentScope::Date {
+        date,
+        work: locator.work.clone(),
+        path: Some(path.clone()),
+        held_before: before(&path_dates),
+        held_after: after(&path_dates),
+    }))
+}
+
+/// Every date an expression of the chosen works is dated, in order. Dates are
+/// `YYYY-MM-DD`, so a string order is a date order.
+fn dates_of<R: DocumentReader + ?Sized>(
+    reader: &R,
+    works: &[WorkId],
+    chosen: impl Fn(&str) -> bool,
+) -> Result<BTreeSet<String>, DatasetError> {
+    let mut dates = BTreeSet::new();
+    for work in works.iter().filter(|work| chosen(work.as_str())) {
+        for expression in reader.expressions(work)? {
+            dates.insert(expression.id.at);
+        }
+    }
+    Ok(dates)
+}
+
+/// How many works a notice lists by name. More than this is a list to read
+/// with `expressions`, not a line.
+pub const FEW_WORKS: usize = 10;
+
 /// Mark each renumbering link a report names that the current version of the
 /// renumbering step no longer makes (#185).
 ///
