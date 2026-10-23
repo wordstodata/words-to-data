@@ -55,6 +55,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use super::default_code::DefaultCode;
 use crate::dataset::WorkId;
 
 /// How the reporter is spelled: the `U.S.C.` key of `laws.json`, then its seven
@@ -185,7 +186,7 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// line break: a bracket at the start of a line can open a list item. The
 /// section is kept without the spaces ([`compact`]), so `§ 174 (a) (1)` and
 /// `§ 174(a)(1)` name one thing; the citation's `text` keeps them.
-fn law_section() -> String {
+pub(crate) fn law_section() -> String {
     let dashes = dash_class();
     let subsection = r"(?: ?\((?:[a-zA-Z]{1}|\d{1,2})\))";
     let with_a_subsection = format!(r"\d+[a-zA-Z]{{0,4}}{subsection}+");
@@ -381,6 +382,11 @@ pub struct UscCitation {
     /// The repair made to read the citation, when the reporter is a known OCR
     /// form ([`OCR_REPORTERS`]). `None` when the text was read as written.
     pub repair: Option<Repair>,
+    /// The default code that makes this a citation, when the text names no
+    /// title: `section 199A` in an opinion that says its references are to the
+    /// Internal Revenue Code ([`super::default_code::find_bare`]). `None` for a
+    /// citation that names its title.
+    pub default_code: Option<DefaultCode>,
 }
 
 /// A repair the reader made to read a citation: what the text wrote, and what it
@@ -726,6 +732,7 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
             repair: capture
                 .name("ocr")
                 .map(|written| ocr_repair(written.as_str())),
+            default_code: None,
             title: capture
                 .name("title")
                 .expect("the pattern names a title")
@@ -756,7 +763,7 @@ fn ocr_repair(written: &str) -> Repair {
 
 /// A section as read, without the spaces some reporters set before a bracket:
 /// `174(a)(1)` for `174 (a) (1)`. Nothing else is changed.
-fn compact(section: &str) -> String {
+pub(crate) fn compact(section: &str) -> String {
     section.replace(' ', "")
 }
 
@@ -799,7 +806,7 @@ fn declined_candidates(text: &str, found: &[UscCitation]) -> Vec<SkippedCitation
 /// number followed by a reporter is the title of the next citation, not a
 /// further section of this one: in `26 U.S.C. § 174, 42 U.S.C. § 1983` the `42`
 /// belongs to the second citation.
-fn further_section(text: &str, end: usize) -> Option<(usize, usize)> {
+pub(crate) fn further_section(text: &str, end: usize) -> Option<(usize, usize)> {
     let rest = &text[end..];
     let section = FURTHER_SECTION.captures(rest)?.name("section")?;
     let (start, stop) = (end + section.start(), end + section.end());
@@ -826,7 +833,7 @@ fn further_section(text: &str, end: usize) -> Option<(usize, usize)> {
 /// fourth dashed part. A number that ends in a digit is left alone, as it was
 /// when the dash of `§§ 1961–63` was not read; [`law_section`] reads that dash
 /// since #309.
-fn ends_cleanly(text: &str, end: usize) -> bool {
+pub(crate) fn ends_cleanly(text: &str, end: usize) -> bool {
     let mut after = text[end..].chars();
     let Some(next) = after.next() else {
         return true;
