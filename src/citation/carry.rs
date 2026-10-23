@@ -293,9 +293,16 @@ pub fn carry<O: LinkReader, N: Storage>(old: &O, new: &mut N) -> Result<CarryRep
             .iter()
             .filter(|(_, new)| statement.said_again_by(new, &sources))
         {
-            let mut carried = said.about(target);
-            carried.provenance.method = Some(carry_method());
-            carried.payload = Some(carried_from.payload());
+            // The rebuild made the same link again, so the review already names
+            // it. The record is copied as it is.
+            let carried = if target.id() == reviewed.id() {
+                record.clone()
+            } else {
+                let mut carried = said.about(target);
+                carried.provenance.method = Some(carry_method());
+                carried.payload = Some(carried_from.payload());
+                carried
+            };
             review::record(new, carried)?;
             carried_to.push(target.id());
         }

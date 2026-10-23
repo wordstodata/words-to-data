@@ -292,3 +292,29 @@ fn should_report_a_review_and_write_nothing_when_no_new_link_says_what_the_old_l
         "the text report counts it: {printed}"
     );
 }
+
+#[test]
+fn should_copy_the_review_as_it_is_when_the_rebuild_made_the_same_link_again() {
+    // Two builds of today's dataset make the same link from Snow's writing to
+    // § 174, with the same id. The review needs no carry: the same record
+    // names the right link in both (#295, its first case).
+    let old = rebuilt("carry_same_old");
+    let [reviewed] = new_links(&old, "judicial/case_109019/opinion_109019", SECTION_174)
+        .try_into()
+        .expect("today's build holds one link from Snow's writing to § 174");
+    let written = confirmed_by_tester().about(&reviewed);
+    {
+        let mut dataset = Dataset::open_sqlite(&old).expect("the old dataset should open");
+        review::record(&mut dataset, written.clone()).expect("the review should record");
+    }
+    let new = rebuilt("carry_same_new");
+
+    let printed = stdout_of(&run(&["carry-reviews", &new, "--from", &old, "--json"]));
+
+    let records = reviews_of(&new, &reviewed);
+    assert_eq!(
+        records,
+        [written],
+        "the record is copied as it is: {printed}"
+    );
+}
