@@ -46,6 +46,9 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    if let Some(bill) = &args.bill_id {
+        crate::held::refuse_unless_bill_held(&ds, &args.dataset, bill);
+    }
     let report = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::redesignation_report(&d, args.bill_id.as_deref())),
         "Error reading the dataset's redesignations",
