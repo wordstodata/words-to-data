@@ -407,7 +407,7 @@ fn should_split_obergefell_by_its_running_heads_when_its_text_is_read_from_plain
     );
     assert_eq!(
         reasoning(dissent),
-        "running-heads@1: the writing's pages carry the running head \"ROBERTS, C. J., dissenting\""
+        "running-heads@2: the writing's pages carry the running head \"ROBERTS, C. J., dissenting\""
     );
 
     let (paragraphs, _) = passages(dissent);
@@ -444,7 +444,7 @@ fn should_store_the_syllabus_as_its_own_child_of_the_case_when_the_slip_opinion_
     assert!(words.contains("Held: The Fourteenth Amendment requires a State to license"));
     assert_eq!(
         reasoning(syllabus),
-        "running-heads@1: the pages carry the running head \"Syllabus\""
+        "running-heads@2: the pages carry the running head \"Syllabus\""
     );
 
     for writing in writings(&case) {
@@ -566,4 +566,342 @@ fn should_store_the_staff_summary_as_its_own_child_of_the_case_when_a_ninth_circ
             .any(|words| words.contains("Christopher A. Booker")),
         "the names of counsel stay with the writing, as other captions do"
     );
+}
+
+// --- plain_text: a Tax Court opinion -----------------------------------------
+
+/// Every paragraph and footnote of a case, as words, in order.
+fn every_passage(case: &Expression) -> Vec<String> {
+    writings(case)
+        .into_iter()
+        .flat_map(|writing| {
+            let (paragraphs, footnotes) = passages(writing);
+            paragraphs
+                .into_iter()
+                .chain(footnotes.into_iter().map(|(_, words)| words))
+        })
+        .collect()
+}
+
+/// *Patricia A. Torres* (165 T.C. No. 5) is held only as the Tax Court's
+/// `plain_text`. The Tax Court prints no running head that names a writing:
+/// page 15 opens with its page number and then "JENKINS, J., dissenting:
+/// Respondent concedes that petitioners", the first line of the dissent. That
+/// line is words of the dissent, not a running head, so no word of it is lost.
+#[test]
+fn should_keep_the_first_line_of_a_tax_court_dissent_when_it_follows_the_page_number() {
+    let case = case_from(10670048, &[opinion(11136635)]);
+
+    assert!(
+        every_passage(&case).iter().any(|words| words.starts_with(
+            "JENKINS, J., dissenting: Respondent concedes that petitioners can deduct"
+        )),
+        "the first words of the dissent are in a paragraph"
+    );
+    for writing in writings(&case) {
+        assert!(
+            !reasoning(writing).contains("running head \"JENKINS"),
+            "the first line of the dissent is no running head, got {:?}",
+            reasoning(writing)
+        );
+    }
+}
+
+/// The Tax Court opens each writing with its judge: "TORO, Judge:" opens the
+/// opinion of the Court, and "JENKINS, J., dissenting:" opens the dissent. The
+/// rule splits *Torres* at those lines. The opinion of the Court is the first
+/// writing, by Judge Toro, and ends "JENKINS, J., dissents."; the dissent is
+/// the second, by Judge Jenkins. Each writing numbers its footnotes from 1, so
+/// the dissent keeps its own five, and the opinion of the Court holds none of
+/// them.
+#[test]
+fn should_split_a_tax_court_opinion_at_the_line_that_opens_each_writing_when_read_from_plain_text()
+{
+    let case = case_from(10670048, &[opinion(11136635)]);
+
+    let expected =
+        [("1", "020lead", "Toro"), ("2", "040dissent", "Jenkins")].map(|(n, kind, author)| {
+            (
+                format!("judicial/case_10670048/opinion_11136635-{n}"),
+                Some(kind.to_string()),
+                Some(author.to_string()),
+            )
+        });
+    assert_eq!(kinds(&case), expected);
+
+    let found = writings(&case);
+    assert_eq!(
+        reasoning(found[0]),
+        "judge-headings@1: the writing opens with \"TORO, Judge:\""
+    );
+    assert_eq!(
+        reasoning(found[1]),
+        "judge-headings@1: the writing opens with \"JENKINS, J., dissenting:\""
+    );
+    assert_eq!(
+        found[0].data.provenance.as_ref().map(|p| p.verification),
+        Some(VerificationState::MachineSuggested)
+    );
+
+    let (court, court_notes) = passages(found[0]);
+    let (dissent, dissent_notes) = passages(found[1]);
+    assert!(
+        court
+            .iter()
+            .any(|words| words.starts_with("TORO, Judge: The Tax Cuts and Jobs Act"))
+    );
+    assert!(court.iter().any(|words| words == "JENKINS, J., dissents."));
+    assert!(dissent[0].starts_with("JENKINS, J., dissenting: Respondent concedes"));
+    assert!(
+        !dissent
+            .iter()
+            .any(|words| words.contains("Appropriate decisions will be entered")),
+        "the dissent holds none of the opinion of the Court"
+    );
+    let labels = |notes: &[(String, String)]| -> Vec<String> {
+        notes.iter().map(|(label, _)| label.clone()).collect()
+    };
+    assert_eq!(labels(&dissent_notes), ["1", "2", "3", "4", "5"]);
+    assert!(
+        dissent_notes[0]
+            .1
+            .starts_with("Although the regulations do not explicitly address")
+    );
+    assert!(
+        court_notes[0]
+            .1
+            .starts_with("Unless otherwise indicated, statutory references")
+    );
+    assert!(
+        !court
+            .iter()
+            .chain(court_notes.iter().map(|(_, words)| words))
+            .any(|words| words.contains("Although the regulations do not explicitly address")),
+        "the opinion of the Court holds no footnote of the dissent"
+    );
+}
+
+// --- plain_text: a preliminary print of the United States Reports -----------
+
+/// *Polselli v. IRS* (598 U.S. 432) is held only as the preliminary print of
+/// the United States Reports. Its running heads name each writing in mixed
+/// case, "Jackson, J., concurring", and its first page is the cover of the
+/// print ("PRELIMINARY PRINT / Volume 598 U. S. Part 2"), with no running
+/// head. The cover is no writing, so the case has two writings: the opinion of
+/// the Court by the Chief Justice, and Justice Jackson's concurrence.
+#[test]
+fn should_split_a_preliminary_print_into_its_writings_when_its_running_heads_are_in_mixed_case() {
+    let case = case_from(10049688, &[opinion(10516288)]);
+
+    let expected = [
+        ("1", "020lead", "Roberts"),
+        ("2", "030concurrence", "Jackson"),
+    ]
+    .map(|(n, kind, author)| {
+        (
+            format!("judicial/case_10049688/opinion_10516288-{n}"),
+            Some(kind.to_string()),
+            Some(author.to_string()),
+        )
+    });
+    assert_eq!(kinds(&case), expected);
+    assert_eq!(
+        reasoning(writings(&case)[1]),
+        "running-heads@2: the writing's pages carry the running head \"Jackson, J., concurring\""
+    );
+    for writing in writings(&case) {
+        let (paragraphs, _) = passages(writing);
+        assert!(
+            !paragraphs
+                .iter()
+                .any(|words| words.contains("PRELIMINARY PRINT")),
+            "no writing holds the cover of the print"
+        );
+    }
+}
+
+/// In the United States Reports a writing does not start on a new page. Page
+/// 445 of *Polselli* carries the running head "Jackson, J., concurring", but it
+/// opens with the end of the opinion of the Court ("It is so ordered."), and
+/// the concurrence starts lower on it, at "Justice Jackson, with whom Justice
+/// Gorsuch joins, concurring." The words above that line stay with the opinion
+/// of the Court.
+#[test]
+fn should_start_a_writing_at_its_opening_line_when_the_page_opens_with_the_end_of_the_writing_before()
+ {
+    let case = case_from(10049688, &[opinion(10516288)]);
+    let found = writings(&case);
+    let (court, _) = passages(found[0]);
+    let (concurrence, _) = passages(found[1]);
+
+    assert_eq!(
+        concurrence[0],
+        "Justice Jackson, with whom Justice Gorsuch joins, concurring."
+    );
+    for words in ["This is not, however, the case to try", "It is so ordered."] {
+        assert!(
+            court.iter().any(|paragraph| paragraph.starts_with(words)),
+            "the opinion of the Court holds {words:?}"
+        );
+        assert!(
+            !concurrence
+                .iter()
+                .any(|paragraph| paragraph.starts_with(words)),
+            "the concurrence does not hold {words:?}"
+        );
+    }
+}
+
+/// A preliminary print opens with its cover and ends with a "Reporter’s
+/// Note", which says how the Reporter of Decisions revised the opinion. Both
+/// are the Reporter's, and neither is part of a writing. Each is its own child
+/// of the case: the cover is `headmatter`, and the note is `reporters_note`.
+/// The note's list of edits cites "26 U. S. C. § 7609(a)(1)", and that
+/// citation is not Justice Jackson's.
+#[test]
+fn should_store_the_cover_and_the_reporters_note_as_children_of_the_case_when_a_preliminary_print_has_them()
+ {
+    let case = case_from(10049688, &[opinion(10516288)]);
+
+    let cover = case
+        .root
+        .find("judicial/case_10049688/headmatter")
+        .expect("the cover is a child of the case");
+    assert!(
+        cover
+            .data
+            .content
+            .as_deref()
+            .unwrap_or("")
+            .contains("PRELIMINARY PRINT")
+    );
+    assert_eq!(
+        reasoning(cover),
+        "running-heads@2: the first page carries no running head and says \"PRELIMINARY PRINT\""
+    );
+
+    let note = case
+        .root
+        .find("judicial/case_10049688/reporters_note")
+        .expect("the Reporter's Note is a child of the case");
+    assert_eq!(note.data.node_type.as_str(), "judicial.reporters_note");
+    assert_eq!(
+        note.data.provenance.as_ref().map(|p| p.verification),
+        Some(VerificationState::MachineSuggested)
+    );
+    let words = note.data.content.as_deref().unwrap_or("");
+    assert!(words.starts_with("Reporter’s Note"));
+    assert!(words.contains("“26 U. S. C. § 7609(a)(1)”"));
+    assert_eq!(
+        reasoning(note),
+        "running-heads@2: the page is headed \"Reporter’s Note\""
+    );
+
+    for words in every_passage(&case) {
+        assert!(
+            !words.contains("The attached opinion has been revised"),
+            "no writing holds the Reporter's Note, got {words:?}"
+        );
+    }
+}
+
+/// *Moore v. United States* (602 U.S. 572) is held only as its preliminary
+/// print. It has four writings, each named by its running head: the opinion of
+/// the Court by Justice Kavanaugh, Justice Jackson's concurrence, Justice
+/// Barrett's concurrence in the judgment, and Justice Thomas's dissent. The
+/// citation of "26 U. S. C. §§ 1361(a)(1), (b)(1)" is in the dissent, so it is
+/// Justice Thomas's and not the Court's.
+#[test]
+fn should_split_moore_into_its_four_writings_when_read_from_its_preliminary_print() {
+    let case = case_from(10600069, &[opinion(11066657)]);
+
+    let expected = [
+        ("1", "020lead", "Kavanaugh"),
+        ("2", "030concurrence", "Jackson"),
+        ("3", "030concurrence", "Barrett"),
+        ("4", "040dissent", "Thomas"),
+    ]
+    .map(|(n, kind, author)| {
+        (
+            format!("judicial/case_10600069/opinion_11066657-{n}"),
+            Some(kind.to_string()),
+            Some(author.to_string()),
+        )
+    });
+    assert_eq!(kinds(&case), expected);
+
+    let found = writings(&case);
+    let holds = |writing: &DocumentNode, words: &str| {
+        let (paragraphs, footnotes) = passages(writing);
+        paragraphs
+            .iter()
+            .chain(footnotes.iter().map(|(_, words)| words))
+            .any(|said| said.contains(words))
+    };
+    assert!(holds(found[3], "26 U. S. C. §§ 1361(a)(1)"));
+    assert!(!holds(found[0], "26 U. S. C. §§ 1361(a)(1)"));
+    let (dissent, _) = passages(found[3]);
+    assert_eq!(
+        dissent[0],
+        "Justice Thomas, with whom Justice Gorsuch joins, dissenting."
+    );
+}
+
+// --- a split record that holds more than one writing ------------------------
+
+/// CourtListener holds *United States v. Windsor* as a lead record (Justice
+/// Kennedy) and one dissent record with the author "Roberts". Harvard's text
+/// of the dissent record holds three dissents, each opened by its own line:
+/// "Chief Justice ROBERTS, dissenting.", "Justice SCALIA, with whom Justice
+/// THOMAS joins, and with whom THE CHIEF JUSTICE joins as to Part I,
+/// dissenting." and "Justice ALITO, with whom Justice THOMAS joins as to Parts
+/// II and III, dissenting." The rule splits that record into the three, so the
+/// citation of 8 U.S.C. § 1105a(a) is Justice Scalia's and the citation of 2
+/// U.S.C. § 288h(7) is Justice Alito's. The lead record stays one writing.
+#[test]
+fn should_split_a_dissent_record_into_its_dissents_when_it_holds_more_than_one_justice_line() {
+    let case = case_from(945737, &[opinion(9515913), opinion(9515914)]);
+
+    let expected = [
+        ("opinion_9515913", "020lead", "Kennedy"),
+        ("opinion_9515914-1", "040dissent", "Roberts"),
+        ("opinion_9515914-2", "040dissent", "Scalia"),
+        ("opinion_9515914-3", "040dissent", "Alito"),
+    ]
+    .map(|(writing, kind, author)| {
+        (
+            format!("judicial/case_945737/{writing}"),
+            Some(kind.to_string()),
+            Some(author.to_string()),
+        )
+    });
+    assert_eq!(kinds(&case), expected);
+
+    let found = writings(&case);
+    assert_eq!(
+        reasoning(found[2]),
+        "justice-headings@1: the writing opens with \"Justice SCALIA, with whom Justice THOMAS \
+         joins, and with whom THE CHIEF JUSTICE joins as to Part I, dissenting.\""
+    );
+    assert_eq!(
+        found[2].data.provenance.as_ref().map(|p| p.verification),
+        Some(VerificationState::MachineSuggested)
+    );
+    let holds = |writing: &DocumentNode, words: &str| {
+        let (paragraphs, footnotes) = passages(writing);
+        paragraphs
+            .iter()
+            .chain(footnotes.iter().map(|(_, words)| words))
+            .any(|said| said.contains(words))
+    };
+    assert!(holds(found[2], "1105a(a)"));
+    assert!(holds(found[3], "288h(7)"));
+    assert!(!holds(found[1], "1105a(a)") && !holds(found[1], "288h(7)"));
+
+    let mut paths = Vec::new();
+    every_path(&case.root, &mut paths);
+    let count = paths.len();
+    paths.sort();
+    paths.dedup();
+    assert_eq!(paths.len(), count, "every path names one node");
 }
