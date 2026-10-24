@@ -49,25 +49,30 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} --bin words_to_data
 
+      # Two forms of each build. The archive is for a person (tar or unzip).
+      # The .gz holds the bare executable, so a program can download it with
+      # no tar reader: SLEUTH's /sleuth-setup gunzips it with Node's zlib.
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           name=words_to_data-${{ matrix.target }}
-          tar -czf "$name.tar.gz" -C target/${{ matrix.target }}/release words_to_data
-          echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+          mkdir dist
+          tar -czf "dist/$name.tar.gz" -C target/${{ matrix.target }}/release words_to_data
+          gzip -c target/${{ matrix.target }}/release/words_to_data > "dist/$name.gz"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          $name = "words_to_data-${{ matrix.target }}"
-          Compress-Archive -Path target/${{ matrix.target }}/release/words_to_data.exe -DestinationPath "$name.zip"
-          "ASSET=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          name=words_to_data-${{ matrix.target }}
+          mkdir dist
+          7z a -tzip "dist/$name.zip" ./target/${{ matrix.target }}/release/words_to_data.exe
+          gzip -c target/${{ matrix.target }}/release/words_to_data.exe > "dist/$name.exe.gz"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ASSET }}
-          path: ${{ env.ASSET }}
+          name: words_to_data-${{ matrix.target }}
+          path: dist/*
           if-no-files-found: error
 
   release:
