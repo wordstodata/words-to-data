@@ -36,6 +36,8 @@
   that the dataset holds. No amendment of Pub. L. 119-21 (`119-hr-1`) changes id
   or address. A link on an old id is not carried to a new build;
   `carry-reviews` carries reviews of citation links only (#295).
+- The renumbering reader is `amendingAction type=redesignate@5` (was 4), so
+  `residue` lists the moves that only version 4 recorded, for review ([#365](https://github.com/wordstodata/words-to-data/issues/365)).
 
 ## 0.5.0
 

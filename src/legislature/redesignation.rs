@@ -1471,8 +1471,12 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// phrase after *is amended* (*"is amended, in subsection (d)(2)"*), every
 /// designation of a scope phrase, and the units named before the section
 /// (*"Paragraph (2) of section 6213(b)"*).
+///
+/// Version 5 (#365): each item of a list under a whole title is its own
+/// statement, and a section-level move resolves in the part that holds the
+/// section (*"In chapter 40, … redesignating section 711 … as section 710a"*).
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 4)
+    Method::new("amendingAction type=redesignate", 5)
 }
 
 /// How far the words at a redesignation's two ends agree.
