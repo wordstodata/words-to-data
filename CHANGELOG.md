@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A list of instructions under a line that amends a whole title is one
+  amendment for each item** ([#365](https://github.com/wordstodata/words-to-data/issues/365)).
+  Pub. L. 119-60 § 1701(a) says "Title 10, United States Code, is amended as
+  follows:", and each of its 43 paragraphs names the section it acts on. Before,
+  the whole list was one amendment with no address. Now each item is an amendment,
+  and its address is the title of the line and the section of the item:
+  § 1701(a)(10), "In chapter 40, … by redesignating section 711 … as section
+  710a", acts on `/us/usc/t10/s711`. The list splits only when its line names a
+  title of the Code (or a part of one) and no section, and at least one item
+  names a section. An item that names no section is still an amendment, with the
+  reason "no section under amendment was named".
+- `redesignations` records a renumbered **section**: § 711 of chapter 40 →
+  § 710a. Title 10 holds a second § 711, in chapter 41, and the item's "In
+  chapter 40" says which one moved.
+- An item's own bare `Section 2101(2) is amended` takes its title from the list
+  above it.
+- A marginal note inside the words "is amended" (`is 10 USC prec. 101.
+  amended`) no longer hides the amending line. § 3111(a) of Pub. L. 119-60 now
+  reports "no section under amendment was named" (it adds a whole subpart),
+  not "no level above the clause says what it amends".
+- `In section 179—` ends the section number at the dash: § 179, not § 179-.
+
+### Upgrade
+
+- **The stored format does not change** (`SCHEMA_VERSION` 10). A dataset built
+  before this change opens and reads as before.
+- **Amendment ids change for the lists that now split, in a new build only.** In
+  Pub. L. 119-60, 15 amendments are replaced by 113. The 15 old ids stay in a
+  dataset that already holds the bill: `add-bills` does not read a bill again
+  that the dataset holds. No amendment of Pub. L. 119-21 (`119-hr-1`) changes id
+  or address. A link on an old id is not carried to a new build;
+  `carry-reviews` carries reviews of citation links only (#295).
+
 ## 0.5.0
 
 Case law that an agent can use ([#312](https://github.com/wordstodata/words-to-data/issues/312),

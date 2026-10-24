@@ -271,6 +271,13 @@ impl<'a> Scope<'a> {
         let Some((line, holder)) = &self.amending_line else {
             return Err(Reason::NoAmendingLine);
         };
+        if let Some(found) = section_of_a_list_item(holder, came_through) {
+            return found.map(|(section, trail)| {
+                let mut container: Vec<Step> = trail.into_iter().map(Step::numbered).collect();
+                container.extend(self.steps.iter().cloned());
+                (section, container)
+            });
+        }
         let cited = cite(line).ok_or(Reason::NoSectionNamed)?;
         let (section, trail) =
             stored_section_under_amendment(cited, line, holder, came_through, code_of_1986)?;
@@ -431,6 +438,10 @@ fn stored_section_under_amendment(
             .filter(|above| is_stored_level(came_through[*above]));
     }
 
+    if let Some(title) = title_of_a_list_above(holder, came_through) {
+        return Ok((uslm_section_id(&title, &number), trail));
+    }
+
     let in_a_declaring_title = came_through.iter().any(|node| {
         node.data.node_type.local() == ElementType::Title.path_segment_name()
             && stored_facts(node)
@@ -558,8 +569,15 @@ pub(crate) fn amending_line_of(text: &str) -> Option<String> {
 }
 
 /// `is amended`, `are each amended`, `is further amended`.
-static AMENDED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b(?:is|are)\s+(?:each\s+|further\s+)?amended").unwrap());
+///
+/// The publisher's marginal note can sit inside the words: Pub. L. 119-60
+/// § 3111(a) prints *"is 10 USC prec. 101. amended"* (#365).
+static AMENDED: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b(?:is|are)\s+(?:[0-9]+[A-Za-z]?\s*USC\s*(?:prec\.\s*)?[0-9A-Za-z.\-]*?\s*)?(?:each\s+|further\s+)?amended",
+    )
+    .expect("the amended pattern must compile")
+});
 
 /// The steps a leading `in subsection (a)` phrase names, outermost first.
 ///
@@ -730,6 +748,145 @@ fn cites_a_section_of_the_internal_revenue_code(line: &str) -> bool {
             .trim_start()
             .starts_with("of the Internal Revenue Code")
     })
+}
+
+// --- A list of instructions under a line that names a whole title (#365) ---
+
+/// The title of the Code a line names when it amends a whole title, or a part
+/// of one, and cites no section in it.
+///
+/// > Title 10, United States Code, is amended as follows:
+/// > Chapter 173 of title 10, United States Code, is amended—
+///
+/// The items under such a line each name the section they act on, so the line
+/// opens a list of instructions rather than giving one. A line that names an
+/// index of the law — *"The analysis for chapter 5 of title 14"* — opens no
+/// such list.
+pub(crate) fn title_a_list_amends(line: &str) -> Option<String> {
+    static WHOLE_TITLE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\btitle\s+([0-9]+[A-Za-z]?)\s*,\s*United States Code")
+            .expect("the whole-title pattern must compile")
+    });
+    if citation_in(line).is_some() || names_an_index(line) {
+        return None;
+    }
+    WHOLE_TITLE.captures(line).map(|title| title[1].to_string())
+}
+
+/// The section one item of such a list names, and the designations below it.
+///
+/// > (5) In section 183a(h)(3), by striking the semicolon …
+/// > (10) In chapter 40, by redesignating section 711 (relating to …) as
+/// > section 710a …
+/// > (1) Section 2101(2) is amended by striking …
+///
+/// The item must open with *In* or *Section*, which is how an item names where
+/// it acts, and only its words before the first quotation count: a quoted
+/// string is words of the Code. An item that edits an index — *"In the
+/// analysis for chapter 700 by striking the item relating to section 70006"*
+/// — names no section it acts on.
+pub(crate) fn section_a_list_item_names(words: &str) -> Option<(String, Vec<String>)> {
+    static OPENS_WITH_A_PLACE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)^\W*(?:\([0-9A-Za-z]{1,6}\)\s*)?(?:in|section)\b")
+            .expect("the list-item pattern must compile")
+    });
+    let unquoted = words.split('"').next().unwrap_or_default();
+    if !OPENS_WITH_A_PLACE.is_match(unquoted) {
+        return None;
+    }
+    let cited = CITATION.find(unquoted)?;
+    if names_an_index(&unquoted[..cited.start()]) {
+        return None;
+    }
+    // `In section 179—` ends the number at the dash after it.
+    let (number, trail) = citation_in(unquoted)?;
+    Some((number.trim_end_matches('-').to_string(), trail))
+}
+
+/// The section an item of a list under a whole title names, when `holder`
+/// opens such a list and the clause sits in one of its items (#365).
+///
+/// > (a) Title 10, United States Code, is amended as follows:
+/// > (10) In chapter 40, by redesignating section 711 …
+///
+/// The list's line gives the title and the item gives the section. `None` when
+/// the holder opens no list, or the item names no section, and the line is
+/// read as any other.
+fn section_of_a_list_item(
+    holder: &DocumentNode,
+    came_through: &[&DocumentNode],
+) -> Option<Result<(String, Vec<String>), Reason>> {
+    let title = stored_list_title(holder)?;
+    let item = item_below(holder, came_through)?;
+    let (number, trail) = section_a_list_item_names(&stored_own_text(item))?;
+    Some(Ok((uslm_section_id(&title, &number), trail)))
+}
+
+/// The title a stored level's line amends whole, when the level opens a list.
+///
+/// Only the `chapeau` is read, as the bill's parser reads it when it splits the
+/// list ([`crate::uslm::bill_parser`]). A heading such as *"Amending
+/// provisions that refer to section 3455(f)"* names words the list changes,
+/// not where it acts.
+fn stored_list_title(level: &DocumentNode) -> Option<String> {
+    let chapeau = normalize_quotes(&collapse_spaces(level.data.chapeau.as_deref()?));
+    title_a_list_amends(&amending_line_of(&chapeau)?)
+}
+
+/// The level right below `holder` on the way down to the clause.
+fn item_below<'a>(
+    holder: &DocumentNode,
+    came_through: &[&'a DocumentNode],
+) -> Option<&'a DocumentNode> {
+    let at = came_through
+        .iter()
+        .position(|node| std::ptr::eq(*node, holder))?;
+    came_through[at + 1..]
+        .iter()
+        .copied()
+        .find(|node| is_stored_level(node))
+}
+
+/// The title a list above `holder` amends, when one does (#365).
+///
+/// > (f) Title 46, United States Code, is amended as follows:
+/// > (1) Section 2101(2) is amended by striking …
+///
+/// The item's own line cites a bare section, and the list says which title.
+fn title_of_a_list_above(holder: &DocumentNode, came_through: &[&DocumentNode]) -> Option<String> {
+    let at = came_through
+        .iter()
+        .position(|node| std::ptr::eq(*node, holder))?;
+    came_through[..at]
+        .iter()
+        .rev()
+        .filter(|node| is_stored_level(node))
+        .find(|node| amending_line_of(&stored_own_text(node)).is_some())
+        .and_then(|node| stored_list_title(node))
+}
+
+/// The chapter an item of such a list opens with: `40` in *"(10) In chapter
+/// 40, by redesignating section 711 …"*.
+///
+/// Title 10 holds two sections numbered 711, one in chapter 40 and one in
+/// chapter 41, so the chapter is what tells them apart.
+pub(crate) fn chapter_a_list_item_names(words: &str) -> Option<String> {
+    static IN_CHAPTER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)^\W*(?:\([0-9A-Za-z]{1,6}\)\s*)?in\s+chapter\s+([0-9]+[A-Za-z]?)\b")
+            .expect("the chapter pattern must compile")
+    });
+    IN_CHAPTER
+        .captures(words)
+        .map(|chapter| chapter[1].to_string())
+}
+
+/// Whether words name an index of the law: a table of sections, a chapter
+/// analysis, or an item of one.
+fn names_an_index(words: &str) -> bool {
+    let words = words.to_lowercase();
+    ["analysis", "table of", "item relating to"]
+        .iter()
+        .any(|index| words.contains(index))
 }
 
 /// The title of the US Code the Internal Revenue Code of 1986 is.

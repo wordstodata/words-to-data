@@ -39,9 +39,10 @@ use crate::io::load_xml_file;
 use crate::legislature::redesignation::{Reason, StatedRedesignation, Step, read_clause};
 use crate::uslm::amendment_address::{
     INTERNAL_REVENUE_CODE, Scope, amending_line_of, citation_in, collapse_spaces, element_type_of,
-    in_phrase_after_amending_line, is_stored_level, leading_in_phrase, section_of_an_act,
-    stored_titles_declaring_the_1986_code, title_named_in, uslm_section_id,
+    in_phrase_after_amending_line, is_stored_level, leading_in_phrase, section_a_list_item_names,
+    section_of_an_act, stored_titles_declaring_the_1986_code, title_named_in, uslm_section_id,
 };
+use crate::uslm::bill_parser::list_title_of;
 use crate::uslm::parser::{ParseError, normalize_quotes};
 use crate::uslm::{ElementType, UscReference, UslmFacts};
 
@@ -310,6 +311,7 @@ fn read_action(bill_id: &str, action: Node, code_of_1986: &[String]) -> StatedRe
     // outermost-first like a path.
     let mut container: Vec<Step> = Vec::new();
     let mut amending_line = None;
+    let mut item_below_the_line = None;
     for (depth, level) in levels.iter().enumerate() {
         let text = match depth {
             0 => clause.clone(),
@@ -321,6 +323,7 @@ fn read_action(bill_id: &str, action: Node, code_of_1986: &[String]) -> StatedRe
         if let Some(line) = amending_line_of(&text) {
             container.extend(in_phrase_after_amending_line(&text).into_iter().rev());
             amending_line = Some((line, *level));
+            item_below_the_line = depth.checked_sub(1).map(|below| levels[below]);
             break;
         }
     }
@@ -363,7 +366,11 @@ fn read_action(bill_id: &str, action: Node, code_of_1986: &[String]) -> StatedRe
         return statement;
     };
 
-    match section_under_amendment(&line, holder, code_of_1986) {
+    let addressed = match section_of_a_list_item(holder, item_below_the_line) {
+        Some(found) => Ok(found),
+        None => section_under_amendment(&line, holder, code_of_1986),
+    };
+    match addressed {
         Ok((section, trail)) => {
             statement.section = Some(section);
             // The citation's own trail sits above anything the `in` phrases
@@ -383,18 +390,17 @@ fn read_action(bill_id: &str, action: Node, code_of_1986: &[String]) -> StatedRe
 /// The id of the amendment this action belongs to.
 ///
 /// The same content hash [`crate::uslm::bill_parser`] mints, over the same text:
-/// the innermost enclosing `role="instruction"` element. That is what makes the
+/// the innermost enclosing `role="instruction"` element, or the item of it
+/// when it is a list of instructions
+/// ([`crate::uslm::bill_parser::instruction_around`]). That is what makes the
 /// link's payload point at an amendment the dataset actually holds, rather than
 /// at a hash of a sentence nothing else knows.
 ///
 /// A bill nests instructions, so the innermost one is the tightest amendment the
 /// parser extracted around this action.
 fn amendment_id_around(bill_id: &str, action: Node) -> String {
-    let instruction = action
-        .ancestors()
-        .find(|node| node.attribute("role") == Some("instruction"));
-    let text = instruction
-        .map(|node| crate::uslm::bill_parser::node_text(&node))
+    let text = crate::uslm::bill_parser::instruction_around(action)
+        .map(|instruction| instruction.words())
         .unwrap_or_default();
     crate::uslm::bill_parser::compute_amendment_id(bill_id, &text)
 }
@@ -404,7 +410,7 @@ fn amendment_id_around(bill_id: &str, action: Node) -> String {
 /// These are the elements that carry a number and hold others, so they are the
 /// ones whose text can open a scope. Anything else — a heading, a sidenote, a
 /// `<ref>` — is part of its level's own words.
-fn is_level(node: &Node) -> bool {
+pub(crate) fn is_level(node: &Node) -> bool {
     if !node.is_element() {
         return false;
     }
@@ -421,7 +427,7 @@ fn is_level(node: &Node) -> bool {
 /// sentence. Quoted content is skipped for the same reason it is skipped
 /// everywhere else: it is the text the bill enacts, not law in force, and it is
 /// full of sentences that look like citations.
-fn own_text(level: &Node) -> String {
+pub(crate) fn own_text(level: &Node) -> String {
     let mut text = String::new();
     for child in level.children() {
         if child.is_text() {
@@ -499,6 +505,18 @@ fn section_under_amendment(
         scope = node.parent().filter(|parent| is_level(parent));
     }
 
+    // A list above that amends a whole title says which title (#365).
+    let list_above = holder
+        .ancestors()
+        .skip(1)
+        .filter(is_level)
+        .find(|level| amending_line_of(&own_text(level)).is_some())
+        .and_then(|level| list_title_of(&level))
+        .map(|(_, title)| title);
+    if let Some(title) = list_above {
+        return Ok((uslm_section_id(&title, &number), trail));
+    }
+
     // The bill's own References clause, which says for a whole title of the bill
     // that a bare section means the Internal Revenue Code of 1986 — title 26.
     let in_a_declaring_title = holder.ancestors().any(|ancestor| {
@@ -512,6 +530,16 @@ fn section_under_amendment(
     }
 
     Err(Reason::NoTitleForSection(number))
+}
+
+/// The section an item of a list under a whole title names, when `holder`
+/// opens such a list and `item` is the item the clause sits in (#365).
+///
+/// The markup counterpart of the stored reader's, in the same words.
+fn section_of_a_list_item(holder: Node, item: Option<Node>) -> Option<(String, Vec<String>)> {
+    let (_, title) = list_title_of(&holder)?;
+    let (number, trail) = section_a_list_item_names(&own_text(&item?))?;
+    Some((uslm_section_id(&title, &number), trail))
 }
 
 /// Every US Code reference in a subtree.
