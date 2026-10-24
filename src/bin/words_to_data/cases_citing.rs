@@ -431,11 +431,61 @@ fn report_each(cases: &[CitingCase]) {
                     },
                 );
             }
+            report_dates(cited);
             report_subdivision(cited);
             report_stub(cited);
             report_since(cited);
         }
         println!();
+    }
+}
+
+/// When the court read the law, and which printing the citation was resolved
+/// in (#317). Each different statement once: the places of one writing carry
+/// one decision date.
+fn report_dates(cited: &CitedProvision) {
+    let title = cited
+        .path
+        .split('/')
+        .nth(1)
+        .and_then(|segment| segment.strip_prefix("title_"))
+        .unwrap_or("?");
+    let mut said: BTreeSet<String> = BTreeSet::new();
+    for place in &cited.places {
+        let line = match (&place.decided, &place.resolved_in) {
+            (Some(decided), Some(printed)) => match place.resolved_after_decision {
+                Some(true) => format!(
+                    "      decided {decided}. The link was resolved in the printing of \
+                     {printed}, the earliest held: this dataset holds no printing of the \
+                     law as it stood on {decided}, so that law is out of scope."
+                ),
+                _ => format!(
+                    "      decided {decided}. The link was resolved in the printing of \
+                     {printed}, the latest held on or before that date."
+                ),
+            },
+            _ => continue,
+        };
+        if said.insert(line.clone()) {
+            println!("{line}");
+        }
+        if let Some(year) = &place.time_basis {
+            let line = match place.printings_of_time_basis.as_slice() {
+                [] => format!(
+                    "      the opinion states it applies title {title} as in effect for \
+                     {year}. This dataset holds no printing of title {title} from {year}, \
+                     so that law is out of scope."
+                ),
+                dates => format!(
+                    "      the opinion states it applies title {title} as in effect for \
+                     {year}. This dataset holds the printing(s) of {} from that year.",
+                    dates.join(", ")
+                ),
+            };
+            if said.insert(line.clone()) {
+                println!("{line}");
+            }
+        }
     }
 }
 

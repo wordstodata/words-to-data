@@ -64,11 +64,28 @@ pub struct SectionPaths {
     /// provision it names ([`reach`]), and small: a title of the Code is tens of
     /// thousands of nodes, and their words are most of its size.
     shapes: BTreeMap<String, DocumentNode>,
+    /// The date of the printing indexed, when the caller named it
+    /// ([`SectionPaths::of_printing`]).
+    printed: Option<String>,
 }
 
 impl SectionPaths {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An empty index of the printing dated `date`. A section resolved in it
+    /// says so ([`CitedSection::resolved_in`], #317).
+    pub fn of_printing(date: impl Into<String>) -> Self {
+        Self {
+            printed: Some(date.into()),
+            ..Self::default()
+        }
+    }
+
+    /// The date of the printing indexed, when the caller named it.
+    pub fn printed(&self) -> Option<&str> {
+        self.printed.as_deref()
     }
 
     /// Index every section of one parsed work, such as a title of the U.S. Code.
@@ -169,6 +186,9 @@ pub struct CitedSection {
     /// [`Resolution::Provision`], in the same order. Empty for a section that
     /// did not resolve.
     pub reached: Vec<Reached>,
+    /// The date of the printing the section was resolved in, when the index
+    /// names one ([`SectionPaths::of_printing`]).
+    pub resolved_in: Option<String>,
 }
 
 /// The deepest provision a written subdivision leads to, and the part of it
@@ -221,6 +241,7 @@ pub fn resolve(citation: &UscCitation, scope: &Scope, paths: &SectionPaths) -> V
             uslm_id,
             resolution,
             reached,
+            resolved_in: paths.printed.clone(),
         }
     };
 
