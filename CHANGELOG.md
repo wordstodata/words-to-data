@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **A range of subdivisions after one section is a citation of each subdivision
+  in it** ([#366](https://github.com/wordstodata/words-to-data/issues/366)).
+  *Boeing*'s "26 U. S. C. §§994(a)(1)-(3)" is now three links, to § 994(a)(1),
+  (a)(2) and (a)(3), and each place holds the whole written form. Before, the
+  reader read "§§994(a)(1)" and lost (2) and (3). The ends can be numbers,
+  letters or roman numerals, joined by a dash or by "through"
+  ("(b)(2) through (b)(7)"). When the ends are at different levels, or the parent
+  is not held, the link ends at the provision that holds both ends and the
+  `unresolved` field names the range; a member that the printing does not hold
+  is named in the same way. No member is guessed. A range of sections,
+  "§§ 991-997", still links its two ends only (#309). The citation rule is now
+  version 5, and the default-code rule version 3. On the benchmark dataset the
+  citation links go from 427 to 434. Add the opinions again with `add-opinions`
+  to get the new links. `cases-citing --cites` takes a range too, and asks about
+  each member.
+
 ## 0.5.0
 
 Case law that an agent can use ([#312](https://github.com/wordstodata/words-to-data/issues/312),
