@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### `bills` and `show-bill` name the public law, and their counts are true ([#297](https://github.com/wordstodata/words-to-data/issues/297))
+
+- `bills` has a PUBLIC LAW column (`Pub. L. 119-21`, or `not enacted / not held`),
+  and `show-bill` has a `Public law:` line. In `--json`, both have the field
+  `public_law` (`"119-21"`, or `null`). A bill is joined to its law by the
+  amendments the law document states, so a bill that states no amendment shows
+  no law.
+- `show-bill` takes a public law in place of a bill id: `Pub. L. 119-21`,
+  `Public Law 119–21`, `PL 119-21`, `P.L. 119-21` or `119-21`. A law whose
+  document the dataset does not hold is refused, with exit 1.
+- The false change counts are replaced. They counted word-level changes that no
+  step writes since #252, so they were 0 for every bill and every amendment.
+  - `bills`: the WITH CHANGES column is now LINKED, the amendments that at least
+    one standing `legislature.amended_by` link names. In `--json`,
+    `amendments_with_changes` is now `amendments_linked`.
+  - `show-bill`: "(N change(s))" is now "(N standing link(s))", the standing
+    links that name the amendment. In `--json`, `change_count` is now
+    `link_count`.
+  - A link stands unless its newest review refutes it, as for `residue`.
+- The stored format does not change (`SCHEMA_VERSION` 10).
+
 ## 0.5.0
 
 Case law that an agent can use ([#312](https://github.com/wordstodata/words-to-data/issues/312),
