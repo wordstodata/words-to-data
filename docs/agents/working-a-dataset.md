@@ -191,6 +191,9 @@ read the words.
    words_to_data path <dataset> <path> --from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30
    ```
    For a provision that is **new** in the window, `path` prints the words added.
+   A field whose two texts differ only in a soft hyphen or a zero-width
+   character is not a change: `diff`, `path` and `cases-citing` do not report
+   it, and `diff --json` names those characters in `ignored_characters`.
    `path` also shows citations: on a writing, `judicial/case_<cluster>/opinion_<id>`,
    it lists what that writing cites; on a case, `judicial/case_<cluster>`, what
    each of its writings cites; and on a Code path the passages that cite it, a
