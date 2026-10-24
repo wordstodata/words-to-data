@@ -30,7 +30,7 @@ you SLEUTH and an example dataset. You need
 3. Install SLEUTH into pi.
 
    ```
-   pi install github:wordstodata/sleuth-pi
+   pi install git:github.com/wordstodata/sleuth-pi
    ```
 
 4. Download the example dataset (280 MB), check it, and decompress it (5.3 GB).
@@ -115,7 +115,7 @@ build), and a write gate. A session is read-only unless you give it `--write`.
 [Try it with SLEUTH](#try-it-with-sleuth) gives the steps to install it.
 
 ```
-pi install github:wordstodata/sleuth-pi
+pi install git:github.com/wordstodata/sleuth-pi
 pi
 /dataset law.sqlite
 ```
