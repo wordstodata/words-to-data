@@ -33,14 +33,10 @@ you SLEUTH and an example dataset. You need
    pi install git:github.com/wordstodata/sleuth-pi
    ```
 
-4. Download the example dataset (280 MB), check it, and decompress it (5.3 GB).
-   On macOS, use `shasum -a 256 -c` in place of `sha256sum -c`.
+4. Download the example dataset (280 MB) and decompress it (5.3 GB).
 
    ```
-   curl -fLO https://wordstodata.com/assets/wordstodata-example.sqlite.zst
-   curl -fLO https://wordstodata.com/assets/wordstodata-example.sqlite.zst.sha256
-   sha256sum -c wordstodata-example.sqlite.zst.sha256
-   zstd -d wordstodata-example.sqlite.zst -o example.sqlite
+   curl -fL https://wordstodata.com/assets/wordstodata-example.sqlite.zst | zstd -d -o example.sqlite
    ```
 
 5. Start pi in the same directory. Type `/login` to connect a model with a
