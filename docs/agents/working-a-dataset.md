@@ -198,8 +198,14 @@ read the words.
    (majority, concurrence, dissent) is its own path under it, so a hit or a
    citation in a dissent names the dissent. A citation names the writing, not
    the paragraph: to find the paragraph, search the writing for the words the
-   citation quotes. On a writing, `path` also lists what is inside it: each
-   page with how many paragraphs start on it, and each footnote. `opinions`
+   citation quotes. A tax opinion often writes "section 199A" or "I.R.C. § 199A"
+   with no title. When the case states that its references are to the Internal
+   Revenue Code, such a reference is a citation to title 26, and its matched
+   words end with `(title 26 from the default stated in <writing>: "<the
+   sentence>")`. When the case states no such sentence, a bare reference makes
+   no link, so search the words too. On a writing, `path` also lists what is
+   inside it: each page with how many paragraphs start on it, and each
+   footnote. `opinions`
    lists each writing with its case, type and author.
 3. **Find which amendment made the change.**
    ```

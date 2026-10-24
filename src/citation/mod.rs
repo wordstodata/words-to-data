@@ -26,6 +26,7 @@
 //! #52 as out of scope, along with the two eyecite defects that belong to them.
 
 pub mod carry;
+pub mod default_code;
 pub mod resolve;
 pub mod usc;
 
@@ -129,6 +130,14 @@ fn citation_rule() -> Method {
     Method::new("reporters-db laws.json U.S.C. patterns", 3)
 }
 
+/// The rule that reads a bare section reference under the default code an
+/// opinion names (`default_code`, #318), at the version it is at now. A rule of
+/// its own, because it reads text the U.S.C. patterns never read, and a reviewer
+/// can then judge its links apart.
+fn default_code_rule() -> Method {
+    Method::new("bare section under the opinion's default code", 1)
+}
+
 /// A link for every provision a citation resolved to, saying the opinion cites
 /// it.
 ///
@@ -170,16 +179,16 @@ fn cites_link(
     let kind = LinkKind::new(LinkKind::CITES);
     let provenance = Provenance {
         source: "rule:usc_citation".to_string(),
-        method: Some(citation_rule()),
+        method: Some(match citation.default_code {
+            Some(_) => default_code_rule(),
+            None => citation_rule(),
+        }),
         verification: VerificationState::MachineSuggested,
         // The matched text, so a reviewer can read what the rule read. A rule
         // has no reasoning beyond the text that satisfied it, and the repair it
         // made to read that text, when it made one.
         evidence: Some(Evidence {
-            reasoning: Some(match &citation.repair {
-                Some(repair) => format!("{} ({repair})", citation.text),
-                None => citation.text.clone(),
-            }),
+            reasoning: Some(evidence_of(citation)),
             ..Evidence::default()
         }),
         raw_score: None,
@@ -203,10 +212,31 @@ fn cites_link(
                 "section": section.section,
                 "uslm_id": section.uslm_id,
                 "start": citation.start,
+                // The year the opinion says it reads the Code as in effect
+                // for, when its default names one (ADR 0014, decisions 7 and
+                // 8). Null for every other citation.
+                "time_basis": citation.default_code.as_ref().and_then(|default| default.year.clone()),
             }),
         }),
         kind,
         object: Target::Node(path.to_string()),
         provenance,
+    }
+}
+
+/// What a citation link carries as evidence: the words the rule read, and what
+/// else the reading rests on.
+///
+/// A repair follows the words: `26 V.S.C. §§ 1361(a)(1) (OCR repair: "V.S.C."
+/// read as "U.S.C.")`. A bare reference is read only because of the opinion's
+/// default, so the default follows the words, with the writing that states it.
+fn evidence_of(citation: &UscCitation) -> String {
+    match (&citation.repair, &citation.default_code) {
+        (Some(repair), _) => format!("{} ({repair})", citation.text),
+        (None, Some(default)) => format!(
+            "{} (title {} from the default stated in {}: \"{}\")",
+            citation.text, default.title, default.stated_in, default.statement
+        ),
+        (None, None) => citation.text.clone(),
     }
 }

@@ -20,6 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use clap::Args as ClapArgs;
+use words_to_data::citation::default_code::{self, DefaultCode};
 use words_to_data::citation::resolve::{Resolution, SectionPaths, resolve};
 use words_to_data::citation::{Opinion, cites_links, usc};
 use words_to_data::courtlistener::{
@@ -167,7 +168,7 @@ fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClie
         clusters.push(cluster);
     }
 
-    let mut stored: Vec<(Opinion, String)> = Vec::new();
+    let mut stored: Vec<Stored> = Vec::new();
     for cluster in &clusters {
         let opinions: Vec<OpinionRecord> = records
             .values()
@@ -181,6 +182,12 @@ fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClie
         for report in &case.matter_reports {
             report.print_to_stderr();
         }
+        // The default code holds for every writing of the case (#318).
+        let default = default_code::of_case(
+            case.writings
+                .iter()
+                .map(|writing| (writing.path.as_str(), writing.text.as_str())),
+        );
         let expression = &case.expression;
         println!(
             "{} @ {}  {}",
@@ -211,14 +218,16 @@ fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClie
                 writing.source.verification,
                 text.chars().count(),
             );
-            stored.push((
-                Opinion::held(
+            stored.push(Stored {
+                opinion: Opinion::held(
                     writing.path.clone(),
                     writing.opinion_id.to_string(),
                     cluster.display(),
                 ),
+                path: writing.path.clone(),
                 text,
-            ));
+                default: default.clone(),
+            });
         }
         let sources = &cluster_sources(&case.expression);
         if !sources.is_empty() {
@@ -247,16 +256,37 @@ fn cluster_sources(expression: &words_to_data::dataset::Expression) -> String {
         .join(", ")
 }
 
+/// One writing as stored: who it is, its whole text, and the default code its
+/// case names, if any.
+struct Stored {
+    opinion: Opinion,
+    path: String,
+    text: String,
+    default: Option<DefaultCode>,
+}
+
 /// Read every U.S. Code citation out of each opinion and write the links.
-fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[(Opinion, String)]) {
+fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
     // What each opinion cites, read once. The text is the text that was stored,
     // so an offset in a link means the same thing as an offset in the file.
+    let mut bare_reads = 0;
     let found: Vec<(&Opinion, Vec<usc::UscCitation>)> = stored
         .iter()
-        .map(|(opinion, text)| {
-            let (citations, report) = usc::find_with_report(text);
+        .map(|writing| {
+            let (mut citations, report) = usc::find_with_report(&writing.text);
             report.print_to_stderr();
-            (opinion, citations)
+            if let Some(default) = &writing.default {
+                let bare = default_code::find_bare(&writing.text, default, &citations);
+                println!(
+                    "  {}: {} bare reference(s) read under the default code stated in {}",
+                    writing.path,
+                    bare.len(),
+                    default.stated_in,
+                );
+                bare_reads += bare.len();
+                citations.extend(bare);
+            }
+            (&writing.opinion, citations)
         })
         .collect();
 
@@ -307,6 +337,12 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[(Opinion, Stri
         "\n{stated} citation(s) resolved to a provision, which is {} distinct \
          judicial.cites link(s).",
         distinct.len()
+    );
+    // A bare reference is read only because its case names a default code, so
+    // the count is its own line (#318).
+    println!(
+        "{bare_reads} of the citations read are bare references (\"section 199A\", \
+         \"I.R.C. § 199A\") read under the default code a case states."
     );
     // A stub is a real node, so its link looks as good as any other (#310).
     println!(
