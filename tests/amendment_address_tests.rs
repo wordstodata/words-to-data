@@ -667,26 +667,226 @@ fn should_address_every_unit_the_line_names_before_the_section_when_it_names_a_c
     assert_eq!(step_numbers(&address), ["f", "2"]);
 }
 
-/// Pub. L. 119-60 § 571(c):
+/// Pub. L. 119-60 § 571:
 ///
-/// > Such subsection is further amended, in paragraph (4), by adding at the
-/// > end the following new subparagraph: …
+/// > (a) … Subsection (a) of section 1142 of title 10, United States Code, is
+/// > amended, in paragraph (2)— …
+/// >
+/// > (b) … Such subsection is further amended, in paragraph (3), by adding …
+/// >
+/// > (c) … Such subsection is further amended, in paragraph (4), by adding …
+/// >
+/// > (d) … Such subsection is further amended, in paragraph (9)— (1) … (3) …
 ///
-/// *Such subsection* is subsection (a) of 10 U.S.C. 1142, which this reader
-/// does not name. Paragraph (4) is in that subsection, so a step `(4)` under
-/// the section would name a paragraph (4) of § 1142 that does not exist. The
-/// phrase after *is amended* gives a step only below a section or a unit the
-/// line names (#339).
+/// *Such subsection* is subsection (a) of 10 U.S.C. 1142, which § 571(a)
+/// names. The phrase after *is amended* opens a paragraph in it (#339, #364).
+/// Before #364 these gave no step, because a step `(4)` right under the
+/// section would name a paragraph (4) of § 1142 that does not exist.
 #[test]
-fn should_not_read_the_scope_phrase_after_the_amending_line_when_the_line_names_such_a_unit() {
+fn should_address_the_subsection_an_earlier_amendment_named_when_the_line_says_such_subsection() {
     let bill = committed_ndaa();
     let addresses = addresses_in(&bill);
 
-    let address = address_saying(
+    let found: Vec<String> = addresses_under(
         &addresses,
-        "Such subsection is further amended, in paragraph (4), by adding at the end",
-    );
+        "publiclawdocument_119-60/division_A/title_V/subtitle_H/section_571/subsection_",
+    )
+    .into_iter()
+    .filter(|address| {
+        !address.path.ends_with("subsection_a") && !address.path.ends_with("subsection_e")
+    })
+    .map(printed)
+    .collect();
 
-    assert_eq!(address.section, None);
-    assert!(address.container.is_empty(), "{:?}", address.container);
+    assert_eq!(
+        found,
+        [
+            "/us/usc/t10/s1142(a)(3)",
+            "/us/usc/t10/s1142(a)(4)",
+            "/us/usc/t10/s1142(a)(9)",
+            "/us/usc/t10/s1142(a)(9)",
+            "/us/usc/t10/s1142(a)(9)",
+        ]
+    );
+}
+
+// --- "Such section" names what an earlier amendment named (#364) ------------
+
+/// The addresses of the instructions at and below one place in the bill.
+fn addresses_under<'a>(addresses: &'a [AmendmentAddress], path: &str) -> Vec<&'a AmendmentAddress> {
+    addresses
+        .iter()
+        .filter(|address| address.path.starts_with(path))
+        .collect()
+}
+
+/// The address as `amendment-addresses` prints it: `/us/usc/t17/s105(c)(1)`.
+fn printed(address: &AmendmentAddress) -> String {
+    let below: String = address
+        .container
+        .iter()
+        .map(|step| format!("({})", step.number))
+        .collect();
+    format!("{}{below}", address.section.as_deref().unwrap_or("none"))
+}
+
+/// Pub. L. 119-60 § 1702:
+///
+/// > (a) … Section 105 of title 17, United States Code, is amended, in
+/// > subsection (d)(2)— …
+/// >
+/// > (b) Conforming Amendments.—Such section is further amended, in subsection
+/// > (c)— (1) in paragraph (1), … (4) in paragraph (4), …
+///
+/// *Such section* is the section § 1702(a) names, 17 U.S.C. 105. The bill's
+/// markup gives the address, so it does not depend on the OLRC's table.
+#[test]
+fn should_address_the_section_an_earlier_amendment_named_when_the_line_says_such_section() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let found: Vec<String> = addresses_under(
+        &addresses,
+        "publiclawdocument_119-60/division_A/title_XVII/section_1702/subsection_b/",
+    )
+    .into_iter()
+    .map(printed)
+    .collect();
+
+    assert_eq!(
+        found,
+        [
+            "/us/usc/t17/s105(c)(1)",
+            "/us/usc/t17/s105(c)(2)",
+            "/us/usc/t17/s105(c)(3)",
+            "/us/usc/t17/s105(c)(4)",
+        ]
+    );
+}
+
+/// Pub. L. 119-60 § 141:
+///
+/// > (a) … Section 9062(j) of title 10, United States Code, is amended— …
+/// >
+/// > (b) Retention Within Aircraft Inventory.—Such section is further
+/// > amended— (1) in paragraph (1), by striking "paragraph (2)" …
+///
+/// *Such section* repeats the earlier citation, *"Section 9062(j)"*, with its
+/// designations. The clause acts in 10 U.S.C. 9062(j)(1). A step `(1)` right
+/// under § 9062 would name a paragraph that does not exist.
+#[test]
+fn should_keep_the_earlier_citations_designations_when_the_line_says_such_section() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let found: Vec<String> = addresses_under(
+        &addresses,
+        "publiclawdocument_119-60/division_A/title_I/subtitle_D/section_141/subsection_b/",
+    )
+    .into_iter()
+    .map(printed)
+    .collect();
+
+    assert_eq!(
+        found,
+        [
+            "/us/usc/t10/s9062(j)(1)",
+            "/us/usc/t10/s9062(j)",
+            "/us/usc/t10/s9062(j)",
+        ]
+    );
+}
+
+/// Pub. L. 119-60 § 6402:
+///
+/// > (a) … Subsection (c)(7) of section 102A of the National Security Act of
+/// > 1947 (50 U.S.C. 3024) is amended …
+/// >
+/// > (b) … (1) … Such section is amended by striking subsection (e).
+/// >
+/// > (2) … Subsection (f)(2) of such section is amended by striking …
+///
+/// *Such section* is § 102A of the Act, which the Code places at 50 U.S.C.
+/// 3024. The unit the line names before it is a step below it, as before a
+/// citation (#339): the address of § 6402(b)(2) is 3024(f)(2).
+#[test]
+fn should_address_the_unit_the_line_names_before_such_section_when_it_names_one() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let found: Vec<String> = addresses_under(
+        &addresses,
+        "publiclawdocument_119-60/division_F/title_LXIV/section_6402/subsection_b/",
+    )
+    .into_iter()
+    .map(printed)
+    .collect();
+
+    assert_eq!(found, ["/us/usc/t50/s3024", "/us/usc/t50/s3024(f)(2)"]);
+}
+
+/// Pub. L. 119-60 § 6402(c):
+///
+/// > (1) Section 102a.—Such section is further amended— (A) by redesignating
+/// > subsections (f) through (z) as subsections (e) through (y) … (B) in
+/// > subsection (e), as redesignated … (C) in subsection (w)(3), as
+/// > redesignated …
+///
+/// The heading says *"Section 102a"*, and the line names its target as *Such
+/// section*: § 102A of the National Security Act of 1947, which § 6402(a)
+/// names and the Code places at 50 U.S.C. 3024. The bare number in the
+/// heading is not the target.
+#[test]
+fn should_read_such_section_and_not_the_heading_when_the_heading_cites_a_section() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let found: Vec<String> = addresses_under(
+        &addresses,
+        "publiclawdocument_119-60/division_F/title_LXIV/section_6402/subsection_c/paragraph_1/",
+    )
+    .into_iter()
+    .map(printed)
+    .collect();
+
+    assert_eq!(
+        found,
+        [
+            "/us/usc/t50/s3024",
+            "/us/usc/t50/s3024(e)",
+            "/us/usc/t50/s3024(w)(3)",
+        ]
+    );
+}
+
+/// § 1702(b) of Pub. L. 119-60, read on its own, without § 1702(a):
+///
+/// > (b) Conforming Amendments.—Such section is further amended, in subsection
+/// > (c)— (1) in paragraph (1), …
+///
+/// No earlier amendment in what was read names a section, so *Such section*
+/// names nothing. The reason says so, and it is not the reason for a line
+/// that names no section at all.
+#[test]
+fn should_say_such_section_had_no_antecedent_when_no_earlier_amendment_names_a_section() {
+    let bill = committed_ndaa();
+    let alone = bill
+        .find("publiclawdocument_119-60/division_A/title_XVII/section_1702/subsection_b")
+        .expect("the bill holds § 1702(b)");
+
+    let addresses = addresses_in(alone);
+
+    assert_eq!(addresses.len(), 4);
+    for address in &addresses {
+        assert_eq!(address.section, None);
+        assert_eq!(
+            address.unresolved,
+            Some(Reason::NoAntecedent("Such section".to_string()))
+        );
+    }
+    assert_eq!(
+        Reason::NoAntecedent("Such section".to_string()).to_string(),
+        "\"Such section\" had no antecedent: no earlier amendment in the same \
+         section of the bill names a section"
+    );
 }
