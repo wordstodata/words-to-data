@@ -32,27 +32,52 @@ pub fn run(args: Args) {
         return;
     }
 
-    // The id is the column that goes straight back in to `show-bill`.
+    // The id is the column that goes straight back in to `show-bill`, and so
+    // is the public law.
+    let laws: Vec<String> = bills
+        .iter()
+        .map(|b| public_law_cell(b.public_law.as_deref()))
+        .collect();
     let width = bills
         .iter()
         .map(|b| b.bill_id.len())
         .max()
         .unwrap_or(0)
         .max("BILL".len());
+    let law_width = laws
+        .iter()
+        .map(String::len)
+        .max()
+        .unwrap_or(0)
+        .max("PUBLIC LAW".len());
 
     println!(
-        "{:<width$}  {:>10}  {:>12}",
+        "{:<width$}  {:<law_width$}  {:>10}  {:>6}",
         ui::heading("BILL"),
+        ui::heading("PUBLIC LAW"),
         ui::heading("AMENDMENTS"),
-        ui::heading("WITH CHANGES")
+        ui::heading("LINKED")
     );
-    for b in &bills {
+    for (b, law) in bills.iter().zip(&laws) {
         println!(
-            "{:<width$}  {:>10}  {:>12}",
+            "{:<width$}  {:<law_width$}  {:>10}  {:>6}",
             ui::figure(&b.bill_id),
+            law,
             b.amendment_count,
-            b.amendments_with_changes
+            b.amendments_linked
         );
     }
     println!("{}", ui::quiet(format!("{} bill(s)", bills.len())));
+    println!(
+        "{}",
+        ui::quiet("LINKED: the amendments that at least one standing amended_by link names.")
+    );
+}
+
+/// The public law column: `Pub. L. 119-21`, or why there is none.
+pub fn public_law_cell(law: Option<&str>) -> String {
+    law.map_or_else(
+        || "not enacted / not held".to_string(),
+        |law| format!("Pub. L. {law}"),
+    )
 }
