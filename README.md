@@ -11,15 +11,21 @@ evidence for each record. An agent asks it questions with one command,
 
 [SLEUTH](https://github.com/wordstodata/sleuth-pi) is the official agent. It runs
 in the [pi](https://github.com/earendil-works/pi) coding agent. These steps give
-you SLEUTH and an example dataset. You need
-[Rust](https://rustup.rs), `curl`, `zstd` and 6 GB of free disk space.
+you SLEUTH and an example dataset. You need `curl`, `zstd` and 6 GB of free disk
+space.
 
-1. Install words-to-data. Until version 0.4.1 is on crates.io, install it from
-   GitHub: version 0.4.0 does not have the `opinions` command that SLEUTH uses.
+1. Install words-to-data. Each [release](https://github.com/wordstodata/words-to-data/releases/latest)
+   has the command for Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and
+   Windows (x86_64). On Linux x86_64:
 
    ```
-   cargo install --git https://github.com/wordstodata/words-to-data
+   curl -fL https://github.com/wordstodata/words-to-data/releases/latest/download/words_to_data-x86_64-unknown-linux-musl.tar.gz | tar xz
+   sudo mv words_to_data /usr/local/bin/
    ```
+
+   On macOS, use `aarch64-apple-darwin` (Apple silicon) or `x86_64-apple-darwin`
+   (Intel) in the file name. With [Rust](https://rustup.rs), `cargo install
+   words-to-data` also works.
 
 2. Install pi. The installer also installs Node.js when it is necessary.
 
@@ -154,7 +160,7 @@ it, and why should anyone believe that?
 ```
 $ words_to_data search law.sqlite "domestic research or experimental" --work uscode/title_26 --at 2025-07-30
 ...
-uscode/title_26@2025-07-30  …/subchapter_B/part_VI/section_174A  [heading]
+uscode/title_26@2025-07-30  …/subchapter_B/part_VI/section_174A  [heading]  1 occurrence
     Domestic research or experimental expenditures
 
 $ words_to_data annotations law.sqlite --bill 119-hr-1 --path uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174A
@@ -165,7 +171,7 @@ $ words_to_data annotations law.sqlite --bill 119-hr-1 --path uscode/title_26/su
 $ words_to_data settle law.sqlite --link 7cdb05c5323a --explain
 How it was made:
   Source: rule:evidence_matching
-  Method: address, window and quoted words@4
+  Method: address, window and quoted words@5
   Address: /us/usc/t26/s174A, from the bill's markup
   Window: uscode/title_26@2025-07-18 to 2025-07-30
     the first window after the law's enactment on 2025-07-04 in which something under the
