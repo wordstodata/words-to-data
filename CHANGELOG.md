@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A difference in format characters alone is not a change**
+  ([#363](https://github.com/wordstodata/words-to-data/issues/363)). A field whose
+  two texts differ only in the characters that search does not read (the soft
+  hyphen U+00AD, the zero-width characters U+200B, U+200C, U+200D and U+2060, and
+  U+FEFF) is not listed as changed. Before, `diff` listed 13 U.S.C. § 9(b) as
+  changed between 2025-07-18 and 2025-07-30 for one soft hyphen inside the word
+  "records" alone, and `cases-citing` said § 9 CHANGED in that window. The
+  rule is in the one comparison that every reader uses, so `diff`, `path`,
+  `cases-citing`, `residue` and `coverage` agree. A difference in letters, digits,
+  punctuation or white space is still a change. `diff --help` states the rule, and
+  `diff --json` names the characters in a new field, `ignored_characters`. Over
+  title 26 between 2025-07-18 and 2025-07-30, one path fewer is changed (536, not
+  537): the heading of § 7206(5)(B) differs only in a soft hyphen.
+
 ### `bills` and `show-bill` name the public law, and their counts are true ([#297](https://github.com/wordstodata/words-to-data/issues/297))
 
 - `bills` has a PUBLIC LAW column (`Pub. L. 119-21`, or `not enacted / not held`),

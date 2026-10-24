@@ -2420,6 +2420,11 @@ pub struct DiffSummary {
     /// statement the links exist to remove (#93).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub moved_paths: Vec<MovedPath>,
+    /// The format characters the diff does not read, as code points such as
+    /// `U+00AD`. A field whose two texts differ only in these is not in
+    /// `changed_paths` (#363). Said in the output, so a reader that compares
+    /// the two texts itself knows why a difference it sees is not listed.
+    pub ignored_characters: Vec<String>,
 }
 
 /// One element that changed its number, for a report.
@@ -2468,6 +2473,10 @@ pub fn diff<S: Storage>(
         added_paths: Vec::new(),
         removed_paths: Vec::new(),
         moved_paths: Vec::new(),
+        ignored_characters: crate::search::IGNORED
+            .iter()
+            .map(|c| format!("U+{:04X}", u32::from(*c)))
+            .collect(),
     };
     collect_diff_paths(&tree, &mut summary);
     Ok(summary)
