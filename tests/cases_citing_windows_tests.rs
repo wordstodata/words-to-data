@@ -104,8 +104,13 @@ fn citation_by(asked: &str, work: &str) -> CitedProvision {
         .into_iter()
         .find(|case| work_of(case) == work)
         .unwrap_or_else(|| panic!("{work} cites {asked}"));
-    assert_eq!(case.cites.len(), 1, "{work} has one link to {asked}");
-    case.cites.into_iter().next().expect("one citation")
+    let within: Vec<CitedProvision> = case
+        .cites
+        .into_iter()
+        .filter(|cited| cited.relation == reliance::Relation::Within)
+        .collect();
+    assert_eq!(within.len(), 1, "{work} has one link to {asked}");
+    within.into_iter().next().expect("one citation")
 }
 
 fn stdout_of(output: &Output) -> String {
@@ -127,7 +132,9 @@ const SUBSECTION_A: &str =
 /// now speaks of other expenditures.
 #[test]
 fn should_name_the_provision_above_that_changed_when_the_cited_subdivision_is_unchanged() {
-    let boeing = citation_by(SECTION_174, "judicial/case_122262/opinion_9434364");
+    // Asked at (a)(1): Boeing also writes § 174 alone, and that citation holds
+    // (a)(1) rather than being in it.
+    let boeing = citation_by(PARAGRAPH_A_1, "judicial/case_122262/opinion_9434364");
 
     let window = &boeing.since.windows[0];
     assert_eq!(window.at, PARAGRAPH_A_1);

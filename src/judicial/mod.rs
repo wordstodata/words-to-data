@@ -37,7 +37,44 @@ pub mod reliance;
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::{ClassPayload, NodeData, NodeType};
+use crate::document::{ClassPayload, DocumentNode, NodeData, NodeType};
+
+/// The passages that hold the words of one writing, as (path, words), in the
+/// order of its nodes: its paragraphs, then its footnotes. A writing that
+/// holds its whole text itself is one passage, at its own path.
+///
+/// A citation starts at the passage that holds it
+/// (`docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+/// decision 5), so this is what the citation reader reads (#316).
+pub fn passages(writing: &DocumentNode) -> Vec<(&str, &str)> {
+    let mut found = Vec::new();
+    collect_passages(writing, &mut found);
+    found
+}
+
+/// The writing a path inside it belongs to: `judicial/case_122262/opinion_9434365`
+/// for `judicial/case_122262/opinion_9434365/page_461/paragraph_1`. A path with
+/// no `opinion_` segment is its own answer.
+pub fn writing_of(path: &str) -> &str {
+    let mut end = 0;
+    for segment in path.split('/') {
+        end += segment.len();
+        if segment.starts_with("opinion_") {
+            return &path[..end];
+        }
+        end += 1;
+    }
+    path
+}
+
+fn collect_passages<'a>(node: &'a DocumentNode, into: &mut Vec<(&'a str, &'a str)>) {
+    if let Some(words) = node.data.content.as_deref() {
+        into.push((&node.data.path, words));
+    }
+    for child in &node.children {
+        collect_passages(child, into);
+    }
+}
 
 /// What a judicial reader knows about a case that the core does not: the facts
 /// of the cluster, which belong to the case and not to any one writing.

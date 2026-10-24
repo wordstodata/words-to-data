@@ -266,9 +266,10 @@ fn should_link_sections_1361_and_1363_and_name_the_repair_when_ocr_reads_the_rep
         let link = links
             .iter()
             .find(|link| {
-                link.object
-                    .path()
-                    .is_some_and(|path| path.ends_with(&format!("/{section}")))
+                // The section, or since #316 the subdivision written.
+                link.object.path().is_some_and(|path| {
+                    path.ends_with(&format!("/{section}")) || path.contains(&format!("/{section}/"))
+                })
             })
             .unwrap_or_else(|| panic!("Shami cites {section}, got {links:?}"));
         let evidence = link

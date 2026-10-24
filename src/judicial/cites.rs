@@ -39,10 +39,14 @@ pub struct CitationLink {
     pub id: String,
     /// How the link names the path asked about.
     pub role: PathRole,
-    /// The opinion that cites: the path of the node the dataset holds it as,
-    /// or, for an opinion the dataset does not hold, its reference, such as
-    /// `judicial.opinion:2651100`.
+    /// The passage that cites: the paragraph or footnote that holds the
+    /// citation, such as `judicial/case_122262/opinion_9434365/page_461/paragraph_1`
+    /// (#316), or, for an opinion the dataset does not hold, its reference,
+    /// such as `judicial.opinion:2651100`.
     pub opinion: String,
+    /// The writing that holds the passage, `judicial/case_<cluster>/opinion_<id>`,
+    /// or the reference of an opinion the dataset does not hold.
+    pub writing: String,
     /// Whether the link names the opinion as a node in this dataset. `false`
     /// means the citing text is outside the file, and nothing about it can be
     /// checked here (`CONTEXT.md`, "Citation").
@@ -59,6 +63,11 @@ pub struct CitationLink {
     /// words: `26 V.S.C. §§ 1361(a)(1), 1363(a) (OCR repair: "V.S.C." read as
     /// "U.S.C.")`.
     pub matched_words: Option<String>,
+    /// The written designations that lead to no provision in the printing the
+    /// link was made against, such as `(e)` of `174(e)`, from the link's
+    /// payload. The link ends at the deepest part that does (#316). Empty when
+    /// every designation leads to a provision.
+    pub unresolved: Vec<String>,
     /// What the link's maker recorded. A rule made every citation, so this is
     /// `machine_suggested`.
     pub verification: VerificationState,
@@ -70,7 +79,8 @@ pub struct CitationLink {
 }
 
 /// Every `judicial.cites` link that names `path` at either end, ordered by the
-/// cited path and then by the opinion.
+/// cited path and then by the passage. A subdivision's path follows its
+/// section's, so the links of one section are together.
 ///
 /// `matching` decides which paths name it, as it does for annotations: the
 /// path and every path beneath it, or the path alone.
@@ -155,6 +165,7 @@ fn row_of(link: &Link, role: PathRole, reviews: &[Link]) -> Option<CitationLink>
         id: short_id(&id).to_string(),
         role,
         opinion: link.subject.name(),
+        writing: super::writing_of(&link.subject.name()).to_string(),
         opinion_held: matches!(link.subject, Target::Node(_)),
         cited_path: link.object.path()?.to_string(),
         // Read for every row at once, by `citations_naming`.
@@ -164,10 +175,31 @@ fn row_of(link: &Link, role: PathRole, reviews: &[Link]) -> Option<CitationLink>
             .evidence
             .as_ref()
             .and_then(|evidence| evidence.reasoning.clone()),
+        unresolved: unresolved_of(link),
         verification: link.provenance.verification,
         review_state: review.as_ref().map_or(ReviewStatus::Unreviewed, |review| {
             ReviewStatus::of_verdict(review.verdict)
         }),
         review,
     })
+}
+
+/// The part of what the court wrote that leads to no provision, at each place
+/// in the link's payload, each once.
+fn unresolved_of(link: &Link) -> Vec<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let places = link
+        .payload
+        .as_ref()
+        .and_then(|payload| payload.value["occurrences"].as_array());
+    for part in places
+        .into_iter()
+        .flatten()
+        .filter_map(|place| place["unresolved"].as_str())
+    {
+        if !parts.iter().any(|known| known == part) {
+            parts.push(part.to_string());
+        }
+    }
+    parts
 }

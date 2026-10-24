@@ -101,7 +101,7 @@ fn report<S: Storage>(dataset: &S, args: &Args) {
                 "cases": cases,
                 "cases_held": judicial,
                 "not_citing": silent,
-                "notes": [ONE_LINK_PER_SECTION],
+                "notes": [ONE_LINK_PER_PASSAGE],
             }));
             continue;
         }
@@ -113,13 +113,15 @@ fn report<S: Storage>(dataset: &S, args: &Args) {
                  cite the section that holds it, and those are listed below."
             );
         }
-        let (within, holding): (Vec<CitingCase>, Vec<CitingCase>) =
-            cases.iter().cloned().partition(cites_the_path_itself);
+        // A writing can cite the path itself in one passage and the section
+        // that holds it in another. Each citation is told in its own group.
+        let within = with_relation(&cases, Relation::Within);
+        let holding = with_relation(&cases, Relation::Holds);
         report_cases(&within, holding.is_empty());
         report_holding(&holding);
         report_silent_opinions(judicial, &silent);
         if !cases.is_empty() {
-            println!("\n{ONE_LINK_PER_SECTION}");
+            println!("\n{ONE_LINK_PER_PASSAGE}");
         }
         if args.chain {
             report_chain(dataset, path, &cases);
@@ -273,17 +275,30 @@ fn subdivision_path(
     }
 }
 
-/// The known limit of a citation link, said wherever one is reported.
-const ONE_LINK_PER_SECTION: &str = "Note: a link is identified by the opinion and the \
-section, so it keeps only the last citation of one section in one opinion. An opinion \
-that cites (a) and later (e) of one section shows only (e) here.";
+/// How a citation link is made, said wherever one is reported (#316).
+const ONE_LINK_PER_PASSAGE: &str = "Note: a citation link starts at the paragraph or \
+footnote that holds the citation and ends at the subdivision the court wrote. Each \
+passage that cites a provision is one link, and its payload holds every place in \
+the passage where the court wrote it.";
 
-/// Whether any of this opinion's citations is to the path asked about, or a
-/// provision under it, and not only to a provision that holds the path.
-fn cites_the_path_itself(case: &CitingCase) -> bool {
-    case.cites
+/// Each case with only its citations in `relation` to the path asked about,
+/// and only the cases that have one.
+fn with_relation(cases: &[CitingCase], relation: Relation) -> Vec<CitingCase> {
+    cases
         .iter()
-        .any(|cited| cited.relation == Relation::Within)
+        .filter_map(|case| {
+            let cites: Vec<CitedProvision> = case
+                .cites
+                .iter()
+                .filter(|cited| cited.relation == relation)
+                .cloned()
+                .collect();
+            (!cites.is_empty()).then(|| CitingCase {
+                citing: case.citing.clone(),
+                cites,
+            })
+        })
+        .collect()
 }
 
 fn report_cases(cases: &[CitingCase], none_holds_it: bool) {
@@ -396,11 +411,26 @@ fn report_each(cases: &[CitingCase]) {
 
         for cited in &case.cites {
             println!(
-                "    cites {} — link is {:?}, matched {:?}",
+                "    cites {}, from {} passage(s):",
                 cited.path,
-                cited.verification,
-                cited.citation_text.as_deref().unwrap_or(""),
+                cited.places.len()
             );
+            for place in &cited.places {
+                println!(
+                    "      {} — link {} is {:?}, matched {:?}{}",
+                    place.passage,
+                    place.link,
+                    place.verification,
+                    place.citation_text.as_deref().unwrap_or(""),
+                    match place.unresolved.as_slice() {
+                        [] => String::new(),
+                        parts => format!(
+                            "; {} does not resolve in the printing the link was made against",
+                            parts.join(", ")
+                        ),
+                    },
+                );
+            }
             report_subdivision(cited);
             report_stub(cited);
             report_since(cited);
@@ -508,9 +538,14 @@ this dataset cannot say whether the change came before or after the decision";
 /// Where a window was read, said so that a reader can tell the subdivision the
 /// opinion wrote from the whole section.
 fn window_place(cited: &CitedProvision, window: &ChangeWindow) -> String {
+    let at_a_section = window
+        .at
+        .rsplit('/')
+        .next()
+        .is_some_and(|last| last.starts_with("section_"));
     match &cited.subdivision {
         Subdivision::Section => format!("at {}", window.at),
-        _ if window.at != cited.path => format!("at {}", window.at),
+        _ if !at_a_section => format!("at {}", window.at),
         _ => format!(
             "at {} (the window covers the whole section, because the subdivision \
              written does not resolve in these printings)",

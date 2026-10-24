@@ -30,11 +30,12 @@ pub mod default_code;
 pub mod resolve;
 pub mod usc;
 
+use serde::Serialize;
 use serde_json::json;
 
 use crate::link::{Evidence, Link, LinkKind, Provenance, Target, VerificationState};
 use crate::method::Method;
-use resolve::{CitedSection, Resolution};
+use resolve::CitedSection;
 use usc::UscCitation;
 
 /// The opinion a citation was read out of.
@@ -96,6 +97,12 @@ impl Opinion {
         }
     }
 
+    /// The path of the node this dataset holds the opinion as, or `None` for
+    /// an opinion it does not hold.
+    pub fn held_as(&self) -> Option<&str> {
+        self.held_as.as_deref()
+    }
+
     /// How an opinion outside the dataset is named: `judicial.opinion:11103682`.
     pub fn reference(&self) -> String {
         format!("judicial.opinion:{}", self.id)
@@ -126,101 +133,267 @@ impl Opinion {
 /// repair in the evidence, reads `U.S.C` with no last point, and reads a
 /// citation with no section marker when a subdivision is written onto the
 /// number (`7 U.S.C. 2015(o)(6)(G)`).
+///
+/// Version 4 (#316) makes a link from the paragraph or footnote that holds the
+/// citation to the subdivision the court wrote, and keeps every place in the
+/// payload. Version 3 made a link from the writing to the section.
 fn citation_rule() -> Method {
-    Method::new("reporters-db laws.json U.S.C. patterns", 3)
+    Method::new("reporters-db laws.json U.S.C. patterns", 4)
 }
 
 /// The rule that reads a bare section reference under the default code an
 /// opinion names (`default_code`, #318), at the version it is at now. A rule of
 /// its own, because it reads text the U.S.C. patterns never read, and a reviewer
 /// can then judge its links apart.
+///
+/// Version 2 (#316): the link shape of [`citation_rule`] version 4.
 fn default_code_rule() -> Method {
-    Method::new("bare section under the opinion's default code", 1)
+    Method::new("bare section under the opinion's default code", 2)
 }
 
-/// A link for every provision a citation resolved to, saying the opinion cites
-/// it.
+/// A link for every provision a citation resolved to, saying the passage of
+/// the opinion cites it.
+///
+/// The object is the deepest provision the written subdivision leads to
+/// ([`resolve::Reached`]): `26 U.S.C. § 174(a)(1)` is a link to
+/// `…/section_174/subsection_a/paragraph_1`, and `§ 174(e)`, in a printing with
+/// no (e), is a link to the section that names `(e)` as the part that did not
+/// resolve (ADR 0014, decision 6).
 ///
 /// A section that did not resolve makes no link. A link is a statement that can
 /// be checked, and a path the dataset does not hold cannot be checked by the
-/// party reading it; the [`Resolution`] still carries "out of scope" for a
+/// party reading it; the [`Resolution`](resolve::Resolution) still carries "out of scope" for a
 /// caller to report, which is the answer a researcher needs and is never "not
 /// found".
 ///
 /// The state is always [`VerificationState::MachineSuggested`]: a rule matched
 /// some text, and no person has looked at it.
+///
+/// One citation at a time. Give every citation of one passage to
+/// [`cites_links_in`], so that a passage that cites one subdivision twice is
+/// one link that holds both places.
 pub fn cites_links(opinion: &Opinion, citation: &UscCitation, cited: &[CitedSection]) -> Vec<Link> {
-    cited
-        .iter()
-        .flat_map(|section| {
-            let paths = match &section.resolution {
-                Resolution::Provision { paths } => paths.as_slice(),
-                _ => &[],
-            };
-            paths
-                .iter()
-                .map(|path| cites_link(opinion, citation, section, path))
-                .collect::<Vec<_>>()
-        })
+    cites_links_in(opinion, &[(citation.clone(), cited.to_vec())])
+}
+
+/// The links of every citation one passage holds: one for each provision a
+/// citation leads to, with every place the passage cites it.
+///
+/// A link is identified by its subject and object
+/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`), so
+/// two citations of one subdivision in one paragraph state one link. Stored one
+/// at a time, the second would replace the first, and the first place would be
+/// lost. Here the places are gathered into one payload, in the order of the
+/// text.
+pub fn cites_links_in(
+    opinion: &Opinion,
+    citations: &[(UscCitation, Vec<CitedSection>)],
+) -> Vec<Link> {
+    let mut gathered: Vec<Gathered> = Vec::new();
+    for (citation, cited) in citations {
+        for section in cited {
+            for reached in &section.reached {
+                let place = Place {
+                    start: citation.start,
+                    written: section.section.clone(),
+                    words: citation.text.clone(),
+                    unresolved: reached.unresolved.clone(),
+                };
+                match gathered.iter_mut().find(|link| link.object == reached.path) {
+                    Some(link) => link.add(citation, place),
+                    None => gathered.push(Gathered::new(citation, section, &reached.path, place)),
+                }
+            }
+        }
+    }
+    gathered
+        .into_iter()
+        .map(|link| link.into_link(opinion))
         .collect()
 }
 
-/// One link: this opinion cites the provision at this path.
-///
-/// A change to its subject, object or payload must keep [`carry::Statement::of`]
-/// able to read it, or a rebuild cannot carry the reviews of the old links
-/// (#319).
-fn cites_link(
-    opinion: &Opinion,
-    citation: &UscCitation,
-    section: &CitedSection,
-    path: &str,
-) -> Link {
-    let kind = LinkKind::new(LinkKind::CITES);
-    let provenance = Provenance {
-        source: "rule:usc_citation".to_string(),
-        method: Some(match citation.default_code {
-            Some(_) => default_code_rule(),
-            None => citation_rule(),
-        }),
-        verification: VerificationState::MachineSuggested,
-        // The matched text, so a reviewer can read what the rule read. A rule
-        // has no reasoning beyond the text that satisfied it, and the repair it
-        // made to read that text, when it made one.
-        evidence: Some(Evidence {
-            reasoning: Some(evidence_of(citation)),
-            ..Evidence::default()
-        }),
-        raw_score: None,
-        // No clock reading. Nothing about this statement depends on when the
-        // rule ran, and the same text gives the same answer on any day.
-        timestamp: None,
-        corroboration: None,
-    };
+/// The citations of one writing, each given to the passage that holds its
+/// first word.
+#[derive(Debug, Clone, Default)]
+pub struct PassageCitations<'a> {
+    /// Each passage, by its path, with the citations that start in it, in the
+    /// order of the passages. A citation's `start` is an offset in the words
+    /// of its passage.
+    pub by_passage: Vec<(&'a str, Vec<UscCitation>)>,
+    /// The citation-shaped text the reader declined, with offsets in the
+    /// passages joined as [`citations_by_passage`] reads them.
+    pub report: usc::FindReport,
+    /// How many of the citations are bare references read under `default`.
+    pub bare: usize,
+}
 
-    Link {
-        subject: opinion.target(),
-        // The namespace is read from the kind rather than written again, so the
-        // two cannot drift apart.
-        payload: Some(crate::link::KindPayload {
-            namespace: kind.namespace().to_string(),
-            value: json!({
-                "title": citation.title,
-                // As the opinion wrote it, brackets and all. The path stops at
-                // the section, so this is the only record that the opinion named
-                // a subsection.
-                "section": section.section,
-                "uslm_id": section.uslm_id,
-                "start": citation.start,
-                // The year the opinion says it reads the Code as in effect
-                // for, when its default names one (ADR 0014, decisions 7 and
-                // 8). Null for every other citation.
-                "time_basis": citation.default_code.as_ref().and_then(|default| default.year.clone()),
+/// Read the citations of one writing from its passages, and give each to the
+/// passage that holds its first word (ADR 0014, decision 5; #316).
+///
+/// The passages are read as one text, joined by a blank line, as the writing's
+/// whole text was read before #316. A rule that finds paragraphs can find a
+/// break inside a citation: *Torres* ends one paragraph with "I.R.C." and starts
+/// the next with "§ 199A(b)(4)(B)". Read one passage at a time, that citation
+/// is lost. Read as one text, it is a citation that starts in the first
+/// passage and runs on into the next, and its words say so.
+///
+/// `default` is the default code the writing's case states, if any
+/// ([`default_code::of_case`]): bare references are read under it.
+pub fn citations_by_passage<'a>(
+    passages: &[(&'a str, &'a str)],
+    default: Option<&default_code::DefaultCode>,
+) -> PassageCitations<'a> {
+    const BREAK: &str = "\n\n";
+    let mut starts = Vec::with_capacity(passages.len());
+    let mut joined = String::new();
+    for (index, (_, words)) in passages.iter().enumerate() {
+        if index > 0 {
+            joined.push_str(BREAK);
+        }
+        starts.push(joined.len());
+        joined.push_str(words);
+    }
+
+    let (mut citations, report) = usc::find_with_report(&joined);
+    let mut bare = 0;
+    if let Some(default) = default {
+        let found = default_code::find_bare(&joined, default, &citations);
+        bare = found.len();
+        citations.extend(found);
+    }
+
+    let mut by_passage: Vec<(&str, Vec<UscCitation>)> = passages
+        .iter()
+        .map(|(path, _)| (*path, Vec::new()))
+        .collect();
+    for mut citation in citations {
+        // The last passage that starts at or before the citation.
+        let index = starts.partition_point(|start| *start <= citation.start) - 1;
+        citation.start -= starts[index];
+        by_passage[index].1.push(citation);
+    }
+    PassageCitations {
+        by_passage,
+        report,
+        bare,
+    }
+}
+
+/// One place in a passage where the court wrote a citation of a provision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct Place {
+    /// Where the citation starts in the words of the passage, in bytes.
+    start: usize,
+    /// The section as the court wrote it, brackets and all: `174(a)(1)`.
+    written: String,
+    /// The words the rule matched: `26 U. S. C. § 174(a)(1)`.
+    words: String,
+    /// The written designations that lead to no provision, from the first of
+    /// them: `(e)` of `174(e)`. Absent when every one leads to a provision.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unresolved: Option<String>,
+}
+
+/// The places of one link, gathered before the link is made.
+struct Gathered {
+    object: String,
+    title: String,
+    uslm_id: String,
+    places: Vec<Place>,
+    /// What the rule read at each place, once each, in the order read.
+    evidence: Vec<String>,
+    /// Whether any place was read by the U.S.C. patterns. A place read only
+    /// under the opinion's default code is read by a rule of its own.
+    read_by_citation_rule: bool,
+    time_basis: Option<String>,
+}
+
+impl Gathered {
+    fn new(citation: &UscCitation, section: &CitedSection, object: &str, place: Place) -> Self {
+        let mut gathered = Self {
+            object: object.to_string(),
+            title: citation.title.clone(),
+            uslm_id: section.uslm_id.clone(),
+            places: Vec::new(),
+            evidence: Vec::new(),
+            read_by_citation_rule: false,
+            time_basis: None,
+        };
+        gathered.add(citation, place);
+        gathered
+    }
+
+    fn add(&mut self, citation: &UscCitation, place: Place) {
+        let evidence = evidence_of(citation);
+        if !self.evidence.contains(&evidence) {
+            self.evidence.push(evidence);
+        }
+        self.read_by_citation_rule |= citation.default_code.is_none();
+        // The year the opinion says it reads the Code as in effect for, when its
+        // default names one (ADR 0014, decisions 7 and 8).
+        if self.time_basis.is_none() {
+            self.time_basis = citation
+                .default_code
+                .as_ref()
+                .and_then(|default| default.year.clone());
+        }
+        if !self.places.contains(&place) {
+            self.places.push(place);
+        }
+    }
+
+    /// The link: this passage cites the provision at the object.
+    ///
+    /// A change to its subject, object or payload must keep
+    /// [`carry::Statement::of`] able to read it, or a rebuild cannot carry the
+    /// reviews of the old links (#319).
+    fn into_link(mut self, opinion: &Opinion) -> Link {
+        self.places.sort_by_key(|place| place.start);
+        let kind = LinkKind::new(LinkKind::CITES);
+        let provenance = Provenance {
+            source: "rule:usc_citation".to_string(),
+            method: Some(match self.read_by_citation_rule {
+                true => citation_rule(),
+                false => default_code_rule(),
             }),
-        }),
-        kind,
-        object: Target::Node(path.to_string()),
-        provenance,
+            verification: VerificationState::MachineSuggested,
+            // The matched text, so a reviewer can read what the rule read. A
+            // rule has no reasoning beyond the text that satisfied it, and the
+            // repair it made to read that text, when it made one. Each reading
+            // once, in the order of the text.
+            evidence: Some(Evidence {
+                reasoning: Some(self.evidence.join("; ")),
+                ..Evidence::default()
+            }),
+            raw_score: None,
+            // No clock reading. Nothing about this statement depends on when
+            // the rule ran, and the same text gives the same answer on any day.
+            timestamp: None,
+            corroboration: None,
+        };
+
+        Link {
+            subject: opinion.target(),
+            // The namespace is read from the kind rather than written again, so
+            // the two cannot drift apart.
+            payload: Some(crate::link::KindPayload {
+                namespace: kind.namespace().to_string(),
+                value: json!({
+                    "title": self.title,
+                    // The section, whichever subdivision the object is.
+                    "uslm_id": self.uslm_id,
+                    // Every place in the passage where the court wrote a
+                    // citation that leads to the object, in the order of the
+                    // text (ADR 0014, decision 6).
+                    "occurrences": self.places,
+                    // Null for every citation whose opinion names no year.
+                    "time_basis": self.time_basis,
+                }),
+            }),
+            kind,
+            object: Target::Node(self.object),
+            provenance,
+        }
     }
 }
 

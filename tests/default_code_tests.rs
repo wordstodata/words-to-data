@@ -171,11 +171,18 @@ fn links_of_case(opinion_id: u64, cluster_id: u64) -> Vec<Link> {
 fn citing<'a>(links: &'a [Link], writing: &str, section: &str) -> Vec<&'a Link> {
     links
         .iter()
-        .filter(|link| link.subject.path() == Some(writing))
+        // The subject is the writing, or since #316 a passage in it, and the
+        // object the section or a subdivision of it.
         .filter(|link| {
-            link.object
-                .path()
-                .is_some_and(|path| path.ends_with(&format!("/section_{section}")))
+            link.subject.path().is_some_and(|subject| {
+                subject == writing || subject.starts_with(&format!("{writing}/"))
+            })
+        })
+        .filter(|link| {
+            link.object.path().is_some_and(|path| {
+                path.ends_with(&format!("/section_{section}"))
+                    || path.contains(&format!("/section_{section}/"))
+            })
         })
         .collect()
 }

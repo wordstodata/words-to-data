@@ -10,6 +10,7 @@
 //! by the real binary with `--offline`. Nine of the ten cite § 174. Nothing here
 //! is written by hand.
 
+use std::collections::BTreeSet;
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
@@ -111,10 +112,13 @@ fn should_name_the_citing_writing_on_each_line_when_path_names_a_case() {
         "judicial/case_122262/opinion_9434364",
         "judicial/case_122262/opinion_9434365",
     ] {
+        // Since #316 the line names the paragraph, and the paragraph's path
+        // starts with the writing's.
         assert!(
             printed
                 .lines()
-                .any(|line| line.contains(&format!("{writing} cites {SECTION_174}"))),
+                .any(|line| line.contains(&format!("{writing}/"))
+                    && line.contains(&format!(" cites {SECTION_174}"))),
             "path on the case should say {writing} cites § 174, got:\n{printed}"
         );
     }
@@ -153,31 +157,64 @@ fn should_list_the_nine_citing_opinions_when_path_names_the_cited_section() {
     );
 }
 
-/// A citation resolves to the section and no lower, even where the opinion named
-/// a subsection. So a reader asking about a subsection learns that each opinion
-/// cites the section that holds it, and is never told the opinion cites the
-/// subsection itself.
+/// The five writings that write § 174(a) or § 174(a)(1), and the six that write
+/// § 174 alone or § 174(e), which no held printing has. *Boeing*'s majority and
+/// dissent write both.
+const WRITE_174_A: [&str; 5] = [
+    "judicial/case_109019/opinion_109019",
+    "judicial/case_122262/opinion_9434364",
+    "judicial/case_122262/opinion_9434365",
+    "judicial/case_406879/opinion_406879",
+    "judicial/case_6248/opinion_6248",
+];
+const WRITE_174_ALONE: [&str; 6] = [
+    "judicial/case_122262/opinion_9434364",
+    "judicial/case_122262/opinion_9434365",
+    "judicial/case_1527901/opinion_1527901",
+    "judicial/case_2651100/opinion_2651100",
+    "judicial/case_7029371/opinion_6931314",
+    "judicial/case_8998794/opinion_8991218",
+];
+
+/// A citation ends at the subdivision the court wrote (#316). So a reader
+/// asking about § 174(a) learns which writings cite (a) or a provision in it,
+/// and which cite only the section that holds (a), and is never told that a
+/// citation of the section is a citation of (a).
 #[test]
-fn should_say_the_opinion_cites_the_section_that_holds_the_path_when_path_names_a_subsection() {
+fn should_tell_a_citation_of_the_subsection_from_one_of_the_section_when_path_names_a_subsection() {
     let subsection = format!("{SECTION_174}/subsection_a");
     let printed = stdout_of(&run(&["path", dataset(), &subsection]));
-
-    for opinion in CITE_174 {
-        let lines: Vec<&str> = printed
+    let lines_of = |writing: &str| -> Vec<&str> {
+        printed
             .lines()
-            .filter(|line| line.contains(opinion))
-            .collect();
+            .filter(|line| line.contains(&format!("{writing}/")))
+            .collect()
+    };
+
+    for writing in WRITE_174_A {
         assert!(
-            !lines.is_empty(),
-            "path on § 174(a) should name {opinion}, got:\n{printed}"
+            // "cited by" alone at (a) itself, and with the path below it.
+            lines_of(writing)
+                .iter()
+                .any(|line| line.trim_start().starts_with("cited by")),
+            "{writing} cites § 174(a) or a provision in it, got:\n{printed}"
         );
-        for line in lines {
-            assert!(
-                line.contains("cites the section that holds this path"),
-                "{opinion} cites § 174, not § 174(a), and the line should say so, got: {line}"
-            );
-        }
     }
+    for writing in WRITE_174_ALONE {
+        assert!(
+            lines_of(writing)
+                .iter()
+                .any(|line| line.contains("cites the section that holds this path")),
+            "{writing} cites § 174 alone, and the line should say so, got:\n{printed}"
+        );
+    }
+    let shami = lines_of("judicial/case_2651100/opinion_2651100");
+    assert!(
+        shami
+            .iter()
+            .all(|line| line.contains("cites the section that holds this path")),
+        "Shami's (e) is not (a), got: {shami:?}"
+    );
 }
 
 /// The citations `path --json` reports on `opinion`, as parsed JSON.
@@ -281,12 +318,19 @@ fn should_add_citations_and_keep_every_existing_field_when_json_is_asked() {
     let citations = listing["citations"]
         .as_array()
         .unwrap_or_else(|| panic!("annotations --json should carry `citations`, got:\n{listing}"));
-    let opinions: Vec<&str> = citations
+    // One row for each passage that cites § 174 or a provision in it, and each
+    // names its writing (#316).
+    let writings: BTreeSet<&str> = citations
         .iter()
-        .map(|row| row["opinion"].as_str().expect("each row names its opinion"))
+        .map(|row| row["writing"].as_str().expect("each row names its writing"))
         .collect();
-    assert_eq!(opinions, CITE_174, "{listing}");
-    assert_eq!(listing["citations_total"], 9, "{listing}");
+    assert_eq!(writings, BTreeSet::from(CITE_174), "{listing}");
+    for row in citations {
+        let passage = row["opinion"].as_str().expect("each row names its passage");
+        let writing = row["writing"].as_str().expect("each row names its writing");
+        assert!(passage.starts_with(&format!("{writing}/")), "{row}");
+    }
+    assert_eq!(listing["citations_total"], 14, "{listing}");
 
     let printed = stdout_of(&run(&["path", dataset(), SECTION_174, "--json"]));
     let report: serde_json::Value =
@@ -405,8 +449,8 @@ fn should_stop_at_the_limit_and_say_how_many_citations_it_did_not_show() {
         .count();
     assert_eq!(shown, 3, "three citations are shown, got:\n{printed}");
     assert!(
-        printed.contains("6 more not shown"),
-        "the run should say six were left out, got:\n{printed}"
+        printed.contains("11 more not shown"),
+        "the run should say eleven were left out, got:\n{printed}"
     );
 
     let printed = stdout_of(&run(&[
@@ -420,5 +464,5 @@ fn should_stop_at_the_limit_and_say_how_many_citations_it_did_not_show() {
     ]));
     let listing: serde_json::Value = serde_json::from_str(&printed).expect("JSON");
     assert_eq!(listing["citations"].as_array().map(Vec::len), Some(3));
-    assert_eq!(listing["citations_total"], 9, "{listing}");
+    assert_eq!(listing["citations_total"], 14, "{listing}");
 }
