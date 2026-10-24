@@ -36,6 +36,7 @@ impl Passage {
             text,
             source_ids: Vec::new(),
             footnote_marks: Vec::new(),
+            pages_inside: Vec::new(),
         }
     }
 }
@@ -52,6 +53,10 @@ pub(crate) struct Passage {
     /// The label of each footnote this passage refers to, in order, when the
     /// source marks the reference: `1` for `<a class="footnote">1</a>`.
     pub footnote_marks: Vec<String>,
+    /// The label of each page marked inside this paragraph, after its first
+    /// words, in order: a page on which the paragraph runs on, and on which no
+    /// paragraph may start. Empty for a footnote.
+    pub pages_inside: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,14 +85,17 @@ pub(crate) struct Structure {
 impl Structure {
     /// Passages that some reader other than [`read_structure`] found, such as
     /// one writing of several in a combined record. Its pages are the pages
-    /// its paragraphs start on.
+    /// its paragraphs start on and the pages they run on, so a page on which
+    /// no paragraph starts is a path in the writing that is printed on it.
     pub fn of_passages(passages: Vec<Passage>) -> Self {
         let mut pages: Vec<String> = Vec::new();
         for passage in &passages {
-            if let PassageKind::Paragraph { page: Some(page) } = &passage.kind
-                && !pages.contains(page)
-            {
-                pages.push(page.clone());
+            if let PassageKind::Paragraph { page: Some(page) } = &passage.kind {
+                for page in std::iter::once(page).chain(&passage.pages_inside) {
+                    if !pages.contains(page) {
+                        pages.push(page.clone());
+                    }
+                }
             }
         }
         Self {
@@ -105,6 +113,7 @@ impl Structure {
             if let PassageKind::Paragraph { page } = &mut passage.kind {
                 *page = None;
             }
+            passage.pages_inside.clear();
         }
         self.first_page_mark = None;
         self.pages.clear();
@@ -147,6 +156,7 @@ impl Structure {
 
         let mut current: Option<String> = None;
         for passage in &mut self.passages {
+            passage.pages_inside.retain(|page| kept.contains(page));
             if let PassageKind::Paragraph { page: Some(page) } = &mut passage.kind {
                 if kept.contains(page) {
                     current = Some(page.clone());
@@ -296,6 +306,8 @@ struct OpenBlock {
     page: Option<String>,
     seen_words: bool,
     source_id: Option<String>,
+    /// The pages marked after its first words.
+    pages_inside: Vec<String>,
 }
 
 struct Reader<'a> {
@@ -305,8 +317,9 @@ struct Reader<'a> {
     /// The label of each page mark in the body, in order.
     marks: Vec<String>,
     block: Option<OpenBlock>,
-    /// Paragraphs, each with its raw markup and page.
-    passages: Vec<(PassageKind, &'a str, Vec<String>)>,
+    /// Paragraphs, each with its raw markup, its ids and the pages marked
+    /// inside it.
+    passages: Vec<(PassageKind, &'a str, Vec<String>, Vec<String>)>,
 }
 
 impl<'a> Reader<'a> {
@@ -361,16 +374,18 @@ impl<'a> Reader<'a> {
                     page: self.page.clone(),
                     seen_words: true,
                     source_id: None,
+                    pages_inside: Vec::new(),
                 })
             }
         }
     }
 
     fn page_break(&mut self, label: String) {
-        if let Some(block) = &mut self.block
-            && !block.seen_words
-        {
-            block.page = Some(label.clone());
+        if let Some(block) = &mut self.block {
+            match block.seen_words {
+                false => block.page = Some(label.clone()),
+                true => block.pages_inside.push(label.clone()),
+            }
         }
         self.marks.push(label.clone());
         self.page = Some(label);
@@ -413,6 +428,7 @@ impl<'a> Reader<'a> {
             page: self.page.clone(),
             seen_words: false,
             source_id: attribute(tag.inner, "id").map(str::to_string),
+            pages_inside: Vec::new(),
         });
     }
 
@@ -428,6 +444,7 @@ impl<'a> Reader<'a> {
             PassageKind::Paragraph { page: block.page },
             raw,
             block.source_id.into_iter().collect(),
+            block.pages_inside,
         ));
     }
 
@@ -466,6 +483,7 @@ impl<'a> Reader<'a> {
             },
             raw,
             ids,
+            Vec::new(),
         ));
         after
     }
@@ -473,7 +491,7 @@ impl<'a> Reader<'a> {
     fn finish(self) -> Structure {
         let mut report = MarkupReport::default();
         let mut passages = Vec::new();
-        for (kind, raw, source_ids) in self.passages {
+        for (kind, raw, source_ids, pages_inside) in self.passages {
             let (text, one) = text_of_markup(raw);
             if text.is_empty() {
                 // Markup with no words in it, such as `<p></p>`.
@@ -495,6 +513,7 @@ impl<'a> Reader<'a> {
                 text,
                 source_ids,
                 footnote_marks: footnote_marks(raw),
+                pages_inside,
             });
         }
         let first_page_mark = self.marks.first().cloned();
