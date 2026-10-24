@@ -114,7 +114,7 @@ fn should_name_the_version_of_the_method_that_made_a_link_in_both_stored_forms()
 
         assert_eq!(
             found.provenance.method.as_ref(),
-            Some(&Method::new(CITATION_RULE, 4)),
+            Some(&Method::new(CITATION_RULE, 5)),
             "{label} should name the method and the version it was at"
         );
     }
