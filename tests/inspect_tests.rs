@@ -979,7 +979,8 @@ fn collect_diff_paths(diff: &words_to_data::diff::TreeDiff, out: &mut Vec<String
 
 #[test]
 fn should_account_coverage_against_the_real_diff() {
-    // Title 27 actually changes between the two release points.
+    // Title 7 changes between the two release points. Title 13 does not: its
+    // one difference is a soft hyphen in § 9(b), and that is not a change (#363).
     let mut dataset = Dataset::new(DatasetMetadata {
         name: "Coverage".to_string(),
         description: String::new(),
@@ -991,28 +992,28 @@ fn should_account_coverage_against_the_real_diff() {
     });
     dataset
         .add_uslm_xml(
-            "tests/test_data/usc/2025-07-18/usc13.xml",
+            "tests/test_data/usc/2025-07-18/usc07.xml",
             "2025-07-18",
             None,
         )
         .expect("v1");
     dataset
         .add_uslm_xml(
-            "tests/test_data/usc/2025-07-30/usc13.xml",
+            "tests/test_data/usc/2025-07-30/usc07.xml",
             "2025-07-30",
             None,
         )
         .expect("v2");
 
-    let title_13 = WorkId::new("uscode/title_13");
-    let from = ExpressionId::new(title_13.clone(), "2025-07-18");
-    let to = ExpressionId::new(title_13, "2025-07-30");
+    let title_7 = WorkId::new("uscode/title_7");
+    let from = ExpressionId::new(title_7.clone(), "2025-07-18");
+    let to = ExpressionId::new(title_7, "2025-07-30");
     let tree = dataset.compute_diff(&from, &to).expect("diff");
     let mut universe = Vec::new();
     collect_diff_paths(&tree, &mut universe);
     universe.sort();
     universe.dedup();
-    assert!(!universe.is_empty(), "title 13 should have a real diff");
+    assert!(!universe.is_empty(), "title 7 should have a real diff");
     let target = universe[0].clone();
 
     // Before annotating: every changed path is in the work queue.
