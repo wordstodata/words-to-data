@@ -884,7 +884,7 @@ fn read_writing(
             .as_deref()
             .and_then(|label| official_pages(label, citations));
         let structure = match pages {
-            Some(_) => structure,
+            Some(_) => structure.pages_of_one_reporter(),
             None => structure.without_pages(),
         };
         return ReadWriting {

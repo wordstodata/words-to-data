@@ -120,8 +120,13 @@ impl Opinion {
 ///
 /// Version 2 (#309) reads a space before a subdivision's bracket, reads a dash
 /// of any kind between two numbers, and resolves each end of a range.
+///
+/// Version 3 (#341) reads the OCR form `V.S.C.` as `U.S.C.` and names the
+/// repair in the evidence, reads `U.S.C` with no last point, and reads a
+/// citation with no section marker when a subdivision is written onto the
+/// number (`7 U.S.C. 2015(o)(6)(G)`).
 fn citation_rule() -> Method {
-    Method::new("reporters-db laws.json U.S.C. patterns", 2)
+    Method::new("reporters-db laws.json U.S.C. patterns", 3)
 }
 
 /// A link for every provision a citation resolved to, saying the opinion cites
@@ -168,9 +173,13 @@ fn cites_link(
         method: Some(citation_rule()),
         verification: VerificationState::MachineSuggested,
         // The matched text, so a reviewer can read what the rule read. A rule
-        // has no reasoning beyond the text that satisfied it.
+        // has no reasoning beyond the text that satisfied it, and the repair it
+        // made to read that text, when it made one.
         evidence: Some(Evidence {
-            reasoning: Some(citation.text.clone()),
+            reasoning: Some(match &citation.repair {
+                Some(repair) => format!("{} ({repair})", citation.text),
+                None => citation.text.clone(),
+            }),
             ..Evidence::default()
         }),
         raw_score: None,

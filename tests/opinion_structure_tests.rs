@@ -523,3 +523,70 @@ fn should_list_the_pages_and_footnotes_when_path_is_asked_about_a_writing() {
     assert_eq!(contents[0]["path"], format!("{DISSENT}/page_457"));
     assert_eq!(contents[0]["node_type"], "judicial.page");
 }
+
+/// *United States v. Windsor*, 570 U.S. 744 (2013), from its two split records.
+/// CourtListener lists a third, combined record, 945737, which holds the same
+/// words and is not needed to read the pages.
+fn windsor() -> Expression {
+    case_expression(&cluster(945737), &[opinion(9515913), opinion(9515914)])
+        .expect("the case should build")
+        .expression
+}
+
+/// The writings in the record that holds the dissents in *Windsor*: the
+/// dissents of Roberts, Scalia and Alito, split by justice-headings@1 (#315).
+const WINDSOR_DISSENTS: [&str; 3] = [
+    "judicial/case_945737/opinion_9515914-1",
+    "judicial/case_945737/opinion_9515914-2",
+    "judicial/case_945737/opinion_9515914-3",
+];
+
+/// The pages of a writing, as the numbers of its `page_<p>` children.
+fn pages_of(expression: &Expression, writing: &str) -> Vec<u64> {
+    node(expression, writing)
+        .children
+        .iter()
+        .filter_map(|child| child.data.path.rsplit_once("/page_"))
+        .map(|(_, page)| page.parse().expect("a page of 570 U.S. is a number"))
+        .collect()
+}
+
+#[test]
+fn should_hold_only_pages_of_the_official_reporter_when_harvard_marks_the_pages_of_two_reporters() {
+    // Harvard's text of *Windsor* marks the pages of 570 U.S. and of 133 S. Ct.
+    // 2675 in one run, with the same markup: `*776`, `*2697`, `*777`, ... The
+    // writing counts pages of 570 U.S. (ADR 0014, decision 4), so a page of
+    // 133 S. Ct. must not be a path, and a pin cite to "570 U.S. at 782" must
+    // find one (#341). The dissents are printed on 570 U.S. 775 to 818, and
+    // each page is a path in a writing that is printed on it, also a page on
+    // which no paragraph starts.
+    let case = windsor();
+
+    let mut pages: Vec<u64> = WINDSOR_DISSENTS
+        .iter()
+        .flat_map(|writing| pages_of(&case, writing))
+        .collect();
+    pages.sort_unstable();
+    pages.dedup();
+    assert_eq!(
+        pages,
+        (775..=818).collect::<Vec<u64>>(),
+        "every page of the dissents is a page of 570 U.S., and none is lost"
+    );
+
+    // A paragraph that starts after the mark `*2697` starts on page 776 of
+    // 570 U.S., and the mark's own text stays in its words.
+    let writing = WINDSOR_DISSENTS
+        .iter()
+        .find(|writing| pages_of(&case, writing).contains(&776))
+        .expect("a writing is printed on page 776");
+    let on_776 = &node(&case, &format!("{writing}/page_776")).children;
+    assert!(
+        on_776.iter().any(|paragraph| paragraph
+            .data
+            .content
+            .as_deref()
+            .is_some_and(|words| words.contains("*2697"))),
+        "the paragraph that holds the mark *2697 is on page 776"
+    );
+}

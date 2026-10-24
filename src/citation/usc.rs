@@ -32,6 +32,10 @@
 //! presumably why the published pattern asks for a marker at all, and a wrong
 //! citation is worse than a missed one. So it is counted and named, not matched.
 //!
+//! The exception is a number with a bracketed subdivision written onto it, as in
+//! `7 U.S.C. 2015(o)(6)(G)` ([`unmarked_section`], #341). A page or a year never
+//! carries one, so that number can only be a section.
+//!
 //! A section number cut short is declined for the same reason, and that is the
 //! whole of the rest: a number the pattern cannot read to its end is read as
 //! nothing rather than as the part of it that matched, because the part names a
@@ -54,12 +58,28 @@ use regex::Regex;
 use crate::dataset::WorkId;
 
 /// How the reporter is spelled: the `U.S.C.` key of `laws.json`, then its seven
-/// `variations`, verbatim.
+/// `variations`, verbatim, and one spelling of ours.
 ///
 /// Longest first, so `U.S.C.A.` is preferred over `U.S.C.` followed by a stray
 /// `A.`; the alternation takes the first spelling that lets the whole citation
 /// match.
-const REPORTERS: [&str; 8] = [
+///
+/// `U.S.C`, with no last point, is not in `laws.json`. *District of Columbia v.
+/// USDA* (D.D.C. 2020) writes `7 U.S.C § 2015(o)(4)(A)`, and a live opinion
+/// writes `28 U.S.C secs. 351-364`. Both were near misses from #309 to #341. The
+/// published variations already take `USC` with no points at all, the citation
+/// still needs a title before it and a section marker after it, and no character
+/// is changed to read it, so it is a spelling and not a repair:
+///
+/// ```
+/// use words_to_data::citation::usc;
+///
+/// let found = usc::find("procedures of 28 U.S.C secs. 351-364 (2012), to Judges");
+///
+/// assert_eq!(found[0].sections, ["351-364"]);
+/// assert_eq!(found[0].repair, None);
+/// ```
+const REPORTERS: [&str; 9] = [
     "United States Code",
     "U.S.C.A.",
     "U.S.C.S.",
@@ -67,17 +87,31 @@ const REPORTERS: [&str; 8] = [
     "U.S. Code",
     "U. S. C.",
     "U.S.C.",
+    "U.S.C",
     "USC",
 ];
 
-/// A reporter written close to `U.S.C.` and as none of [`REPORTERS`]: `V.S.C.`,
-/// where OCR read the U as a V, or `U.S.C` without its last point.
+/// Spellings of the reporter that OCR makes, each with the spelling it is read
+/// as.
+///
+/// Not from `reporters_db`. *Shami*'s Harvard text writes
+/// `26 V.S.C. §§ 1361(a)(1), 1363(a)`: OCR read the U as a V. No reporter is
+/// spelled `V.S.C.`, and a title number before it and a section marker after it
+/// leave no other reading, so the citation is read (#341). It is a repair, so the
+/// citation says so ([`UscCitation::repair`]) and the link's evidence names it.
+/// Before #309 the citation was lost in silence; from #309 to #341 it was
+/// reported and not read, and the two links were still lost.
+///
+/// Only a known OCR form is here. Any other near miss stays unread
+/// ([`NEAR_MISS_REPORTER`]).
+const OCR_REPORTERS: [(&str, &str); 1] = [("V.S.C.", "U.S.C.")];
+
+/// A reporter written close to `U.S.C.` and as none of [`REPORTERS`] or
+/// [`OCR_REPORTERS`], such as `V. S. C.` or `U.S C.`
 ///
 /// Not from `reporters_db`, and never read as a citation. A near miss can be a
 /// typing slip or a misread scan, and the reader cannot tell which, so it reads
-/// nothing and reports the text ([`SkipReason::NearMissReporter`]). Before #309
-/// it was neither read nor reported: *Shami*'s Harvard text writes
-/// `26 V.S.C. §§ 1361(a)(1), 1363(a)`, and two citations were lost in silence.
+/// nothing and reports the text ([`SkipReason::NearMissReporter`]).
 ///
 /// A U or a V, an S and a C, each with or without a point, and spaces between
 /// them. It needs a space after it, with or without a comma ([`CANDIDATE`]), so
@@ -162,6 +196,32 @@ fn law_section() -> String {
     format!("(?:{with_a_subsection})|(?:{dashed_after_a_letter})|(?:{as_published})")
 }
 
+/// A section number written with no section marker before it that the reader
+/// still takes: a number, up to four letters, and at least one bracketed
+/// subdivision written onto it with no space, as in `2015(o)(6)(G)` or
+/// `7508A(a)`.
+///
+/// Not from `reporters_db`, whose pattern asks for a marker. A marker-less number
+/// is declined because it can be a page or an edition year
+/// ([`SkipReason::NoSectionMarker`]), and neither a page nor a year carries a
+/// subdivision. No space may stand before the bracket, so `1533 (1994)` is never
+/// read as a number and a subdivision. *District of Columbia v. USDA* (D.D.C.
+/// 2020) writes `7 U.S.C. 2015(o)(6)(G)` and *BMW (US) Holding Corp.* (Fed. Cl.
+/// 2026) writes `26 U.S.C. 7508A(a)`. Both were declined until #341.
+///
+/// ```
+/// use words_to_data::citation::usc;
+///
+/// let (found, report) = usc::find_with_report("16 U.S.C. 1533 and 42 U.S.C. 2014(y)");
+///
+/// assert_eq!(found.len(), 1);
+/// assert_eq!(found[0].sections, ["2014(y)"]);
+/// assert_eq!(report.skipped[0].text, "16 U.S.C. 1533");
+/// ```
+fn unmarked_section() -> String {
+    r"\d+[a-zA-Z]{0,4}(?:\((?:[a-zA-Z]{1}|\d{1,2})\))+".to_string()
+}
+
 /// Every dash the Code writes inside a section number.
 ///
 /// The published `law.section` reads the ASCII hyphen of `[\-.:]` and nothing
@@ -238,9 +298,11 @@ static CANDIDATE: LazyLock<Regex> = LazyLock::new(|| {
 /// `\b` in front keeps the title from starting inside a longer word.
 static CITATION: LazyLock<Regex> = LazyLock::new(|| {
     let reporters = reporters_pattern();
+    let ocr = spellings_pattern(OCR_REPORTERS.map(|(written, _)| written));
     let section = law_section();
+    let unmarked = unmarked_section();
     Regex::new(&format!(
-        r"\b(?P<title>\d+),?\s+(?P<reporter>{reporters}),?\s+{SECTION_MARKER}\s*(?P<section>{section})"
+        r"\b(?P<title>\d+),?\s+(?:(?P<reporter>{reporters})|(?P<ocr>{ocr})),?\s+(?:{SECTION_MARKER}\s*(?P<section>{section})|(?P<unmarked>{unmarked}))"
     ))
     .expect("the vendored U.S.C. pattern must compile")
 });
@@ -278,7 +340,13 @@ fn dash_class() -> String {
 /// space: opinions wrap lines and scanned text widens spacing, so a single
 /// literal space would miss `United\nStates Code`.
 fn reporters_pattern() -> String {
-    REPORTERS
+    spellings_pattern(REPORTERS)
+}
+
+/// Spellings as one alternation, each escaped, with any run of whitespace where
+/// a spelling has a space.
+fn spellings_pattern<const N: usize>(spellings: [&str; N]) -> String {
+    spellings
         .iter()
         .map(|spelling| {
             spelling
@@ -310,6 +378,42 @@ pub struct UscCitation {
     pub text: String,
     /// Where `text` starts in the text it was found in, in bytes.
     pub start: usize,
+    /// The repair made to read the citation, when the reporter is a known OCR
+    /// form ([`OCR_REPORTERS`]). `None` when the text was read as written.
+    pub repair: Option<Repair>,
+}
+
+/// A repair the reader made to read a citation: what the text wrote, and what it
+/// was read as.
+///
+/// A repair is never silent (ADR 0014, "Text quality goes down where structure
+/// goes up"): the link's evidence names it.
+///
+/// ```
+/// use words_to_data::citation::usc;
+///
+/// let found = usc::find("See 26 V.S.C. §§ 1361(a)(1), 1363(a).");
+///
+/// assert_eq!(found[0].sections, ["1361(a)(1)", "1363(a)"]);
+/// let repair = found[0].repair.as_ref().expect("the reporter was repaired");
+/// assert_eq!(repair.to_string(), r#"OCR repair: "V.S.C." read as "U.S.C.""#);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Repair {
+    /// The reporter as the text wrote it: `V.S.C.`
+    pub written: String,
+    /// The spelling it was read as: `U.S.C.`
+    pub read_as: &'static str,
+}
+
+impl std::fmt::Display for Repair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "OCR repair: \"{}\" read as \"{}\"",
+            self.written, self.read_as
+        )
+    }
 }
 
 impl UscCitation {
@@ -418,7 +522,9 @@ pub enum SkipReason {
     /// The form the Code's own notes use, and the one form left unread on
     /// purpose. Without a marker a number in that position cannot be told from a
     /// page or a year, which is why the published pattern asks for a marker, and
-    /// a wrong citation is worse than a missed one.
+    /// a wrong citation is worse than a missed one. A number with a subdivision
+    /// written onto it, `2015(o)(6)(G)`, is no page and no year, and is read
+    /// since #341 ([`unmarked_section`]).
     NoSectionMarker,
     /// A marker is there, and the number beside it cannot be read whole, as in
     /// `15 U.S.C. § 78aaaaa`.
@@ -431,23 +537,23 @@ pub enum SkipReason {
     /// read whole ([`law_section`]). No citation in the committed notes lands
     /// here any more.
     SectionNumberNotRead,
-    /// The reporter is written close to `U.S.C.` and as none of its spellings,
-    /// as in `26 V.S.C. §§ 1361(a)(1)`, where OCR read the U as a V.
+    /// The reporter is written close to `U.S.C.` and as none of its spellings
+    /// or known OCR forms, as in `26 U.S C. § 174`.
     ///
     /// A near miss is not read, because the reader cannot tell a slip from a
     /// reporter it does not know. See [`NEAR_MISS_REPORTER`].
     ///
-    /// The other near miss the measurement for #309 met, `U.S.C` with no last
-    /// point, from a live CourtListener opinion:
+    /// The two near misses the measurement for #309 met are read since #341:
+    /// `V.S.C.` is a known OCR form ([`OCR_REPORTERS`]), and `U.S.C` with no last
+    /// point is a spelling ([`REPORTERS`]). No near miss is left in the opinions
+    /// of the eval set.
     ///
     /// ```
     /// use words_to_data::citation::usc::{self, SkipReason};
     ///
-    /// let text = "procedures of 28 U.S.C secs. 351-364 (2012), to Judges";
-    /// let (found, report) = usc::find_with_report(text);
+    /// let (found, report) = usc::find_with_report("under 26 U.S C. § 174");
     ///
     /// assert!(found.is_empty());
-    /// assert_eq!(report.skipped[0].text, "28 U.S.C secs. 351-364");
     /// assert_eq!(report.skipped[0].reason, SkipReason::NearMissReporter);
     /// ```
     NearMissReporter,
@@ -600,6 +706,7 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
         let whole = capture.get(0).expect("a match always has a whole");
         let first = capture
             .name("section")
+            .or_else(|| capture.name("unmarked"))
             .expect("the pattern names a section")
             .as_str();
         if !ends_cleanly(text, whole.end()) {
@@ -616,6 +723,9 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
         }
 
         found.push(UscCitation {
+            repair: capture
+                .name("ocr")
+                .map(|written| ocr_repair(written.as_str())),
             title: capture
                 .name("title")
                 .expect("the pattern names a title")
@@ -628,6 +738,20 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
     }
 
     found
+}
+
+/// The repair that reads `written`, a spelling of [`OCR_REPORTERS`].
+fn ocr_repair(written: &str) -> Repair {
+    let spaceless: String = written.split_whitespace().collect();
+    let read_as = OCR_REPORTERS
+        .iter()
+        .find(|(ocr, _)| ocr.replace(' ', "") == spaceless)
+        .map(|(_, read_as)| *read_as)
+        .expect("the pattern reads only the spellings of OCR_REPORTERS");
+    Repair {
+        written: written.to_string(),
+        read_as,
+    }
 }
 
 /// A section as read, without the spaces some reporters set before a bracket:
