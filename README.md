@@ -80,7 +80,7 @@ it, and why should anyone believe that?
 ```
 $ words_to_data search law.sqlite "domestic research or experimental" --work uscode/title_26 --at 2025-07-30
 ...
-uscode/title_26@2025-07-30  …/subchapter_B/part_VI/section_174A  [heading]
+uscode/title_26@2025-07-30  …/subchapter_B/part_VI/section_174A  [heading]  1 occurrence
     Domestic research or experimental expenditures
 
 $ words_to_data annotations law.sqlite --bill 119-hr-1 --path uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174A
@@ -91,7 +91,7 @@ $ words_to_data annotations law.sqlite --bill 119-hr-1 --path uscode/title_26/su
 $ words_to_data settle law.sqlite --link 7cdb05c5323a --explain
 How it was made:
   Source: rule:evidence_matching
-  Method: address, window and quoted words@4
+  Method: address, window and quoted words@5
   Address: /us/usc/t26/s174A, from the bill's markup
   Window: uscode/title_26@2025-07-18 to 2025-07-30
     the first window after the law's enactment on 2025-07-04 in which something under the
