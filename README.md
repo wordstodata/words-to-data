@@ -11,15 +11,21 @@ evidence for each record. An agent asks it questions with one command,
 
 [SLEUTH](https://github.com/wordstodata/sleuth-pi) is the official agent. It runs
 in the [pi](https://github.com/earendil-works/pi) coding agent. These steps give
-you SLEUTH and an example dataset. You need
-[Rust](https://rustup.rs), `curl`, `zstd` and 6 GB of free disk space.
+you SLEUTH and an example dataset. You need `curl`, `zstd` and 6 GB of free disk
+space.
 
-1. Install words-to-data. Until version 0.4.1 is on crates.io, install it from
-   GitHub: version 0.4.0 does not have the `opinions` command that SLEUTH uses.
+1. Install words-to-data. Each [release](https://github.com/wordstodata/words-to-data/releases/latest)
+   has the command for Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and
+   Windows (x86_64). On Linux x86_64:
 
    ```
-   cargo install --git https://github.com/wordstodata/words-to-data
+   curl -fL https://github.com/wordstodata/words-to-data/releases/latest/download/words_to_data-x86_64-unknown-linux-musl.tar.gz | tar xz
+   sudo mv words_to_data /usr/local/bin/
    ```
+
+   On macOS, use `aarch64-apple-darwin` (Apple silicon) or `x86_64-apple-darwin`
+   (Intel) in the file name. With [Rust](https://rustup.rs), `cargo install
+   words-to-data` also works.
 
 2. Install pi. The installer also installs Node.js when it is necessary.
 

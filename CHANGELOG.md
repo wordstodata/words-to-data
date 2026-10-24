@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.1
+## 0.5.0
 
 Case law that an agent can use ([#312](https://github.com/wordstodata/words-to-data/issues/312),
 [ADR 0014](docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md)).
@@ -12,11 +12,11 @@ dataset does not hold.
 ### Upgrade from 0.4.0
 
 - **The stored format does not change** (`SCHEMA_VERSION` 10). A 0.4.0 dataset opens
-  with 0.4.1, and its U.S. Code, bills, links and reviews read as before.
+  with 0.5.0, and its U.S. Code, bills, links and reviews read as before.
 - **Rebuild a dataset that holds court opinions.** In a 0.4.0 dataset an opinion is
   `judicial/opinion_<id>`, and a citation link runs from the opinion to the section.
-  0.4.1 does not migrate them, and `add-opinions` does not remove them. Every
-  citation link id changes. So build a new dataset with 0.4.1, add the opinions
+  0.5.0 does not migrate them, and `add-opinions` does not remove them. Every
+  citation link id changes. So build a new dataset with 0.5.0, add the opinions
   again with `add-opinions` (a cached response costs no request), then run:
 
   ```
@@ -32,6 +32,12 @@ dataset does not hold.
 - **A dataset with no opinions does not need a rebuild.** Run `redesignations` and
   `link-by-evidence` again to make the links of the new method versions. `residue`
   then lists each link that only an older version made, for review.
+
+### Release binaries
+
+- **Each release has the `words_to_data` command** for Linux (x86_64 and aarch64,
+  static), macOS (Apple silicon and Intel) and Windows (x86_64), as an archive and as
+  one `.gz` file. No Rust toolchain is needed ([#359](https://github.com/wordstodata/words-to-data/pull/359), [#360](https://github.com/wordstodata/words-to-data/pull/360)).
 
 ### Case law
 
@@ -138,7 +144,7 @@ dataset does not hold.
 - **`cases-citing` output.** The text groups changed. `--json` is new in this
   release, and its shape changed before the release: `opinions_held` is
   `cases_held`, and `cites[].citation_text` and `cites[].verification` are in
-  `cites[].places[]`. Read the 0.4.1 shape.
+  `cites[].places[]`. Read the 0.5.0 shape.
 - **`search` output.** The last line is `N fields, M occurrences`, not `N match(es)`.
   The new match rule finds more fields. `search --at` takes a date only.
 - **Exit codes.** `diff --path` on a path that neither end holds exits 1. A bill that
