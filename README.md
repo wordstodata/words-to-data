@@ -10,48 +10,25 @@ evidence for each record. An agent asks it questions with one command,
 ## Try it with SLEUTH
 
 [SLEUTH](https://github.com/wordstodata/sleuth-pi) is the official agent. It runs
-in the [pi](https://github.com/earendil-works/pi) coding agent. These steps give
-you SLEUTH and an example dataset. You need `curl`, `zstd` and 6 GB of free disk
-space.
+in the [pi](https://github.com/earendil-works/pi) coding agent. You need 6 GB of
+free disk space, and no Rust.
 
-1. Install words-to-data. Each [release](https://github.com/wordstodata/words-to-data/releases/latest)
-   has the command for Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and
-   Windows (x86_64). On Linux x86_64:
-
-   ```
-   curl -fL https://github.com/wordstodata/words-to-data/releases/latest/download/words_to_data-x86_64-unknown-linux-musl.tar.gz | tar xz
-   sudo mv words_to_data /usr/local/bin/
-   ```
-
-   On macOS, use `aarch64-apple-darwin` (Apple silicon) or `x86_64-apple-darwin`
-   (Intel) in the file name. With [Rust](https://rustup.rs), `cargo install
-   words-to-data` also works.
-
-2. Install pi. The installer also installs Node.js when it is necessary.
+1. Install pi. The installer also installs Node.js when it is necessary.
 
    ```
    curl -fsSL https://pi.dev/install.sh | sh
    ```
 
-3. Install SLEUTH into pi.
+2. Install SLEUTH into pi, start pi, and type `/login` to connect a model with a
+   subscription or an API key. `/sleuth-setup` downloads the `words_to_data`
+   command for your computer (Linux, macOS or Windows) and the example dataset
+   (280 MB, 5.3 GB on disk), and opens the dataset. Then ask a question:
 
    ```
    pi install git:github.com/wordstodata/sleuth-pi
-   ```
-
-4. Download the example dataset (280 MB) and decompress it (5.3 GB).
-
-   ```
-   curl -fL https://wordstodata.com/assets/wordstodata-example.sqlite.zst | zstd -d -o example.sqlite
-   ```
-
-5. Start pi in the same directory. Type `/login` to connect a model with a
-   subscription or an API key. Then open the dataset and ask a question:
-
-   ```
    pi
    /login
-   /dataset example.sqlite
+   /sleuth-setup
    Where in the Internal Revenue Code is the new Trump account section, and in which printing of the Code does it first appear?
    ```
 
@@ -136,11 +113,17 @@ checked by hand.
 
 ## Build a dataset
 
-You need Rust, about 3.5 GB of disk, and a free
-[Congress API key](https://api.congress.gov/sign-up/).
+You need about 3.5 GB of disk and a free
+[Congress API key](https://api.congress.gov/sign-up/). Each
+[release](https://github.com/wordstodata/words-to-data/releases/latest) has the
+command for Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows
+(x86_64). In the file name below, use `aarch64-apple-darwin` (Apple silicon) or
+`x86_64-apple-darwin` (Intel) on macOS. With [Rust](https://rustup.rs),
+`cargo install words-to-data` also works.
 
 ```
-cargo install --git https://github.com/wordstodata/words-to-data
+curl -fL https://github.com/wordstodata/words-to-data/releases/latest/download/words_to_data-x86_64-unknown-linux-musl.tar.gz | tar xz
+sudo mv words_to_data /usr/local/bin/
 export CONGRESS_API_KEY=<your key>
 
 words_to_data build-dataset law.sqlite --uslm-dates 2025-07-18,2025-07-30 --bills 119-hr-1
@@ -189,7 +172,7 @@ link, and why. `words_to_data --help` lists every command.
 
 ```toml
 [dependencies]
-words-to-data = { version = "0.4", default-features = false }
+words-to-data = { version = "0.5", default-features = false }
 ```
 
 ```rust
