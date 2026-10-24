@@ -250,6 +250,26 @@ pub struct CitedPlace {
     /// How far the *link* can be trusted — not the provision, and not the
     /// opinion's text.
     pub verification: VerificationState,
+    /// The date the court decided the case, from the link's payload (#317).
+    /// `None` for a link made before #317.
+    pub decided: Option<String>,
+    /// The date of the printing the link's object was resolved in, from the
+    /// link's payload: the latest held on or before [`CitedPlace::decided`], or
+    /// the earliest held when none is that early.
+    pub resolved_in: Option<String>,
+    /// True when [`CitedPlace::resolved_in`] is later than the decision: the
+    /// dataset holds no printing of the law as it stood when the court decided,
+    /// so that law is out of scope.
+    pub resolved_after_decision: Option<bool>,
+    /// The year the opinion states it applies the Code as in effect for, from
+    /// the link's payload (ADR 0014, decisions 7 and 8): `2013` for "in effect
+    /// for 2013". `None` when the opinion states none.
+    pub time_basis: Option<String>,
+    /// The printings of the cited title this dataset holds from that year,
+    /// oldest first. Empty when it holds none: then the law of that year is
+    /// out of scope. Nothing is resolved against a printing the dataset does
+    /// not hold.
+    pub printings_of_time_basis: Vec<String>,
 }
 
 /// One opinion, and the provisions it cites that the caller asked about.
@@ -312,7 +332,10 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
             .iter()
             .max_by(|a, b| a.0.at.cmp(&b.0.at))
             .map(|(_, section)| section);
-        let place = place_of(&link);
+        let mut place = place_of(&link);
+        if let Some(year) = &place.time_basis {
+            place.printings_of_time_basis = printings_in_year(reader, &scope, &section, year)?;
+        }
         let subdivision = match latest.map(|section| resolve_subdivision(section, &written)) {
             // The link names the section, and a place names what the court
             // wrote below it that leads nowhere.
@@ -346,13 +369,15 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
         {
             Some(cited) => cited.places.push(place),
             None => case.cites.push(CitedProvision {
+                // The windows start at the date the citation carries, and at
+                // the citing case's date for a link made before #317.
                 since: since_publication(
                     reader,
                     &scope,
                     &section,
                     held,
                     &written,
-                    case.citing.at(),
+                    place.decided.as_deref().or(case.citing.at()),
                 )?,
                 path: cited_path.clone(),
                 places: vec![place],
@@ -427,7 +452,39 @@ fn place_of(link: &Link) -> CitedPlace {
             .as_ref()
             .and_then(|evidence| evidence.reasoning.clone()),
         verification: link.provenance.verification,
+        decided: value
+            .and_then(|value| value["decided"].as_str())
+            .map(str::to_string),
+        resolved_in: value
+            .and_then(|value| value["resolved_in"].as_str())
+            .map(str::to_string),
+        resolved_after_decision: value.and_then(|value| value["resolved_after_decision"].as_bool()),
+        time_basis: value
+            .and_then(|value| value["time_basis"].as_str())
+            .map(str::to_string),
+        printings_of_time_basis: Vec::new(),
     }
+}
+
+/// The dates of the printings held of the work that holds `path`, from the
+/// year `year`, oldest first.
+fn printings_in_year<R: DocumentReader + ?Sized>(
+    reader: &R,
+    scope: &Scope,
+    path: &str,
+    year: &str,
+) -> Result<Vec<String>, DatasetError> {
+    let Some(work) = work_holding(scope, path) else {
+        return Ok(Vec::new());
+    };
+    let mut dates: Vec<String> = reader
+        .expressions(&work)?
+        .into_iter()
+        .map(|info| info.id.at)
+        .filter(|date| date.starts_with(&format!("{year}-")))
+        .collect();
+    dates.sort();
+    Ok(dates)
 }
 
 /// Every window of consecutive printings this dataset holds, and whether the

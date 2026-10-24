@@ -214,7 +214,15 @@ read the words.
    holds, and the row says which part leads to no provision: "§ 174(e)" ends at
    § 174 with "(e)", and the OCR form "§ 41(d)(l)(B)(i)" ends at (d) with
    "(l)(B)(i)". Nothing is repaired, so read the words before you rely on the
-   path. A link id comes from the paragraph and the subdivision: take an id
+   path. Each link also carries the date the court decided the case
+   (`decided`), the date of the printing it was resolved in (`resolved_in`:
+   the latest printing held on or before the decision, else the earliest
+   held), and the year the opinion states it applies, when it states one
+   (`time_basis`). `cases-citing` says them on a line: "decided 2014-01-23.
+   The link was resolved in the printing of 2025-07-18, the earliest held:
+   this dataset holds no printing of the law as it stood on 2014-01-23, so
+   that law is out of scope." Say that in your answer; do not describe the
+   law the court read from a later printing. A link id comes from the paragraph and the subdivision: take an id
    from a listing, never from memory or an older answer. A tax opinion often writes "section 199A" or "I.R.C. § 199A"
    with no title. When the case states that its references are to the Internal
    Revenue Code, such a reference is a citation to title 26, and its matched

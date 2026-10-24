@@ -225,7 +225,8 @@ fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClie
                     .into_iter()
                     .map(|(path, words)| {
                         (
-                            Opinion::held(path, writing.opinion_id.to_string(), cluster.display()),
+                            Opinion::held(path, writing.opinion_id.to_string(), cluster.display())
+                                .decided_on(expression.id.at.clone()),
                             words.to_string(),
                         )
                     })
@@ -299,12 +300,14 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
         }
     }
 
-    let titles: BTreeSet<WorkId> = found
-        .iter()
-        .flat_map(|(_, citations)| citations.iter().map(|citation| citation.work()))
-        .collect();
-
-    let paths = index_sections(dataset, &titles);
+    let printings = Printings::index(
+        dataset,
+        found.iter().flat_map(|(passage, citations)| {
+            citations
+                .iter()
+                .map(|citation| (citation.work(), passage.decided()))
+        }),
+    );
     let scope = crate::fail::or_exit(dataset.scope(), "Error reading the dataset's scope");
 
     let mut stated = 0;
@@ -317,7 +320,8 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
     for (passage, citations) in &found {
         let mut resolved = Vec::new();
         for citation in citations {
-            let cited = resolve(citation, &scope, &paths);
+            let paths = printings.for_date(&citation.work(), passage.decided());
+            let cited = resolve(citation, &scope, paths);
             for section in &cited {
                 match section.resolution {
                     Resolution::OutOfScope | Resolution::Gap => out_of_scope += 1,
@@ -335,7 +339,7 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
         for link in cites_links_in(passage, &resolved) {
             distinct.insert(link.id());
             if let Some(path) = link.object.path() {
-                if paths.stub_at(path).is_some() {
+                if printings.stub_at(path) {
                     on_a_stub += 1;
                 }
                 if !path
@@ -373,8 +377,8 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
     );
     // A stub is a real node, so its link looks as good as any other (#310).
     println!(
-        "{on_a_stub} of them land on a stub: a section whose heading in the latest \
-         printing held says Repealed, Renumbered, Transferred or Omitted. `path` \
+        "{on_a_stub} of them land on a stub: a section whose heading in the printing \
+         it was resolved in says Repealed, Renumbered, Transferred or Omitted. `path` \
          and `cases-citing` give the heading."
     );
     println!(
@@ -384,28 +388,94 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
     );
 }
 
-/// Where the sections of every cited title sit, for the titles the dataset holds.
+/// The printings of the cited titles that the citations are resolved in, each
+/// indexed once (#317).
 ///
-/// One title at a time, and the tree is dropped as soon as it is indexed: a title
-/// of the Code is tens of thousands of nodes and there is no reason to hold two.
-/// The latest printing held is the one indexed, because that is where a provision
-/// is now.
-fn index_sections<S: Storage>(dataset: &Dataset<S>, titles: &BTreeSet<WorkId>) -> SectionPaths {
-    let mut paths = SectionPaths::new();
+/// A citation is resolved in the printing of its title in force when the court
+/// decided the case: the latest held on or before the decision. When the
+/// dataset holds none that early, it is the earliest held, and the link says
+/// so (`resolved_after_decision`). Without a decision date, it is the latest
+/// held.
+struct Printings {
+    /// The dates of the printings held, oldest first, by title.
+    dates: BTreeMap<WorkId, Vec<String>>,
+    /// The index of each printing that some citation is resolved in.
+    indexed: BTreeMap<(WorkId, String), SectionPaths>,
+    /// The index of a title the dataset does not hold: empty.
+    none: SectionPaths,
+}
 
-    for work in titles {
-        let Ok(expressions) = dataset.expressions(work) else {
-            continue;
+impl Printings {
+    /// Index the printing each (title, decision date) is resolved in.
+    ///
+    /// One printing at a time, and its tree is dropped as soon as it is
+    /// indexed: a title of the Code is tens of thousands of nodes.
+    fn index<'a, S: Storage>(
+        dataset: &Dataset<S>,
+        cited: impl Iterator<Item = (WorkId, Option<&'a str>)>,
+    ) -> Self {
+        let mut printings = Self {
+            dates: BTreeMap::new(),
+            indexed: BTreeMap::new(),
+            none: SectionPaths::new(),
         };
-        let Some(latest) = expressions.last() else {
-            continue;
-        };
-        let id = ExpressionId::new(work.clone(), latest.id.at.clone());
-        match dataset.get_expression(&id) {
-            Ok(Some(expression)) => paths.add_work(&expression.root),
-            _ => eprintln!("warning: {id} is listed and could not be read"),
+        let mut wanted: BTreeSet<(WorkId, String)> = BTreeSet::new();
+        for (work, decided) in cited {
+            if !printings.dates.contains_key(&work) {
+                let mut dates: Vec<String> = dataset
+                    .expressions(&work)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|info| info.id.at)
+                    .collect();
+                dates.sort();
+                printings.dates.insert(work.clone(), dates);
+            }
+            if let Some(date) = printing_for(&printings.dates[&work], decided) {
+                wanted.insert((work, date.to_string()));
+            }
         }
+        for (work, date) in wanted {
+            let id = ExpressionId::new(work.clone(), date.clone());
+            let mut paths = SectionPaths::of_printing(date.clone());
+            match dataset.get_expression(&id) {
+                Ok(Some(expression)) => paths.add_work(&expression.root),
+                _ => eprintln!("warning: {id} is listed and could not be read"),
+            }
+            printings.indexed.insert((work, date), paths);
+        }
+        printings
     }
 
-    paths
+    /// The index a citation of `work` in a case decided on `decided` is
+    /// resolved in. An empty index for a title the dataset does not hold.
+    fn for_date(&self, work: &WorkId, decided: Option<&str>) -> &SectionPaths {
+        self.dates
+            .get(work)
+            .and_then(|dates| printing_for(dates, decided))
+            .and_then(|date| self.indexed.get(&(work.clone(), date.to_string())))
+            .unwrap_or(&self.none)
+    }
+
+    /// Whether `path` is a stub in a printing some citation is resolved in.
+    fn stub_at(&self, path: &str) -> bool {
+        self.indexed
+            .values()
+            .any(|paths| paths.stub_at(path).is_some())
+    }
+}
+
+/// The printing, out of `dates` (oldest first), that a case decided on
+/// `decided` is resolved in: the latest on or before it, else the earliest.
+/// The latest when no date is known.
+fn printing_for<'a>(dates: &'a [String], decided: Option<&str>) -> Option<&'a str> {
+    let Some(decided) = decided else {
+        return dates.last().map(String::as_str);
+    };
+    dates
+        .iter()
+        .rev()
+        .find(|date| date.as_str() <= decided)
+        .or_else(|| dates.first())
+        .map(String::as_str)
 }

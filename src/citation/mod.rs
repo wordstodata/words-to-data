@@ -69,6 +69,10 @@ pub struct Opinion {
     /// The path of the writing this dataset holds the opinion as, when it
     /// holds it.
     held_as: Option<String>,
+    /// The date the court decided the case, `YYYY-MM-DD`, when it is known:
+    /// the cluster's `date_filed`, which is also the date of the case's
+    /// expression (ADR 0014, decision 7; #317).
+    decided: Option<String>,
 }
 
 impl Opinion {
@@ -78,6 +82,7 @@ impl Opinion {
             id: id.into(),
             display: display.into(),
             held_as: None,
+            decided: None,
         }
     }
 
@@ -94,7 +99,23 @@ impl Opinion {
             id: id.into(),
             display: display.into(),
             held_as: Some(held_as.into()),
+            decided: None,
         }
+    }
+
+    /// The same opinion, decided on `date` (`YYYY-MM-DD`). Each of its
+    /// citation links carries the date, and is resolved in the printing held
+    /// nearest it (#317).
+    pub fn decided_on(self, date: impl Into<String>) -> Self {
+        Self {
+            decided: Some(date.into()),
+            ..self
+        }
+    }
+
+    /// The date the court decided the case, when it is known.
+    pub fn decided(&self) -> Option<&str> {
+        self.decided.as_deref()
     }
 
     /// The path of the node this dataset holds the opinion as, or `None` for
@@ -306,6 +327,8 @@ struct Gathered {
     /// under the opinion's default code is read by a rule of its own.
     read_by_citation_rule: bool,
     time_basis: Option<String>,
+    /// The date of the printing the object was resolved in.
+    resolved_in: Option<String>,
 }
 
 impl Gathered {
@@ -318,6 +341,7 @@ impl Gathered {
             evidence: Vec::new(),
             read_by_citation_rule: false,
             time_basis: None,
+            resolved_in: section.resolved_in.clone(),
         };
         gathered.add(citation, place);
         gathered
@@ -388,6 +412,21 @@ impl Gathered {
                     "occurrences": self.places,
                     // Null for every citation whose opinion names no year.
                     "time_basis": self.time_basis,
+                    // The date the court decided the case (ADR 0014, decision
+                    // 7; #317). Null when the caller did not give one.
+                    "decided": opinion.decided,
+                    // The date of the printing the object was resolved in: the
+                    // latest held on or before `decided`, or the earliest held
+                    // when none is that early.
+                    "resolved_in": self.resolved_in,
+                    // True when that printing is later than the decision: the
+                    // dataset holds no printing of the law the court read, so
+                    // that law is out of scope.
+                    "resolved_after_decision": opinion
+                        .decided
+                        .as_deref()
+                        .zip(self.resolved_in.as_deref())
+                        .map(|(decided, printed)| printed > decided),
                 }),
             }),
             kind,
