@@ -60,7 +60,7 @@ The example dataset holds:
 - **7 bills of the 119th Congress**, with their amendments linked to the changes
   in the Code, and the House roll calls. Two of them are H.R. 1 (Pub. L. 119-21,
   the One Big Beautiful Bill Act) and S. 1071 (the NDAA for FY2026, Pub. L. 119-60).
-- **45 court writings in 28 cases**, with pages, paragraphs, footnotes and their
+- **49 court writings in 28 cases**, with pages, paragraphs, footnotes and their
   citations of the Code.
 
 ## Why agents like it
