@@ -38,10 +38,13 @@
 //!
 //! # Below the section
 //!
-//! A citation link targets the section, and the subdivision the opinion wrote,
-//! the `(e)` of `26 U.S.C. § 174(e)`, is kept only in the link's payload. It is
-//! resolved when it is read, against the printing being read, and nothing is
-//! written back (#302). A change window is read at that subdivision where both
+//! A citation link ends at the subdivision the opinion wrote, as it resolved in
+//! the printing the link was made against (#316): `26 U.S.C. § 174(a)(1)` ends
+//! at `…/section_174/subsection_a/paragraph_1`, and `26 U.S.C. § 174(e)`, which
+//! no held printing has, ends at the section and names `(e)` in its payload.
+//! A change window compares two other printings, so the subdivision is
+//! resolved again in each of them when it is read, and nothing is written back
+//! (#302). A change window is read at that subdivision where both
 //! of its printings hold it, and at the whole section where they do not, and
 //! [`ChangeWindow::at`] says which. The words of a subdivision can stay the
 //! same while the chapeau above them changes what they mean, so a window read
@@ -58,6 +61,7 @@ use crate::diff::TreeDiff;
 use crate::document::{DocumentNode, TextContentField};
 use crate::link::{Link, LinkKind, Target, VerificationState};
 use crate::method::Method;
+use crate::review::short_id;
 use crate::storage::{DocumentReader, LinkReader};
 use crate::uslm::path::covers_path;
 
@@ -202,21 +206,18 @@ pub enum Relation {
     Holds,
 }
 
-/// One provision one opinion cites, and what became of it.
+/// One provision one writing cites, and what became of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CitedProvision {
     /// Where the provision sits: a structural path, because a provision has no
     /// identity of its own yet (`docs/adr/0001-structural-paths-locate-not-identify.md`).
+    /// The deepest provision the subdivision the court wrote leads to (#316).
     pub path: String,
-    /// The text the rule matched, from the link's evidence. This is what a
-    /// reviewer checks the link against.
-    pub citation_text: Option<String>,
-    /// How far the *link* can be trusted — not the provision, and not the
-    /// opinion's text.
-    pub verification: VerificationState,
+    /// Each passage of the writing that cites the provision, in path order:
+    /// one `judicial.cites` link each.
+    pub places: Vec<CitedPlace>,
     /// Where the subdivision the opinion wrote leads in the latest printing
-    /// held: the `(a)(1)` of `174(a)(1)`. The link stops at the section and
-    /// keeps the subdivision as written, so this is resolved when it is read.
+    /// held: the `(a)(1)` of `174(a)(1)`.
     #[serde(flatten)]
     pub subdivision: Subdivision,
     /// The heading of the cited section when the latest printing held prints it
@@ -227,6 +228,28 @@ pub struct CitedProvision {
     /// How this citation stands to the path asked about.
     pub relation: Relation,
     pub since: SincePublication,
+}
+
+/// One passage that cites a provision: one `judicial.cites` link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CitedPlace {
+    /// The link's id, shortened as a report prints it. `settle` takes it.
+    pub link: String,
+    /// The paragraph or footnote that holds the citation: the link's subject.
+    /// For an opinion the dataset does not hold, its reference.
+    pub passage: String,
+    /// Each form the court wrote in the passage, once: `174(a)(1)`.
+    pub written: Vec<String>,
+    /// The written designations that lead to no provision in the printing the
+    /// link was made against, such as `(e)` of `174(e)`. Empty when every one
+    /// leads to a provision.
+    pub unresolved: Vec<String>,
+    /// The text the rule matched, from the link's evidence. This is what a
+    /// reviewer checks the link against.
+    pub citation_text: Option<String>,
+    /// How far the *link* can be trusted — not the provision, and not the
+    /// opinion's text.
+    pub verification: VerificationState,
 }
 
 /// One opinion, and the provisions it cites that the caller asked about.
@@ -240,18 +263,20 @@ pub struct CitingCase {
 /// Every opinion in this dataset that cites a provision at or under `path`, or
 /// a provision that holds it.
 ///
-/// A link targets the section, and keeps the subdivision the opinion wrote in
-/// its payload. That subdivision is resolved here, at read time, in the latest
-/// printing held ([`CitedProvision::subdivision`]). Each citation then says how
+/// A link starts at the passage that holds the citation and ends at the
+/// subdivision the opinion wrote (#316). The subdivision is resolved again here,
+/// at read time, in the latest printing held ([`CitedProvision::subdivision`]). Each citation then says how
 /// it stands to `path` ([`Relation`]): it cites `path` or a provision under it,
 /// or it cites a provision above `path` — the section alone, a subdivision that
 /// holds `path`, or a subdivision the printing does not hold. A citation whose
 /// subdivision resolves to another branch, such as (a) when (e) is asked
 /// about, is left out: that opinion does not cite `path`.
 ///
-/// In the order the opinions are named, so two runs agree. An opinion that cites
-/// the provision twice is one entry with two [`CitedProvision`]s, because two
-/// citations to one provision are two statements about one thing.
+/// In the order the opinions are named, so two runs agree. Each writing is one
+/// entry, with one [`CitedProvision`] for each provision it cites, and each
+/// passage that cites that provision is one of its [`CitedPlace`]s: one
+/// `judicial.cites` link each. So a reader asked about a section gets each
+/// writing once, grouped by the provisions in the section it cites.
 ///
 /// An empty answer means no `judicial.cites` link in the dataset names this
 /// material. Whether that is because no case cites it or because the dataset
@@ -275,51 +300,134 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
         if !covers_path(path, cited_path) && !covers_path(cited_path, path) {
             continue;
         }
-        if !printings.contains_key(cited_path) {
-            printings.insert(cited_path.clone(), reader.find_nodes(cited_path)?);
+        let Some((section, written)) = section_and_written(cited_path) else {
+            continue;
+        };
+        if !printings.contains_key(&section) {
+            printings.insert(section.clone(), reader.find_nodes(&section)?);
         }
-        let held = &printings[cited_path];
+        let held = &printings[&section];
 
-        let written = written_section(&link).unwrap_or_default();
         let latest = held
             .iter()
             .max_by(|a, b| a.0.at.cmp(&b.0.at))
             .map(|(_, section)| section);
-        let subdivision = latest.map_or(Subdivision::Section, |section| {
-            resolve_subdivision(section, written)
-        });
-        let Some(relation) = relation_to(&subdivision, cited_path, path) else {
+        let place = place_of(&link);
+        let subdivision = match latest.map(|section| resolve_subdivision(section, &written)) {
+            // The link names the section, and a place names what the court
+            // wrote below it that leads nowhere.
+            Some(Subdivision::Section) | None => match place.unresolved.first() {
+                Some(unresolved) => Subdivision::Unresolved {
+                    unresolved: unresolved.clone(),
+                },
+                None => Subdivision::Section,
+            },
+            Some(subdivision) => subdivision,
+        };
+        let Some(relation) = relation_to(&subdivision, &section, path) else {
             continue;
         };
 
         let citing = citing_of(reader, &link)?;
-        let cited = CitedProvision {
-            since: since_publication(reader, &scope, cited_path, held, written, citing.at())?,
-            path: cited_path.clone(),
-            citation_text: link
-                .provenance
-                .evidence
-                .as_ref()
-                .and_then(|evidence| evidence.reasoning.clone()),
-            verification: link.provenance.verification,
-            subdivision,
-            stub_heading: latest.and_then(stub_heading),
-            relation,
+        let case = match cases.iter_mut().position(|case| case.citing == citing) {
+            Some(index) => &mut cases[index],
+            None => {
+                cases.push(CitingCase {
+                    citing,
+                    cites: Vec::new(),
+                });
+                cases.last_mut().expect("just pushed")
+            }
         };
-
-        match cases.iter_mut().find(|case| case.citing == citing) {
-            Some(case) => case.cites.push(cited),
-            None => cases.push(CitingCase {
-                citing,
-                cites: vec![cited],
+        match case
+            .cites
+            .iter_mut()
+            .find(|cited| cited.path == *cited_path)
+        {
+            Some(cited) => cited.places.push(place),
+            None => case.cites.push(CitedProvision {
+                since: since_publication(
+                    reader,
+                    &scope,
+                    &section,
+                    held,
+                    &written,
+                    case.citing.at(),
+                )?,
+                path: cited_path.clone(),
+                places: vec![place],
+                subdivision,
+                stub_heading: latest.and_then(stub_heading),
+                relation,
             }),
         }
     }
 
     for case in &mut cases {
         case.cites.sort_by(|a, b| a.path.cmp(&b.path));
+        for cited in &mut case.cites {
+            cited.places.sort_by(|a, b| a.passage.cmp(&b.passage));
+        }
     }
     Ok(cases)
+}
+
+/// The section a cited path is in, and the path below it written as a court
+/// writes a citation: `section_174` and `174(a)(1)` for
+/// `…/section_174/subsection_a/paragraph_1`. `None` for a path in no section.
+///
+/// A link ends at the subdivision it resolved to in one printing (#316), and a
+/// change window compares two others. Written again as a citation, the
+/// subdivision is resolved in each printing the way the court's own words are,
+/// so a subdivision added or removed between two printings is said, not
+/// guessed.
+fn section_and_written(cited_path: &str) -> Option<(String, String)> {
+    let segments: Vec<&str> = cited_path.split('/').collect();
+    let at = segments
+        .iter()
+        .position(|segment| segment.starts_with("section_"))?;
+    let number = segments[at].strip_prefix("section_")?;
+    let below: String = segments[at + 1..]
+        .iter()
+        .filter_map(|segment| segment.split_once('_'))
+        .map(|(_, designation)| format!("({designation})"))
+        .collect();
+    Some((segments[..=at].join("/"), format!("{number}{below}")))
+}
+
+/// One link, as the place a passage cites a provision.
+fn place_of(link: &Link) -> CitedPlace {
+    let value = link.payload.as_ref().map(|payload| &payload.value);
+    let places = value
+        .and_then(|value| value["occurrences"].as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut written: Vec<String> = Vec::new();
+    let mut unresolved: Vec<String> = Vec::new();
+    for place in places {
+        if let Some(form) = place["written"].as_str()
+            && !written.iter().any(|known| known == form)
+        {
+            written.push(form.to_string());
+        }
+        if let Some(part) = place["unresolved"].as_str()
+            && !unresolved.iter().any(|known| known == part)
+        {
+            unresolved.push(part.to_string());
+        }
+    }
+    CitedPlace {
+        link: short_id(&link.id()).to_string(),
+        passage: link.subject.name(),
+        written,
+        unresolved,
+        citation_text: link
+            .provenance
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.reasoning.clone()),
+        verification: link.provenance.verification,
+    }
 }
 
 /// Every window of consecutive printings this dataset holds, and whether the
@@ -361,14 +469,6 @@ fn relation_to(subdivision: &Subdivision, cited_path: &str, asked: &str) -> Opti
     }
 }
 
-/// The section as the opinion wrote it, `174(a)(1)`, from the link's payload.
-fn written_section(link: &Link) -> Option<&str> {
-    link.payload
-        .as_ref()
-        .and_then(|payload| payload.value.get("section"))
-        .and_then(|section| section.as_str())
-}
-
 /// Who the citing opinion is, and whether this dataset holds it.
 fn citing_of<R: DocumentReader + ?Sized>(reader: &R, link: &Link) -> Result<Citing, DatasetError> {
     let path = match &link.subject {
@@ -390,6 +490,10 @@ fn citing_of<R: DocumentReader + ?Sized>(reader: &R, link: &Link) -> Result<Citi
         }
     };
 
+    // The writing that holds the passage: `judicial/case_<cluster>/opinion_<id>`.
+    // Two writings of one case are two entries, and two passages of one
+    // writing are one.
+    let path = &super::writing_of(path).to_string();
     let found = reader.find_nodes(path)?;
     let Some((expression, node)) = found.into_iter().next() else {
         return Ok(Citing::NotHeld {

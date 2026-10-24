@@ -124,7 +124,7 @@ fn should_link_the_opinion_to_the_provision_when_the_dataset_holds_the_title() {
 }
 
 #[test]
-fn should_keep_the_subsection_in_the_payload_when_the_citation_names_one() {
+fn should_end_at_the_subsection_and_keep_the_written_form_when_the_citation_names_one() {
     let (dataset, paths) = dataset_holding(&[(TITLE_26, "uscode/title_26")]);
     let scope = dataset.scope().expect("scope should derive");
 
@@ -139,15 +139,16 @@ fn should_keep_the_subsection_in_the_payload_when_the_citation_names_one() {
     let cited = resolve(citation, &scope, &paths);
     let links = cites_links(&obergefell(), citation, &cited);
 
-    // The path stops at the section. A citation's own subsection cannot be
-    // trusted at that depth -- the published example `981(a)(l)(C)` has a
-    // lower-case L where the provision has a paragraph (1) -- so the subsection
-    // is recorded as written instead of resolved.
-    assert_eq!(links[0].object, Target::Node(SECTION_174.to_string()));
+    // The path ends at the subdivision the court wrote (ADR 0014, decision 6;
+    // #316), and the form as written travels in the payload with the place.
     assert_eq!(
-        links[0].payload.as_ref().expect("a payload").value["section"],
-        "174(a)"
+        links[0].object,
+        Target::Node(format!("{SECTION_174}/subsection_a"))
     );
+    let place = &links[0].payload.as_ref().expect("a payload").value["occurrences"][0];
+    assert_eq!(place["written"], "174(a)");
+    assert_eq!(place["words"], "26 U.S.C. § 174(a)");
+    assert_eq!(place["start"], 19, "after \"the election under \"");
 }
 
 #[test]

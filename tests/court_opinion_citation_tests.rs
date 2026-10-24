@@ -536,28 +536,33 @@ fn should_answer_which_opinions_cite_section_174_and_whether_it_changed_after_ea
          set because it does not"
     );
 
-    for case in &cases {
+    // Since #316 a writing cites each provision it wrote: the section, or the
+    // subdivision written, such as (a)(1). Each is in § 174.
+    for (case, cited) in cases
+        .iter()
+        .flat_map(|case| case.cites.iter().map(move |cited| (case, cited)))
+    {
         let name = case.citing.display();
-        assert_eq!(
-            case.cites.len(),
-            1,
-            "{name} cites the one section asked about"
-        );
-        let cited = &case.cites[0];
-
-        assert_eq!(
-            cited.verification,
-            VerificationState::MachineSuggested,
-            "{name}: a rule matched some text and no person has looked at it"
-        );
         assert!(
-            cited
-                .citation_text
-                .as_deref()
-                .is_some_and(|matched| matched.contains("174")),
-            "{name}: the matched text travels with the link as evidence, got {:?}",
-            cited.citation_text
+            cited.path.starts_with(SECTION_174),
+            "{name} cites a provision in the section asked about: {}",
+            cited.path
         );
+        for place in &cited.places {
+            assert_eq!(
+                place.verification,
+                VerificationState::MachineSuggested,
+                "{name}: a rule matched some text and no person has looked at it"
+            );
+            assert!(
+                place
+                    .citation_text
+                    .as_deref()
+                    .is_some_and(|matched| matched.contains("174")),
+                "{name}: the matched text travels with the link as evidence, got {:?}",
+                place.citation_text
+            );
+        }
 
         assert_eq!(cited.since.coverage, Coverage::InScope);
         assert_eq!(

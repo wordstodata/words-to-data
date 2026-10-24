@@ -336,6 +336,14 @@ pub fn print_citations(citations: &[CitationLink], total: usize) {
             trust_of(citation.verification, citation.review.as_ref()),
             citation.id
         );
+        if !citation.unresolved.is_empty() {
+            println!(
+                "    {} of what the court wrote leads to no provision in the printing \
+                 the link was made against, so the link ends at {}",
+                citation.unresolved.join(", "),
+                citation.cited_path
+            );
+        }
         if let Some(stub) = &citation.stub_heading {
             println!(
                 "    the cited {} is now a stub: {stub}. That is its heading in the latest \

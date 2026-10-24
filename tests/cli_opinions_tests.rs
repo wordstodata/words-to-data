@@ -171,7 +171,13 @@ fn should_count_the_citation_links_each_opinion_makes_when_the_dataset_holds_the
         let path = row["path"].as_str().expect("a writing path");
         let made = links
             .iter()
-            .filter(|link| link.subject.path() == Some(path))
+            // Since #316 the subject is the paragraph or footnote inside the
+            // writing that holds the citation.
+            .filter(|link| {
+                link.subject
+                    .path()
+                    .is_some_and(|subject| subject.starts_with(&format!("{path}/")))
+            })
             .count();
         assert_eq!(
             row["cites"], made,

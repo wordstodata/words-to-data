@@ -40,8 +40,12 @@ use crate::storage::{DocumentReader, LinkReader, Storage};
 
 /// The carry, named, at the version it is at now. Raise the version when the
 /// map gives other answers.
+///
+/// Version 2 (#316) reads every written form of a link, from the places in its
+/// payload, so an old link matches a new link that holds its form at any
+/// place. Version 1 read the one form a link held.
 pub fn carry_method() -> Method {
-    Method::new("citation-review-carry", 1)
+    Method::new("citation-review-carry", 2)
 }
 
 /// What a citation link says, apart from where the paths put it.
@@ -50,10 +54,12 @@ pub fn carry_method() -> Method {
 /// same section and the same written form. The subject path and the object path
 /// can change in a rebuild, and these three cannot.
 ///
-/// **Keep this in step with `cites_link`.** When the shape of a citation link
-/// changes (#316 moves the subject to the paragraph and the object to the
-/// subdivision, and puts each place the court wrote it in the payload), this is
-/// the one place that must read the new shape too.
+/// **Keep this in step with the citation link.** When the shape of a citation
+/// link changes, this is the one place that must read the new shape too. Since
+/// #316 the subject is the paragraph (its path still holds the
+/// `opinion_<id>` segment), the object is the subdivision (its path still holds
+/// the `section_<n>` segment), and the written forms are in the payload's
+/// `occurrences`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Statement {
     /// The CourtListener opinion record that holds the words: `109019`, or
@@ -66,7 +72,7 @@ pub struct Statement {
     /// The section cited, as its title's work and its section segment:
     /// `uscode/title_26/section_174`.
     pub section: String,
-    /// The forms the court wrote, as the payload holds them: `174(a)(1)`.
+    /// Every form the court wrote, as the payload holds them: `174(a)(1)`.
     pub written: Vec<String>,
 }
 
@@ -101,8 +107,7 @@ impl Statement {
         let written = link
             .payload
             .as_ref()
-            .and_then(|payload| payload.value["section"].as_str())
-            .map(|form| vec![form.to_string()])
+            .map(|payload| written_forms(&payload.value))
             .unwrap_or_default();
         Some(Self {
             record,
@@ -141,6 +146,28 @@ impl Statement {
                 .as_ref()
                 .is_some_and(|case| sources.get(&self.record) == Some(case))
     }
+}
+
+/// Every form the court wrote, as a citation payload holds them, each once, in
+/// the order of the payload.
+///
+/// A link made since #316 holds each place the court wrote it under
+/// `occurrences`, each with its `written` form, and one link can hold several
+/// forms: `174(a)(1)` and `174 (a)(1)` lead to one subdivision. A link made
+/// before #316 holds one form, under `section`. Both are read, so an old link
+/// matches a new one when one of its forms is among the new link's.
+fn written_forms(payload: &serde_json::Value) -> Vec<String> {
+    let mut forms: Vec<String> = Vec::new();
+    let places = payload["occurrences"].as_array().into_iter().flatten();
+    let written = places
+        .filter_map(|place| place["written"].as_str())
+        .chain(payload["section"].as_str());
+    for form in written {
+        if !forms.iter().any(|known| known == form) {
+            forms.push(form.to_string());
+        }
+    }
+    forms
 }
 
 /// The combined records each case keeps only as a source: record id to case.

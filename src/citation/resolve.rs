@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::dataset::{Coverage, Scope};
-use crate::document::{DocumentNode, NodeType};
+use crate::document::{DocumentNode, NodeData, NodeType};
 use crate::legislature::redesignation::{Step, walk_down};
 use crate::uslm::{ElementType, UslmFacts};
 
@@ -59,6 +59,11 @@ pub struct SectionPaths {
     /// The heading of every indexed section that is a stub, by path
     /// ([`stub_heading`]).
     stubs: BTreeMap<String, String>,
+    /// The shape of every indexed section, by path: its nodes and their paths,
+    /// with no words. Enough to walk a written subdivision down to the
+    /// provision it names ([`reach`]), and small: a title of the Code is tens of
+    /// thousands of nodes, and their words are most of its size.
+    shapes: BTreeMap<String, DocumentNode>,
 }
 
 impl SectionPaths {
@@ -81,6 +86,8 @@ impl SectionPaths {
             if let Some(heading) = stub_heading(work) {
                 self.stubs.insert(work.data.path.to_string(), heading);
             }
+            self.shapes
+                .insert(work.data.path.to_string(), shape_of(work));
         }
         for child in &work.children {
             self.add_work(child);
@@ -105,6 +112,19 @@ impl SectionPaths {
     /// when the indexed work prints it as a stub ([`stub_heading`]).
     pub fn stub_at(&self, path: &str) -> Option<&str> {
         self.stubs.get(path).map(String::as_str)
+    }
+
+    /// Where the subdivision written as `written` leads below the section at
+    /// `path` ([`reach`]). The section itself, with nothing unresolved, when the
+    /// index does not hold the section's shape.
+    pub fn reach(&self, path: &str, written: &str) -> Reached {
+        match self.shapes.get(path) {
+            Some(section) => reach(section, written),
+            None => Reached {
+                path: path.to_string(),
+                unresolved: None,
+            },
+        }
     }
 
     /// How many identifiers are indexed.
@@ -145,6 +165,23 @@ pub struct CitedSection {
     /// ([`UscCitation::uslm_id`]).
     pub uslm_id: String,
     pub resolution: Resolution,
+    /// Where the subdivision written leads below each path of
+    /// [`Resolution::Provision`], in the same order. Empty for a section that
+    /// did not resolve.
+    pub reached: Vec<Reached>,
+}
+
+/// The deepest provision a written subdivision leads to, and the part of it
+/// that leads nowhere.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reached {
+    /// The deepest path the written designations lead to: the section when the
+    /// citation writes none, or when the first of them leads nowhere.
+    pub path: String,
+    /// The designations from the first one that leads nowhere, as written:
+    /// `(e)` of `174(e)`, `(l)(B)(i)` of `41(d)(l)(B)(i)`. `None` when every
+    /// designation leads to a provision.
+    pub unresolved: Option<String>,
 }
 
 /// Resolve every section a citation names.
@@ -172,10 +209,18 @@ pub fn resolve(citation: &UscCitation, scope: &Scope, paths: &SectionPaths) -> V
                 },
             },
         };
+        let reached = match &resolution {
+            Resolution::Provision { paths: found } => found
+                .iter()
+                .map(|path| paths.reach(path, section))
+                .collect(),
+            _ => Vec::new(),
+        };
         CitedSection {
             section: section.clone(),
             uslm_id,
             resolution,
+            reached,
         }
     };
 
@@ -214,34 +259,72 @@ pub enum Subdivision {
 /// Resolve the subdivision a citation wrote, such as the `(a)(1)` of
 /// `174(a)(1)`, below one printing of its section.
 ///
-/// A link stores the section and keeps the subdivision as written, because a
-/// citation cannot be trusted at that depth (`CONTEXT.md`, *Citation*). This
-/// resolves it at read time, against the printing the reader is looking at, and
-/// writes nothing. A designation the printing does not hold is reported by
-/// name rather than guessed at: the published example `981(a)(l)(C)` has a
-/// lower-case L where the provision has a paragraph `(1)`.
+/// A link ends at the subdivision it resolved to in the printing it was made
+/// against ([`reach`], #316). A reader resolves the subdivision again against
+/// the printing it is looking at, and writes nothing. A designation the
+/// printing does not hold is reported by name rather than guessed at: the
+/// published example `981(a)(l)(C)` has a lower-case L where the provision has
+/// a paragraph `(1)`.
 ///
 /// The walk is the one an amendment's address takes below its section, so a
 /// citation and an amendment resolve a designation alike.
 pub fn resolve_subdivision(section: &DocumentNode, written: &str) -> Subdivision {
-    let designations = subdivisions(written);
-    if designations.is_empty() {
+    if subdivisions(written).is_empty() {
         return Subdivision::Section;
     }
+    match reach(section, written) {
+        Reached {
+            unresolved: Some(unresolved),
+            ..
+        } => Subdivision::Unresolved { unresolved },
+        Reached { path, .. } => Subdivision::Resolved {
+            resolved_path: path,
+        },
+    }
+}
 
+/// Where the subdivision a citation wrote leads below one printing of its
+/// section: the deepest provision its designations name, and the designations
+/// from the first one that names nothing (ADR 0014, decision 6). `41(d)(l)(B)(i)`
+/// leads to (d), and `(l)(B)(i)` is the part that leads nowhere: the `(l)` is an
+/// OCR misreading of `(1)`, and it is named, never repaired.
+///
+/// The walk is the one an amendment's address takes below its section, so a
+/// citation and an amendment resolve a designation alike.
+pub fn reach(section: &DocumentNode, written: &str) -> Reached {
+    let designations = subdivisions(written);
     let mut current = section;
-    for designation in designations {
-        match walk_down(current, &[Step::numbered(designation)]) {
+    for (index, designation) in designations.iter().enumerate() {
+        match walk_down(current, &[Step::numbered(*designation)]) {
             Ok(next) => current = next,
             Err(_) => {
-                return Subdivision::Unresolved {
-                    unresolved: format!("({designation})"),
+                return Reached {
+                    path: current.data.path.to_string(),
+                    unresolved: Some(
+                        designations[index..]
+                            .iter()
+                            .map(|part| format!("({part})"))
+                            .collect(),
+                    ),
                 };
             }
         }
     }
-    Subdivision::Resolved {
-        resolved_path: current.data.path.to_string(),
+    Reached {
+        path: current.data.path.to_string(),
+        unresolved: None,
+    }
+}
+
+/// The shape of a section: each node with its path and type, and no words.
+fn shape_of(node: &DocumentNode) -> DocumentNode {
+    DocumentNode {
+        data: NodeData::new(
+            node.data.path.clone(),
+            node.data.node_type.clone(),
+            node.data.date,
+        ),
+        children: node.children.iter().map(shape_of).collect(),
     }
 }
 

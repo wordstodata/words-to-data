@@ -2,10 +2,12 @@
 //!
 //! Each opinion id names a case. The case becomes one expression of one work,
 //! `judicial/case_<cluster>`, with each writing as a child, and every U.S. Code
-//! citation in a writing's text becomes a `judicial.cites` link from that
-//! writing (#53, `docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`).
-//! The text read is the writing's whole text, also where its words are stored
-//! in its paragraphs and footnotes (#314), so no citation is lost to the split.
+//! citation in a writing's text becomes a `judicial.cites` link from the
+//! paragraph or footnote that holds it to the subdivision the court wrote
+//! (#53, #316, `docs/adr/0014-a-case-is-a-work-and-a-citation-runs-paragraph-to-subdivision.md`,
+//! decisions 5 and 6). Each passage is read on its own, so the offset of a
+//! citation is an offset in the words of the passage the link starts at. A
+//! writing that holds its whole text itself is one passage.
 //!
 //! A case is read whole: the cluster, which carries the date the court filed
 //! it, and every opinion record the cluster lists. So a case costs one request
@@ -22,12 +24,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use clap::Args as ClapArgs;
 use words_to_data::citation::default_code::{self, DefaultCode};
 use words_to_data::citation::resolve::{Resolution, SectionPaths, resolve};
-use words_to_data::citation::{Opinion, cites_links, usc};
+use words_to_data::citation::{Opinion, citations_by_passage, cites_links_in, usc};
 use words_to_data::courtlistener::{
     ClusterRecord, CourtListenerClient, OpinionRecord, case_expression,
 };
 use words_to_data::dataset::{Dataset, ExpressionId, WorkId};
-use words_to_data::judicial::{CaseFacts, OpinionFacts};
+use words_to_data::judicial::{CaseFacts, OpinionFacts, passages};
 use words_to_data::storage::Storage;
 
 #[derive(ClapArgs)]
@@ -200,11 +202,9 @@ fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClie
             // of the opinion, and one of those characters is the section sign
             // every U.S.C. citation needs. Never silent.
             writing.report.print_to_stderr();
-            // The whole writing, whichever of its nodes holds the words. The
-            // citation links stay on the writing until #316 starts them at the
-            // paragraph.
+            // The passages that hold the words: each citation starts at the
+            // paragraph or footnote that holds it (#316).
             let node = expression.root.find(&writing.path);
-            let text = writing.text.clone();
             let facts = node.and_then(|node| OpinionFacts::of(&node.data));
             println!(
                 "  {}  {}  [{} / {} / {:?}]  {} chars",
@@ -216,16 +216,20 @@ fn add_opinions<S: Storage>(dataset: &mut Dataset<S>, client: &CourtListenerClie
                 writing.source.field,
                 writing.source.method,
                 writing.source.verification,
-                text.chars().count(),
+                writing.text.chars().count(),
             );
+            let passages = node.map(passages).unwrap_or_default();
             stored.push(Stored {
-                opinion: Opinion::held(
-                    writing.path.clone(),
-                    writing.opinion_id.to_string(),
-                    cluster.display(),
-                ),
                 path: writing.path.clone(),
-                text,
+                passages: passages
+                    .into_iter()
+                    .map(|(path, words)| {
+                        (
+                            Opinion::held(path, writing.opinion_id.to_string(), cluster.display()),
+                            words.to_string(),
+                        )
+                    })
+                    .collect(),
                 default: default.clone(),
             });
         }
@@ -256,39 +260,44 @@ fn cluster_sources(expression: &words_to_data::dataset::Expression) -> String {
         .join(", ")
 }
 
-/// One writing as stored: who it is, its whole text, and the default code its
-/// case names, if any.
+/// One writing as stored: its path, each passage that holds its words, and the
+/// default code its case names, if any.
 struct Stored {
-    opinion: Opinion,
     path: String,
-    text: String,
+    /// Each paragraph or footnote, as the passage a citation in it starts at,
+    /// with its words.
+    passages: Vec<(Opinion, String)>,
     default: Option<DefaultCode>,
 }
 
-/// Read every U.S. Code citation out of each opinion and write the links.
+/// Read every U.S. Code citation out of each passage and write the links.
 fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
-    // What each opinion cites, read once. The text is the text that was stored,
-    // so an offset in a link means the same thing as an offset in the file.
+    // What each passage cites, read once. The words are the words that were
+    // stored, so an offset in a link means the same thing as an offset in the
+    // passage the link starts at. Each writing is read whole, so a citation
+    // that runs across a paragraph break is still read
+    // (`citations_by_passage`).
     let mut bare_reads = 0;
-    let found: Vec<(&Opinion, Vec<usc::UscCitation>)> = stored
-        .iter()
-        .map(|writing| {
-            let (mut citations, report) = usc::find_with_report(&writing.text);
-            report.print_to_stderr();
-            if let Some(default) = &writing.default {
-                let bare = default_code::find_bare(&writing.text, default, &citations);
-                println!(
-                    "  {}: {} bare reference(s) read under the default code stated in {}",
-                    writing.path,
-                    bare.len(),
-                    default.stated_in,
-                );
-                bare_reads += bare.len();
-                citations.extend(bare);
-            }
-            (&writing.opinion, citations)
-        })
-        .collect();
+    let mut found: Vec<(&Opinion, Vec<usc::UscCitation>)> = Vec::new();
+    for writing in stored {
+        let passages: Vec<(&str, &str)> = writing
+            .passages
+            .iter()
+            .map(|(passage, words)| (passage.held_as().unwrap_or_default(), words.as_str()))
+            .collect();
+        let read = citations_by_passage(&passages, writing.default.as_ref());
+        read.report.print_to_stderr();
+        if let Some(default) = &writing.default {
+            println!(
+                "  {}: {} bare reference(s) read under the default code stated in {}",
+                writing.path, read.bare, default.stated_in,
+            );
+        }
+        bare_reads += read.bare;
+        for ((passage, _), (_, citations)) in writing.passages.iter().zip(read.by_passage) {
+            found.push((passage, citations));
+        }
+    }
 
     let titles: BTreeSet<WorkId> = found
         .iter()
@@ -303,40 +312,58 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
     let mut out_of_scope = 0;
     let mut absent = 0;
     let mut on_a_stub = 0;
-    for (opinion, citations) in &found {
+    let mut below_the_section = 0;
+    let mut unresolved = 0;
+    for (passage, citations) in &found {
+        let mut resolved = Vec::new();
         for citation in citations {
             let cited = resolve(citation, &scope, &paths);
             for section in &cited {
                 match section.resolution {
                     Resolution::OutOfScope | Resolution::Gap => out_of_scope += 1,
                     Resolution::Absent => absent += 1,
-                    Resolution::Provision { .. } => {}
+                    Resolution::Provision { .. } => stated += section.reached.len(),
                 }
+                unresolved += section
+                    .reached
+                    .iter()
+                    .filter(|reached| reached.unresolved.is_some())
+                    .count();
             }
-            for link in cites_links(opinion, citation, &cited) {
-                distinct.insert(link.id());
-                stated += 1;
-                if link
-                    .object
-                    .path()
-                    .and_then(|path| paths.stub_at(path))
-                    .is_some()
-                {
+            resolved.push((citation.clone(), cited));
+        }
+        for link in cites_links_in(passage, &resolved) {
+            distinct.insert(link.id());
+            if let Some(path) = link.object.path() {
+                if paths.stub_at(path).is_some() {
                     on_a_stub += 1;
                 }
-                crate::fail::or_exit(dataset.add_link(link), "Error storing a citation link");
+                if !path
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|last| last.starts_with("section_"))
+                {
+                    below_the_section += 1;
+                }
             }
+            crate::fail::or_exit(dataset.add_link(link), "Error storing a citation link");
         }
     }
 
     // Both figures, because they are different facts. A link is identified by
-    // what it says, so one case citing one section five times states the link
-    // five times and the dataset holds it once
+    // what it says: a passage that cites one subdivision twice is one link,
+    // and its payload holds both places
     // (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
     println!(
         "\n{stated} citation(s) resolved to a provision, which is {} distinct \
-         judicial.cites link(s).",
+         judicial.cites link(s), each from the paragraph or footnote that holds it.",
         distinct.len()
+    );
+    println!(
+        "{below_the_section} of the links end below the section, at the subdivision \
+         the court wrote. {unresolved} citation(s) wrote a subdivision that does not \
+         resolve in the printing used: each ends at the deepest part that does, and \
+         its payload names the part that does not."
     );
     // A bare reference is read only because its case names a default code, so
     // the count is its own line (#318).

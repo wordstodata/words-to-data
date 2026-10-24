@@ -438,11 +438,12 @@ impl UscCitation {
 
     /// The USLM identifier of one cited section: `/us/usc/t26/s174`.
     ///
-    /// A subsection the citation names is deliberately dropped, so
-    /// `981(a)(l)(C)` resolves to section 981. The published example shows why:
-    /// its `(l)` is a lower-case L where the provision has a paragraph `(1)`.
-    /// Text that cannot be trusted at that depth must not be resolved at that
-    /// depth.
+    /// A subsection the citation names is not part of it: the identifier
+    /// names the section, `981` of `981(a)(l)(C)`. The designations are walked
+    /// below the section in a printing (`super::resolve::reach`), and the walk
+    /// stops at the first one the printing does not hold and names it. The
+    /// published example shows why the walk must be able to stop: its `(l)` is
+    /// a lower-case L where the provision has a paragraph `(1)`.
     pub fn uslm_id(&self, section: &str) -> String {
         format!("/us/usc/t{}/s{}", self.title, section_number(section))
     }

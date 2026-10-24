@@ -146,7 +146,11 @@ fn should_list_an_opinion_as_citing_a_path_that_holds_the_asked_path_when_it_wro
     assert_eq!(
         works_where(&cases, Relation::Holds),
         set(&[
-            // The section alone.
+            // The section alone. Boeing and its dissent also write
+            // "26 U. S. C. § 174" alone, which a link of one writing and one
+            // section lost before #316.
+            "judicial/case_122262/opinion_9434364",
+            "judicial/case_122262/opinion_9434365",
             "judicial/case_1527901/opinion_1527901",
             "judicial/case_7029371/opinion_6931314",
             "judicial/case_8998794/opinion_8991218",
@@ -175,8 +179,6 @@ fn should_leave_out_an_opinion_whose_subdivision_resolves_to_another_branch_when
     let reached: BTreeSet<String> = cases.iter().map(work_of).collect();
     for wrote_a in [
         "judicial/case_109019/opinion_109019",
-        "judicial/case_122262/opinion_9434364",
-        "judicial/case_122262/opinion_9434365",
         "judicial/case_6248/opinion_6248",
         "judicial/case_406879/opinion_406879",
     ] {
@@ -185,19 +187,33 @@ fn should_leave_out_an_opinion_whose_subdivision_resolves_to_another_branch_when
             "{wrote_a} wrote § 174(a), which is not (b) and does not hold it, got {reached:?}"
         );
     }
+    // Boeing and its dissent write § 174(a)(1), and § 174 alone too. Only the
+    // section is listed: it holds (b).
+    let subsection_a = format!("{SECTION_174}/subsection_a");
+    let cited: Vec<&str> = cases
+        .iter()
+        .flat_map(|case| case.cites.iter().map(|cited| cited.path.as_str()))
+        .collect();
+    assert!(
+        !cited.iter().any(|path| path.starts_with(&subsection_a)),
+        "no citation of (a) is listed for (b): {cited:?}"
+    );
     assert!(works_where(&cases, Relation::Within).is_empty());
-    assert_eq!(works_where(&cases, Relation::Holds).len(), 4);
+    assert_eq!(works_where(&cases, Relation::Holds).len(), 6);
 }
 
-/// The one citation an opinion makes to § 174, asked about at the section.
-fn citation_by(work: &str) -> reliance::CitedProvision {
+/// The citation an opinion makes of the provision at `path` in § 174, asked
+/// about at the section.
+fn citation_by(work: &str, path: &str) -> reliance::CitedProvision {
     let cases = reliance::cases_citing(&dataset(), SECTION_174).expect("the query should run");
     let case = cases
         .into_iter()
         .find(|case| work_of(case) == work)
         .unwrap_or_else(|| panic!("{work} cites § 174"));
-    assert_eq!(case.cites.len(), 1, "{work} has one link to § 174");
-    case.cites.into_iter().next().expect("one citation")
+    case.cites
+        .into_iter()
+        .find(|cited| cited.path == path)
+        .unwrap_or_else(|| panic!("{work} cites {path}"))
 }
 
 #[test]
@@ -206,7 +222,7 @@ fn should_measure_a_change_window_at_the_written_subdivision_when_it_resolves_in
 
     // Boeing wrote § 174(a)(1). Between the two printings § 174 changed at
     // (a), (a)(2)(B), (b) and (d), and not at (a)(1).
-    let boeing = citation_by("judicial/case_122262/opinion_9434364");
+    let boeing = citation_by("judicial/case_122262/opinion_9434364", &paragraph_1);
     assert_eq!(
         boeing.subdivision,
         Subdivision::Resolved {
@@ -225,8 +241,8 @@ fn should_measure_a_change_window_at_the_written_subdivision_when_it_resolves_in
     );
 
     // Encyclopaedia Britannica wrote § 174(a), and (a) did change.
-    let britannica = citation_by("judicial/case_406879/opinion_406879");
     let subsection_a = format!("{SECTION_174}/subsection_a");
+    let britannica = citation_by("judicial/case_406879/opinion_406879", &subsection_a);
     assert_eq!(britannica.since.windows[0].at, subsection_a);
     assert!(britannica.since.windows[0].changed);
 }
@@ -235,7 +251,7 @@ fn should_measure_a_change_window_at_the_written_subdivision_when_it_resolves_in
 fn should_measure_a_change_window_at_the_whole_section_when_the_written_subdivision_is_not_held() {
     // Shami wrote § 174(e). No held printing has an (e): § 174 runs from (a) to
     // (d) in 2025.
-    let shami = citation_by("judicial/case_2651100/opinion_2651100");
+    let shami = citation_by("judicial/case_2651100/opinion_2651100", SECTION_174);
 
     assert_eq!(
         shami.subdivision,
@@ -284,8 +300,9 @@ fn should_print_the_opinions_that_cite_a_path_above_the_asked_path_in_their_own_
         "Snow, Boeing, its dissent and Harris wrote (a)(1), got:\n{printed}"
     );
     assert!(
-        printed.contains("5 opinion(s) cite a provision that holds this path"),
-        "the section alone, (e) and (a) hold (a)(1), got:\n{printed}"
+        printed.contains("7 opinion(s) cite a provision that holds this path"),
+        "the section alone (Boeing and its dissent also write it), (e) and (a) \
+         hold (a)(1), got:\n{printed}"
     );
     assert_eq!(
         listed_as_not_citing(&printed),
@@ -358,8 +375,8 @@ fn should_say_the_asked_path_is_in_no_printing_and_keep_the_section_citations_wh
         "four opinions cite the section that holds it, got:\n{printed}"
     );
     assert!(
-        printed.contains("4 opinion(s) cite a provision that holds this path"),
-        "the three that wrote § 174 alone, and Shami's (e), got:\n{printed}"
+        printed.contains("6 opinion(s) cite a provision that holds this path"),
+        "the five that wrote § 174 alone, and Shami's (e), got:\n{printed}"
     );
     assert_eq!(
         listed_as_not_citing(&printed),
@@ -367,7 +384,6 @@ fn should_say_the_asked_path_is_in_no_printing_and_keep_the_section_citations_wh
             "judicial/case_2812209",
             // § 174(a) and § 174(a)(1): another branch of the section.
             "judicial/case_109019",
-            "judicial/case_122262",
             "judicial/case_6248",
             "judicial/case_406879",
         ]),

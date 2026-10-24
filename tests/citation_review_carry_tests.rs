@@ -144,14 +144,36 @@ fn confirmed_by_tester() -> Review {
     }
 }
 
-/// The citation links in the rebuilt dataset from `subject` to `object`.
-fn new_links(dataset: &str, subject: &str, object: &str) -> Vec<Link> {
+/// The citation links in the rebuilt dataset from a passage of the writing
+/// `writing` to the section `section` or a subdivision of it, with `written`
+/// among the forms the court wrote.
+///
+/// Since #316 a citation starts at the paragraph or footnote that holds it and
+/// ends at the subdivision written, so the old link from the writing to the
+/// section is a new link from a passage of the writing to a path in the
+/// section.
+fn new_links(dataset: &str, writing: &str, section: &str, written: &str) -> Vec<Link> {
+    let under = |path: Option<&str>, above: &str| {
+        path.is_some_and(|path| path == above || path.starts_with(&format!("{above}/")))
+    };
     let dataset = Dataset::open_sqlite(dataset).expect("the rebuilt dataset should open");
     dataset
         .links_by_kind(LinkKind::CITES)
         .expect("the links should read")
         .into_iter()
-        .filter(|link| link.subject.path() == Some(subject) && link.object.path() == Some(object))
+        .filter(|link| under(link.subject.path(), writing) && under(link.object.path(), section))
+        .filter(|link| {
+            let places = &link
+                .payload
+                .as_ref()
+                .expect("a citation has a payload")
+                .value["occurrences"];
+            places
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|place| place["written"] == written)
+        })
         .collect()
 }
 
@@ -173,9 +195,14 @@ fn should_carry_a_confirmation_to_the_new_link_when_the_rebuild_moved_the_citing
         &[(reviewed.clone(), confirmed_by_tester())],
     );
     let new = rebuilt("carry_snow_new");
-    let [renamed] = new_links(&new, "judicial/case_109019/opinion_109019", SECTION_174)
-        .try_into()
-        .expect("the rebuild holds one link from Snow's writing to § 174");
+    let [renamed] = new_links(
+        &new,
+        "judicial/case_109019/opinion_109019",
+        SECTION_174,
+        "174(a)(1)",
+    )
+    .try_into()
+    .expect("the rebuild holds one link from Snow's writing to § 174(a)(1)");
     assert_ne!(
         renamed.id(),
         reviewed.id(),
@@ -219,22 +246,37 @@ fn should_carry_a_refutation_to_the_writing_that_wrote_the_same_form_when_the_ol
     };
     let old = old_with_reviews("carry_boeing_old", &[(reviewed.clone(), refuted)]);
     let new = rebuilt("carry_boeing_new");
-    let [majority] = new_links(&new, "judicial/case_122262/opinion_9434364", SECTION_994)
-        .try_into()
-        .expect("the Court's opinion cites § 994 once");
-    let [dissent] = new_links(&new, "judicial/case_122262/opinion_9434365", SECTION_994)
-        .try_into()
-        .expect("the dissent cites § 994 once");
+    let majority = new_links(
+        &new,
+        "judicial/case_122262/opinion_9434364",
+        SECTION_994,
+        "994(a)(2)",
+    );
+    assert_eq!(
+        majority.len(),
+        2,
+        "the Court's opinion writes \"994(a)(2)\" in two passages"
+    );
+    let [dissent] = new_links(
+        &new,
+        "judicial/case_122262/opinion_9434365",
+        SECTION_994,
+        "994",
+    )
+    .try_into()
+    .expect("the dissent cites § 994 once");
 
     stdout_of(&run(&["carry-reviews", &new, "--from", &old]));
 
-    let records = reviews_of(&new, &majority);
-    let winning = review::newest(&records).expect("the Court's opinion carries the review");
-    assert_eq!(winning.verdict, Verdict::Refuted);
-    assert_eq!(
-        Carried::read(&records[0]).map(|carried| carried.link),
-        Some(reviewed.id())
-    );
+    for link in &majority {
+        let records = reviews_of(&new, link);
+        let winning = review::newest(&records).expect("each passage carries the review");
+        assert_eq!(winning.verdict, Verdict::Refuted);
+        assert_eq!(
+            Carried::read(&records[0]).map(|carried| carried.link),
+            Some(reviewed.id())
+        );
+    }
     assert!(
         reviews_of(&new, &dissent).is_empty(),
         "the dissent wrote another form, so the review is not about its link"
@@ -303,9 +345,14 @@ fn should_copy_the_review_as_it_is_when_the_rebuild_made_the_same_link_again() {
     // § 174, with the same id. The review needs no carry: the same record
     // names the right link in both (#295, its first case).
     let old = rebuilt("carry_same_old");
-    let [reviewed] = new_links(&old, "judicial/case_109019/opinion_109019", SECTION_174)
-        .try_into()
-        .expect("today's build holds one link from Snow's writing to § 174");
+    let [reviewed] = new_links(
+        &old,
+        "judicial/case_109019/opinion_109019",
+        SECTION_174,
+        "174(a)(1)",
+    )
+    .try_into()
+    .expect("today's build holds one link from Snow's writing to § 174(a)(1)");
     let written = confirmed_by_tester().about(&reviewed);
     {
         let mut dataset = Dataset::open_sqlite(&old).expect("the old dataset should open");
@@ -341,6 +388,7 @@ fn should_carry_a_review_to_the_writing_a_rule_found_when_the_old_link_named_the
         &new,
         "judicial/case_2812209/opinion_2812209-1",
         "uscode/title_1/chapter_1/section_7",
+        "7",
     )
     .try_into()
     .expect("the Court's opinion cites 1 U.S.C. § 7 once");

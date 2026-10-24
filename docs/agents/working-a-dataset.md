@@ -192,13 +192,30 @@ read the words.
    ```
    For a provision that is **new** in the window, `path` prints the words added.
    `path` also shows citations: on a writing, `judicial/case_<cluster>/opinion_<id>`,
-   it lists the sections that writing cites; on a case, `judicial/case_<cluster>`,
-   the sections each of its writings cites; and on a Code path the writings that
-   cite it or the section that holds it. A case is one work, and each writing
-   (majority, concurrence, dissent) is its own path under it, so a hit or a
-   citation in a dissent names the dissent. A citation names the writing, not
-   the paragraph: to find the paragraph, search the writing for the words the
-   citation quotes. A tax opinion often writes "section 199A" or "I.R.C. § 199A"
+   it lists what that writing cites; on a case, `judicial/case_<cluster>`, what
+   each of its writings cites; and on a Code path the passages that cite it, a
+   provision under it, or the section that holds it. A case is one work, and
+   each writing (majority, concurrence, dissent) is its own path under it, so a
+   hit or a citation in a dissent names the dissent.
+
+   A citation link starts at the **paragraph or footnote** that holds the
+   citation, such as `…/opinion_9434365/page_461/paragraph_1`, and ends at the
+   **subdivision the court wrote**: "§ 174(a)(1)" is a link to
+   `…/section_174/subsection_a/paragraph_1`. Each row names the paragraph, and
+   `--json` gives its `writing` too. Read the paragraph with
+   `search <dataset> "" --path <paragraph> --exact --snippet 0`. One paragraph
+   that cites one subdivision three times is one link, and its payload holds
+   all three places. One writing that cites a section in two passages, or
+   writes "§ 174" and "§ 174(a)(1)", has a link for each. So ask about the
+   section to see every citation in it: `cases-citing` lists each writing once,
+   with each provision in the section it cites and each passage, and `path` and
+   `annotations` put the rows of one section together. When a printing does not
+   hold a subdivision the court wrote, the link ends at the deepest part it
+   holds, and the row says which part leads to no provision: "§ 174(e)" ends at
+   § 174 with "(e)", and the OCR form "§ 41(d)(l)(B)(i)" ends at (d) with
+   "(l)(B)(i)". Nothing is repaired, so read the words before you rely on the
+   path. A link id comes from the paragraph and the subdivision: take an id
+   from a listing, never from memory or an older answer. A tax opinion often writes "section 199A" or "I.R.C. § 199A"
    with no title. When the case states that its references are to the Internal
    Revenue Code, such a reference is a citation to title 26, and its matched
    words end with `(title 26 from the default stated in <writing>: "<the
