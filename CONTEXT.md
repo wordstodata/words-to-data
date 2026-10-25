@@ -120,6 +120,8 @@ _Avoid_: Act, statute, law
 **Amendment**:
 An instruction in a Bill that tells a reader how to change existing law. It is identified by what it says, and located by where it sits in the Bill: the hash survives a rebuild, and the position moves whenever a publisher renumbers a title (`docs/adr/0001-structural-paths-locate-not-identify.md`). Both are held — the hash keys the Amendment, and the node at its path in the stored Bill carries the same hash, so one can be read from the other.
 
+Mostly one Amendment is one element the publisher marks as an instruction. A list is the exception: where the marked element's line amends a whole title and names no section — *"Title 10, United States Code, is amended as follows:"* — and its items name the sections they act on, each item is an Amendment, and its words are the line's and the item's together (#365).
+
 The words an Amendment **enacts** are not a Provision. They are quoted text, not law in force, and a Provision is a location an annotation can name, so they stay out of the hierarchy and travel in the Bill node's Class payload instead (#86).
 _Avoid_: Edit, modification, revision
 

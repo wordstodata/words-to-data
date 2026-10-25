@@ -16,6 +16,8 @@ use crate::{
     document::DocumentNode,
     io::load_xml_file,
     legislature::{AmendingAction, BillAmendment},
+    uslm::amendment_address::{amending_line_of, section_a_list_item_names, title_a_list_amends},
+    uslm::bill_redesignation::{is_level, own_text},
     uslm::parser::{ParseError, normalize_quotes},
     uslm::{AmendmentFacts, QuotedText, UscReference, UslmFacts},
 };
@@ -345,18 +347,18 @@ fn state_bill_facts(
             .map(str::to_string)
     };
 
-    for node in document.root().descendants() {
-        let tag = node.tag_name().name();
-
-        if node.attribute("role").unwrap_or_default() == "instruction"
-            && let Some(identifier) = node.attribute("identifier")
-        {
+    for instruction in instructions_in(document.root()) {
+        if let Some(identifier) = instruction.node.attribute("identifier") {
             stated.entry(identifier.to_string()).or_default().amendment = Some(AmendmentFacts {
-                id: compute_amendment_id(bill_id, &node_text(&node)),
-                enacted_text: enacted_text(&node),
-                quoted_text: quoted_text(&node),
+                id: compute_amendment_id(bill_id, &instruction.words()),
+                enacted_text: enacted_text(&instruction.node),
+                quoted_text: quoted_text(&instruction.node),
             });
         }
+    }
+
+    for node in document.root().descendants() {
+        let tag = node.tag_name().name();
 
         if tag.eq_ignore_ascii_case("amendingAction")
             && let Some(action) = node.attribute("type")
@@ -662,24 +664,27 @@ fn amendments_with_report(
     node: &Node,
     bill_id: &str,
 ) -> (HashMap<String, BillAmendment>, AmendmentReport) {
-    let nodes = node
-        .descendants()
-        .filter(|p| p.attribute("role").unwrap_or_default() == "instruction");
-
     let mut amendments = HashMap::new();
     let mut report = AmendmentReport::default();
-    for n in nodes {
-        let amendment = get_amendment_data(&n, bill_id, &mut report);
+    for instruction in instructions_in(*node) {
+        let amendment = get_amendment_data(&instruction, bill_id, &mut report);
         amendments.insert(amendment.id.clone(), amendment);
     }
     (amendments, report)
 }
 
-fn get_amendment_data(node: &Node, bill_id: &str, report: &mut AmendmentReport) -> BillAmendment {
+fn get_amendment_data(
+    instruction: &Instruction,
+    bill_id: &str,
+    report: &mut AmendmentReport,
+) -> BillAmendment {
     let mut action_types: Vec<AmendingAction> = Vec::new();
 
     // Find all <amendingAction> tags
-    for descendant in node.descendants() {
+    for descendant in instruction
+        .words_nodes()
+        .flat_map(|words| words.descendants())
+    {
         if descendant.tag_name().name().to_lowercase().as_str() == "amendingaction" {
             let action_text = descendant
                 .attribute("type")
@@ -692,13 +697,13 @@ fn get_amendment_data(node: &Node, bill_id: &str, report: &mut AmendmentReport) 
                 // losing an action.
                 Err(_) => report.unread_actions.push(UnreadAmendingAction {
                     value: action_text.to_string(),
-                    location: instruction_location(node, bill_id),
+                    location: instruction_location(instruction, bill_id),
                 }),
             }
         }
     }
 
-    let amending_text = node_text(node);
+    let amending_text = instruction.words();
     let id = compute_amendment_id(bill_id, &amending_text);
 
     BillAmendment {
@@ -716,10 +721,120 @@ fn get_amendment_data(node: &Node, bill_id: &str, report: &mut AmendmentReport) 
 /// A bill numbers its own instructions, so `identifier` points straight at one:
 /// `/us/pl/119/21/tI/stA/s10101/a`. Without it the best pointer left is the
 /// amendment's content id, which finds the amendment in [`Bill::amendments`].
-fn instruction_location(node: &Node, bill_id: &str) -> String {
-    node.attribute("identifier")
+fn instruction_location(instruction: &Instruction, bill_id: &str) -> String {
+    instruction
+        .node
+        .attribute("identifier")
         .map(str::to_string)
-        .unwrap_or_else(|| compute_amendment_id(bill_id, &node_text(node)))
+        .unwrap_or_else(|| compute_amendment_id(bill_id, &instruction.words()))
+}
+
+/// One amending instruction, as an amendment is minted from it.
+///
+/// Mostly one `role="instruction"` element of the markup. One kind of element
+/// is a list of instructions instead (#365):
+///
+/// > (a) Title 10, United States Code, is amended as follows:
+/// > (1) In the chapter analysis for subtitle A, by striking …
+/// > (10) In chapter 40, by redesignating section 711 … as section 710a …
+///
+/// The line names a whole title and no section, and the items name the
+/// sections they act on. Each item is an instruction of its own, so each is an
+/// amendment with its own address. The line's words come first in its text,
+/// because they say which title the item amends.
+pub(crate) struct Instruction<'a, 'input> {
+    /// The element whose words the instruction is: the instruction, or the
+    /// item of a list.
+    pub node: Node<'a, 'input>,
+    /// The line of the list the item is in, when it is in one.
+    list_line: Option<Node<'a, 'input>>,
+}
+
+impl<'a, 'input> Instruction<'a, 'input> {
+    /// The words the amendment's id is minted from, as one line.
+    pub fn words(&self) -> String {
+        let words: Vec<String> = self.words_nodes().map(|node| node_text(&node)).collect();
+        words.join(" ")
+    }
+
+    /// The elements whose words the instruction is, in document order.
+    fn words_nodes(&self) -> impl Iterator<Item = Node<'a, 'input>> {
+        self.list_line.into_iter().chain(std::iter::once(self.node))
+    }
+}
+
+/// Every amending instruction under `root`, in document order.
+pub(crate) fn instructions_in<'a, 'input>(root: Node<'a, 'input>) -> Vec<Instruction<'a, 'input>> {
+    let mut instructions = Vec::new();
+    for node in root.descendants().filter(is_marked_an_instruction) {
+        match list_line_of(&node) {
+            Some(line) => instructions.extend(levels_in(&node).map(|item| Instruction {
+                node: item,
+                list_line: Some(line),
+            })),
+            None => instructions.push(Instruction {
+                node,
+                list_line: None,
+            }),
+        }
+    }
+    instructions
+}
+
+/// The instruction an element is part of: the innermost one around it.
+pub(crate) fn instruction_around<'a, 'input>(
+    node: Node<'a, 'input>,
+) -> Option<Instruction<'a, 'input>> {
+    let marked = node.ancestors().find(is_marked_an_instruction)?;
+    let Some(line) = list_line_of(&marked) else {
+        return Some(Instruction {
+            node: marked,
+            list_line: None,
+        });
+    };
+    // In a list, the item that holds the element. The list's own line belongs
+    // to no item, so it is no instruction.
+    let item = node
+        .ancestors()
+        .find(|above| above.parent() == Some(marked) && is_level(above))?;
+    Some(Instruction {
+        node: item,
+        list_line: Some(line),
+    })
+}
+
+fn is_marked_an_instruction(node: &Node) -> bool {
+    node.attribute("role") == Some("instruction")
+}
+
+/// The `<chapeau>` of an instruction that is a list of instructions, when it is
+/// one: its line amends a whole title and cites no section, and an item below
+/// names the section it acts on.
+fn list_line_of<'a, 'input>(instruction: &Node<'a, 'input>) -> Option<Node<'a, 'input>> {
+    let (chapeau, _) = list_title_of(instruction)?;
+    levels_in(instruction)
+        .any(|item| section_a_list_item_names(&own_text(&item)).is_some())
+        .then_some(chapeau)
+}
+
+/// The `<chapeau>` of a level whose line amends a whole title and cites no
+/// section, and that title.
+///
+/// Only the chapeau is read. A heading such as *"Amending provisions that
+/// refer to section 3455(f)"* names words the list changes, not where it acts.
+pub(crate) fn list_title_of<'a, 'input>(
+    level: &Node<'a, 'input>,
+) -> Option<(Node<'a, 'input>, String)> {
+    let chapeau = level
+        .children()
+        .find(|child| child.tag_name().name().eq_ignore_ascii_case("chapeau"))?;
+    let title = title_a_list_amends(&amending_line_of(&node_text(&chapeau))?)?;
+    Some((chapeau, title))
+}
+
+/// The levels directly inside an element.
+fn levels_in<'a, 'input>(node: &Node<'a, 'input>) -> impl Iterator<Item = Node<'a, 'input>> {
+    node.children().filter(is_level)
 }
 
 /// The words under a node, as one line.

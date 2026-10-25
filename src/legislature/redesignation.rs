@@ -1280,12 +1280,12 @@ fn resolve_one(
         reject(Reason::NoSectionNamed);
         return;
     };
-    let section = match index.get(section_id) {
+    let section = match in_the_chapter_named(index.get(section_id), &statement.text)[..] {
         [] => {
             reject(Reason::SectionNotHeld(section_id.clone()));
             return;
         }
-        [only] => *only,
+        [only] => only,
         _ => {
             reject(Reason::ContainerIsAmbiguous(section_id.clone()));
             return;
@@ -1301,12 +1301,34 @@ fn resolve_one(
     };
 
     for renumbering in &statement.renumberings {
-        let from_path = format!(
-            "{}/{}",
-            container.data.path,
-            renumbering.from.path_segment()
-        );
-        let to_path = format!("{}/{}", container.data.path, renumbering.to.path_segment());
+        // A section is renumbered inside the part that holds it, and the only
+        // section a statement can name there is the one it is addressed to
+        // (#365): *"In chapter 40, by redesignating section 711 … as section
+        // 710a"*.
+        let (around, was): (&str, Vec<&DocumentNode>) =
+            if renumbering.from.level == ElementType::Section && statement.container.is_empty() {
+                let around = parent_path(&section.data.path);
+                let from_path = format!("{around}/{}", renumbering.from.path_segment());
+                let was = (*section.data.path == from_path)
+                    .then_some(section)
+                    .into_iter()
+                    .collect();
+                (around, was)
+            } else {
+                let from_path = format!(
+                    "{}/{}",
+                    container.data.path,
+                    renumbering.from.path_segment()
+                );
+                let was = container
+                    .children
+                    .iter()
+                    .filter(|child| *child.data.path == *from_path)
+                    .collect();
+                (&container.data.path, was)
+            };
+        let from_path = format!("{around}/{}", renumbering.from.path_segment());
+        let to_path = format!("{around}/{}", renumbering.to.path_segment());
 
         // Both ends, and existence is only the floor.
         //
@@ -1318,11 +1340,6 @@ fn resolve_one(
         // reading one letter out passes both checks. What tells a correct
         // reading from a misread is the words at the two ends, recorded below as
         // `Corroboration` (`docs/adr/0010-two-readers-one-resolver-a-model-never-writes-a-path.md`).
-        let was = container
-            .children
-            .iter()
-            .filter(|child| *child.data.path == *from_path)
-            .collect::<Vec<&DocumentNode>>();
         let became = later.find_all(&to_path);
         match (was.as_slice(), became.as_slice()) {
             ([], _) => reject(Reason::ProvisionNotHeld(from_path)),
@@ -1345,6 +1362,38 @@ fn resolve_one(
             }),
         }
     }
+}
+
+/// The sections of `held` in the chapter the clause opens with, when it opens
+/// with one and more than one section is held.
+///
+/// Title 10 holds a § 711 in chapter 40 and another in chapter 41, and *"In
+/// chapter 40, by redesignating section 711 …"* says which (#365). Where the
+/// clause names no chapter, every section held comes back, and two are
+/// reported as ambiguous.
+fn in_the_chapter_named<'a>(held: &[&'a DocumentNode], clause: &str) -> Vec<&'a DocumentNode> {
+    let chapter = match (
+        held,
+        crate::uslm::amendment_address::chapter_a_list_item_names(clause),
+    ) {
+        ([_, _, ..], Some(chapter)) => format!("chapter_{chapter}"),
+        _ => return held.to_vec(),
+    };
+    held.iter()
+        .copied()
+        .filter(|section| {
+            section
+                .data
+                .path
+                .split('/')
+                .any(|segment| segment == chapter)
+        })
+        .collect()
+}
+
+/// The path of the node that holds the one at `path`.
+fn parent_path(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
 /// The node the steps lead to, below `section`.
@@ -1431,8 +1480,12 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// phrase after *is amended* (*"is amended, in subsection (d)(2)"*), every
 /// designation of a scope phrase, and the units named before the section
 /// (*"Paragraph (2) of section 6213(b)"*).
+///
+/// Version 5 (#365): each item of a list under a whole title is its own
+/// statement, and a section-level move resolves in the part that holds the
+/// section (*"In chapter 40, … redesignating section 711 … as section 710a"*).
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 4)
+    Method::new("amendingAction type=redesignate", 5)
 }
 
 /// How far the words at a redesignation's two ends agree.
