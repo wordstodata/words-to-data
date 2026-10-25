@@ -141,8 +141,11 @@ A citation of a range of subdivisions links each one ([#366](https://github.com/
   `cases-citing`, `residue` and `coverage` agree. A difference in letters, digits,
   punctuation or white space is still a change. `diff --help` states the rule, and
   `diff --json` names the characters in a new field, `ignored_characters`. Over
-  title 26 between 2025-07-18 and 2025-07-30, one path fewer is changed (536, not
-  537): the heading of § 7206(5)(B) differs only in a soft hyphen.
+  title 26 between 2025-07-18 and 2025-07-30, the library's `TreeDiff` finds one
+  path fewer changed (536, not 537): the heading of § 7206(5)(B) differs only in a
+  soft hyphen. `TreeDiff` does not pair a moved provision with its old place.
+  `diff` pairs them, so over the same window it prints `Changed (460)`, with 315
+  added, 104 removed and 48 moved.
 
 
 ## 0.5.0
