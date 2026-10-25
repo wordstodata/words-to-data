@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+Commands read a bill, a work, a window and a path in one way, and refuse an
+input that the dataset does not hold.
+
+### Fixes
+
+- `annotations --bill`, `section-agreement --bill` and `amendment-addresses
+  --bill` refuse a bill that the dataset does not hold, with exit 1 and the
+  notice that `residue` gives. `annotations` and `section-agreement` accept a
+  bill that the dataset holds no record of when its links name the bill
+  ([#392](https://github.com/wordstodata/words-to-data/issues/392)).
+- `expressions --work` refuses a work not held, with the notice that `search
+  --work` gives ([#392](https://github.com/wordstodata/words-to-data/issues/392)).
+- `annotations`, `section-agreement`, `path`, `diff`, `coverage` and
+  `redesignations` refuse a window with an expression not held (the notice
+  names the held dates of the work), a window of two works, and a window with
+  `--from` not older than `--to`
+  ([#392](https://github.com/wordstodata/words-to-data/issues/392)).
+- A span of more than one window gives the links of every window inside it.
+  `annotations --from A@2025-07-18 --to A@2026-07-12` listed 0 links, and
+  `coverage` over that span gave 0.0 %
+  ([#388](https://github.com/wordstodata/words-to-data/issues/388)).
+- A path argument loses a trailing `/`, and an ASCII hyphen in a section number
+  is read as the en dash the dataset holds (`section_1400Z-1` is
+  `section_1400Z–1`), in `path`, `annotations`, `search`, `diff`,
+  `section-agreement` and `cases-citing`. `cases-citing --path …/section_174/`
+  said that no opinion cites § 174 itself
+  ([#395](https://github.com/wordstodata/words-to-data/issues/395)).
+
+### Breaking changes for agents
+
+- `Locator`'s window is a span: a link matches when the window it was recorded
+  over is inside the span. A span of one window matches as before.
+- A run that gave "0 annotation(s)" or "This dataset holds no amendment link to
+  check." with exit 0 for an input not held now exits 1, with the notice on
+  stderr and nothing on stdout.
+
 ## 0.6.0
 
 Better addresses for the laws that amend the Code, and bill commands that tell

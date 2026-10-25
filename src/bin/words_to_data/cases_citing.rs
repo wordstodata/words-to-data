@@ -77,7 +77,7 @@ pub fn run(args: Args) {
 
 fn report<S: Storage>(dataset: &S, args: &Args) {
     let paths = match (&args.path, &args.cites) {
-        (Some(path), _) => vec![path.clone()],
+        (Some(path), _) => vec![crate::held::path_argument(dataset, path)],
         (None, Some(citation)) => resolved_paths(dataset, citation, args.json),
         (None, None) => {
             eprintln!("Give either --cites \"26 U.S.C. § 174\" or --path <structural path>.");

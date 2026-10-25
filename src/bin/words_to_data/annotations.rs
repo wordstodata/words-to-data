@@ -20,11 +20,15 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Older expression of the pair, e.g. `uscode/title_9@2025-07-18` (requires `--to`)
+    /// Older end of the span, e.g. `uscode/title_9@2025-07-18` (requires `--to`)
+    ///
+    /// A span can hold more than one window. A link is recorded for one window
+    /// of two adjacent printings, and the span gives the links of every window
+    /// inside it
     #[arg(long, requires = "to")]
     pub from: Option<ExpressionId>,
 
-    /// Newer expression of the pair (requires `--from`)
+    /// Newer end of the span, an expression of the same work (requires `--from`)
     #[arg(long, requires = "from")]
     pub to: Option<ExpressionId>,
 
@@ -58,15 +62,22 @@ pub struct Args {
     pub json: bool,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    if let Some(bill) = &args.bill {
+        crate::held::refuse_unless_bill_held_or_linked(&ds, &args.dataset, bill);
+    }
     let mut locator = Locator::new();
     if let (Some(from), Some(to)) = (&args.from, &args.to) {
+        crate::held::refuse_unless_window_held(&ds, from, to);
         locator = locator
             .in_work(from.work.to_string())
             .in_window(from.at.clone(), to.at.clone());
     }
-    if let Some(path) = &args.path {
-        locator = locator.at_path(path, path_matching(args.exact));
+    if let Some(typed) = &args.path {
+        let path = with_dataset!(&ds, d => crate::held::path_argument(d, typed));
+        locator = locator.at_path(&path, path_matching(args.exact));
+        args.path = Some(path);
     }
 
     let mut query = LinkQuery::new().at(locator.clone());
@@ -88,7 +99,6 @@ pub fn run(args: Args) {
         query = query.with_limit(limit);
     }
 
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let asked = citations_asked(&args);
     let (found, mut citations) = crate::fail::or_exit(
         with_dataset!(&ds, d => inspect::annotations(d, &query).and_then(|found| {

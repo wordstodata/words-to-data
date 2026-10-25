@@ -38,6 +38,7 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    crate::held::refuse_unless_bill_held(&ds, &args.dataset, &args.bill);
     let document = crate::fail::or_exit(
         with_dataset!(ds, d => d.bill_document(&args.bill)),
         "Error reading the bill",

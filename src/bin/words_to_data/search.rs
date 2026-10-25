@@ -115,7 +115,8 @@ struct Occurrence {
     snippet: String,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let mut locator = Locator::new();
     if let Some(work) = &args.work {
         locator = locator.in_work(work);
@@ -126,8 +127,10 @@ pub fn run(args: Args) {
         // work on one date, so the two ends are the same.
         locator = locator.in_window(at, at);
     }
-    if let Some(path) = &args.path {
-        locator = locator.at_path(path, path_matching(args.exact));
+    if let Some(typed) = &args.path {
+        let path = with_dataset!(&ds, d => crate::held::path_argument(d, typed));
+        locator = locator.at_path(&path, path_matching(args.exact));
+        args.path = Some(path);
     }
 
     // A screenful for a person, everything for a machine. An explicit `--limit`
@@ -141,7 +144,6 @@ pub fn run(args: Args) {
         (_, None, false) => Some(DEFAULT_LIMIT),
     };
 
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let found = crate::fail::or_exit(
         with_dataset!(&ds, d => d.search_text_in(&args.query, &locator, limit)),
         "Error searching dataset",
@@ -310,7 +312,7 @@ impl Absent {
 
 /// The lines that say which filter matched no expression, and what is held
 /// near it.
-fn scope_notice(scope: &AbsentScope, dataset: &str, exact: bool) -> String {
+pub(crate) fn scope_notice(scope: &AbsentScope, dataset: &str, exact: bool) -> String {
     match scope {
         AbsentScope::Work {
             work,

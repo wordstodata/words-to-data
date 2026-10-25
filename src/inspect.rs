@@ -915,6 +915,115 @@ pub fn absent_path<R: DocumentReader + ?Sized>(
     }))
 }
 
+/// A path argument in the spelling the dataset holds (#395).
+///
+/// Every command that takes a path reads it through this one rule, so two
+/// commands cannot come to read one path in two ways. A path was used as
+/// typed, and two common forms matched nothing:
+///
+/// - **A trailing `/`** is removed. `section_174/` matched no provision, and
+///   `cases-citing` then read `section_174` as a provision that holds it.
+/// - **An ASCII hyphen in a section number** is read as the en dash the
+///   publisher prints (`section_1400Z–1`), and the reverse. Only when the path
+///   as typed is not held and the other spelling is: a segment made from a
+///   heading keeps its ASCII hyphens (see [`crate::uslm::path`]), and a path
+///   that no expression holds, such as one only a citation names, is kept.
+pub fn path_as_held<R: DocumentReader + ?Sized>(
+    reader: &R,
+    typed: &str,
+) -> Result<String, DatasetError> {
+    let trimmed = typed.trim().trim_end_matches('/');
+    let held = |path: &str| reader.holds_any(&Locator::new().at_path(path, PathMatch::Exact));
+    if held(trimmed)? {
+        return Ok(trimmed.to_string());
+    }
+    for (typed_dash, held_dash) in [('-', '–'), ('–', '-')] {
+        let respelled = respell_section_numbers(trimmed, typed_dash, held_dash);
+        if respelled != trimmed && held(&respelled)? {
+            return Ok(respelled);
+        }
+    }
+    Ok(trimmed.to_string())
+}
+
+/// `path` with `from` written as `to` in each section number, and nowhere else.
+fn respell_section_numbers(path: &str, from: char, to: char) -> String {
+    path.split('/')
+        .map(|segment| match segment.strip_prefix("section_") {
+            Some(number) => format!("section_{}", number.replace(from, &to.to_string())),
+            None => segment.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Why a window a command was given cannot be read (#392).
+///
+/// A window is two expressions of one work, the older one first. A command
+/// that read past a fault here answered with an empty list and exit 0:
+/// `annotations --from` at a date not held gave "0 annotation(s)", and a
+/// window of two works was read as a window of the first work alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "fault", rename_all = "snake_case")]
+pub enum WindowNotHeld {
+    /// The two ends are expressions of two works.
+    TwoWorks { from: String, to: String },
+    /// The dataset holds no expression at one end.
+    Expression {
+        /// The expression that was asked for, as `work@date`.
+        expression: String,
+        /// Its work.
+        work: String,
+        /// The dates the dataset holds the work at, in order. Empty when it
+        /// holds no expression of the work.
+        held_dates: Vec<String>,
+    },
+    /// The `from` end is not older than the `to` end.
+    NotOlder { from: String, to: String },
+}
+
+/// Whether the window from `from` to `to` is one the dataset can read.
+///
+/// `None` when both ends are held expressions of one work and `from` is the
+/// older. Every command that takes `--from` and `--to` asks this one question,
+/// so they cannot come to disagree about what a window is.
+pub fn window_not_held<R: DocumentReader + ?Sized>(
+    reader: &R,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) -> Result<Option<WindowNotHeld>, DatasetError> {
+    if from.work != to.work {
+        return Ok(Some(WindowNotHeld::TwoWorks {
+            from: from.to_string(),
+            to: to.to_string(),
+        }));
+    }
+    let held_dates: Vec<String> = reader
+        .expressions(&from.work)?
+        .into_iter()
+        .map(|info| info.id.at)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    for end in [from, to] {
+        if !held_dates.contains(&end.at) {
+            return Ok(Some(WindowNotHeld::Expression {
+                expression: end.to_string(),
+                work: end.work.to_string(),
+                held_dates,
+            }));
+        }
+    }
+    // Dates are `YYYY-MM-DD`, so a string order is a date order.
+    if from.at >= to.at {
+        return Ok(Some(WindowNotHeld::NotOlder {
+            from: from.to_string(),
+            to: to.to_string(),
+        }));
+    }
+    Ok(None)
+}
+
 /// A work or a date that no expression in the dataset holds (#337).
 ///
 /// Part of the answer, as [`AbsentPath`] is. `search --work uscode/title_99`
@@ -2511,6 +2620,10 @@ pub struct CoverageReport {
 }
 
 /// Measure annotation coverage of the diff between two expressions.
+///
+/// The two expressions can span several windows. The diff is then the diff of
+/// the whole span, and a path is annotated when a link of any window inside
+/// the span names it (#388).
 pub fn coverage<S: Storage>(
     dataset: &S,
     from: &ExpressionId,
@@ -2522,9 +2635,19 @@ pub fn coverage<S: Storage>(
     universe.extend(summary.added_paths);
     universe.extend(summary.removed_paths);
 
-    let annotated: std::collections::HashSet<String> = dataset
-        .get_annotations(from, to)?
-        .unwrap_or_default()
+    // Every window inside the span, through the locator's own rule (#388). A
+    // link is recorded for one window of two adjacent printings, so a span of
+    // several windows is annotated by the links of each of them.
+    let links = dataset
+        .links_matching(
+            &LinkQuery::new()
+                .of_kind(LinkKind::AMENDED_BY)
+                .at(Locator::new()
+                    .in_work(from.work.to_string())
+                    .in_window(from.at.clone(), to.at.clone())),
+        )?
+        .rows;
+    let annotated: std::collections::HashSet<String> = crate::link::annotations_from_links(&links)
         .iter()
         .flat_map(|a| a.paths.iter().cloned())
         .collect();
