@@ -13,7 +13,7 @@
 //! reader of this file can see exactly what is matched. Every place this file
 //! departs from the published source is marked where it happens, with what the
 //! published pattern says and why we differ, because a silent divergence from an
-//! upstream pattern is a maintenance trap. [`law_section`] carries six such
+//! upstream pattern is a maintenance trap. [`law_section`] carries seven such
 //! notes.
 //!
 //! # What is read, and what is declined
@@ -186,15 +186,30 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// line break: a bracket at the start of a line can open a list item. The
 /// section is kept without the spaces ([`compact`]), so `§ 174 (a) (1)` and
 /// `§ 174(a)(1)` name one thing; the citation's `text` keeps them.
+///
+/// A fourth alternative reads a **range of subdivisions** after one section, and
+/// it is preferred over the other three: `26 U. S. C. §§994(a)(1)-(3)` is read
+/// whole rather than as `994(a)(1)`, and the `(2)` and `(3)` it names are not
+/// lost (#366). The two ends are joined by a dash of [`DASHES`] or by the word
+/// `through`, and each end may be a roman numeral, `(i)–(iii)`. The second end
+/// may carry more designations, `(b)(1)–(2)(A)`, so that a range whose ends are
+/// at different levels is read whole and reported, not cut short
+/// ([`subdivision_range`]).
 pub(crate) fn law_section() -> String {
     let dashes = dash_class();
     let subsection = r"(?: ?\((?:[a-zA-Z]{1}|\d{1,2})\))";
+    let range_end = r"\((?:[a-zA-Z]{1,4}|\d{1,2})\)";
+    let with_a_range = format!(
+        r"\d+[a-zA-Z]{{0,4}}{subsection}* ?{range_end}(?:[{dashes}]|{RANGE_WORD}){range_end}{subsection}*"
+    );
     let with_a_subsection = format!(r"\d+[a-zA-Z]{{0,4}}{subsection}+");
     let dashed_after_a_letter =
         format!(r"\d+[a-zA-Z]{{1,4}}(?:[{dashes}]\d+[a-zA-Z]{{0,4}}){{1,3}}{subsection}*");
     let as_published = format!(r"\d+[a-zA-Z]{{0,4}}(?:[\-.:{dashes}]\d+[a-zA-Z]{{0,4}}){{0,3}}");
 
-    format!("(?:{with_a_subsection})|(?:{dashed_after_a_letter})|(?:{as_published})")
+    format!(
+        "(?:{with_a_range})|(?:{with_a_subsection})|(?:{dashed_after_a_letter})|(?:{as_published})"
+    )
 }
 
 /// A section number written with no section marker before it that the reader
@@ -516,6 +531,72 @@ pub fn range_ends(section: &str) -> Option<(String, String)> {
     (number(from)? < number(&to)?).then(|| (from.to_string(), to))
 }
 
+/// The word that joins the two ends of a range of subdivisions, as in
+/// `§ 1017(c) through (i)`. A dash of [`DASHES`] joins them too.
+const RANGE_WORD: &str = " through ";
+
+/// A range of subdivisions written after one section: the first end, how the
+/// two ends are joined, and the second end.
+///
+/// `994(a)(1)-(3)` is `994(a)(1)`, `-` and `(3)`. The text alone cannot say which
+/// subdivisions lie between the ends: `(i)–(v)` is five clauses or fourteen
+/// subsections, and the printing decides (`super::resolve::reach_range`).
+///
+/// ```
+/// use words_to_data::citation::usc::subdivision_range;
+///
+/// let range = subdivision_range("994(a)(1)-(3)").expect("a range");
+/// assert_eq!(range.from, "994(a)(1)");
+/// assert_eq!(range.joined_by, "-");
+/// assert_eq!(range.to, "(3)");
+/// assert_eq!(subdivision_range("994(a)(1)"), None);
+/// assert_eq!(subdivision_range("991-997"), None);
+/// ```
+///
+/// The reader keeps a range whole, joined by a dash or by `through`:
+///
+/// ```
+/// use words_to_data::citation::usc;
+///
+/// let found = usc::find("See 26 U. S. C. §§994(a)(1)-(3) and 26 U.S.C. § 994(a)(1) through (3).");
+///
+/// assert_eq!(found[0].sections, ["994(a)(1)-(3)"]);
+/// assert_eq!(found[1].sections, ["994(a)(1) through (3)"]);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubdivisionRange<'a> {
+    /// The section and the first end: `994(a)(1)`.
+    pub from: &'a str,
+    /// A dash, or ` through `.
+    pub joined_by: &'a str,
+    /// The second end, with every designation written in it: `(3)`, or
+    /// `(b)(7)` of `838i(b)(2) through (b)(7)`.
+    pub to: &'a str,
+}
+
+/// The range of subdivisions a section as read writes, if it writes one
+/// ([`SubdivisionRange`]).
+pub fn subdivision_range(section: &str) -> Option<SubdivisionRange<'_>> {
+    if let Some((from, to)) = section.split_once(RANGE_WORD) {
+        return Some(SubdivisionRange {
+            from,
+            joined_by: RANGE_WORD,
+            to,
+        });
+    }
+    let (at, dash) = section.char_indices().find(|(at, c)| {
+        DASHES.contains(c)
+            && section[..*at].ends_with(')')
+            && section[at + c.len_utf8()..].starts_with('(')
+    })?;
+    let after = at + dash.len_utf8();
+    Some(SubdivisionRange {
+        from: &section[..at],
+        joined_by: &section[at..after],
+        to: &section[after..],
+    })
+}
+
 /// Why a piece of text that looks like a citation was not read as one.
 ///
 /// A reason is part of the statement. A hole with no reason cannot be told apart
@@ -763,9 +844,14 @@ fn ocr_repair(written: &str) -> Repair {
 }
 
 /// A section as read, without the spaces some reporters set before a bracket:
-/// `174(a)(1)` for `174 (a) (1)`. Nothing else is changed.
+/// `174(a)(1)` for `174 (a) (1)`. Nothing else is changed, so the word of a
+/// range keeps its spaces: `1017(c) through (i)`.
 pub(crate) fn compact(section: &str) -> String {
-    section.replace(' ', "")
+    section
+        .split(RANGE_WORD)
+        .map(|part| part.replace(' ', ""))
+        .collect::<Vec<_>>()
+        .join(RANGE_WORD)
 }
 
 /// Every citation-shaped piece of text that no citation in `found` covers.

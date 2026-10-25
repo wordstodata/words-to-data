@@ -225,10 +225,13 @@ fn forms_written_in_whole_writings() -> BTreeMap<(String, String), usize> {
             }
             for citation in &citations {
                 for section in resolve(citation, &scope, &index) {
-                    if let Resolution::Provision { paths } = &section.resolution {
+                    // One place for each provision the form reaches: one for
+                    // each path, and one for each member of a range of
+                    // subdivisions (#366).
+                    if let Resolution::Provision { .. } = &section.resolution {
                         *forms
                             .entry((writing.path.clone(), section.section.clone()))
-                            .or_insert(0) += paths.len();
+                            .or_insert(0) += section.reached.len();
                     }
                 }
             }

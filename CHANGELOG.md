@@ -28,6 +28,59 @@
 - The redesignation readers do not read the phrase yet. A renumbering under "Such
   section" stays unplaced, as before.
 
+- **A range of subdivisions after one section is a citation of each subdivision
+  in it** ([#366](https://github.com/wordstodata/words-to-data/issues/366)).
+  *Boeing*'s "26 U. S. C. §§994(a)(1)-(3)" is now three links, to § 994(a)(1),
+  (a)(2) and (a)(3), and each place holds the whole written form. Before, the
+  reader read "§§994(a)(1)" and lost (2) and (3). The ends can be numbers,
+  letters or roman numerals, joined by a dash or by "through"
+  ("(b)(2) through (b)(7)"). When the ends are at different levels, or the parent
+  is not held, the link ends at the provision that holds both ends and the
+  `unresolved` field names the range; a member that the printing does not hold
+  is named in the same way. No member is guessed. A range of sections,
+  "§§ 991-997", still links its two ends only (#309). The citation rule is now
+  version 5, and the default-code rule version 3. On the benchmark dataset the
+  citation links go from 427 to 434. Add the opinions again with `add-opinions`
+  to get the new links. `cases-citing --cites` takes a range too, and asks about
+  each member.
+
+### Fixed
+
+- **A difference in format characters alone is not a change**
+  ([#363](https://github.com/wordstodata/words-to-data/issues/363)). A field whose
+  two texts differ only in the characters that search does not read (the soft
+  hyphen U+00AD, the zero-width characters U+200B, U+200C, U+200D and U+2060, and
+  U+FEFF) is not listed as changed. Before, `diff` listed 13 U.S.C. § 9(b) as
+  changed between 2025-07-18 and 2025-07-30 for one soft hyphen inside the word
+  "records" alone, and `cases-citing` said § 9 CHANGED in that window. The
+  rule is in the one comparison that every reader uses, so `diff`, `path`,
+  `cases-citing`, `residue` and `coverage` agree. A difference in letters, digits,
+  punctuation or white space is still a change. `diff --help` states the rule, and
+  `diff --json` names the characters in a new field, `ignored_characters`. Over
+  title 26 between 2025-07-18 and 2025-07-30, one path fewer is changed (536, not
+  537): the heading of § 7206(5)(B) differs only in a soft hyphen.
+
+### `bills` and `show-bill` name the public law, and their counts are true ([#297](https://github.com/wordstodata/words-to-data/issues/297))
+
+- `bills` has a PUBLIC LAW column (`Pub. L. 119-21`, or `not enacted / not held`),
+  and `show-bill` has a `Public law:` line. In `--json`, both have the field
+  `public_law` (`"119-21"`, or `null`). A bill is joined to its law by the
+  amendments the law document states, so a bill that states no amendment shows
+  no law.
+- `show-bill` takes a public law in place of a bill id: `Pub. L. 119-21`,
+  `Public Law 119–21`, `PL 119-21`, `P.L. 119-21` or `119-21`. A law whose
+  document the dataset does not hold is refused, with exit 1.
+- The false change counts are replaced. They counted word-level changes that no
+  step writes since #252, so they were 0 for every bill and every amendment.
+  - `bills`: the WITH CHANGES column is now LINKED, the amendments that at least
+    one standing `legislature.amended_by` link names. In `--json`,
+    `amendments_with_changes` is now `amendments_linked`.
+  - `show-bill`: "(N change(s))" is now "(N standing link(s))", the standing
+    links that name the amendment. In `--json`, `change_count` is now
+    `link_count`.
+  - A link stands unless its newest review refutes it, as for `residue`.
+- The stored format does not change (`SCHEMA_VERSION` 10).
+
 ## 0.5.0
 
 Case law that an agent can use ([#312](https://github.com/wordstodata/words-to-data/issues/312),

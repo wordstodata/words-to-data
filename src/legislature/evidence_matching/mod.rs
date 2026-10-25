@@ -500,12 +500,8 @@ fn stated_amendments<S: Storage + LegislatureReader>(
             continue;
         };
         // The law's number is the name of its work: `publiclawdocument_119-21`.
-        let public_law = law
-            .id
-            .work
-            .as_str()
-            .split_once('_')
-            .map_or(law.id.work.as_str(), |(_, number)| number)
+        let public_law = crate::dataset::public_law_number(&law.id.work)
+            .unwrap_or(law.id.work.as_str())
             .to_string();
         for address in addresses_in(&law.root) {
             let evidence = law

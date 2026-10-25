@@ -383,11 +383,13 @@ fn should_compute_the_same_diff_as_before_nodes_became_class_neutral() {
     let mut changed = Vec::new();
     collect_changed_paths(&diff, &mut changed);
 
-    // Measured on the build before #129, over these same two release points.
+    // Measured on the build before #129, over these same two release points:
+    // 537. One of them, the heading of § 7206(5)(B), differs only in the soft
+    // hyphen of "rec\u{ad}ords", and that is not a change (#363).
     assert_eq!(
         changed.len(),
-        537,
-        "title 26 changed at 537 paths between {EARLY} and {LATER}"
+        536,
+        "title 26 changed at 536 paths between {EARLY} and {LATER}"
     );
     assert_eq!(count_added(&diff), 360, "360 nodes were added");
     assert_eq!(count_removed(&diff), 161, "161 nodes were removed");

@@ -108,6 +108,15 @@ enum Command {
     /// Which opinions cite a provision, and whether it changed after each was filed
     CasesCiting(cases_citing::Args),
     /// List the paths that changed between two expressions of one work
+    ///
+    /// A field changed when its text differs in letters, digits, punctuation or
+    /// white space. A field whose two texts differ only in format characters is
+    /// not listed as changed: the soft hyphen (U+00AD), the zero width space
+    /// (U+200B), the zero width non-joiner (U+200C), the zero width joiner
+    /// (U+200D), the word joiner (U+2060) and the byte order mark (U+FEFF).
+    /// These do not show in the text, and search does not read them either.
+    /// `--json` names them in `ignored_characters`. `cases-citing`, `residue`,
+    /// `coverage` and `path` use the same rule.
     Diff(diff::Args),
     /// Report annotation coverage of a diff (the unannotated work queue)
     Coverage(coverage::Args),

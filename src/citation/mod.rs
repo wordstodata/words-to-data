@@ -158,8 +158,13 @@ impl Opinion {
 /// Version 4 (#316) makes a link from the paragraph or footnote that holds the
 /// citation to the subdivision the court wrote, and keeps every place in the
 /// payload. Version 3 made a link from the writing to the section.
+///
+/// Version 5 (#366) reads a range of subdivisions after one section,
+/// `26 U. S. C. §§994(a)(1)-(3)`, as a citation of each subdivision in the
+/// range: a link to each, and each place holds the whole written form. Version
+/// 4 read the first end alone and lost the rest.
 fn citation_rule() -> Method {
-    Method::new("reporters-db laws.json U.S.C. patterns", 4)
+    Method::new("reporters-db laws.json U.S.C. patterns", 5)
 }
 
 /// The rule that reads a bare section reference under the default code an
@@ -168,8 +173,11 @@ fn citation_rule() -> Method {
 /// can then judge its links apart.
 ///
 /// Version 2 (#316): the link shape of [`citation_rule`] version 4.
+///
+/// Version 3 (#366): a range of subdivisions after one section, `section
+/// 41(b)(1)-(3)`, is read as [`citation_rule`] version 5 reads it.
 fn default_code_rule() -> Method {
-    Method::new("bare section under the opinion's default code", 2)
+    Method::new("bare section under the opinion's default code", 3)
 }
 
 /// A link for every provision a citation resolved to, saying the passage of
