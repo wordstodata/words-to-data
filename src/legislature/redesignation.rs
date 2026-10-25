@@ -146,6 +146,10 @@ pub enum Reason {
     /// The amending line names no section: it names a chapter, a title of an
     /// Act, or nothing the resolver reads as a section.
     NoSectionNamed,
+    /// The amending line names its target as *"Such section"* or *"Such
+    /// subsection"*, and no earlier amendment in the same section of the bill
+    /// names one for it to repeat (#364). The words are the phrase.
+    NoAntecedent(String),
     /// No level from the clause upwards says what it amends: none carries the
     /// words *is amended* or *are amended*. A repeal, *"Section 50263 … is
     /// repealed"*, is one (#259).
@@ -236,6 +240,11 @@ impl fmt::Display for Reason {
                 write!(f, "{from} old designations against {to} new ones")
             }
             Self::NoSectionNamed => write!(f, "no section under amendment was named"),
+            Self::NoAntecedent(phrase) => write!(
+                f,
+                "\"{phrase}\" had no antecedent: no earlier amendment in the same section \
+                 of the bill names a section"
+            ),
             Self::NoAmendingLine => write!(f, "no level above the clause says what it amends"),
             Self::TableOfSections => write!(f, "a table of sections, not a provision"),
             Self::NoTitleForSection(section) => {

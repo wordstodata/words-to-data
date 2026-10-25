@@ -5,6 +5,7 @@ use similar::{ChangeTag, TextDiff};
 use time::Date;
 
 use crate::document::{DocumentNode, NodeData, TextContentField};
+use crate::search::equal_but_for_format;
 
 /// A change detected in a single text content field between two document versions
 ///
@@ -704,11 +705,17 @@ fn field_changes(element_a: &DocumentNode, element_b: &DocumentNode) -> Vec<Fiel
     .into_iter()
     {
         let field_changes = diff_field(element_a, element_b, field_name);
-        // Only include if there are actual changes (Insert or Delete), not just Equal
-        let has_real_changes = field_changes
-            .changes
-            .iter()
-            .any(|c| c.tag != TextChangeType::Equal);
+        // A field is a change only when its words differ. Two texts that differ
+        // only in format characters, such as the soft hyphen the Code puts in
+        // "rec\u{ad}ords", read the same, and search reads them the same (#363).
+        // Every reader of a diff comes through here, so `diff`, `cases-citing`,
+        // `residue` and `coverage` cannot come to disagree about it.
+        let has_real_changes =
+            !equal_but_for_format(&field_changes.old_value, &field_changes.new_value)
+                && field_changes
+                    .changes
+                    .iter()
+                    .any(|c| c.tag != TextChangeType::Equal);
         if has_real_changes {
             changes.push(field_changes);
         }

@@ -11,7 +11,8 @@ pub use error::DatasetError;
 pub use scope::{Coverage, DateRange, Declaration, Exclusion, Scope, WorkCoverage};
 pub use work::{
     Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
-    adjacent_expressions, bill_document, work_roots, works_between,
+    adjacent_expressions, bill_document, bill_public_laws, public_law_number, work_roots,
+    works_between,
 };
 
 use serde::{Deserialize, Serialize};

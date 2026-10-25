@@ -41,7 +41,9 @@ three jobs with the command alone:
 - A **window** is two adjacent dates of one work. A change happens in a window.
 - A **public law** is stored as a document too, for example
   `publiclawdocument_119-21@2025-07-04`; its date is its enactment date. A bill's
-  id, such as `119-hr-1`, names the same law.
+  id, such as `119-hr-1`, names the same law. `bills` gives the public law of each
+  bill, and `show-bill` takes either name: `show-bill <dataset> "Pub. L. 119-21"`
+  (or `PL 119-21`, or `119-21`) shows `119-hr-1`.
 - An **amendment** is one instruction of a law ("Section 174 is amended by
   striking … and inserting …"). Each has a long hexadecimal id. Readers print
   its first twelve characters; `link-amendment` needs the **full** id, which
@@ -57,7 +59,7 @@ three jobs with the command alone:
 ```
 words_to_data info <dataset>                     # what it holds, links by kind, review state, methods run
 words_to_data expressions <dataset>              # every work and date
-words_to_data bills <dataset>                    # the bills, and how many amendments each states
+words_to_data bills <dataset>                    # the bills, the public law of each, its amendments and how many are linked
 words_to_data opinions <dataset>                 # the court cases and their writings: type, author, citations
 words_to_data path <dataset> <case or writing>   # every stored fact of a case or a writing
 words_to_data validate <dataset>                 # faults, and steps nobody has run
@@ -191,6 +193,9 @@ read the words.
    words_to_data path <dataset> <path> --from uscode/title_26@2025-07-18 --to uscode/title_26@2025-07-30
    ```
    For a provision that is **new** in the window, `path` prints the words added.
+   A field whose two texts differ only in a soft hyphen or a zero-width
+   character is not a change: `diff`, `path` and `cases-citing` do not report
+   it, and `diff --json` names those characters in `ignored_characters`.
    `path` also shows citations: on a writing, `judicial/case_<cluster>/opinion_<id>`,
    it lists what that writing cites; on a case, `judicial/case_<cluster>`, what
    each of its writings cites; and on a Code path the passages that cite it, a
@@ -303,9 +308,16 @@ read the words.
 - **`diff` can miss the new children of a provision it reports as changed,**
   and `path` on that provision shows only its own fields. The whole-text
   comparison above is the final check.
-- **`bills` "WITH CHANGES" and `show-bill`'s `change_count` read 0** even when
-  hundreds of links exist. They count a stored field the current method does
-  not write. Count links with `annotations` instead.
+- **`bills` "PUBLIC LAW" reads "not enacted / not held"** for a bill whose law
+  document the dataset does not hold, and also for a bill that states no
+  amendment: the dataset joins a bill to its law by the amendments the law
+  states. `expressions` lists the law documents it holds. The dataset does not
+  hold a law's Statutes at Large cite.
+- **`bills` "LINKED" and `show-bill`'s "standing link(s)"** count the standing
+  `amended_by` links (newest review not a refutation). `bills` counts the
+  amendments that at least one standing link names; `show-bill` (`link_count` in
+  `--json`) counts the standing links that name each amendment. 0 says that no
+  link names it yet, not that it changed nothing: `residue` says why.
 - **`info` "Roll calls"** counts every bill's roll calls, not one bill's.
 - **A `residue` "quiet" reason names a whole section** ("nothing under
   /us/usc/t20/s1092 changed") when the check covered only the part the

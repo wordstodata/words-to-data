@@ -236,8 +236,13 @@ pub enum Stage {
 /// by quoted words does not carry a change that another amendment is
 /// addressed to, and that amendment takes the provision at its own address by
 /// elimination.
+///
+/// Version 6 (#364): *"Such section"* and *"Such subsection"* name the unit
+/// the nearest earlier amendment in the same section of the bill named, so the
+/// markup gives these amendments their address. Before, only the OLRC's table
+/// could give one, and only the section.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 5)
+    Method::new("address, window and quoted words", 6)
 }
 
 /// Who a link this method writes says made it.
@@ -495,12 +500,8 @@ fn stated_amendments<S: Storage + LegislatureReader>(
             continue;
         };
         // The law's number is the name of its work: `publiclawdocument_119-21`.
-        let public_law = law
-            .id
-            .work
-            .as_str()
-            .split_once('_')
-            .map_or(law.id.work.as_str(), |(_, number)| number)
+        let public_law = crate::dataset::public_law_number(&law.id.work)
+            .unwrap_or(law.id.work.as_str())
             .to_string();
         for address in addresses_in(&law.root) {
             let evidence = law

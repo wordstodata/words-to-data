@@ -57,6 +57,29 @@ pub const IGNORED: &[char] = &[
     '\u{FEFF}', // zero width no-break space (byte order mark)
 ];
 
+/// Whether `a` and `b` are the same text when the characters in [`IGNORED`]
+/// are not read.
+///
+/// No other rule of this module applies: case, white space, ligatures and the
+/// rest are compared as they are written. A diff uses this to say that two
+/// texts that differ only in format characters are not a change (#363).
+///
+/// ```
+/// use words_to_data::search::equal_but_for_format;
+///
+/// assert!(equal_but_for_format("public rec\u{ad}ords", "public records"));
+/// assert!(!equal_but_for_format("public records", "Public records"));
+/// assert!(!equal_but_for_format("public records", "public  records"));
+/// ```
+pub fn equal_but_for_format(a: &str, b: &str) -> bool {
+    let read = |text: &str| {
+        text.chars()
+            .filter(|c| !IGNORED.contains(c))
+            .collect::<Vec<char>>()
+    };
+    a == b || read(a) == read(b)
+}
+
 /// The Latin ligatures, each with the letters it is written for.
 ///
 /// These are the characters U+FB00 to U+FB06, and the letters are their

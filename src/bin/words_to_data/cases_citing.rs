@@ -34,7 +34,7 @@ use std::collections::BTreeSet;
 
 use clap::Args as ClapArgs;
 use words_to_data::citation::resolve::{
-    Resolution, SectionPaths, Subdivision, resolve, resolve_subdivision,
+    Resolution, SectionPaths, Subdivision, reach_range, resolve, resolve_subdivision,
 };
 use words_to_data::citation::usc;
 use words_to_data::dataset::{Coverage, Expression, ExpressionId, WorkId};
@@ -213,7 +213,7 @@ fn resolved_paths<S: Storage>(dataset: &S, text: &str, json: bool) -> Vec<String
                 );
                 for path in found {
                     let held = latest.as_ref().and_then(|latest| latest.root.find(&path));
-                    paths.push(subdivision_path(held, &section.section, path, json));
+                    paths.extend(subdivision_paths(held, &section.section, path, json));
                 }
             }
             Resolution::Absent => say(
@@ -245,15 +245,45 @@ fn latest_printing<S: Storage>(dataset: &S, work: &WorkId) -> Option<Expression>
 /// The part is named and never dropped: `26 U.S.C. § 174(e)` asked of a
 /// printing with no (e) is answered about the whole section, and the reader is
 /// told so.
-fn subdivision_path(
+///
+/// A range of subdivisions, `994(a)(1)-(3)`, is a path for each member
+/// ([`reach_range`], #366). A member or a range that does not resolve is named,
+/// and answered about the provision above it.
+fn subdivision_paths(
     section: Option<&DocumentNode>,
     written: &str,
     path: String,
     json: bool,
-) -> String {
+) -> Vec<String> {
     let Some(section) = section else {
-        return path;
+        return vec![path];
     };
+    let Some(range) = usc::subdivision_range(written) else {
+        return vec![subdivision_path(section, written, path, json)];
+    };
+    let mut paths: Vec<String> = Vec::new();
+    for reached in reach_range(section, &range) {
+        match &reached.unresolved {
+            Some(unresolved) => say(
+                json,
+                &format!(
+                    "  {unresolved} of {written} does not resolve in the latest printing \
+                 held, so this answers about {}",
+                    reached.path
+                ),
+            ),
+            None => say(json, &format!("  {written} reaches {}", reached.path)),
+        }
+        if !paths.contains(&reached.path) {
+            paths.push(reached.path);
+        }
+    }
+    paths
+}
+
+/// The path the subdivision `written` leads to below `section`, one written
+/// with no range ([`subdivision_paths`]).
+fn subdivision_path(section: &DocumentNode, written: &str, path: String, json: bool) -> String {
     match resolve_subdivision(section, written) {
         Subdivision::Section => path,
         Subdivision::Resolved {

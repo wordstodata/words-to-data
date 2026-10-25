@@ -29,7 +29,9 @@ use crate::document::{DocumentNode, NodeData, NodeType};
 use crate::legislature::redesignation::{Step, walk_down};
 use crate::uslm::{ElementType, UslmFacts};
 
-use super::usc::{UscCitation, fold_dashes, range_ends, subdivisions};
+use super::usc::{
+    SubdivisionRange, UscCitation, fold_dashes, range_ends, subdivision_range, subdivisions,
+};
 
 /// Whether a node is a section of the US Code, and not of a public law.
 ///
@@ -132,15 +134,17 @@ impl SectionPaths {
     }
 
     /// Where the subdivision written as `written` leads below the section at
-    /// `path` ([`reach`]). The section itself, with nothing unresolved, when the
-    /// index does not hold the section's shape.
-    pub fn reach(&self, path: &str, written: &str) -> Reached {
-        match self.shapes.get(path) {
-            Some(section) => reach(section, written),
-            None => Reached {
+    /// `path` ([`reach`]): one provision, or one for each member of a range of
+    /// subdivisions ([`reach_range`]). The section itself, with nothing
+    /// unresolved, when the index does not hold the section's shape.
+    pub fn reach(&self, path: &str, written: &str) -> Vec<Reached> {
+        match (self.shapes.get(path), subdivision_range(written)) {
+            (Some(section), Some(range)) => reach_range(section, &range),
+            (Some(section), None) => vec![reach(section, written)],
+            (None, _) => vec![Reached {
                 path: path.to_string(),
                 unresolved: None,
-            },
+            }],
         }
     }
 
@@ -183,8 +187,9 @@ pub struct CitedSection {
     pub uslm_id: String,
     pub resolution: Resolution,
     /// Where the subdivision written leads below each path of
-    /// [`Resolution::Provision`], in the same order. Empty for a section that
-    /// did not resolve.
+    /// [`Resolution::Provision`], in the same order: one for each path, or, for
+    /// a range of subdivisions, one for each member of the range below each
+    /// path. Empty for a section that did not resolve.
     pub reached: Vec<Reached>,
     /// The date of the printing the section was resolved in, when the index
     /// names one ([`SectionPaths::of_printing`]).
@@ -215,6 +220,12 @@ pub struct Reached {
 /// sections between the ends are not named: the text did not write them, and a
 /// link says what the text wrote. A number the title does hold, such as
 /// `20 U.S.C. § 1078-1`, is that section and never a range.
+///
+/// A range of subdivisions after one section is one entry, and its
+/// [`CitedSection::reached`] holds each member: `§§994(a)(1)-(3)` reaches
+/// paragraphs (1), (2) and (3) of § 994(a) ([`reach_range`], #366). The text
+/// wrote the members as a list, so each one is cited; a range of sections
+/// names only its two ends.
 pub fn resolve(citation: &UscCitation, scope: &Scope, paths: &SectionPaths) -> Vec<CitedSection> {
     let coverage = scope.covers(citation.work().as_str());
     let cited = |section: &String, number: &str| {
@@ -232,7 +243,7 @@ pub fn resolve(citation: &UscCitation, scope: &Scope, paths: &SectionPaths) -> V
         let reached = match &resolution {
             Resolution::Provision { paths: found } => found
                 .iter()
-                .map(|path| paths.reach(path, section))
+                .flat_map(|path| paths.reach(path, section))
                 .collect(),
             _ => Vec::new(),
         };
@@ -313,28 +324,211 @@ pub fn resolve_subdivision(section: &DocumentNode, written: &str) -> Subdivision
 /// The walk is the one an amendment's address takes below its section, so a
 /// citation and an amendment resolve a designation alike.
 pub fn reach(section: &DocumentNode, written: &str) -> Reached {
-    let designations = subdivisions(written);
+    let (node, unresolved) = walk(section, &subdivisions(written));
+    Reached {
+        path: node.data.path.to_string(),
+        unresolved,
+    }
+}
+
+/// The deepest node `designations` lead to below `section`, and the
+/// designations from the first one that leads nowhere, in brackets.
+fn walk<'a>(
+    section: &'a DocumentNode,
+    designations: &[&str],
+) -> (&'a DocumentNode, Option<String>) {
     let mut current = section;
     for (index, designation) in designations.iter().enumerate() {
-        match walk_down(current, &[Step::numbered(*designation)]) {
-            Ok(next) => current = next,
-            Err(_) => {
-                return Reached {
-                    path: current.data.path.to_string(),
-                    unresolved: Some(
-                        designations[index..]
-                            .iter()
-                            .map(|part| format!("({part})"))
-                            .collect(),
-                    ),
-                };
+        match child(current, designation) {
+            Some(next) => current = next,
+            None => {
+                return (current, Some(bracketed(&designations[index..])));
             }
         }
     }
-    Reached {
-        path: current.data.path.to_string(),
-        unresolved: None,
+    (current, None)
+}
+
+/// Designations as a citation writes them: `(a)(1)` for `a` and `1`.
+fn bracketed(designations: &[&str]) -> String {
+    designations
+        .iter()
+        .map(|part| format!("({part})"))
+        .collect()
+}
+
+/// The one provision of `parent` numbered `designation`.
+fn child<'a>(parent: &'a DocumentNode, designation: &str) -> Option<&'a DocumentNode> {
+    walk_down(parent, &[Step::numbered(designation)]).ok()
+}
+
+/// Where each member of a range of subdivisions leads below one printing of its
+/// section (#366).
+///
+/// `994(a)(1)-(3)` leads to paragraphs (1), (2) and (3) of § 994(a). The
+/// members are counted from the written ends — numbers, letters, or roman
+/// numerals — and each is walked down like any written subdivision, so a member
+/// the printing does not hold leads to the parent, with that member named as the
+/// part that did not resolve.
+///
+/// The second end stands in for the last designations of the first, as many as
+/// it writes, so `(b)(2) through (b)(7)` is (2) to (7) of (b). Whether
+/// `(i)–(v)` counts letters or roman numerals, the printing decides: roman when
+/// the first end is a clause or a subclause, which the Code numbers that way.
+///
+/// When the members cannot be counted, the range leads to the deepest provision
+/// that holds both ends, and the range below it is the part that did not
+/// resolve: the ends are at different levels (`(1)–(B)`, `(b)(1)–(3)(A)`), the
+/// second end comes before the first, or that provision is not held. No member
+/// is guessed at.
+pub fn reach_range(section: &DocumentNode, range: &SubdivisionRange) -> Vec<Reached> {
+    let first_end = subdivisions(range.from);
+    let to = subdivisions(range.to);
+    let from = first_end.as_slice();
+    // The second end starts at the deepest level of the first end that is
+    // numbered alike: `(3)` of `(a)(1)-(3)` at the paragraph, `(b)` of
+    // `(b)(2) through (b)(7)` at the subsection. The designations above that
+    // level are shared, and so are the ones both ends then write alike.
+    let last_level = from.len().saturating_sub(1);
+    let mut shared = to
+        .first()
+        .and_then(|start| {
+            (0..from.len())
+                .rev()
+                .find(|at| numbered_alike(from[*at], start))
+        })
+        .unwrap_or(last_level);
+    let mut to_at = 0;
+    while shared + 1 < from.len() && to_at + 1 < to.len() && from[shared] == to[to_at] {
+        shared += 1;
+        to_at += 1;
     }
+    let (parent, above) = walk(section, &from[..shared]);
+    let (from, to) = (&from[shared..], &to[to_at..]);
+
+    let range_unresolved = || Reached {
+        path: parent.data.path.to_string(),
+        unresolved: Some(format!(
+            "{}{}{}{}",
+            above.clone().unwrap_or_default(),
+            bracketed(from),
+            range.joined_by,
+            bracketed(to)
+        )),
+    };
+    let members = match (above.is_some(), from, to) {
+        (false, [first], [last]) => {
+            let roman = child(parent, first).is_some_and(|node| {
+                [ElementType::Clause, ElementType::Subclause]
+                    .iter()
+                    .any(|level| node.data.node_type.local() == level.type_name())
+            });
+            members_between(first, last, roman)
+        }
+        _ => None,
+    };
+    let Some(members) = members else {
+        return vec![range_unresolved()];
+    };
+
+    members
+        .iter()
+        .map(|member| match child(parent, member) {
+            Some(node) => Reached {
+                path: node.data.path.to_string(),
+                unresolved: None,
+            },
+            None => Reached {
+                path: parent.data.path.to_string(),
+                unresolved: Some(format!("({member})")),
+            },
+        })
+        .collect()
+}
+
+/// Every designation from `first` to `last`, both ends included, when the two
+/// are numbered alike and `last` comes after `first`: `1`, `2`, `3` for `1` and
+/// `3`; `C`, `D`, `E` for `C` and `E`; `i`, `ii`, `iii` for `i` and `iii`.
+///
+/// `roman` says how to read two letters that are both roman numerals, such as
+/// `i` and `v`. Two ends that only one reading takes, such as `ii` and `iv`, or
+/// `a` and `c`, are read that way whatever `roman` says.
+fn members_between(first: &str, last: &str, roman: bool) -> Option<Vec<String>> {
+    if let (Ok(from), Ok(to)) = (first.parse::<u32>(), last.parse::<u32>()) {
+        return (from < to).then(|| (from..=to).map(|n| n.to_string()).collect());
+    }
+
+    let upper = first.chars().all(|c| c.is_ascii_uppercase());
+    let same_case = |part: &str| {
+        part.chars()
+            .all(|c| c.is_ascii_alphabetic() && c.is_ascii_uppercase() == upper)
+    };
+    if !same_case(first) || !same_case(last) {
+        return None;
+    }
+
+    let letters = match (single(first), single(last)) {
+        (Some(from), Some(to)) if from < to => {
+            Some((from..=to).map(|c| c.to_string()).collect::<Vec<_>>())
+        }
+        _ => None,
+    };
+    let numerals = match (roman_value(first), roman_value(last)) {
+        (Some(from), Some(to)) if from < to => Some(
+            (from..=to)
+                .map(|n| match upper {
+                    true => roman_numeral(n).to_ascii_uppercase(),
+                    false => roman_numeral(n),
+                })
+                .collect::<Vec<_>>(),
+        ),
+        _ => None,
+    };
+    match (letters, numerals) {
+        (Some(letters), Some(numerals)) => Some(if roman { numerals } else { letters }),
+        (letters, numerals) => letters.or(numerals),
+    }
+}
+
+/// Whether two designations are numbered the same way: both numbers, both
+/// lower case, or both upper case. A roman numeral is lower or upper case like
+/// a letter, and the printing tells the two apart ([`reach_range`]).
+fn numbered_alike(one: &str, other: &str) -> bool {
+    let style = |designation: &str| {
+        designation
+            .chars()
+            .next()
+            .map(|first| (first.is_ascii_digit(), first.is_ascii_uppercase()))
+    };
+    style(one) == style(other)
+}
+
+/// The one character of a designation that is one character long.
+fn single(designation: &str) -> Option<char> {
+    let mut chars = designation.chars();
+    let first = chars.next()?;
+    chars.next().is_none().then_some(first)
+}
+
+/// The roman numerals the Code numbers clauses with, from 1 to 39: enough for
+/// any clause it prints.
+const ROMAN_TENS: [&str; 4] = ["", "x", "xx", "xxx"];
+const ROMAN_UNITS: [&str; 10] = ["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"];
+
+/// `n` as a lower-case roman numeral, for `n` from 1 to 39.
+fn roman_numeral(n: u32) -> String {
+    format!(
+        "{}{}",
+        ROMAN_TENS[(n / 10) as usize],
+        ROMAN_UNITS[(n % 10) as usize]
+    )
+}
+
+/// The value of a roman numeral from 1 to 39, in either case. `None` for any
+/// other text, so `c` and `d` are letters and not 100 and 500.
+fn roman_value(designation: &str) -> Option<u32> {
+    let lower = designation.to_ascii_lowercase();
+    (1..40).find(|n| roman_numeral(*n) == lower)
 }
 
 /// The shape of a section: each node with its path and type, and no words.
