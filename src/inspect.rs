@@ -2984,9 +2984,15 @@ fn weakest_first(left: Option<f32>, right: Option<f32>) -> std::cmp::Ordering {
 
 /// Full-text search across every expression, returning each field match.
 ///
-/// Backends differ in coverage: the in-memory store searches all text fields,
-/// while SQLite indexes headings and content — a heading or content term is
-/// found by both.
+/// Both backends search all five text fields of each element: heading,
+/// chapeau, content, proviso and continuation. Each hit names the field it
+/// came from, so a proviso hit is a real hit. Both backends also return the
+/// hits in the same order: work, then date, then document position, then that
+/// field order. The backend does not change what a miss means: no text field
+/// of the dataset holds the term.
+///
+/// The field list is not a choice. A field that search does not read is a
+/// field whose text reads as absent from the law (#82).
 pub fn search<S: Storage>(dataset: &S, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
     dataset.search_text(query)
 }
