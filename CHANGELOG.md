@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### `settle` shows a citation's evidence, and names the record it writes ([#393](https://github.com/wordstodata/words-to-data/issues/393))
+
+- **`settle --explain` on a citation link shows its evidence.** Before, it said
+  "This dataset holds the provision at neither end" for every `judicial.cites`
+  link, also when the dataset held the cited provision. Now it shows the words
+  the court wrote at each place in the passage, and the words of the cited
+  provision in the printing the link was resolved in (`resolved_in`). When the
+  dataset does not hold that printing, it says so.
+- A link whose subject is not a change and that is not a citation gets a true
+  message: its subject is not a change to a provision, so there are no words at
+  two ends to show. "Neither end" is now said only for a change.
+- **`settle --verdict` prints the id of the record it writes**, as
+  `link-amendment` does: `Recorded a review: confirmed by human:jesse on
+  2026-10-25: record <id>`. The id finds the review in `settle --explain` and
+  in the readers.
+- In the library, `inspect::EvidenceWords` has a new variant, `Cited`.
+
 ## 0.6.0
 
 Better addresses for the laws that amend the Code, and bill commands that tell
