@@ -244,31 +244,121 @@ where
         return Ok(None);
     };
 
+    for work in law_works(reader)? {
+        let Some(law) = law_document(reader, &work)? else {
+            continue;
+        };
+        let states_this_bill = crate::uslm::bill_parser::amendment_paths(&law.root)
+            .keys()
+            .any(|amendment| bill.amendments.contains_key(amendment));
+        if states_this_bill {
+            return Ok(Some(law));
+        }
+    }
+    Ok(None)
+}
+
+/// The public law each bill became, for every bill whose law document the
+/// dataset holds: `119-hr-1` to `119-21`.
+///
+/// The join is the one [`bill_document`] makes, by the amendments the law
+/// states, so a bill that states no amendment is joined to no law. Each law is
+/// read once for all the bills, because `bills` asks for every bill at once and
+/// one law can hold thousands of provisions.
+pub fn bill_public_laws<R>(
+    reader: &R,
+    legislature: &dyn crate::storage::LegislatureReader,
+) -> Result<std::collections::BTreeMap<String, String>, crate::dataset::DatasetError>
+where
+    R: crate::storage::DocumentReader + ?Sized,
+{
+    // An amendment id is minted from its bill's id, so it names one bill.
+    let mut bill_of_amendment = std::collections::HashMap::new();
+    for bill_id in legislature.list_bill_ids()? {
+        let Some(bill) = legislature.get_bill(&bill_id)? else {
+            continue;
+        };
+        for amendment in bill.amendments.into_keys() {
+            bill_of_amendment.insert(amendment, bill_id.clone());
+        }
+    }
+
+    let mut laws = std::collections::BTreeMap::new();
+    for work in law_works(reader)? {
+        let Some(number) = public_law_number(&work) else {
+            continue;
+        };
+        let Some(law) = law_document(reader, &work)? else {
+            continue;
+        };
+        for amendment in crate::uslm::bill_parser::amendment_paths(&law.root).keys() {
+            if let Some(bill_id) = bill_of_amendment.get(amendment) {
+                laws.entry(bill_id.clone())
+                    .or_insert_with(|| number.to_string());
+            }
+        }
+    }
+    Ok(laws)
+}
+
+/// The number of the public law a law's work is named for.
+///
+/// The publisher's number is the name of the work: `119-21` for
+/// `publiclawdocument_119-21`. `None` for a work that is not a public law's.
+///
+/// ```
+/// use words_to_data::dataset::{WorkId, public_law_number};
+///
+/// let law = WorkId::new("publiclawdocument_119-21");
+/// assert_eq!(public_law_number(&law), Some("119-21"));
+/// assert_eq!(public_law_number(&WorkId::new("uscode/title_26")), None);
+/// ```
+pub fn public_law_number(work: &WorkId) -> Option<&str> {
+    let prefix = crate::uslm::ElementType::PublicLawDocument.path_segment_name();
+    work.as_str()
+        .strip_prefix(prefix)?
+        .strip_prefix('_')
+        .filter(|number| !number.is_empty())
+}
+
+/// Every work whose path opens with a public law's.
+///
+/// Only these are opened, because reading every title of the Code to find one
+/// bill would cost the whole corpus. The node type [`law_document`] reads is
+/// what says the class; the path is a filter.
+fn law_works<R>(reader: &R) -> Result<Vec<WorkId>, crate::dataset::DatasetError>
+where
+    R: crate::storage::DocumentReader + ?Sized,
+{
     let opens_a_public_law = format!(
         "{}_",
         crate::uslm::ElementType::PublicLawDocument.path_segment_name()
     );
-    for work in reader.works()? {
-        if !work.as_str().starts_with(&opens_a_public_law) {
-            continue;
-        }
-        let Some(latest) = reader.expressions(&work)?.pop() else {
-            continue;
-        };
-        let Some(expression) = reader.get_expression(&latest.id)? else {
-            continue;
-        };
-        if expression.root.data.node_type.namespace() != crate::document::NodeType::BILL {
-            continue;
-        }
-        let states_this_bill = crate::uslm::bill_parser::amendment_paths(&expression.root)
-            .keys()
-            .any(|amendment| bill.amendments.contains_key(amendment));
-        if states_this_bill {
-            return Ok(Some(expression));
-        }
+    Ok(reader
+        .works()?
+        .into_iter()
+        .filter(|work| work.as_str().starts_with(&opens_a_public_law))
+        .collect())
+}
+
+/// The newest expression of `work`, when it is a bill's document.
+fn law_document<R>(
+    reader: &R,
+    work: &WorkId,
+) -> Result<Option<crate::dataset::Expression>, crate::dataset::DatasetError>
+where
+    R: crate::storage::DocumentReader + ?Sized,
+{
+    let Some(latest) = reader.expressions(work)?.pop() else {
+        return Ok(None);
+    };
+    let Some(expression) = reader.get_expression(&latest.id)? else {
+        return Ok(None);
+    };
+    if expression.root.data.node_type.namespace() != crate::document::NodeType::BILL {
+        return Ok(None);
     }
-    Ok(None)
+    Ok(Some(expression))
 }
 
 /// Split a parsed tree into the works it holds.
