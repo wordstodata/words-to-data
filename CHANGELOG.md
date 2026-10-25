@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### `show-bill` says why it found no bill for a public law ([#394](https://github.com/wordstodata/words-to-data/issues/394))
+
+- **Two refusals in place of one.** `show-bill <dataset> "Pub. L. 119-25"` said
+  "This dataset holds no document of Pub. L. 119-25" also when the dataset held
+  that document (`publiclawdocument_119-25`). Now it gives the true reason, with
+  exit 1 in both cases:
+  - The dataset holds no document of the law.
+  - The dataset holds the document of the law, which the message names by its
+    work, but no held bill became that law. A bill is joined to a law when the
+    law's document holds the bill's amendments.
+- **Correction to 0.6.0.** The 0.6.0 entry says "A law whose document the dataset
+  does not hold is refused". The condition was wrong: `show-bill` refuses a law
+  when no held bill became it, and that is also so for some laws whose document
+  the dataset holds.
+
 ## 0.6.0
 
 Better addresses for the laws that amend the Code, and bill commands that tell

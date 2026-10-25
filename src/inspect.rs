@@ -285,6 +285,23 @@ pub fn bill_of_public_law<S: Storage + LegislatureReader>(
         .map(|(bill_id, _)| bill_id))
 }
 
+/// The work of public law `law`'s document (such as
+/// `publiclawdocument_119-21` for `119-21`), when the dataset holds it.
+///
+/// A held law need not have a bill: a bill is joined to its law through the
+/// amendments the law's document holds, so a law whose bill is not held, or
+/// whose bill holds none of its amendments, has none. A refusal must tell that
+/// case from a law the dataset does not hold (#394).
+pub fn public_law_work<S: DocumentReader + ?Sized>(
+    dataset: &S,
+    law: &str,
+) -> Result<Option<WorkId>, DatasetError> {
+    Ok(dataset
+        .works()?
+        .into_iter()
+        .find(|work| public_law_number(work) == Some(law)))
+}
+
 /// A bill that a command was given and the dataset does not hold (#337).
 ///
 /// Part of the answer, as [`AbsentPath`] is: `votes` answered "No votes for
