@@ -241,8 +241,13 @@ pub enum Stage {
 /// the nearest earlier amendment in the same section of the bill named, so the
 /// markup gives these amendments their address. Before, only the OLRC's table
 /// could give one, and only the section.
+///
+/// Version 7 (#387): where the publisher's reference places a whole section of
+/// an Act, the address keeps the units the line names below it:
+/// *"Subsection (c)(7) of section 102A of the National Security Act of 1947
+/// (50 U.S.C. 3024)"* acts in 3024(c)(7), not in the whole of § 3024.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 6)
+    Method::new("address, window and quoted words", 7)
 }
 
 /// Who a link this method writes says made it.

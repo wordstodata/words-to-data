@@ -458,10 +458,11 @@ pub(crate) fn own_text(level: &Node) -> String {
 ///    title, so nothing has to be inferred.
 /// 2. `Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o))` —
 ///    the citation numbers a section of an Act, and the publisher's own `<ref>`
-///    beside it gives the place in the Code. The reference is the authority, so
-///    the trail comes from it and not from the Act's numbering. A reference whose
-///    text says `note` or `et seq.` is refused: the Act is *not* codified at
-///    that section, and treating the note's home as the provision would point a
+///    beside it gives the place in the Code. The reference is the authority:
+///    where its trail and the line's disagree, the trail comes from it and not
+///    from the Act's numbering, and where they agree the line's units stay
+///    (#387). A reference whose text says `note` or `et seq.` is refused: the
+///    Act is *not* codified at that section, and treating the note's home as the provision would point a
 ///    link at somebody else's law. Both readers read this form through
 ///    [`section_of_an_act`], which also refuses a section of another law that
 ///    nothing places in the Code (#259).
@@ -486,7 +487,7 @@ fn section_under_amendment(
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
-    if let Some(placed) = section_of_an_act(line, &number, usc_references(holder)) {
+    if let Some(placed) = section_of_an_act(line, &number, &trail, usc_references(holder)) {
         return placed;
     }
 

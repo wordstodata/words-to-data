@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### The address keeps the units the line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387))
+
+- **An amending line of the form "Subsection (c)(7) of section 102A of the
+  National Security Act of 1947 (50 U.S.C. 3024)" now has the address
+  50 U.S.C. 3024(c)(7).** Before, the address reader kept only the section from
+  the publisher's reference and dropped the units that the line names. The
+  citation's own designations stay too: "Section 1413(g) of the … Act of 2018
+  (22 U.S.C. 9613)" is 9613(g). Where the reference gives designations that do
+  not agree with the line, the reference is the authority, as before.
+- On `eval.sqlite`, 21 amendments get a narrower address. Pub. L. 119-60
+  § 6402(a) (`4bc796d6b54a`) had 120 `legislature.amended_by` links, and 117
+  were wrong. Now it has the 3 under 3024(c)(7). § 8725 (`a518c65a04b0`) loses
+  its 3 wrong links in 9613(f). The provisions they free go by elimination to
+  the amendments that do act there (18 new links). All links: 3,329 before,
+  3,227 after. The renumbering reader records 11 more moves (296 to 307), in
+  15 U.S.C. 278s(i)(2) and 22 U.S.C. 9613(g)(2).
+- Method versions: `address, window and quoted words@7` (was 6) and
+  `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
+  `redesignations` again; `residue` then lists the links that only an older
+  version made, for review.
+
 ## 0.6.0
 
 Better addresses for the laws that amend the Code, and bill commands that tell
