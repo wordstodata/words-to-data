@@ -16,6 +16,11 @@
 //! * **Disagreement** — two makers, and their answers differ. Two answers that
 //!   cannot both be right.
 //!
+//! **A citation link claims about one place in its passage.** A passage can
+//! cite many provisions, and each citation can be true. So citation links are
+//! grouped by the place in the passage they read, and two of them disagree only
+//! when they read one place and name different provisions (#397).
+//!
 //! Comparing links rather than makers is what this command did first, and it
 //! reported 132 of the 530 annotated paths in the real corpus as disagreements.
 //! None of them was one.
@@ -146,6 +151,11 @@ fn print_category(heading: &str, groups: &[ContradictionGroup]) {
     }
     for group in groups.iter().take(DEFAULT_LIMIT) {
         println!("  {} [{}]", group.subject, group.kind);
+        // A citation link is grouped by the place in the passage it reads, so
+        // the reader is told which words the links read differently (#397).
+        if let Some(words) = &group.occurrence {
+            println!("    at the words \"{words}\"");
+        }
         for link in &group.links {
             let window = link
                 .window

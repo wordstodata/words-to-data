@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### `contradictions` reads a citation at the place it was written ([#397](https://github.com/wordstodata/words-to-data/issues/397))
+
+- **A passage that cites several provisions is not a disagreement.** A
+  `judicial.cites` link says that the words at one place in a passage lead to a
+  provision. `contradictions` now groups citation links by that place, and not
+  by the passage alone. Two citation links disagree only when they read the same
+  place and name different provisions. Before, paragraph 88 of *Torres* (T.C.
+  2025), which cites 15 U.S.C. § 78u-6 and 26 U.S.C. § 199A and its parts, was
+  a disagreement because two rules made its links. On the benchmark dataset the
+  disagreements go from 8 to 7.
+- A group of citation links names the words at its place: the text output has
+  an `at the words "..."` line, and `--json` has the field `occurrence`. Groups
+  of other kinds do not change.
+- An `amended_by` link that is outdated (#185) still counts. It stands until a
+  reviewer refutes it, so a disagreement between it and a newer link is a true
+  report about the dataset. On the benchmark dataset all 7 disagreements are of
+  this type: a link of `evidence_matching@4` against one of `@6`.
+
 ## 0.6.0
 
 Better addresses for the laws that amend the Code, and bill commands that tell

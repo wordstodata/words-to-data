@@ -3339,6 +3339,11 @@ pub struct ContradictionGroup {
     pub kind: String,
     /// The subject, named without a window.
     pub subject: String,
+    /// For citation links, the words the court wrote at the one place in the
+    /// passage that every link in the group reads. `None` for every other kind,
+    /// and for a citation link that records no place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occurrence: Option<String>,
     /// Every link in the group, in an order that says nothing about which is
     /// right: by window, then by object, then by what made it.
     pub links: Vec<ContradictingLink>,
@@ -3438,8 +3443,57 @@ impl Maker {
     }
 }
 
+/// What one link makes a claim about, as a contradiction report groups it.
+///
+/// For most kinds that is the subject. A citation link is different: its
+/// subject is a passage, and a passage can cite many provisions, each of them
+/// true. What one citation link claims is that **the words at one place** in
+/// the passage lead to its object. So a citation link claims once for each
+/// place it reads, and two links disagree only when they read one place and
+/// name different provisions (#397).
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Claim {
+    subject: String,
+    /// Where the place starts in the passage, in bytes, and the words written
+    /// there. `None` for a link that is not a citation, or records no place.
+    place: Option<(u64, String)>,
+}
+
+impl Claim {
+    /// Every claim `link` makes.
+    fn of(link: &Link) -> Vec<Self> {
+        let subject = link.subject.name();
+        let places = match link.kind.0.as_str() {
+            LinkKind::CITES => link
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.value["occurrences"].as_array()),
+            _ => None,
+        };
+        let mut claims: Vec<Self> = places
+            .into_iter()
+            .flatten()
+            .filter_map(|place| {
+                let start = place["start"].as_u64()?;
+                let words = place["words"].as_str().unwrap_or_default().to_string();
+                Some(Self {
+                    subject: subject.clone(),
+                    place: Some((start, words)),
+                })
+            })
+            .collect();
+        if claims.is_empty() {
+            claims.push(Self {
+                subject,
+                place: None,
+            });
+        }
+        claims
+    }
+}
+
 impl Contradictions {
-    /// Group one kind's links by subject, and record each group that holds a
+    /// Group one kind's links by what they claim about ([`Claim`]), and record each group that holds a
     /// contradiction.
     ///
     /// **A contradiction needs two makers.** A maker is a method at a version
@@ -3459,15 +3513,17 @@ impl Contradictions {
     /// the duplication case a disagreement between two makers rather than one
     /// maker repeating itself.
     fn add_kind(&mut self, kind: &str, links: &[Link]) {
-        let mut by_subject: BTreeMap<String, Vec<ContradictingLink>> = BTreeMap::new();
+        let mut by_claim: BTreeMap<Claim, Vec<ContradictingLink>> = BTreeMap::new();
         for link in links {
-            by_subject
-                .entry(link.subject.name())
-                .or_default()
-                .push(ContradictingLink::of(link));
+            for claim in Claim::of(link) {
+                by_claim
+                    .entry(claim)
+                    .or_default()
+                    .push(ContradictingLink::of(link));
+            }
         }
 
-        for (subject, mut found) in by_subject {
+        for (claim, mut found) in by_claim {
             if found.len() < 2 {
                 continue;
             }
@@ -3497,7 +3553,8 @@ impl Contradictions {
 
             let group = ContradictionGroup {
                 kind: kind.to_string(),
-                subject: subject.clone(),
+                subject: claim.subject.clone(),
+                occurrence: claim.place.as_ref().map(|(_, words)| words.clone()),
                 links: found.clone(),
             };
             let distinct: BTreeSet<&BTreeSet<&str>> = answers.values().collect();
