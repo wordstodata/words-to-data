@@ -1,43 +1,56 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
-### Fixed
+Better addresses for the laws that amend the Code, and bill commands that tell
+the truth. The address reader reads "Such section" ([#364](https://github.com/wordstodata/words-to-data/issues/364))
+and splits a list of instructions under a whole title into its items ([#365](https://github.com/wordstodata/words-to-data/issues/365)).
+A citation of a range of subdivisions links each one ([#366](https://github.com/wordstodata/words-to-data/issues/366)).
+`diff` no longer reports a change in format characters alone ([#363](https://github.com/wordstodata/words-to-data/issues/363)).
+`bills` and `show-bill` name the public law, and their counts are true ([#297](https://github.com/wordstodata/words-to-data/issues/297)).
 
-- **A list of instructions under a line that amends a whole title is one
-  amendment for each item** ([#365](https://github.com/wordstodata/words-to-data/issues/365)).
-  Pub. L. 119-60 § 1701(a) says "Title 10, United States Code, is amended as
-  follows:", and each of its 43 paragraphs names the section it acts on. Before,
-  the whole list was one amendment with no address. Now each item is an amendment,
-  and its address is the title of the line and the section of the item:
-  § 1701(a)(10), "In chapter 40, … by redesignating section 711 … as section
-  710a", acts on `/us/usc/t10/s711`. The list splits only when its line names a
-  title of the Code (or a part of one) and no section, and at least one item
-  names a section. An item that names no section is still an amendment, with the
-  reason "no section under amendment was named".
-- `redesignations` records a renumbered **section**: § 711 of chapter 40 →
-  § 710a. Title 10 holds a second § 711, in chapter 41, and the item's "In
-  chapter 40" says which one moved.
-- An item's own bare `Section 2101(2) is amended` takes its title from the list
-  above it.
-- A marginal note inside the words "is amended" (`is 10 USC prec. 101.
-  amended`) no longer hides the amending line. § 3111(a) of Pub. L. 119-60 now
-  reports "no section under amendment was named" (it adds a whole subpart),
-  not "no level above the clause says what it amends".
-- `In section 179—` ends the section number at the dash: § 179, not § 179-.
-
-### Upgrade
+### Upgrade from 0.5.0
 
 - **The stored format does not change** (`SCHEMA_VERSION` 10). A dataset built
   before this change opens and reads as before.
-- **Amendment ids change for the lists that now split, in a new build only.** In
-  Pub. L. 119-60, 15 amendments are replaced by 113. The 15 old ids stay in a
-  dataset that already holds the bill: `add-bills` does not read a bill again
-  that the dataset holds. No amendment of Pub. L. 119-21 (`119-hr-1`) changes id
-  or address. A link on an old id is not carried to a new build;
-  `carry-reviews` carries reviews of citation links only (#295).
-- The renumbering reader is `amendingAction type=redesignate@5` (was 4), so
-  `residue` lists the moves that only version 4 recorded, for review ([#365](https://github.com/wordstodata/words-to-data/issues/365)).
+- **Run `link-by-evidence` again** to get the evidence links of version 6, and
+  `redesignations` for each bill and window to record the renumberings of version 5.
+  `residue` then lists each link that only an older version made, for review.
+- **Add the opinions again with `add-opinions`** to get the citation links of
+  version 5 (a cached response costs no request).
+- **Change programs that read `bills --json` or `show-bill --json`**: two fields
+  have new names (see "Breaking changes for agents").
+
+### Breaking changes for agents
+
+- `bills --json`: `amendments_with_changes` is now `amendments_linked`. The text
+  column WITH CHANGES is now LINKED.
+- `show-bill --json`: `change_count` is now `link_count`. The text "(N change(s))"
+  is now "(N standing link(s))".
+- Method versions: `address, window and quoted words@6` (was 5),
+  `amendingAction type=redesignate@5` (was 4), the citation rule version 5 and the
+  default-code rule version 3. A link records the version that made it.
+- In a new build, 15 amendment ids of Pub. L. 119-60 are replaced by 113 (#365).
+
+### `bills` and `show-bill` name the public law, and their counts are true ([#297](https://github.com/wordstodata/words-to-data/issues/297))
+
+- `bills` has a PUBLIC LAW column (`Pub. L. 119-21`, or `not enacted / not held`),
+  and `show-bill` has a `Public law:` line. In `--json`, both have the field
+  `public_law` (`"119-21"`, or `null`). A bill is joined to its law by the
+  amendments the law document states, so a bill that states no amendment shows
+  no law.
+- `show-bill` takes a public law in place of a bill id: `Pub. L. 119-21`,
+  `Public Law 119–21`, `PL 119-21`, `P.L. 119-21` or `119-21`. A law whose
+  document the dataset does not hold is refused, with exit 1.
+- The false change counts are replaced. They counted word-level changes that no
+  step writes since #252, so they were 0 for every bill and every amendment.
+  - `bills`: the WITH CHANGES column is now LINKED, the amendments that at least
+    one standing `legislature.amended_by` link names. In `--json`,
+    `amendments_with_changes` is now `amendments_linked`.
+  - `show-bill`: "(N change(s))" is now "(N standing link(s))", the standing
+    links that name the amendment. In `--json`, `change_count` is now
+    `link_count`.
+  - A link stands unless its newest review refutes it, as for `residue`.
 
 ### "Such section" has an address ([#364](https://github.com/wordstodata/words-to-data/issues/364))
 
@@ -65,6 +78,40 @@
 - The redesignation readers do not read the phrase yet. A renumbering under "Such
   section" stays unplaced, as before.
 
+### A list under a whole title is one amendment for each item ([#365](https://github.com/wordstodata/words-to-data/issues/365))
+
+- **A list of instructions under a line that amends a whole title is one
+  amendment for each item** ([#365](https://github.com/wordstodata/words-to-data/issues/365)).
+  Pub. L. 119-60 § 1701(a) says "Title 10, United States Code, is amended as
+  follows:", and each of its 43 paragraphs names the section it acts on. Before,
+  the whole list was one amendment with no address. Now each item is an amendment,
+  and its address is the title of the line and the section of the item:
+  § 1701(a)(10), "In chapter 40, … by redesignating section 711 … as section
+  710a", acts on `/us/usc/t10/s711`. The list splits only when its line names a
+  title of the Code (or a part of one) and no section, and at least one item
+  names a section. An item that names no section is still an amendment, with the
+  reason "no section under amendment was named".
+- `redesignations` records a renumbered **section**: § 711 of chapter 40 →
+  § 710a. Title 10 holds a second § 711, in chapter 41, and the item's "In
+  chapter 40" says which one moved.
+- An item's own bare `Section 2101(2) is amended` takes its title from the list
+  above it.
+- A marginal note inside the words "is amended" (`is 10 USC prec. 101.
+  amended`) no longer hides the amending line. § 3111(a) of Pub. L. 119-60 now
+  reports "no section under amendment was named" (it adds a whole subpart),
+  not "no level above the clause says what it amends".
+- `In section 179—` ends the section number at the dash: § 179, not § 179-.
+- **Amendment ids change for the lists that now split, in a new build only.** In
+  Pub. L. 119-60, 15 amendments are replaced by 113. The 15 old ids stay in a
+  dataset that already holds the bill: `add-bills` does not read a bill again
+  that the dataset holds. No amendment of Pub. L. 119-21 (`119-hr-1`) changes id
+  or address. A link on an old id is not carried to a new build;
+  `carry-reviews` carries reviews of citation links only (#295).
+- The renumbering reader is `amendingAction type=redesignate@5` (was 4), so
+  `residue` lists the moves that only version 4 recorded, for review ([#365](https://github.com/wordstodata/words-to-data/issues/365)).
+
+### A range of subdivisions is a citation of each one ([#366](https://github.com/wordstodata/words-to-data/issues/366))
+
 - **A range of subdivisions after one section is a citation of each subdivision
   in it** ([#366](https://github.com/wordstodata/words-to-data/issues/366)).
   *Boeing*'s "26 U. S. C. §§994(a)(1)-(3)" is now three links, to § 994(a)(1),
@@ -81,7 +128,7 @@
   to get the new links. `cases-citing --cites` takes a range too, and asks about
   each member.
 
-### Fixed
+### Format characters alone are not a change ([#363](https://github.com/wordstodata/words-to-data/issues/363))
 
 - **A difference in format characters alone is not a change**
   ([#363](https://github.com/wordstodata/words-to-data/issues/363)). A field whose
@@ -97,26 +144,6 @@
   title 26 between 2025-07-18 and 2025-07-30, one path fewer is changed (536, not
   537): the heading of § 7206(5)(B) differs only in a soft hyphen.
 
-### `bills` and `show-bill` name the public law, and their counts are true ([#297](https://github.com/wordstodata/words-to-data/issues/297))
-
-- `bills` has a PUBLIC LAW column (`Pub. L. 119-21`, or `not enacted / not held`),
-  and `show-bill` has a `Public law:` line. In `--json`, both have the field
-  `public_law` (`"119-21"`, or `null`). A bill is joined to its law by the
-  amendments the law document states, so a bill that states no amendment shows
-  no law.
-- `show-bill` takes a public law in place of a bill id: `Pub. L. 119-21`,
-  `Public Law 119–21`, `PL 119-21`, `P.L. 119-21` or `119-21`. A law whose
-  document the dataset does not hold is refused, with exit 1.
-- The false change counts are replaced. They counted word-level changes that no
-  step writes since #252, so they were 0 for every bill and every amendment.
-  - `bills`: the WITH CHANGES column is now LINKED, the amendments that at least
-    one standing `legislature.amended_by` link names. In `--json`,
-    `amendments_with_changes` is now `amendments_linked`.
-  - `show-bill`: "(N change(s))" is now "(N standing link(s))", the standing
-    links that name the amendment. In `--json`, `change_count` is now
-    `link_count`.
-  - A link stands unless its newest review refutes it, as for `residue`.
-- The stored format does not change (`SCHEMA_VERSION` 10).
 
 ## 0.5.0
 
