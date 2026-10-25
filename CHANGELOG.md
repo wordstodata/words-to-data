@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### "Such section" has an address ([#364](https://github.com/wordstodata/words-to-data/issues/364))
+
+- **The address reader reads "Such section" and "Such subsection".** The phrase
+  names the unit that the nearest earlier amending line in the same section of the
+  bill names. Pub. L. 119-60 § 1702(b)(1), "Such section is further amended, in
+  subsection (c)— (1) in paragraph (1) …", now has the address 17 U.S.C. 105(c)(1)
+  from the bill's markup. Before, it had no section, and only the OLRC table gave
+  it one.
+  - "Such section" keeps the designations of the earlier citation: after "Section
+    9062(j) of title 10", it is 9062(j).
+  - "Such subsection" is the subsection that the earlier line names: after
+    "Subsection (a) of section 1142", it is 1142(a).
+  - A unit before the phrase is a step below it: "Subsection (f)(2) of such
+    section" reaches (f)(2).
+  - A line that ends with the phrase names the phrase's unit, also when its heading
+    cites a section ("(1) Section 102a.—Such section is further amended—").
+  - When no earlier line names a section, the reason is new: `"Such section" had no
+    antecedent` (`no_antecedent` in `--json`).
+- For 119-s-1071, `amendment-addresses` now addresses 504 of 977 amendments (was
+  469). No amendment of 119-s-1071 or 119-hr-1 lost or changed an address.
+- **The evidence method is now version 6** (`address, window and quoted words@6`).
+  Run `link-by-evidence` again. `residue` then lists each link that only version 5
+  made, for review.
+- The redesignation readers do not read the phrase yet. A renumbering under "Such
+  section" stays unplaced, as before.
+
 - **A range of subdivisions after one section is a citation of each subdivision
   in it** ([#366](https://github.com/wordstodata/words-to-data/issues/366)).
   *Boeing*'s "26 U. S. C. §§994(a)(1)-(3)" is now three links, to § 994(a)(1),

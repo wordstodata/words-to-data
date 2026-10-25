@@ -249,11 +249,25 @@ impl<'a> Scope<'a> {
     /// As [`Self::section`], and where the amending line names no section but
     /// the instruction inserts a whole new one, the new section
     /// ([`new_section_inserted`]).
+    ///
+    /// Where the line names its target as *"Such section"* or *"Such
+    /// subsection"*, the target is the unit an earlier amendment of the same
+    /// section of the bill named ([`such_unit_address`]). Only this reader
+    /// reads the phrase. The redesignation readers do not yet, so the markup
+    /// reader and the stored reader of a renumbering still agree.
     fn address(
         &self,
         came_through: &[&DocumentNode],
         code_of_1986: &[String],
     ) -> Result<(String, Vec<Step>), Reason> {
+        if let Some((line, holder)) = &self.amending_line
+            && such_unit_named_by(line).is_some()
+        {
+            let named = such_unit_address(line, holder, came_through, code_of_1986)?;
+            let mut container: Vec<Step> = named.whole.into_iter().map(Step::numbered).collect();
+            container.extend(self.steps.iter().cloned());
+            return Ok((named.section, container));
+        }
         self.section_cited_by(came_through, code_of_1986, |line| {
             citation_in(line).or_else(|| new_section_inserted(&self.clause, came_through))
         })
@@ -281,6 +295,178 @@ impl<'a> Scope<'a> {
         container.extend(self.steps.iter().cloned());
         Ok((section, container))
     }
+}
+
+// --- "Such section": what an earlier amendment named (#364) ---
+
+/// The unit an amending line names, and where it is.
+struct NamedUnit {
+    /// The section, as a USLM identifier: `/us/usc/t17/s105`.
+    section: String,
+    /// The designations the citation itself gives: `Section 9062(j)` gives
+    /// `j`. A later *"Such section"* names this unit.
+    cited: Vec<String>,
+    /// The designations below the section, to the whole unit the line names.
+    whole: Vec<String>,
+}
+
+/// The unit a line names by what an earlier line named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SuchUnit {
+    /// *"Such section"*.
+    Section,
+    /// *"Such subsection"*.
+    Subsection,
+}
+
+impl SuchUnit {
+    /// The phrase, as a reason quotes it.
+    fn phrase(self) -> &'static str {
+        match self {
+            Self::Section => "Such section",
+            Self::Subsection => "Such subsection",
+        }
+    }
+}
+
+/// The unit a line names as *"Such section"* or *"Such subsection"*, at the
+/// end of the words before *is amended*.
+///
+/// Where the line ends so, that is its target, even when a heading before it
+/// cites a section: *"(1) Section 102a.—Such section is further amended—"*.
+///
+/// > Such section is further amended, in subsection (c)—
+///
+/// Also where it gives where the phrase starts, so that the units the line
+/// names before it can be read: *"Subsection (f)(2) of such section"*.
+fn such_unit_named_by(line: &str) -> Option<(SuchUnit, usize)> {
+    static SUCH_UNIT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\bsuch\s+(section|subsection)\s*,?\s*$")
+            .expect("the such-unit pattern must compile")
+    });
+    let found = SUCH_UNIT.captures(line)?;
+    let start = found.get(0).map_or(0, |phrase| phrase.start());
+    match found[1].to_lowercase().as_str() {
+        "section" => Some((SuchUnit::Section, start)),
+        _ => Some((SuchUnit::Subsection, start)),
+    }
+}
+
+/// The unit the amending line said by `holder` names, when the line names it
+/// as *"Such section"* or *"Such subsection"*.
+///
+/// *Such section* is the section the nearest earlier amending line in the same
+/// section of the bill names, as its citation names it: after *"Section
+/// 9062(j) of title 10"*, *Such section* is § 9062(j). *Such subsection* is
+/// the subsection that line names: after *"Subsection (a) of section 1142"*,
+/// it is § 1142(a). The earlier line can say *"Such section"* too, so it is
+/// read the same way.
+///
+/// A unit the line names before the phrase is a step below it, as before a
+/// citation: *"Subsection (f)(2) of such section"* reaches (f)(2) of it.
+fn such_unit_address(
+    line: &str,
+    holder: &DocumentNode,
+    came_through: &[&DocumentNode],
+    code_of_1986: &[String],
+) -> Result<NamedUnit, Reason> {
+    let (such, start) = such_unit_named_by(line).ok_or(Reason::NoSectionNamed)?;
+    let no_antecedent = || Reason::NoAntecedent(such.phrase().to_string());
+    let earlier = earlier_line_naming_a_section(holder, came_through).ok_or_else(no_antecedent)?;
+    let named = unit_named_by_line(&earlier, code_of_1986)?;
+    let mut whole = match such {
+        SuchUnit::Section => named.cited.clone(),
+        SuchUnit::Subsection => {
+            let subsection = named.whole.first().ok_or_else(no_antecedent)?;
+            vec![subsection.clone()]
+        }
+    };
+    whole.extend(units_before_the_citation(&line[..start]));
+    Ok(NamedUnit {
+        section: named.section,
+        cited: named.cited,
+        whole,
+    })
+}
+
+/// The unit the amending line of the level at the end of `came_through` names.
+fn unit_named_by_line(
+    came_through: &[&DocumentNode],
+    code_of_1986: &[String],
+) -> Result<NamedUnit, Reason> {
+    let holder = *came_through.last().ok_or(Reason::NoAmendingLine)?;
+    let line = amending_line_of(&stored_own_text(holder)).ok_or(Reason::NoAmendingLine)?;
+    if such_unit_named_by(&line).is_some() {
+        return such_unit_address(&line, holder, came_through, code_of_1986);
+    }
+    match citation_in(&line) {
+        Some(whole) => {
+            let (section, whole) =
+                stored_section_under_amendment(whole, &line, holder, came_through, code_of_1986)?;
+            let alone = citation_alone_in(&line).ok_or(Reason::NoSectionNamed)?;
+            let (_, cited) =
+                stored_section_under_amendment(alone, &line, holder, came_through, code_of_1986)?;
+            Ok(NamedUnit {
+                section,
+                cited,
+                whole,
+            })
+        }
+        None => Err(Reason::NoSectionNamed),
+    }
+}
+
+/// The path from the root to the nearest level before `holder`, in the same
+/// section of the bill, whose amending line names a section.
+fn earlier_line_naming_a_section<'a>(
+    holder: &DocumentNode,
+    came_through: &[&'a DocumentNode],
+) -> Option<Vec<&'a DocumentNode>> {
+    let at_holder = came_through
+        .iter()
+        .rposition(|node| std::ptr::eq(*node, holder))?;
+    let bill_section = came_through[..=at_holder].iter().rposition(|node| {
+        node.data.node_type.local() == ElementType::Section.path_segment_name()
+    })?;
+    let mut path = came_through[..bill_section].to_vec();
+    let mut nearest = None;
+    walk_until(came_through[bill_section], holder, &mut path, &mut nearest);
+    nearest
+}
+
+/// Walk down from `node` in document order until `holder`, and keep in
+/// `nearest` the path to the last level whose amending line names a section.
+///
+/// Whether the walk came to `holder`.
+fn walk_until<'a>(
+    node: &'a DocumentNode,
+    holder: &DocumentNode,
+    path: &mut Vec<&'a DocumentNode>,
+    nearest: &mut Option<Vec<&'a DocumentNode>>,
+) -> bool {
+    if std::ptr::eq(node, holder) {
+        return true;
+    }
+    path.push(node);
+    if is_stored_level(node) && line_names_a_section(&stored_own_text(node)) {
+        *nearest = Some(path.clone());
+    }
+    for child in &node.children {
+        if walk_until(child, holder, path, nearest) {
+            return true;
+        }
+    }
+    path.pop();
+    false
+}
+
+/// Whether a level's amending line names a section: it cites one, or it says
+/// *"Such section"*. A table of sections is not a section.
+fn line_names_a_section(text: &str) -> bool {
+    amending_line_of(text).is_some_and(|line| {
+        !line.contains("table of sections")
+            && (citation_in(&line).is_some() || such_unit_named_by(&line).is_some())
+    })
 }
 
 /// The USLM facts of a node, or `None` when it carries none.
@@ -600,14 +786,14 @@ pub(crate) fn leading_in_phrase(text: &str) -> Vec<Step> {
 /// phrase does (#339). Only the words right after *is amended* count, so a
 /// mention further along the instruction cannot be read as a scope.
 ///
-/// Where the line names its target as *"Such subsection"*, the phrase names
-/// a unit inside a unit this reader does not name, so it gives no step.
+/// Where the line names its target as *"Such paragraph"* or a smaller unit,
+/// the phrase names a unit inside a unit this reader does not name, so it
+/// gives no step. *"Such subsection"* is read: it is the subsection an earlier
+/// amendment named (#364).
 pub(crate) fn in_phrase_after_amending_line(text: &str) -> Vec<Step> {
     static SUCH_UNIT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"(?i)\bsuch\s+(?:subsection|paragraph|subparagraph|clause|subclause|item|subitem)\b",
-        )
-        .expect("the such-unit pattern must compile")
+        Regex::new(r"(?i)\bsuch\s+(?:paragraph|subparagraph|clause|subclause|item|subitem)\b")
+            .expect("the such-unit pattern must compile")
     });
     let Some(found) = AMENDED.find(text) else {
         return Vec::new();
@@ -633,11 +819,21 @@ pub(crate) fn in_phrase_after_amending_line(text: &str) -> Vec<Step> {
 /// *"Paragraph (2) of section 6213(b)"* reaches 6213(b)(2), and *"Paragraph
 /// (2) of subsection (f) of section 149"* reaches 149(f)(2) (#339).
 pub(crate) fn citation_in(line: &str) -> Option<(String, Vec<String>)> {
-    let cited = CITATION.captures(line)?;
-    let start = cited.get(0).map_or(0, |whole| whole.start());
-    let mut trail = designations_in(&cited[2]);
+    let (number, mut trail) = citation_alone_in(line)?;
+    let start = CITATION.find(line).map_or(0, |cited| cited.start());
     trail.extend(units_before_the_citation(&line[..start]));
-    Some((crate::citation::usc::fold_dashes(&cited[1]), trail))
+    Some((number, trail))
+}
+
+/// The section number an amending line cites, and the designations the
+/// citation itself gives: `Paragraph (2) of section 6213(b)` gives 6213 and
+/// `b`.
+fn citation_alone_in(line: &str) -> Option<(String, Vec<String>)> {
+    let cited = CITATION.captures(line)?;
+    Some((
+        crate::citation::usc::fold_dashes(&cited[1]),
+        designations_in(&cited[2]),
+    ))
 }
 
 /// The designations of the units the words right before a citation name, the
