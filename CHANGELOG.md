@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### `residue` lists an amendment that is linked in part ([#271](https://github.com/wordstodata/words-to-data/issues/271))
+
+- **A new category, `linked_in_part`.** `residue` lists an amendment that a
+  standing link names when a change under its address, in the window the
+  matcher gives it, is claimed by no standing `amended_by` link. The row's
+  `changes` are those unclaimed changes only. Before, such an amendment counted
+  as linked, and only `coverage` showed its other changes.
+- The row says that each change is under the address and unclaimed. It does not
+  say that the change is the amendment's: an agent reads the words and decides.
+- A change whose link to the same amendment was refuted is not listed again.
+- The text output counts the rows as "linked in part" and lists them after the
+  work. The first line still counts the amendments that no standing link names.
+- **The stored format does not change** (`SCHEMA_VERSION` 10), and no method
+  version changes: the batch makes the same links.
+- **For agents:** `residue --json` rows can now have the category
+  `linked_in_part`, and such a row names an amendment that a standing link
+  names. A program that reads every row as "no standing link names it" must
+  read the category first.
+
 ## 0.6.0
 
 Better addresses for the laws that amend the Code, and bill commands that tell

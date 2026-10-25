@@ -1,6 +1,8 @@
 //! `words_to_data residue` — every amendment of a public law that no standing
 //! `legislature.amended_by` link names, with the stage and the reason it
 //! stopped (#251). A link stands unless its newest review refutes it (#268).
+//! It also lists each amendment that is linked in part: a standing link names
+//! it, and a change under its address is claimed by no link (#271).
 //!
 //! See [`words_to_data::legislature::residue`] for what counts as unlinked,
 //! where the reasons come from and what each category means.
@@ -127,10 +129,11 @@ fn print_outdated(outdated: &[OutdatedLink]) {
 fn queue_place(category: Category) -> u8 {
     match category {
         Category::Work => 0,
-        Category::Unwritten => 1,
-        Category::NotHeld => 2,
-        Category::Quiet => 3,
-        Category::ReviewedNoLink => 4,
+        Category::LinkedInPart => 1,
+        Category::Unwritten => 2,
+        Category::NotHeld => 3,
+        Category::Quiet => 4,
+        Category::ReviewedNoLink => 5,
     }
 }
 
@@ -140,7 +143,7 @@ fn print_counts(rows: &[Unlinked]) {
     let count = |category: Category| rows.iter().filter(|row| row.category == category).count();
     println!(
         "{} amendment(s) that no standing link names",
-        ui::figure(rows.len())
+        ui::figure(rows.len() - count(Category::LinkedInPart))
     );
     println!(
         "  {:>4}  {}",
@@ -162,6 +165,11 @@ fn print_counts(rows: &[Unlinked]) {
         );
     }
 
+    println!(
+        "  {:>4}  {}: a link names it, and a change under its address is claimed by no link",
+        ui::attention(count(Category::LinkedInPart)).bold(),
+        ui::heading("linked in part")
+    );
     println!(
         "  {:>4}  linked by the evidence method, and not written: run link-by-evidence",
         count(Category::Unwritten)
@@ -200,6 +208,7 @@ fn print_row(row: &Unlinked) {
         (Category::Unwritten, _) => "unwritten".to_string(),
         (Category::NotHeld, _) => "not held".to_string(),
         (Category::Quiet, _) => "quiet".to_string(),
+        (Category::LinkedInPart, _) => "linked in part".to_string(),
     };
     println!(
         "  {}  {} {}: {}",
@@ -249,8 +258,12 @@ fn print_row(row: &Unlinked) {
     if let (Some(from), Some(to)) = (&row.from, &row.to) {
         println!("    {} {from} -> {}", ui::quiet("window:"), to.at);
     }
+    let change_label = match row.category {
+        Category::LinkedInPart => "unclaimed change:",
+        _ => "change:",
+    };
     for change in &row.changes {
-        println!("    {} {change}", ui::quiet("change:"));
+        println!("    {} {change}", ui::quiet(change_label));
     }
     for classified in &row.olrc {
         let descriptions: Vec<&str> = classified
