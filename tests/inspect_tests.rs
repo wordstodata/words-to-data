@@ -448,7 +448,7 @@ fn should_find_heading_matches_on_sqlite_backend() {
     let fixture = make_fixture();
     let (_dir, sqlite) = to_sqlite(&fixture);
 
-    // SQLite indexes headings + content, so a heading term must still be found.
+    // SQLite searches all five text fields, so a heading term must be found.
     let hits = inspect::search(&sqlite, "arbitration").expect("search sqlite");
     assert!(!hits.is_empty(), "sqlite should find heading matches");
 }
