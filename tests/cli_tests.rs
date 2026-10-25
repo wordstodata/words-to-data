@@ -1378,9 +1378,9 @@ fn should_list_bill_ids_so_show_bill_can_be_used() {
 /// `bills` names no command that no longer exists.
 ///
 /// Nothing writes word-level changes since `extract-changes` was removed with
-/// the model pipeline (#252), so a dataset built now holds none. The count
-/// stays, because a dataset built before holds them, but advice to run the
-/// removed command would send a reader to a dead end.
+/// the model pipeline (#252), and since #297 `bills` counts standing links in
+/// their place. Advice to run the removed command would send a reader to a dead
+/// end.
 #[test]
 fn should_name_no_removed_command_when_no_bill_carries_extracted_changes() {
     let (sqlite, _) = bill_fixtures();

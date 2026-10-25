@@ -40,7 +40,7 @@
 //! because a stored list goes false the moment someone links an amendment
 //! (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -164,7 +164,7 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
         .into_iter()
         .filter(|amendment| bill.is_none_or(|bill| bill == amendment.bill_id))
         .filter(|amendment| {
-            !links.standing.contains(&amendment_reference(
+            !links.standing.contains_key(&amendment_reference(
                 &amendment.bill_id,
                 &amendment.amendment_id,
             ))
@@ -272,12 +272,27 @@ fn not_held(address: &AmendmentAddress, olrc: &[Classification]) -> Option<Strin
     })
 }
 
+/// How many standing `legislature.amended_by` links name each amendment of
+/// `bill`, or of every bill when `bill` is `None`, by the amendment's object
+/// reference ([`amendment_reference`]).
+///
+/// A link stands unless its newest review refutes it, as for the list above. An
+/// amendment that no standing link names is not in the map.
+pub fn standing_links<S: LinkReader + ?Sized>(
+    dataset: &S,
+    bill: Option<&str>,
+) -> Result<BTreeMap<String, usize>, DatasetError> {
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
+    Ok(amendment_links(dataset, bill, &reviews)?.standing)
+}
+
 /// What the `amended_by` links say about each amendment they name, by its
 /// object reference.
 #[derive(Default)]
 struct AmendmentLinks {
-    /// Every amendment that at least one standing link names.
-    standing: BTreeSet<String>,
+    /// Every amendment that at least one standing link names, and how many
+    /// standing links name it.
+    standing: BTreeMap<String, usize>,
     /// The refuted links of each amendment, whether or not a link of it
     /// stands.
     refuted: BTreeMap<String, Vec<RefutedLink>>,
@@ -288,8 +303,8 @@ struct AmendmentLinks {
 /// A link stands unless its newest review, out of `reviews`, refutes it
 /// (`docs/adr/0012-a-review-is-its-own-link-and-a-reader-reports-the-record.md`).
 /// [`newest_naming`] picks that review, as it does for every reader.
-fn amendment_links<S: Storage>(
-    dataset: &Dataset<S>,
+fn amendment_links<S: LinkReader + ?Sized>(
+    dataset: &S,
     bill: Option<&str>,
     reviews: &[crate::link::Link],
 ) -> Result<AmendmentLinks, DatasetError> {
@@ -314,7 +329,7 @@ fn amendment_links<S: Storage>(
                     });
             }
             _ => {
-                links.standing.insert(link.object.name());
+                *links.standing.entry(link.object.name()).or_insert(0) += 1;
             }
         }
     }

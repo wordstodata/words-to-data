@@ -17,6 +17,7 @@ use crate::annotation::ChangeAnnotation;
 use crate::congress::{Party, PartyOnDate, VotePosition};
 use crate::dataset::{
     DatasetError, ExpressionId, Scope, SearchResult, WorkId, adjacent_expressions, bill_document,
+    bill_public_laws, public_law_number,
 };
 use crate::diff::{Redesignations, TreeDiff};
 use crate::document::DocumentNode;
@@ -25,8 +26,10 @@ use crate::judicial::held::{CourtFacts, court_facts};
 use crate::legislature::evidence_matching::{Recorded, evidence_method};
 use crate::legislature::outdated::{OutdatedLink, outdated_links};
 use crate::legislature::redesignation::{self, Reader, RedesignationReport};
+use crate::legislature::residue::standing_links;
 use crate::link::{
     Link, LinkKind, ProvisionHistory, RedesignationStep, Target, VerificationState, Window,
+    amendment_reference,
 };
 use crate::method::{Method, MethodRun};
 pub use crate::query::PathMatch;
@@ -195,14 +198,19 @@ pub struct ExpressionSummary {
 pub struct BillListing {
     /// The identifier `show-bill` takes, such as `119-hr-1`.
     pub bill_id: String,
+    /// The public law the bill became, such as `119-21`.
+    ///
+    /// `None` when the dataset holds no law document that states the bill's
+    /// amendments: the bill was not enacted, or its law is not held.
+    pub public_law: Option<String>,
     /// How many amendments the bill carries.
     pub amendment_count: usize,
-    /// How many of those carry extracted word-level changes.
+    /// How many of those at least one standing `legislature.amended_by` link
+    /// names: a link whose newest review does not refute it.
     ///
-    /// Only a dataset built before #252 holds any: `extract-changes` wrote
-    /// them, and it was removed with the rest of the model pipeline. A dataset
-    /// keeps what it was given (`docs/adr/0005`), so the count is still read.
-    pub amendments_with_changes: usize,
+    /// It replaced `amendments_with_changes`, which counted word-level changes
+    /// that nothing extracts since #252, so it was 0 for every bill (#297).
+    pub amendments_linked: usize,
 }
 
 /// List every bill, ordered by id.
@@ -215,23 +223,66 @@ pub fn bills<S: Storage + LegislatureReader>(
 ) -> Result<Vec<BillListing>, DatasetError> {
     let mut ids = dataset.list_bill_ids()?;
     ids.sort();
+    let mut laws = bill_public_laws(dataset, dataset)?;
+    let links = standing_links(dataset, None)?;
 
     let mut summaries = Vec::new();
     for id in ids {
         let Some(bill) = dataset.get_bill(&id)? else {
             continue;
         };
+        let amendments_linked = bill
+            .amendments
+            .keys()
+            .filter(|amendment| links.contains_key(&amendment_reference(&id, amendment)))
+            .count();
         summaries.push(BillListing {
+            public_law: laws.remove(&id),
             bill_id: bill.bill_id,
             amendment_count: bill.amendments.len(),
-            amendments_with_changes: bill
-                .amendments
-                .values()
-                .filter(|amendment| !amendment.changes.is_empty())
-                .count(),
+            amendments_linked,
         });
     }
     Ok(summaries)
+}
+
+/// The public law number a person or an agent wrote, such as `119-21`.
+///
+/// Takes the forms in use: `Pub. L. 119-21`, `Public Law 119–21` (the
+/// publisher's en dash), `PL 119-21`, `P.L. 119-21` and the bare `119-21`. Case
+/// is ignored. `None` for anything else, a bill id such as `119-hr-1` too, so a
+/// command can take either.
+///
+/// ```
+/// use words_to_data::inspect::public_law_named;
+///
+/// assert_eq!(public_law_named("Pub. L. 119-21").as_deref(), Some("119-21"));
+/// assert_eq!(public_law_named("pl 119–21").as_deref(), Some("119-21"));
+/// assert_eq!(public_law_named("119-hr-1"), None);
+/// ```
+pub fn public_law_named(text: &str) -> Option<String> {
+    let text = text.trim().to_lowercase();
+    let number = ["public law", "pub. l.", "pub.l.", "pub l", "p.l.", "pl"]
+        .iter()
+        .find_map(|prefix| text.strip_prefix(prefix))
+        .unwrap_or(&text)
+        .trim()
+        .replace(['\u{2013}', '\u{2014}'], "-");
+    let (congress, law) = number.split_once('-')?;
+    let digits = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit());
+    (digits(congress) && digits(law)).then_some(number)
+}
+
+/// The bill that became public law `law` (such as `119-21`), when the dataset
+/// holds that law's document.
+pub fn bill_of_public_law<S: Storage + LegislatureReader>(
+    dataset: &S,
+    law: &str,
+) -> Result<Option<String>, DatasetError> {
+    Ok(bill_public_laws(dataset, dataset)?
+        .into_iter()
+        .find(|(_, number)| number == law)
+        .map(|(bill_id, _)| bill_id))
 }
 
 /// A bill that a command was given and the dataset does not hold (#337).
@@ -2944,6 +2995,9 @@ pub fn search<S: Storage>(dataset: &S, query: &str) -> Result<Vec<SearchResult>,
 #[derive(Debug, Clone, Serialize)]
 pub struct BillSummary {
     pub bill_id: String,
+    /// The public law the bill became, such as `119-21`, as in
+    /// [`BillListing::public_law`].
+    pub public_law: Option<String>,
     pub amendment_count: usize,
     /// Amendments sorted by id for stable output.
     pub amendments: Vec<AmendmentSummary>,
@@ -2956,8 +3010,13 @@ pub struct AmendmentSummary {
     /// Amending actions (e.g. `delete`, `insert`) in serde string form.
     pub action_types: Vec<String>,
     pub amending_text: String,
-    /// How many word-level changes have been extracted for this amendment.
-    pub change_count: usize,
+    /// How many standing `legislature.amended_by` links name this amendment:
+    /// links whose newest review does not refute them.
+    ///
+    /// 0 says that no standing link names it yet, not that it changed nothing.
+    /// It replaced `change_count`, which counted word-level changes that
+    /// nothing extracts since #252, so it was 0 for every amendment (#297).
+    pub link_count: usize,
 }
 
 /// Serde string form of an amending action (e.g. `"repeal_and_reserve"`).
@@ -2977,6 +3036,7 @@ pub fn show_bill<S: Storage + LegislatureReader>(
         return Ok(None);
     };
 
+    let links = standing_links(dataset, Some(bill_id))?;
     let mut amendments: Vec<AmendmentSummary> = bill
         .amendments
         .values()
@@ -2984,13 +3044,19 @@ pub fn show_bill<S: Storage + LegislatureReader>(
             id: a.id.clone(),
             action_types: a.action_types.iter().map(action_str).collect(),
             amending_text: a.amending_text.clone(),
-            change_count: a.changes.len(),
+            link_count: links
+                .get(&amendment_reference(bill_id, &a.id))
+                .copied()
+                .unwrap_or(0),
         })
         .collect();
     amendments.sort_by(|a, b| a.id.cmp(&b.id));
+    let public_law = bill_document(dataset, dataset, bill_id)?
+        .and_then(|law| public_law_number(&law.id.work).map(str::to_string));
 
     Ok(Some(BillSummary {
         bill_id: bill.bill_id,
+        public_law,
         amendment_count: amendments.len(),
         amendments,
     }))
