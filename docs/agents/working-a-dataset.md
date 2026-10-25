@@ -534,7 +534,12 @@ text is there after, and the provision is the one the amendment names.
 
 ## Report
 
-End every run with a short report:
+A question ends with its answer, and no separate report. The answer gives
+its evidence, labels each claim that did not come from command output, and
+names each part the commands could not answer.
+
+End every run that changes the dataset (residue, review, a build) with a short
+report:
 
 - what you were asked, and your answer with its evidence
 - each record you wrote (link, no-link, review), with its id
