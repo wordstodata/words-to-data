@@ -25,8 +25,10 @@
 //! 4. **Paragraphs.** A paragraph starts where a line is indented further than
 //!    the line before it; where a line comes back from a block quotation or a
 //!    centred heading; where two indented lines stand a blank line apart, or
-//!    the first of them is a whole item of a list; after the line that opens
-//!    a writing, "JUSTICE KENNEDY delivered the opinion of the Court."; and, in
+//!    the first of them is a whole item of a list; where an indented line
+//!    opens the first item of a list, "“(i)", after its lead-in, "of—"; after
+//!    the line that opens a writing, "JUSTICE KENNEDY delivered the opinion of
+//!    the Court."; and, in
 //!    a text that is not double spaced, after any blank line. Every other line
 //!    goes on: a paragraph runs over a page break and round a footnote.
 //! 5. **Lines are joined** with one space between two words. A word broken at a
@@ -619,6 +621,11 @@ fn paragraphs(body: &[Line], layout: Layout) -> Vec<Passage> {
                     // Two indented lines, the first a whole sentence or
                     // citation of its own, as in a list.
                     || (here == there && here > 0 && first_line && !layout.double_spaced && item_ends(before.text, line.text))
+                    // Two indented lines, a lead-in, "“issued in aid of the
+                    // collection of—", and the first item of its list, "“(i)
+                    // an assessment made…". At the margin, "(i)" after a dash
+                    // goes on in the sentence.
+                    || (here == there && here > 0 && list_starts(before.text, line.text))
                     // Back from a block quotation or a heading. Back from an
                     // indented first line is the same paragraph.
                     || (here < there && (!first_line || there > CENTRED))
@@ -650,6 +657,20 @@ fn item_ends(line: &str, next: &str) -> bool {
         .next()
         .is_some_and(char::is_uppercase);
     ends && opens
+}
+
+/// A line that opens with the designation of an item of a list, plain or
+/// after an opening quote: "(i) an assessment", "“(A) the".
+static LIST_ITEM: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^\s*[“"]?\((?:\d{1,3}[A-Za-z]?|[a-zA-Z]{1,2}|[ivxlcdmIVXLCDM]{1,6})\)\s"#)
+        .expect("valid pattern")
+});
+
+/// Whether a line opens the first item of a list after its lead-in: the line
+/// before ends with a dash or a colon, "of—", "is:", and the line opens with
+/// a designation, "“(i)".
+fn list_starts(line: &str, next: &str) -> bool {
+    line.trim_end().ends_with(['—', ':']) && LIST_ITEM.is_match(next)
 }
 
 /// Lines joined into one run of words, one space between two words. A word

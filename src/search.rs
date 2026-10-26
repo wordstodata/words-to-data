@@ -25,6 +25,9 @@
 //!   (#338). "well-known" still matches "well-known".
 //! - The characters in [`IGNORED`] are not read. The Code puts a soft hyphen
 //!   inside about 600 words of each printing, such as "rec\u{ad}ords" (#338).
+//! - One pair of double quote marks around the whole query is not read, so
+//!   `"error alleged"` finds the words that `error alleged` finds. See
+//!   [`unquoted`] for when quote marks in a query are text (#439).
 //!
 //! Offsets are counted in characters, not bytes. The corpus holds `§`, and a
 //! byte offset that a reader takes as a character offset points at the wrong
@@ -104,8 +107,55 @@ pub struct Query {
     bare: String,
 }
 
+/// The double quote marks: straight, and the left and right curly ones.
+pub const DOUBLE_QUOTE_MARKS: &[char] = &['"', '\u{201C}', '\u{201D}'];
+
+/// The words inside the quote marks, when one pair of double quote marks is
+/// around the whole query; `None` when the query is to be read as it is.
+///
+/// A person or an agent puts a phrase in quote marks, as for a web search
+/// engine, and the text does not hold those quote marks. Search read them as
+/// text, so `"Immigration parole fee"` found 0 fields where the bare words
+/// found 6 (#439).
+///
+/// The rule:
+///
+/// - The query starts with `"` or `“`, and ends with `"` or `”`.
+/// - The query holds no other double quote mark, straight or curly. So
+///   `"person" and "whoever"` is read as it is: its quote marks are text of
+///   the Code.
+/// - The words inside are not empty.
+///
+/// The removal never hides a match: a field that holds the phrase with its
+/// quote marks also holds the phrase. To find only the text that prints the
+/// quote marks, put a word outside them: `"mathematical or clerical error"
+/// means`.
+///
+/// ```
+/// use words_to_data::search::unquoted;
+///
+/// assert_eq!(unquoted("\"error alleged\""), Some("error alleged"));
+/// assert_eq!(unquoted("\u{201C}error alleged\u{201D}"), Some("error alleged"));
+/// assert_eq!(unquoted("error alleged"), None);
+/// assert_eq!(unquoted("\"error alleged"), None);
+/// assert_eq!(unquoted("\"error\" alleged"), None);
+/// assert_eq!(unquoted("\"person\" and \"whoever\""), None);
+/// ```
+pub fn unquoted(query: &str) -> Option<&str> {
+    let inside = query
+        .strip_prefix(['"', '\u{201C}'])?
+        .strip_suffix(['"', '\u{201D}'])?;
+    if inside.is_empty() || inside.contains(DOUBLE_QUOTE_MARKS) {
+        return None;
+    }
+    Some(inside)
+}
+
 impl Query {
+    /// The query as search reads it. One pair of quote marks around the whole
+    /// query is removed first: see [`unquoted`].
     pub fn new(query: &str) -> Self {
+        let query = unquoted(query).unwrap_or(query);
         let wanted = comparable(query).into_iter().map(|(c, _)| c).collect();
         Self {
             wanted,

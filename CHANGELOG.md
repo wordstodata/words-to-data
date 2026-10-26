@@ -65,6 +65,92 @@ names its section in these three forms:
   `amendingAction type=redesignate@7` (was 6). Run `redesignations` and
   `link-by-evidence` again.
 
+### `search` removes one pair of quote marks around the query ([#439](https://github.com/wordstodata/words-to-data/issues/439))
+
+An agent puts a phrase in quote marks, as for a web search engine. `search`
+read the quote marks as text, so `"Immigration parole fee"` found 0 fields
+where `Immigration parole fee` found 6. In the 314 runs of eval
+20261026-101630-basalt4-777de60, 94 searches had a query in quote marks, and
+62 of them found nothing.
+
+Now `search` removes one pair of double quote marks, straight (`"`) or curly
+(`“` `”`), around the whole query, and the first line of the answer says so:
+"Searched without the quote marks: Immigration parole fee". `--json` gives
+the same line as `notice`. The rule is in the library
+(`words_to_data::search::unquoted`), so the library search and the command
+read a query the same way.
+
+Text that holds quote marks is still found. The rule for it:
+
+- A query that only starts or only ends with a quote mark is read as it is.
+  So `"mathematical or clerical error" means` finds only the definition in
+  § 6213(g)(2), where the Code prints the quote marks.
+- A query with more than one pair, such as `"person" and "whoever"`, is read
+  as it is.
+- The removal never hides a match: a field that holds the phrase with its
+  quote marks also holds the phrase.
+- The text of the Code is stored with straight quote marks. A query with a
+  curly quote mark inside it, such as `“mathematical or clerical error”
+  means`, still finds nothing in the Code.
+
+#### Measured on `data/eval.sqlite`
+
+Fields found, before (a release build of 777de60) and after (a release
+build of this change):
+
+| Query | Before | After |
+|---|---|---|
+| `"Immigration parole fee"` | 0 | 6 |
+| `"critical skill incentive"` | 0 | 17 |
+| `"Math and Taxpayer Help"` | 0 | 1 |
+| `"error alleged"` | 0 | 15 |
+| `“Immigration parole fee”` | 0 | 6 |
+| `"mathematical or clerical error"` (title 26 at 2026-07-12) | 1 | 24 |
+| `"mathematical or clerical error" means` (title 26 at 2026-07-12) | 1 | 1 |
+
+The 23 new fields of `"mathematical or clerical error"` hold the words without
+the quote marks, as § 6213(b)(1) does. The last query finds the definition
+only, before and after.
+
+### Opinion plain text: the first item of a quoted list starts its own paragraph ([#430](https://github.com/wordstodata/words-to-data/issues/430))
+
+In *Polselli* the Court quotes 26 U.S.C. § 7609(c)(2)(D): the lead-in
+"“issued in aid of the collection of—" and then the item "“(i) an assessment
+made…". The watermark that #413 removed stood between the two lines and split
+them. Without it, the lead-in and the first line of item (i) were one
+paragraph, and the rest of item (i) was a paragraph of its own.
+
+Now an indented line that opens with a list designation, "(i)" or "“(i)",
+after a line that ends with "—" or ":" starts a paragraph, and the wrapped
+lines of the item stay with it. At the margin the rule does not apply: in the
+Tax Court opinions "means services consisting of— / (i) engaging in…" goes on
+in the sentence.
+
+#### Measured on the opinions of `evals/opinions.txt`
+
+Added to two copies of `dataset-demo.sqlite` from the cache, by the build
+before this change and by the build after it. Of the 29 writings read from
+plain text, 2 change, and no words change:
+
+- *Polselli* (opinion 10516288-1): 2 paragraphs change. The lead-in is a
+  paragraph of its own, and item (i) is one paragraph. The writing keeps 42
+  paragraphs.
+- *Medina v. Planned Parenthood* (opinion 11084231-1): "…including each of the
+  following rights:" and "“(i) Free choice" are now two paragraphs
+  (`paragraph_57` and `paragraph_58`), so the writing has 80 paragraphs, not
+  79, and the 22 paragraphs after them are numbered again. Its 9 footnotes do
+  not change.
+- **`judicial.cites`** stays at 441 links and 488 places. One link changes
+  only its subject path: the citation of 42 U.S.C. § 1395a in *Medina* moves
+  from `paragraph_68` to `paragraph_69`, where the paragraph number moved.
+- No other writing changes.
+
+#### Breaking changes for agents
+
+- Method version: `plain-text-paragraphs@4` (was 3). A dataset built with
+  0.6.1 keeps the old paragraphs of these writings until you run
+  `add-opinions` again.
+
 ## 0.6.1
 
 Fewer wrong links, and commands that refuse what the dataset does not hold. The
