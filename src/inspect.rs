@@ -285,6 +285,23 @@ pub fn bill_of_public_law<S: Storage + LegislatureReader>(
         .map(|(bill_id, _)| bill_id))
 }
 
+/// The work of public law `law`'s document (such as
+/// `publiclawdocument_119-21` for `119-21`), when the dataset holds it.
+///
+/// A held law need not have a bill: a bill is joined to its law through the
+/// amendments the law's document holds, so a law whose bill is not held, or
+/// whose bill holds none of its amendments, has none. A refusal must tell that
+/// case from a law the dataset does not hold (#394).
+pub fn public_law_work<S: DocumentReader + ?Sized>(
+    dataset: &S,
+    law: &str,
+) -> Result<Option<WorkId>, DatasetError> {
+    Ok(dataset
+        .works()?
+        .into_iter()
+        .find(|work| public_law_number(work) == Some(law)))
+}
+
 /// A bill that a command was given and the dataset does not hold (#337).
 ///
 /// Part of the answer, as [`AbsentPath`] is: `votes` answered "No votes for
@@ -1546,6 +1563,23 @@ pub enum EvidenceWords {
         /// Every text field of the provision and of everything beneath it.
         words: Vec<ProvisionField>,
     },
+    /// A citation: the words the court wrote, and the cited provision as the
+    /// printing the link was resolved in holds it (#393). A citation compares
+    /// nothing, so it has no two ends to read.
+    Cited {
+        /// The words the rule matched at each place in the passage where the
+        /// court wrote the citation, in the order of the text.
+        citing: Vec<String>,
+        /// The printing the cited provision was resolved in, as `work@date`.
+        /// `None` when the link records no printing, or the dataset does not
+        /// hold the provision in it.
+        expression: Option<String>,
+        /// The cited provision.
+        path: String,
+        /// Every text field of the cited provision at that printing. Empty when
+        /// `expression` is `None`.
+        words: Vec<ProvisionField>,
+    },
 }
 
 /// How a link was made, as its provenance records it and the dataset
@@ -1628,16 +1662,25 @@ pub fn causes_of<S: Storage>(dataset: &S, link: &Link) -> Result<usize, DatasetE
 /// provision this dataset holds at either end.
 ///
 /// `None` rather than an error: a link whose **subject** is not a change to a
-/// provision is a perfectly good link — an opinion citation names a node — and a
-/// reader asking for evidence about one has asked a question with no answer
-/// rather than made a mistake.
+/// provision is a perfectly good link, and a reader asking for evidence about
+/// one has asked a question with no answer rather than made a mistake.
 ///
 /// The object may be anything. Only the subject has to name a provision and a
 /// window, because that is what locates words to read.
+///
+/// A citation link is the exception: its subject is a passage, and its
+/// evidence is the words the court wrote and the provision they cite
+/// ([`EvidenceWords::Cited`]). Before #393 it had none, and `settle --explain`
+/// said the dataset held the provision at neither end.
 pub fn link_evidence<S: Storage>(
     dataset: &S,
     link: &Link,
 ) -> Result<Option<LinkEvidence>, DatasetError> {
+    if link.kind.0 == LinkKind::CITES
+        && let Target::Node(cited) = &link.object
+    {
+        return Ok(Some(cited_evidence(dataset, link, cited)?));
+    }
     let Target::Change {
         work,
         path: from_path,
@@ -1689,6 +1732,49 @@ pub fn link_evidence<S: Storage>(
     };
 
     Ok(Some(LinkEvidence { words, object_text }))
+}
+
+/// The evidence of a citation link: the words the court wrote at each place,
+/// and the cited provision in the printing the link was resolved in.
+///
+/// The payload carries both, as `occurrences` and `resolved_in` (ADR 0014). A
+/// link that records no printing shows the court's words alone.
+fn cited_evidence<S: Storage>(
+    dataset: &S,
+    link: &Link,
+    cited: &str,
+) -> Result<LinkEvidence, DatasetError> {
+    let payload = link.payload.as_ref().map(|payload| &payload.value);
+    let citing = payload
+        .and_then(|value| value["occurrences"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|place| place["words"].as_str())
+        .map(str::to_string)
+        .collect();
+    let printed = payload
+        .and_then(|value| value["resolved_in"].as_str())
+        .map(str::to_string);
+    let held = match printed {
+        Some(date) => dataset
+            .find_nodes(cited)?
+            .into_iter()
+            .find(|(id, _)| id.at == date),
+        None => None,
+    };
+    let (expression, words) = match held {
+        Some((id, node)) => (Some(id.to_string()), provision_words(&node)),
+        None => (None, Vec::new()),
+    };
+    Ok(LinkEvidence {
+        words: EvidenceWords::Cited {
+            citing,
+            expression,
+            path: cited.to_string(),
+            words,
+        },
+        object_text: None,
+    })
 }
 
 /// The first provision one expression holds at a path.
@@ -3462,6 +3548,11 @@ pub struct ContradictionGroup {
     pub kind: String,
     /// The subject, named without a window.
     pub subject: String,
+    /// For citation links, the words the court wrote at the one place in the
+    /// passage that every link in the group reads. `None` for every other kind,
+    /// and for a citation link that records no place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occurrence: Option<String>,
     /// Every link in the group, in an order that says nothing about which is
     /// right: by window, then by object, then by what made it.
     pub links: Vec<ContradictingLink>,
@@ -3561,8 +3652,57 @@ impl Maker {
     }
 }
 
+/// What one link makes a claim about, as a contradiction report groups it.
+///
+/// For most kinds that is the subject. A citation link is different: its
+/// subject is a passage, and a passage can cite many provisions, each of them
+/// true. What one citation link claims is that **the words at one place** in
+/// the passage lead to its object. So a citation link claims once for each
+/// place it reads, and two links disagree only when they read one place and
+/// name different provisions (#397).
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Claim {
+    subject: String,
+    /// Where the place starts in the passage, in bytes, and the words written
+    /// there. `None` for a link that is not a citation, or records no place.
+    place: Option<(u64, String)>,
+}
+
+impl Claim {
+    /// Every claim `link` makes.
+    fn of(link: &Link) -> Vec<Self> {
+        let subject = link.subject.name();
+        let places = match link.kind.0.as_str() {
+            LinkKind::CITES => link
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.value["occurrences"].as_array()),
+            _ => None,
+        };
+        let mut claims: Vec<Self> = places
+            .into_iter()
+            .flatten()
+            .filter_map(|place| {
+                let start = place["start"].as_u64()?;
+                let words = place["words"].as_str().unwrap_or_default().to_string();
+                Some(Self {
+                    subject: subject.clone(),
+                    place: Some((start, words)),
+                })
+            })
+            .collect();
+        if claims.is_empty() {
+            claims.push(Self {
+                subject,
+                place: None,
+            });
+        }
+        claims
+    }
+}
+
 impl Contradictions {
-    /// Group one kind's links by subject, and record each group that holds a
+    /// Group one kind's links by what they claim about ([`Claim`]), and record each group that holds a
     /// contradiction.
     ///
     /// **A contradiction needs two makers.** A maker is a method at a version
@@ -3582,15 +3722,17 @@ impl Contradictions {
     /// the duplication case a disagreement between two makers rather than one
     /// maker repeating itself.
     fn add_kind(&mut self, kind: &str, links: &[Link]) {
-        let mut by_subject: BTreeMap<String, Vec<ContradictingLink>> = BTreeMap::new();
+        let mut by_claim: BTreeMap<Claim, Vec<ContradictingLink>> = BTreeMap::new();
         for link in links {
-            by_subject
-                .entry(link.subject.name())
-                .or_default()
-                .push(ContradictingLink::of(link));
+            for claim in Claim::of(link) {
+                by_claim
+                    .entry(claim)
+                    .or_default()
+                    .push(ContradictingLink::of(link));
+            }
         }
 
-        for (subject, mut found) in by_subject {
+        for (claim, mut found) in by_claim {
             if found.len() < 2 {
                 continue;
             }
@@ -3620,7 +3762,8 @@ impl Contradictions {
 
             let group = ContradictionGroup {
                 kind: kind.to_string(),
-                subject: subject.clone(),
+                subject: claim.subject.clone(),
+                occurrence: claim.place.as_ref().map(|(_, words)| words.clone()),
                 links: found.clone(),
             };
             let distinct: BTreeSet<&BTreeSet<&str>> = answers.values().collect();
