@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+### A block the OLRC printed with edits shows its change ([#433](https://github.com/wordstodata/words-to-data/issues/433))
+
+The OLRC edits some words of a law when it prints them in the Code. A block
+that it edited was not one run of the words the Code prints, so it did not
+show the change that it made. Now an enacted block shows a change also as the
+OLRC prints it, for the edits that the bill's own words fix exactly:
+
+- *"title 5, United States Code"* is *"title 5"*. 22 U.S.C. 9613(b)(6) now
+  goes to § 8722 of Pub. L. 119-60, the section that adds it.
+- *"section 102(c)(4) of the America COMPETES Reauthorization Act of 2010
+  (42 U.S.C. 6622(c)(4))"* is *"section 6622(c)(4) of title 42"*, or *"of
+  this title"* when the provision is in the same title, and a later *"such
+  section 102(c)(4)"* is *"such section 6622(c)(4) of title 42"*: 15 U.S.C.
+  278s(i)(2)(D).
+- *"the date of the enactment of this Act"*, of a unit of the law, or of a
+  law named by its title, is the date the law was enacted, *"December 18,
+  2025"*: 21 U.S.C. 2312(3).
+
+The block as the bill prints it is still tried first, because the OLRC does
+not make each edit each time: 46 U.S.C. 70103(c)(9) prints *"the date of
+enactment of the Coast Guard Authorization Act of 2025"* as the bill does. A
+reading of the block shows a change only where every word of the change is in
+it, in order, as before.
+
+A single and a double quotation mark are now one mark. The bill quotes inside
+a quoted string with single marks, *"(determined by substituting '1996' for
+'1997' …)"*, and the Code prints double ones: 26 U.S.C. 529A(b)(2)(B)(i).
+
+The method is now `address, window and quoted words@8`.
+
+Titles 21 and 33 of the Code at the release points 2026-01-23 and 2026-07-12
+are now in the test corpus, in Git LFS, for the tests of this change.
+
+Not changed: elimination. The issue's wrong link, 22 U.S.C. 9613(b)(6) to
+§ 8729, is not made on `main` since #432, and with this change (b)(6) is
+shown by § 8722's block. A rule that keeps an amendment whose block shows
+nowhere from a change that another amendment's words overlap more was tried:
+on a fresh build it removed 4 right links (10 U.S.C. 525(a)(4)(C); 26 U.S.C.
+168(k)(2)(A)(iii), 181 and 217(k)(1)) and no wrong one. None of the 32 links
+that elimination gives to an amendment that enacts a block ("the following",
+"to read as follows") was found wrong when read by hand.
+
+Also not changed: a quoted string that cites the law's own section number,
+which the OLRC prints as the Code's section. § 8419(a)(3) of Pub. L. 119-60
+inserts "section 5(b)(6)", and 16 U.S.C. 973i(a)(2)(B) prints "section
+973c(b)(6) of this title". The string does not say which section of the Code
+"section 5" is, so 973i(a)(2)(A) to (C) still have no link.
+
+#### Measured on a fresh build of `eval.sqlite`
+
+`link-by-evidence` against `main` at 777de60, both on a copy of one fresh
+build (`build-dataset --offline` and `add-classifications --offline`, as
+`scripts/build-eval` does): 3,424 links become 3,439. No link is removed, and
+15 are added. 22 links keep their amendment and change only why: for example
+33 U.S.C. 2717(g) and 7 U.S.C. 5939(g)(1)(A)(iv) were given by elimination,
+and now by the block. Amendments stopped at resolving: 61 before, 59 after.
+
+All 15 added links were checked by hand, and all are right:
+
+- By a block as the OLRC prints it: 15 U.S.C. 278s(i)(2)(D) (§ 8802 of Pub.
+  L. 119-60); 20 U.S.C. 1098e(a)(2)(B) ("the date of enactment of this
+  subparagraph" is "July 4, 2025"; Pub. L. 119-21); 21 U.S.C. 2312(3)
+  (§ 8316); 22 U.S.C. 9613(b)(6) (§ 8722); 34 U.S.C. 10152(a)(1)(J) and (K)
+  (§ 8603), 10381(b)(23) (§ 8604); 50 U.S.C. 98h-5(f)(2)(E).
+- By a quoted string with inner quotation marks: 21 U.S.C. 2302(5), with its
+  new (5)(A) and (5)(B) inside it (§ 8314); 26 U.S.C. 45Q(b)(1)(B), with its
+  clauses (i) and (ii) that the strike removed (§ 70522(b) of Pub. L.
+  119-21); 26 U.S.C. 529A(b)(2)(B)(i) (§ 70115(a)(1)).
+
 ### One rule for "not held", and "matched nothing" said as that ([#425](https://github.com/wordstodata/words-to-data/issues/425))
 
 An input the dataset does not hold stops the run with exit 1, the notice on

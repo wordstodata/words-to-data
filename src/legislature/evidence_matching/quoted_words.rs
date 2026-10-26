@@ -33,26 +33,60 @@
 //! still decides.
 //!
 //! The words are compared as tokens: runs of letters and digits, lower case,
-//! and each other mark on its own. Curly quotation marks and every dash are
-//! folded first, because the bill and the Code print them differently.
+//! and each other mark on its own. Every quotation mark and every dash are
+//! folded first, because the bill and the Code print them differently. The
+//! bill quotes inside a quoted string with single marks, *"(determined by
+//! substituting '1996' for '1997' …)"*, and the Code prints double ones, so a
+//! single and a double mark are one mark (#433).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
 
+use super::code_edits::as_the_code_prints;
 use crate::uslm::{AmendmentFacts, QuotedText};
 
 /// The words one amendment states, ready to test against a change.
 #[derive(Debug, Clone, Default)]
 pub(super) struct QuotedWords {
     quoted: Vec<Quoted>,
-    /// Each enacted block, as words without marks.
-    enacted: Vec<Vec<String>>,
+    enacted: Vec<Block>,
     /// Every word the amendment states, for ranking a tie.
     words: BTreeSet<String>,
     /// A string it inserts or a block it enacts opens a new provision.
     opens_a_provision: bool,
+}
+
+/// One enacted block, as words without marks.
+#[derive(Debug, Clone)]
+struct Block {
+    /// As the bill prints it.
+    words: Vec<String>,
+    /// As the OLRC can print it in the Code, where that differs
+    /// ([`as_the_code_prints`]).
+    as_the_code_prints: Vec<Vec<String>>,
+}
+
+impl Block {
+    fn of(text: &str, enacted_on: &str) -> Self {
+        Self {
+            words: words_of(text),
+            as_the_code_prints: as_the_code_prints(text, enacted_on)
+                .iter()
+                .map(|printed| words_of(printed))
+                .collect(),
+        }
+    }
+
+    /// How many words of the change the block shows, and whether it rewrote
+    /// the provision, as [`Readings::shown_in`] says: the block as the bill
+    /// prints it first, then as the OLRC can print it.
+    fn shown_in(&self, readings: &Readings) -> Option<(usize, bool)> {
+        std::iter::once(&self.words)
+            .chain(&self.as_the_code_prints)
+            .find_map(|words| readings.shown_in(words))
+    }
 }
 
 /// One of an amendment's quoted strings or enacted blocks that a change
@@ -128,19 +162,20 @@ enum Direction {
 }
 
 impl QuotedWords {
-    /// The evidence one instruction's stored facts give.
-    pub(super) fn of(facts: &AmendmentFacts) -> Self {
+    /// The evidence one instruction's stored facts give, for a law enacted on
+    /// `enacted_on` (`2025-12-18`).
+    pub(super) fn of(facts: &AmendmentFacts, enacted_on: &str) -> Self {
         let quoted: Vec<Quoted> = facts.quoted_text.iter().filter_map(Quoted::of).collect();
-        let enacted: Vec<Vec<String>> = facts
+        let enacted: Vec<Block> = facts
             .enacted_text
             .iter()
-            .map(|block| words_of(&without_page_marks(block)))
-            .filter(|words| !words.is_empty())
+            .map(|block| Block::of(&without_page_marks(block), enacted_on))
+            .filter(|block| !block.words.is_empty())
             .collect();
         let words = quoted
             .iter()
             .flat_map(|quoted| quoted.tokens.iter())
-            .chain(enacted.iter().flatten())
+            .chain(enacted.iter().flat_map(|block| &block.words))
             .filter(|token| is_word(token))
             .cloned()
             .collect();
@@ -255,13 +290,13 @@ impl QuotedWords {
             },
         };
         let blocks = self.enacted.iter().enumerate().filter_map(|(at, block)| {
-            let (count, rewrote) = readings.shown_in(block)?;
+            let (count, rewrote) = block.shown_in(&readings)?;
             Some(Shown {
                 said: format!("enacted text {} of {}", at + 1, self.enacted.len()),
-                words: block.clone(),
+                words: block.words.clone(),
                 enacted: true,
                 rewrote,
-                few_words: count <= FEW_WORDS && block.len() > count,
+                few_words: count <= FEW_WORDS && block.words.len() > count,
             })
         });
         let shown: Vec<Shown> = strings.chain(blocks).collect();
@@ -488,8 +523,7 @@ fn is_word(token: &str) -> bool {
 
 fn fold_mark(character: char) -> char {
     match character {
-        '\u{2018}' | '\u{2019}' | '`' => '\'',
-        '\u{201C}' | '\u{201D}' => '"',
+        '\u{2018}' | '\u{2019}' | '`' | '\'' | '\u{201C}' | '\u{201D}' => '"',
         _ if crate::citation::usc::DASHES.contains(&character) => '-',
         other => other,
     }
