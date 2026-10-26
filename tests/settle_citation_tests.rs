@@ -173,3 +173,35 @@ fn should_print_the_record_id_and_the_id_should_find_the_review_when_a_verdict_i
         "the printed id {id} names the review the run recorded, got {reviews:#?}"
     );
 }
+
+/// A passage that cites several provisions has one citation link for each,
+/// and none of them is an amendment. `settle --explain` said "Causes: one of
+/// N amendments linked to this change" for each such link (#411).
+#[test]
+fn should_print_no_causes_line_when_explain_reads_a_citation_link_whose_passage_cites_others() {
+    let citations = Dataset::open_sqlite(boeing())
+        .expect("the fixture should open")
+        .links_by_kind(LinkKind::CITES)
+        .expect("the links should read");
+    let link = citations
+        .iter()
+        .find(|link| {
+            citations
+                .iter()
+                .any(|other| other.subject == link.subject && other.object != link.object)
+        })
+        .expect("one passage of the opinion cites more than one provision");
+
+    let printed = stdout_of(&run(&[
+        "settle",
+        boeing(),
+        "--link",
+        &link.id()[..12],
+        "--explain",
+    ]));
+
+    assert!(
+        !printed.contains("Causes:"),
+        "a citation is not a change, so it has no amendments as causes, got:\n{printed}"
+    );
+}

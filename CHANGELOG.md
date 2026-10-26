@@ -32,6 +32,49 @@ next to punctuation, such as `530⏎,` to `530,`). `judicial.cites` goes from
 § 8901 becomes § 8901(5), § 115 becomes § 115(a)(1)(A), § 208 becomes
 § 208(a), and § 8905 is new.
 
+### A citation reads a subdivision of more than one character ([#410](https://github.com/wordstodata/words-to-data/issues/410))
+
+The U.S.C. reader and the default-code reader read a subdivision of one
+letter or one or two digits only. They stopped before a longer designation,
+with no report. `7 U.S.C. § 2015(o)(4)(A)(ii)` was a link to (A), not to
+clause (ii).
+
+Now both readers also read:
+
+- a roman numeral of more than one letter: `(ii)`, `(xiv)`, `(II)`;
+- a doubled letter (an item): `(cc)`;
+- a number and a capital letter: `(14A)`.
+
+A single letter is read as before. `(i)` can be a subsection or a clause, and
+the printing decides. The ends of a range of subdivisions take the same
+designations.
+
+#### Measured on `eval.sqlite`
+
+The citations of all opinions were read again from the cache, by the build
+before this change and by the build after it: 434 `judicial.cites` links
+before, 437 after. The 15 links that #410 lists are all changed:
+
+- 12 links to a provision one level too high are replaced by links to the
+  provision written: 10 to a clause (ii), 1 to a clause (iii)
+  (`IRC section 280F(d)(4)(A)(iii)`) and 1 to a subclause (II)
+  (`20 U. S. C. §1091b(b)(2)(C)(i)(II)`, before a link to (i)).
+- 3 links stay, with one place fewer: the same passage also cites
+  `2015(o)(4)(A)` alone. The place that writes `(A)(ii)` is now in a new link
+  to clause (ii).
+- So 15 links are new. All 15 were checked by hand: each ends at the
+  provision its words write, and none has a part that does not resolve.
+- 5 of the changed links are made by the default-code reader
+  (`I.R.C. § 199A(c)(3)(A)(ii)`, `section 199A(g)(1)(B)(ii)`), and 10 by the
+  U.S.C. reader. No other link changes.
+
+#### Breaking changes for agents
+
+- Method versions: `reporters-db laws.json U.S.C. patterns@6` (was 5) and
+  `bare section under the opinion's default code@4` (was 3). A link records
+  the version that made it. Link ids do not change, because an id does not
+  hash the method.
+
 ### A few words do not show that an enacted block made a change ([#389](https://github.com/wordstodata/words-to-data/issues/389))
 
 A provision that prints three words or fewer, such as the heading "In
@@ -47,8 +90,8 @@ holds more words than that, is weak evidence:
   the heading of 9613(g)(2) go to § 8725 alone.
 - Where nothing else shows, the change goes with the provision around it,
   when step 2 gives that provision's changes. 26 U.S.C. 163(j)(12)(A) prints
-  "In general" and moved with (12), which § 70303(c) of Pub. L. 119-21
-  renumbered. It is no longer § 70303(a)'s.
+  "In general" and moved with (12), which § 70341(c) of Pub. L. 119-21
+  renumbered. It is no longer § 70341(a)'s.
 - Where neither is so, the block decides, as before.
 
 ### Only a provision that was rewritten carries the changes inside it ([#390](https://github.com/wordstodata/words-to-data/issues/390))
@@ -82,7 +125,8 @@ another amendment.
   § 8729 of Pub. L. 119-60, because step 2 now gives two other changes under
   its address to § 8725.
 
-With the address fix below (#387) too, all links: 3,329 before, 3,214 after.
+With the address fix below (#387) too, all links: 3,329 before, 3,224 after, on
+a fresh build of `eval.sqlite`.
 
 ### The address keeps the units the line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387))
 
@@ -98,7 +142,7 @@ With the address fix below (#387) too, all links: 3,329 before, 3,214 after.
   were wrong. Now it has the 3 under 3024(c)(7). § 8725 (`a518c65a04b0`) loses
   its 3 wrong links in 9613(f). The provisions they free go by elimination to
   the amendments that do act there (18 new links). All links: 3,329 before,
-  3,227 after. The renumbering reader records 11 more moves (296 to 307), in
+  3,227 after this fix alone. The renumbering reader records 11 more moves (296 to 307), in
   15 U.S.C. 278s(i)(2) and 22 U.S.C. 9613(g)(2).
 - Method versions: `address, window and quoted words@7` (was 6; #387, #389
   and #390 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
@@ -110,6 +154,11 @@ input that the dataset does not hold.
 
 ### Fixes
 
+- `settle --explain` on a `judicial.cites` link prints no "Causes" line. A
+  citation's subject is a passage, not a change, and the line counted the
+  other provisions that passage cites as amendments: 219 of the 434 citation
+  links in `eval.sqlite` printed "Causes: one of N amendments linked to this
+  change" ([#411](https://github.com/wordstodata/words-to-data/issues/411)).
 - `annotations --bill`, `section-agreement --bill` and `amendment-addresses
   --bill` refuse a bill that the dataset does not hold, with exit 1 and the
   notice that `residue` gives. `annotations` and `section-agreement` accept a
