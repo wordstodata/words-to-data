@@ -61,6 +61,108 @@ held data exits 0 and says that the filter matched nothing.
   `verdict`, `reviewer`, `reasoning`, `at`, or `null`). A refuted citation is
   not in the answer.
 
+### The renumbering reader reads "Such section" ([#431](https://github.com/wordstodata/words-to-data/issues/431))
+
+A bill can name the section a renumbering acts in as *"Such section"*: Pub.
+L. 119-60 § 6402(c)(1) says "Section 102a.—Such section is further amended—(A)
+by redesignating subsections (f) through (z) as subsections (e) through (y)".
+#364 taught the address reader of `legislature.amended_by` this phrase, but
+not the renumbering reader. That reader read the bare "Section 102a" in the
+heading, found no title for it, and did not record the renumbering.
+
+Now both readers read the section in one function
+(`Scope::section_cited_by`), so they cannot come to different answers again.
+*"Such section"*, *"Such subsection"* and *"Subsection (h) of such section"*
+place a renumbering where the address reader places the amendment. The
+reader of the bill's XML (`redesignations_stated`), which only the tests use,
+still does not read the phrase.
+
+#### Measured on a fresh build of the 7 bills from the caches
+
+| | before | after |
+|---|---|---|
+| renumbering statements placed (all bills) | 118 of 230 | 123 of 230 |
+| `legislature.redesignated_as` links | 307 | 335 |
+| `legislature.amended_by` links | 3,405 | 3,412 |
+| amendments with a link | 1,142 | 1,144 |
+| `diff` of 50 U.S.C. 3024, 2026-01-23 → 2026-07-12 | 69 changed, 61 added, 80 removed, 0 moved | 7 changed, 0 added, 3 removed, 21 moved |
+| changes in 50 U.S.C. 3024 with no link | 190 | 0 |
+
+- The 5 statements placed: § 6402(c)(1)(A) (50 U.S.C. 3024), § 141(b)(2)
+  (10 U.S.C. 9062(j)), and three more in 10 U.S.C. 115a, 181(h) and 321(b).
+- The address of each amendment does not change. The `amended_by` links
+  change through the new renumbering links: 26 go and 33 come. The 5 wrong
+  links that #431 lists go. The strike of 3024(e) (§ 6402(b)(1)) loses 14
+  wrong links in the new (e), and is now in `residue`. § 6402(b)(2) names
+  3024(f)(2), which § 6402(c)(1)(A) then moves to (e)(2). Its change at
+  (e)(2) is now given to the renumbering, and § 6402(b)(2) is in `residue`.
+- Method versions: `amendingAction type=redesignate@6` stays at 6, because
+  version 6 (#387) is not released yet. `address, window and quoted words@7`
+  does not change. Run `redesignations` and `link-by-evidence` again.
+
+### Opinion plain text: the watermark goes, star breaks stay in the body, a glued footnote mark is no part of a section ([#413](https://github.com/wordstodata/words-to-data/issues/413))
+
+Three faults in the text of opinions that CourtListener gives only as
+`plain_text`:
+
+- **The watermark.** A preliminary print of the United States Reports prints
+  "Page Proof Pending Publication" on each page. It stayed in the words, and
+  in *Polselli* it broke Justice Jackson's citation "26 U. S. C. Page Proof
+  Pending Publication § 7609(c)(2)(D)(i)". Now the plain-text rule removes
+  it. Where pdftotext puts its words at the ends of the first lines of a
+  paragraph ("Page     Proof", " To pursue         Pending"), the rule removes
+  those words too, and the lines go on as one paragraph.
+- **Stars.** A centred line of stars, "***" or "* * *", is a break between
+  two parts of an opinion. The rule read it as a footnote mark, and all the
+  body text after it on the page went into a false footnote. Now the line is
+  a paragraph of its own, as Harvard's XML keeps it, and the text after it
+  stays in the body. Stars followed by more stars ("* * *.”") are an
+  ellipsis, not a mark. A star against the first word of a footnote
+  ("*There is much…") is its label, so the footnote is `footnote_*`, not
+  `footnote_`. In a double-spaced text, two blank lines continue a footnote
+  only after a footnote has started, so a caption stays in the body.
+- **A glued footnote mark.** "5 U. S. C. §706.3" was read as section "706.3".
+  No section of the Code has a full stop in its number. Now, when the writing
+  has a footnote with the label after the full stop, the citation reader
+  reads § 706, and the 3 is the mark. When the writing has no such footnote,
+  the number is read as written, as before. The default-code reader does the
+  same: "IRC section 179.17" is § 179.
+
+#### Measured on the opinions of `evals/opinions.txt`
+
+Added to two copies of `dataset-demo.sqlite` from the cache, by the build
+before this change and by the build after it:
+
+- **Paths change in 11 writings of 8 cases.** A path change is a break. 23 paths go and 29 come: the false footnotes `footnote_***`,
+  `footnote_*` and `footnote_` go, and their text is in paragraphs again; 4
+  star footnotes go from `footnote_` to `footnote_*`; and the paragraphs
+  after each change are numbered again. *Polselli* (opinion 10516288-1) has
+  42 paragraphs, not 50, because the watermark split paragraphs. The text of
+  412 passages changes, most of it because the paragraph numbers moved.
+- **Words.** Per writing, the only words that go are the watermark (102 times)
+  and the star of 6 footnotes, which is now their label. A word broken at a
+  hyphen across the watermark now joins (`owner-` and `ship` give
+  `owner-ship`). The 4 section breaks and the ellipsis in *Khalaf* get back
+  the star that the false label took. A caption of 12 lines in *District of
+  Columbia v. USDA* is in the body again, one paragraph to a line.
+- **`judicial.cites`** goes from 438 links to 441, and from 484 places to
+  488. The 4 new places: § 7609(c)(2)(D)(i) in Justice Jackson's concurrence
+  in *Polselli*, § 706 in *Loper Bright*, § 5311 in *Bittner* and § 179 in
+  *Khalaf*. No place is lost. Other links change only their subject path,
+  where the paragraph number moved.
+- One paragraph is worse: in *Polselli* the watermark stood between the
+  lead-in "“issued in aid of the collection of—" and the item "“(i) an
+  assessment made…", and split them. Now the two lines join, and the rest of
+  item (i) is a paragraph of its own.
+
+#### Breaking changes for agents
+
+- Method version: `plain-text-paragraphs@3` (was 2).
+- The text method stays at version 2 and the citation rules stay at
+  `reporters-db laws.json U.S.C. patterns@6` and `bare section under the
+  opinion's default code@4`. These versions changed for #412 and #410 and
+  are not released yet, so this change goes in the same versions.
+
 ### `diff` over a span of several windows pairs the moves of each window ([#423](https://github.com/wordstodata/words-to-data/issues/423))
 
 A renumbering link is recorded for one window of two adjacent release points.
@@ -232,6 +334,51 @@ another amendment.
 With the address fix below (#387) too, all links: 3,329 before, 3,224 after, on
 a fresh build of `eval.sqlite`.
 
+### An added provision is matched with the provisions below it ([#432](https://github.com/wordstodata/words-to-data/issues/432))
+
+The diff lists a provision that a window added as one path, and nothing below
+it, so the change holds every provision below it (#336). Before, the matcher
+compared an enacted block with the added provision's own words only:
+
+- A provision with no words of its own could not be shown. 10 U.S.C.
+  9062(n) prints all its words in its paragraphs, and had no link.
+- A few own words matched a wrong block. 10 U.S.C. 9062(j)(4) prints "In
+  this subsection:", and the block of § 1632(a) of Pub. L. 119-60 holds those
+  words, so § 1632(a) was given (j)(4) and not (n).
+- A provision whose subparagraphs stand between its chapeau and its
+  continuation was not one run of the block: 26 U.S.C. 904(b)(5) and (6).
+- An amendment that only strikes could take an added provision with no own
+  words, because such a change brought no new words.
+
+Now an added provision's words are the words of each field of it and of every
+provision below it, in the order the Code prints them. A block shows the
+provision when each field is a run of the block, in that order. The Code
+does not always print a block's words as the bill does (a marginal note
+inside the words, "July 4, 2025" for "the date of enactment"), so a block
+also shows it when the provision's own words are one run of the block, as
+before. Where the own words are three or fewer, the block must also hold,
+after them, a field below of more than three words.
+
+#### Measured on a fresh build of `eval.sqlite`
+
+`link-by-evidence` against `main` at 1b77f66, both on a copy of one fresh
+build: 3,405 links become 3,417. 3 links are removed and 15 are added; 2 of
+the added links move a change to another amendment of the same section.
+Amendments stopped at resolving: 69 before, 63 after.
+
+- The 3 removed links were wrong: 10 U.S.C. 9062(j)(4) to § 1632(a); 22 U.S.C.
+  9613(b)(6) to § 8729 of Pub. L. 119-60 (the wrong link the #389 measure
+  above names), which now has 9613(k), the subsection it adds; and 50 U.S.C.
+  3024(e)(7) to an amendment that only strikes subsection (e).
+- All 15 added links were checked by hand. 14 are right: 10 U.S.C. 9062(n),
+  139(l), 806(a), 1563a(a)(4) and 4174(d); 22 U.S.C. 2651a(b)(4), 2651a(c)(5)
+  and 9613(k); 26 U.S.C. 170(d)(2)(D), 904(b)(5), 904(b)(6), 1202(b)(5) and
+  6041(h); 50 U.S.C. 3024(e)(7), to the amendment whose struck and inserted
+  words are in it. 1 is partly right: 22 U.S.C. 2651a(q) to § 5162 of Pub. L.
+  119-60. Ten amendments of the law build (q). § 5162 adds (q)(10), and
+  § 5114 adds (q) itself. An added provision has one cause, and before, (q)
+  had none.
+
 ### The address keeps the units the line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387))
 
 - **An amending line of the form "Subsection (c)(7) of section 102A of the
@@ -248,8 +395,8 @@ a fresh build of `eval.sqlite`.
   the amendments that do act there (18 new links). All links: 3,329 before,
   3,227 after this fix alone. The renumbering reader records 11 more moves (296 to 307), in
   15 U.S.C. 278s(i)(2) and 22 U.S.C. 9613(g)(2).
-- Method versions: `address, window and quoted words@7` (was 6; #387, #389
-  and #390 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
+- Method versions: `address, window and quoted words@7` (was 6; #387, #389,
+  #390 and #432 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
   `redesignations` again; `residue` then lists the links that only an older
   version made, for review.
 

@@ -13,13 +13,15 @@
 //! 2. **Page furniture comes off.** A lone number at the foot of a page is its
 //!    page number. A line at the head of a page is a running head when it also
 //!    prints the page number, or when the same line, numbers aside, heads half
-//!    the pages or more.
+//!    the pages or more. The watermark of a preliminary print, "Page Proof
+//!    Pending Publication", comes off wherever it stands.
 //! 3. **Footnotes come out of the body.** The footnotes of a page start after
 //!    a rule of em dashes, as the Supreme Court prints them. In any other text
 //!    they start at the next footnote number, on a line of its own or at the
 //!    start of an indented line, or at a footnote's stars; and in a
 //!    double-spaced text also after two blank lines, where a footnote carried
-//!    over from the page before goes on.
+//!    over from the page before goes on, once a footnote has started. A centred line of stars, "* * *", is
+//!    a break between two parts of the opinion and stays in the body.
 //! 4. **Paragraphs.** A paragraph starts where a line is indented further than
 //!    the line before it; where a line comes back from a block quotation or a
 //!    centred heading; where two indented lines stand a blank line apart, or
@@ -55,9 +57,26 @@ static NUMBER_THEN_WORDS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s+(\d{1,3})\s+\S").expect("valid pattern"));
 
 /// The stars that mark a footnote with no number, on a line of their own or
-/// before its first words: "*", "**".
+/// before its first words, with or without a space: "*", "** The", "*There".
+/// Stars followed by more stars, "* * *.”", are an ellipsis, and a star
+/// against a number, "*4", marks a page of a reporter.
 static STARS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*(\*{1,3})(?:\s+(\S.*))?$").expect("valid pattern"));
+    LazyLock::new(|| Regex::new(r"^\s*(\*{1,3})(?:\s*([^\s*\d].*))?$").expect("valid pattern"));
+
+/// A line of stars set in the middle of the page, "***" or "*   *   *": a
+/// break between two parts of an opinion, never a footnote mark. Its indent
+/// is more than [`CENTRED`].
+static SECTION_BREAK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s{11,}\*(?:\s*\*)+$").expect("valid pattern"));
+
+/// The star label of a footnote and its first words, when the line opens a
+/// footnote with stars and is no section break.
+fn footnote_stars(line: &str) -> Option<regex::Captures<'_>> {
+    match SECTION_BREAK.is_match(line) {
+        true => None,
+        false => STARS.captures(line),
+    }
+}
 
 /// The rule of em dashes the Supreme Court prints above its footnotes, at the
 /// left margin. A rule set in the middle of the line, as the Tax Court prints
@@ -97,7 +116,7 @@ pub(crate) struct Section {
 pub(crate) fn read_plain_text(text: &str) -> Vec<Section> {
     let pages: Vec<Vec<&str>> = text
         .split('\u{c}')
-        .map(|page| page.lines().map(str::trim_end).collect())
+        .map(|page| without_watermark(&page.lines().map(str::trim_end).collect::<Vec<_>>()))
         .collect();
     let heads = running_heads(&pages);
     let layout = Layout::of(&pages);
@@ -158,6 +177,54 @@ pub(crate) fn read_plain_text(text: &str) -> Vec<Section> {
             }
         })
         .collect()
+}
+
+/// The watermark the preliminary print of the United States Reports prints
+/// across each page, word by word. It is no word of the Court.
+const WATERMARK: [&str; 4] = ["Page", "Proof", "Pending", "Publication"];
+
+/// A page without the watermark of a preliminary print.
+///
+/// pdftotext sets the watermark on a line of its own, "Page Proof Pending
+/// Publication". Where it crosses the first lines of a paragraph, the line
+/// holds only its first words, "Page     Proof", and each word after them ends
+/// one of the lines below: " To pursue         Pending", "           unpaid
+/// taxes            Publication". Those lines and the lines under them are
+/// pushed to the right of the first, so they lose that indent and go on with
+/// the paragraph.
+fn without_watermark<'a>(page: &[&'a str]) -> Vec<&'a str> {
+    let mut lines = Vec::with_capacity(page.len());
+    let mut index = 0;
+    while index < page.len() {
+        let line = page[index];
+        index += 1;
+        let words: Vec<&str> = line.split_whitespace().collect();
+        if words.len() < 2 || !WATERMARK.starts_with(&words) {
+            lines.push(line);
+            continue;
+        }
+        let mut margin = None;
+        for word in &WATERMARK[words.len()..] {
+            let Some(line) = page.get(index).and_then(|line| line.strip_suffix(word)) else {
+                break;
+            };
+            let line = line.trim_end();
+            let margin = *margin.get_or_insert(indent(line));
+            lines.push(if indent(line) > margin {
+                line.trim_start()
+            } else {
+                line
+            });
+            index += 1;
+        }
+        if let Some(margin) = margin {
+            while let Some(line) = page.get(index).filter(|line| indent(line) > margin) {
+                lines.push(line.trim_start());
+                index += 1;
+            }
+        }
+    }
+    lines
 }
 
 /// How many lines the line that opens a writing may be printed over.
@@ -434,6 +501,12 @@ impl Footnotes {
         (last + 1).to_string()
     }
 
+    /// Whether a footnote has started, so that one can go on from the page
+    /// before.
+    fn carry_over(&self) -> bool {
+        !self.notes.is_empty()
+    }
+
     /// Take the footnote lines of one page: a line that opens with the next
     /// number starts a footnote, and any other line goes on with the one before.
     fn read(&mut self, lines: Vec<&str>) {
@@ -455,7 +528,7 @@ impl Footnotes {
                 self.notes.push((next, vec![words]));
                 continue;
             }
-            if let Some(found) = STARS.captures(line) {
+            if let Some(found) = footnote_stars(line) {
                 let words = found.get(2).map(|words| words.as_str().to_string());
                 self.notes
                     .push((found[1].to_string(), words.into_iter().collect()));
@@ -502,8 +575,11 @@ fn split_footnotes<'a>(
         let opens_footnote = !layout.ruled_footnotes
             && (numbered(&LONE_NUMBER)
                 || (blanks > 0 && numbered(&NUMBER_THEN_WORDS))
-                || (blanks > 0 && STARS.is_match(line) && !body.is_empty())
-                || (layout.double_spaced && blanks >= 2 && !body.is_empty()));
+                || (blanks > 0 && footnote_stars(line).is_some() && !body.is_empty())
+                || (layout.double_spaced
+                    && blanks >= 2
+                    && !body.is_empty()
+                    && footnotes.carry_over()));
         if opens_footnote {
             return (body, lines[index..].to_vec());
         }

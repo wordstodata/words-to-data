@@ -60,7 +60,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::quoted_words::{QuotedWords, Shown, brings_new_words};
+use super::quoted_words::{AddedWords, QuotedWords, Shown, brings_new_words};
 use crate::legislature::redesignation::Step;
 
 /// One change in a window: a path, and its words before and after.
@@ -68,7 +68,12 @@ use crate::legislature::redesignation::Step;
 pub(super) struct Change {
     pub path: String,
     pub before: String,
+    /// The words after the change, as one text. For a provision added whole,
+    /// its words and the words of every provision below it (#432).
     pub after: String,
+    /// For a provision added whole, the same words field by field. `None` for
+    /// every other change.
+    pub added: Option<AddedWords>,
     /// For a renumbering, the amendments the dataset's
     /// `legislature.redesignated_as` links say made it. Empty for every other
     /// change.
@@ -96,6 +101,31 @@ impl std::fmt::Display for Whole {
 }
 
 impl Change {
+    /// A change to a provision's own words, or a provision removed whole: its
+    /// words before and after.
+    pub fn new(path: String, before: String, after: String, whole: Option<Whole>) -> Self {
+        Self {
+            path,
+            before,
+            after,
+            added: None,
+            renumbered_by: Vec::new(),
+            whole,
+        }
+    }
+
+    /// A provision added whole, with every provision below it.
+    pub fn added(path: String, words: AddedWords) -> Self {
+        Self {
+            path,
+            before: String::new(),
+            after: words.fields.join(" "),
+            added: Some(words),
+            renumbered_by: Vec::new(),
+            whole: Some(Whole::Added),
+        }
+    }
+
     /// Whether the provision has words both before and after the change: it
     /// was edited, and not added, removed or emptied.
     fn is_edited_in_place(&self) -> bool {
@@ -178,7 +208,8 @@ impl Contender<'_> {
             .filter(|other| other.public_law == self.public_law)
             .map(|other| other.evidence)
             .collect();
-        self.evidence.shown(&change.before, &change.after, &later)
+        self.evidence
+            .shown(&change.before, &change.after, change.added.as_ref(), &later)
     }
 }
 

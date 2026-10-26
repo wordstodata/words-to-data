@@ -594,3 +594,50 @@ fn should_give_the_provisions_inside_a_provision_to_an_amendment_whose_inserted_
         "the inserted string opened {subclause_ii}: {of_b:?}"
     );
 }
+
+/// 26 U.S.C. 904(b), where Pub. L. 119-21 adds two paragraphs at the end.
+const SECTION_904_B: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_N/part_III/subpart_A/section_904/subsection_b";
+
+#[test]
+fn should_link_an_added_provision_by_the_words_below_it_when_its_subparagraphs_split_its_own_words()
+{
+    // Pub. L. 119-21 § 70311(a): "Section 904(b) is amended by adding at the
+    // end the following new paragraph: (5) Deductions treated as allocable to
+    // foreign source net CFC tested income.—Solely for purposes of … (A) …
+    // (B) … (C) … Any amount or deduction which would …". The Code prints
+    // subparagraphs (A) to (C) between the chapeau of (5) and its
+    // continuation, so the own words of (5) are not one run of the block.
+    //
+    // An added provision holds every provision below it (#336), so the words
+    // of (5) and of its subparagraphs, in the order the Code prints them,
+    // are what the block is compared with (#432).
+    let paragraph_5 = format!("{SECTION_904_B}/paragraph_5");
+
+    let of_a = linked_paths(title_26_matches(), "9f5277a3626a");
+
+    assert_eq!(of_a, vec![paragraph_5]);
+}
+
+#[test]
+fn should_link_an_added_provision_by_its_own_words_when_a_marginal_note_splits_the_words_below_it()
+{
+    // Pub. L. 119-21 § 70307 adds subsection (n), "Special allowance for
+    // qualified production property", to 26 U.S.C. 168. The bill prints the
+    // marginal note "Applicability." inside the words of a paragraph below
+    // (n), so that paragraph is not one run of the block.
+    //
+    // The own words of (n) are one run of the block, and they are more than
+    // a few words. They are evidence for (n), as they were before the words
+    // below it were compared (#432).
+    let subsection_n =
+        "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_n"
+            .to_string();
+
+    let of_70307 = linked_paths(title_26_matches(), "b7565236f4ad");
+
+    assert!(
+        of_70307.contains(&subsection_n),
+        "§ 70307 added {subsection_n}: {of_70307:?}"
+    );
+}
