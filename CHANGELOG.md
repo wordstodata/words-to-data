@@ -17,8 +17,8 @@ holds more words than that, is weak evidence:
   the heading of 9613(g)(2) go to § 8725 alone.
 - Where nothing else shows, the change goes with the provision around it,
   when step 2 gives that provision's changes. 26 U.S.C. 163(j)(12)(A) prints
-  "In general" and moved with (12), which § 70303(c) of Pub. L. 119-21
-  renumbered. It is no longer § 70303(a)'s.
+  "In general" and moved with (12), which § 70341(c) of Pub. L. 119-21
+  renumbered. It is no longer § 70341(a)'s.
 - Where neither is so, the block decides, as before.
 
 ### Only a provision that was rewritten carries the changes inside it ([#390](https://github.com/wordstodata/words-to-data/issues/390))
@@ -52,7 +52,8 @@ another amendment.
   § 8729 of Pub. L. 119-60, because step 2 now gives two other changes under
   its address to § 8725.
 
-With the address fix below (#387) too, all links: 3,329 before, 3,214 after.
+With the address fix below (#387) too, all links: 3,329 before, 3,224 after, on
+a fresh build of `eval.sqlite`.
 
 ### The address keeps the units the line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387))
 
@@ -68,7 +69,7 @@ With the address fix below (#387) too, all links: 3,329 before, 3,214 after.
   were wrong. Now it has the 3 under 3024(c)(7). § 8725 (`a518c65a04b0`) loses
   its 3 wrong links in 9613(f). The provisions they free go by elimination to
   the amendments that do act there (18 new links). All links: 3,329 before,
-  3,227 after. The renumbering reader records 11 more moves (296 to 307), in
+  3,227 after this fix alone. The renumbering reader records 11 more moves (296 to 307), in
   15 U.S.C. 278s(i)(2) and 22 U.S.C. 9613(g)(2).
 - Method versions: `address, window and quoted words@7` (was 6; #387, #389
   and #390 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
