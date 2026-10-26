@@ -90,7 +90,9 @@ impl std::str::FromStr for ExpressionId {
     ///
     /// The date is checked rather than taken on trust. A typo that survives as
     /// text becomes a lookup that finds nothing, and an empty answer that means
-    /// "you mistyped it" is the failure this project exists to prevent.
+    /// "you mistyped it" is the failure this project exists to prevent. For the
+    /// same reason the date is kept zero-padded, as the dataset holds it:
+    /// `@2025-7-18` is `@2025-07-18` (#424).
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let refuse = || ParseExpressionIdError(text.to_string());
 
@@ -98,7 +100,7 @@ impl std::str::FromStr for ExpressionId {
         if work.is_empty() {
             return Err(refuse());
         }
-        crate::date::date_str_to_date(at).map_err(|_| refuse())?;
+        let at = crate::date::held_spelling(at).map_err(|_| refuse())?;
 
         Ok(Self::new(WorkId::new(work), at))
     }

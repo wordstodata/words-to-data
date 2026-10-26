@@ -28,7 +28,7 @@ pub struct Args {
     pub bill: String,
 
     /// Show only this amendment, by its id or the start of it
-    #[arg(long)]
+    #[arg(long, value_parser = crate::held::id_argument)]
     pub amendment: Option<String>,
 
     /// Emit JSON instead of human-readable text
@@ -40,7 +40,7 @@ pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     crate::held::refuse_unless_bill_held(&ds, &args.dataset, &args.bill);
     let document = crate::fail::or_exit(
-        with_dataset!(ds, d => d.bill_document(&args.bill)),
+        with_dataset!(&ds, d => d.bill_document(&args.bill)),
         "Error reading the bill",
     );
     let Some(document) = document else {
@@ -53,12 +53,19 @@ pub fn run(args: Args) {
     };
 
     let mut addresses = addresses_in(&document.root);
-    if let Some(wanted) = &args.amendment {
-        addresses.retain(|address| address.amendment_id.starts_with(wanted.as_str()));
-        if addresses.is_empty() {
-            eprintln!("Bill {} states no amendment {wanted}", args.bill);
-            std::process::exit(1);
-        }
+    if let Some(typed) = &args.amendment {
+        let ids: Vec<String> = addresses
+            .iter()
+            .map(|address| address.amendment_id.clone())
+            .collect();
+        let wanted = with_dataset!(&ds, d => crate::held::amendment_id_argument(
+            d,
+            &ids,
+            &args.dataset,
+            &args.bill,
+            typed,
+        ));
+        addresses.retain(|address| address.amendment_id == wanted);
     }
 
     if args.json {

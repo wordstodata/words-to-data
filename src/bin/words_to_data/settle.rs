@@ -37,7 +37,7 @@ pub struct Args {
 
     /// The link to settle, by any length of its id. `contradictions` prints the
     /// ids, and an ambiguous prefix is refused with the number it matched
-    #[arg(long)]
+    #[arg(long, value_parser = crate::held::id_argument)]
     pub link: String,
 
     /// What the reviewer found. Not needed with `--explain`
