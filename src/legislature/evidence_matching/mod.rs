@@ -246,6 +246,14 @@ pub enum Stage {
 /// an Act, the address keeps the units the line names below it:
 /// *"Subsection (c)(7) of section 102A of the National Security Act of 1947
 /// (50 U.S.C. 3024)"* acts in 3024(c)(7), not in the whole of § 3024.
+///
+/// Version 7 (#389, #390): an enacted block that a change shows by three
+/// words or fewer, inside a longer block, is weak evidence. It is not counted
+/// where other words show in the change, and it gives way to a provision
+/// around the change that carries it. A provision carries every change inside
+/// it only when its amendment enacted it anew, renumbered it, or inserted words
+/// that open a new provision. A provision whose words the amendment only
+/// edited carries only the removal of a provision inside it.
 pub fn evidence_method() -> Method {
     Method::new("address, window and quoted words", 7)
 }

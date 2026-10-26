@@ -468,3 +468,129 @@ fn should_give_the_provision_at_its_address_by_elimination_only_to_an_amendment_
         "the heading amendment should hold § 181: {of_heading:?}"
     );
 }
+
+/// 26 U.S.C. 274(o), which TCJA § 13304 added for taxable years after 2025.
+const SECTION_274_O: &str =
+    "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_IX/section_274/subsection_o";
+
+#[test]
+fn should_not_give_the_provisions_inside_a_provision_to_an_amendment_that_only_edited_its_words() {
+    // Pub. L. 119-21 § 70305(a): "Section 274(o), as added by section 13304 of
+    // Public Law 115-97, is amended by striking "No deduction" and inserting
+    // "Except in the case of an expense described in subsection (e)(8) or
+    // (n)(2)(C), no deduction"." Its quoted strings place the edit of the
+    // words of (o).
+    //
+    // In the same window the OLRC executed § 13304, and (o)(1) and (o)(2)
+    // came into the Code. § 70305(a) edited the words of (o) in place. It did
+    // not strike (o) and enact it anew, so the paragraphs inside (o) are not
+    // its changes (#390).
+    let of_a = linked_paths(title_26_matches(), "cee3304a1b3d");
+
+    assert!(
+        of_a.contains(&SECTION_274_O.to_string()),
+        "§ 70305(a) should hold (o): {of_a:?}"
+    );
+    for paragraph in ["paragraph_1", "paragraph_2"] {
+        let path = format!("{SECTION_274_O}/{paragraph}");
+        assert!(
+            !of_a.contains(&path),
+            "§ 70305(a) did not make {path}: {of_a:?}"
+        );
+    }
+}
+
+/// 26 U.S.C. 163(j)(12), the special rule for taxable years beginning in 2019
+/// and 2020, which the law renumbered twice.
+const SECTION_163_J_12: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_163/subsection_j/paragraph_12";
+
+#[test]
+fn should_not_let_an_enacted_block_take_a_change_of_a_few_words_that_a_renumbered_provision_carries()
+ {
+    // Pub. L. 119-21 § 70303:
+    //
+    // - (a) renumbers paragraphs (10) and (11) of § 163(j) and enacts a new
+    //   paragraph (10). One of its subparagraphs is headed "In general".
+    // - (c) renumbers again, and the dataset's redesignation link says that
+    //   it moved the old special rule to (12).
+    //
+    // (12)(A) of the special rule is headed "In general" and holds nothing
+    // else. Those two words are in the block (a) enacts, and in many other
+    // provisions too. A change of a few words inside a longer block is not
+    // evidence that the block made it, when the renumbering of the provision
+    // around it explains it (#389).
+    let matches = title_26_matches();
+    let subparagraph_a = format!("{SECTION_163_J_12}/subparagraph_A");
+
+    let of_a = linked_paths(matches, "b2f12a7edfa5");
+    assert!(
+        !of_a.iter().any(|path| path.starts_with(&subparagraph_a)),
+        "§ 70303(a) did not make (12)(A): {of_a:?}"
+    );
+    let of_c = linked_paths(matches, "21c6fe30594a");
+    assert!(
+        of_c.contains(&subparagraph_a),
+        "the renumbering of (12) carries (12)(A): {of_c:?}"
+    );
+}
+
+#[test]
+fn should_give_the_provisions_inside_a_provision_to_an_amendment_whose_inserted_words_open_a_new_one()
+ {
+    // 42 U.S.C. 1396a(e)(14)(D)(iv). Section 71108(b) of the law strikes
+    // "Subparagraphs" there and inserts "(I) In general.—Subparagraphs", and
+    // adds a new subclause (II) at the end. The words of the clause move down
+    // into the new subclause (I).
+    //
+    // The amendment edits the words of (iv) by quoted strings, but the string
+    // it inserts opens a new subclause. So (iv) carries the subclauses inside
+    // it, unlike a provision whose words an amendment only edited (#390).
+    let clause_iv = format!("{SECTION_1396A}/subsection_e/paragraph_14/subparagraph_D/clause_iv");
+    let of_b = linked_paths(title_42_matches(), "016d2c93ae1d");
+
+    for subclause in ["subclause_I", "subclause_II"] {
+        let path = format!("{clause_iv}/{subclause}");
+        assert!(of_b.contains(&path), "§ 71108(b) made {path}: {of_b:?}");
+    }
+}
+
+#[test]
+fn should_give_the_removal_of_a_provision_inside_a_provision_to_the_amendment_whose_strike_edited_it()
+ {
+    // 26 U.S.C. 460(c)(6)(B). Pub. L. 119-21: "Section 460(c)(6)(B) is
+    // amended by striking "which" and all that follows through
+    // the period and inserting "which has a recovery period of 7 years or
+    // less."." The words it strikes run on into clauses (i) and (ii), so the
+    // clauses are removed, and their words are struck with them.
+    //
+    // The amendment edits (B) by quoted strings and enacts nothing anew. A
+    // strike can still remove the provisions inside the provision it edits, so
+    // (B) carries their removal (#390).
+    let subparagraph_b = "uscode/title_26/subtitle_A/chapter_1/subchapter_E/part_II/subpart_B/section_460/subsection_c/paragraph_6/subparagraph_B";
+    let of_d = linked_paths(title_26_matches(), "4057af6072f0");
+
+    for clause in ["clause_i", "clause_ii"] {
+        let path = format!("{subparagraph_b}/{clause}");
+        assert!(of_d.contains(&path), "the strike removed {path}: {of_d:?}");
+    }
+}
+
+#[test]
+fn should_give_the_provisions_inside_a_provision_to_an_amendment_whose_inserted_string_holds_a_new_designation()
+ {
+    // 26 U.S.C. 55(d)(4)(B)(i). Pub. L. 119-21, in "Modification of
+    // Inflation Adjustment", strikes the end of the clause and inserts
+    // "determined by substituting for 'calendar year 2016' in subparagraph
+    // (A)(ii) thereof—"(1) 'calendar year 2017', …". The string starts with
+    // words of the old clause, and a new provision opens inside it, after a
+    // quotation mark. The Code prints the new provisions as subclauses (I)
+    // and (II), so the string does not show in them.
+    let clause_i = "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_VI/section_55/subsection_d/paragraph_4/subparagraph_B/clause_i";
+    let of_b = linked_paths(title_26_matches(), "f4da38548dd3");
+
+    let subclause_ii = format!("{clause_i}/subclause_II");
+    assert!(
+        of_b.contains(&subclause_ii),
+        "the inserted string opened {subclause_ii}: {of_b:?}"
+    );
+}

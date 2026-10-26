@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+### A few words do not show that an enacted block made a change ([#389](https://github.com/wordstodata/words-to-data/issues/389))
+
+A provision that prints three words or fewer, such as the heading "In
+general" or the chapeau "support—", is in many enacted blocks. Before, an
+enacted block that held those words was evidence that it made the change, as
+strong as a quoted string. On `eval.sqlite`, 22 U.S.C. 9613(g)(2)(E) had four
+causes, and only § 8725 of Pub. L. 119-60 was right.
+
+Now an enacted block that a change shows by three words or fewer, and that
+holds more words than that, is weak evidence:
+
+- It is not counted where other words show in the change. 9613(g)(2)(E) and
+  the heading of 9613(g)(2) go to § 8725 alone.
+- Where nothing else shows, the change goes with the provision around it,
+  when step 2 gives that provision's changes. 26 U.S.C. 163(j)(12)(A) prints
+  "In general" and moved with (12), which § 70303(c) of Pub. L. 119-21
+  renumbered. It is no longer § 70303(a)'s.
+- Where neither is so, the block decides, as before.
+
+### Only a provision that was rewritten carries the changes inside it ([#390](https://github.com/wordstodata/words-to-data/issues/390))
+
+Step 2 of the resolver gives an amendment the changes inside a provision it
+was given. Before, this was so also when the amendment only edited some words
+of the provision. § 70305(a) of Pub. L. 119-21 strikes "No deduction" in 26
+U.S.C. 274(o), and it was given (o)(1) and (o)(2), which another law added in
+the same window.
+
+Now a provision carries every change inside it only when its amendment enacted
+it anew, renumbered it, or inserted words that open a new provision, such as
+*"(I) In general.—Subparagraphs"*. A provision whose words the amendment only
+edited carries only the removal of a provision inside it: *striking "which"
+and all that follows* can strike the clauses below.
+
+### Measured on `eval.sqlite`
+
+`link-by-evidence` at version 7 against version 6: 3,329 links become 3,288.
+50 links are removed and 9 are added. 6 of the added links move a change to
+another amendment.
+
+- 45 removed links were given by step 2, and 5 by a weak block.
+- 31 of the 45 are in 50 U.S.C. 3024, where an address fault (#387) puts the
+  amendment of (c)(7) at the whole section. They were wrong.
+- Of 21 removed links checked by hand, 17 were wrong before. 4 were right,
+  and are lost: three edits in 16 U.S.C. 973i(a)(2), where the OLRC
+  translated the struck cross-reference, so only the units the words name can
+  place them, and the editors' note in the heading of 22 U.S.C. 9412(a).
+- Of 9 added links, 6 were checked by hand. 5 are right. 1 is wrong: elimination now gives 22 U.S.C. 9613(b)(6) to
+  § 8729 of Pub. L. 119-60, because step 2 now gives two other changes under
+  its address to § 8725.
+
+With the address fix below (#387) too, all links: 3,329 before, 3,214 after.
+
 ### The address keeps the units the line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387))
 
 - **An amending line of the form "Subsection (c)(7) of section 102A of the
@@ -18,8 +70,8 @@
   the amendments that do act there (18 new links). All links: 3,329 before,
   3,227 after. The renumbering reader records 11 more moves (296 to 307), in
   15 U.S.C. 278s(i)(2) and 22 U.S.C. 9613(g)(2).
-- Method versions: `address, window and quoted words@7` (was 6) and
-  `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
+- Method versions: `address, window and quoted words@7` (was 6; #387, #389
+  and #390 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
   `redesignations` again; `residue` then lists the links that only an older
   version made, for review.
 
