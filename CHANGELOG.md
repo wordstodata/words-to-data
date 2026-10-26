@@ -199,6 +199,28 @@ input that the dataset does not hold.
 
 ### Fixes
 
+- Inputs that the #392 and #395 checks did not reach
+  ([#424](https://github.com/wordstodata/words-to-data/issues/424)):
+  - `redesignations --between` refuses a first date that is not older than
+    the second, and a date that no expression holds (the notice that `search
+    --at` gives). Before, `--between 2025-07-30 2025-07-18` exited 0 and
+    recorded a method run.
+  - A date that is not zero-padded is read as the date the dataset holds:
+    `2025-7-18` is `2025-07-18`, in `--at`, `--between` and every
+    `<work>@<date>`. Before, `search --at 2025-7-18` said that the dataset
+    holds no expression on that date, and named false dates around it.
+  - `link-amendment --path` reads a path as the other commands do: a trailing
+    `/` goes, and an ASCII hyphen in a section number is the en dash.
+  - `link-amendment --amendment` and `amendment-addresses --amendment` take
+    the start of an id, such as the 12 characters that `annotations` prints.
+    A start that names more than one amendment is refused with the count, as
+    in `settle`. When the bill holds no such amendment, the notice names each
+    other bill that does. Before, `amendment-addresses --amendment 8` listed
+    43 amendments.
+  - `redesignations --bill-id` and `link-amendment --bill` refuse a bill not
+    held with the notice that `residue` gives.
+  - An id in upper case is read as the same id, in `settle --link`,
+    `link-amendment --amendment` and `amendment-addresses --amendment`.
 - `settle --explain` on a `judicial.cites` link prints no "Causes" line. A
   citation's subject is a passage, not a change, and the line counted the
   other provisions that passage cites as amendments: 219 of the 434 citation

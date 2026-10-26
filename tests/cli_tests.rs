@@ -1241,25 +1241,25 @@ fn should_reject_a_between_date_that_is_not_a_date() {
     );
 }
 
-/// A real date that no work was published on is a fact about the data, not a
-/// user error, so it reports and exits zero. A dataset of court opinions — one
-/// expression per work — would legitimately span nothing.
+/// A date that no expression in the dataset holds is refused, as `--from` and
+/// `--to` refuse an expression not held (#424). Two held dates that no one
+/// work spans are not refused: `should_name_the_works_it_could_not_cover`
+/// reports them and exits zero, because a dataset of court opinions, one
+/// expression per work, spans nothing.
 #[test]
-fn should_report_and_succeed_when_a_valid_span_covers_no_work() {
+fn should_refuse_a_span_with_a_date_that_no_expression_holds() {
     let output = redesignate(
         both_works_and_the_bill(),
         &["--between", "1999-01-01", LATE],
         "span_empty.json",
     );
 
-    assert!(output.status.success(), "an empty span is not a failure");
+    assert_eq!(output.status.code(), Some(1), "a date not held is refused");
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("across 0 work pair(s)"),
-        "it covered no work"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("nothing to do"),
-        "it must say it did nothing"
+        String::from_utf8_lossy(&output.stderr)
+            .contains("This dataset holds no expression dated 1999-01-01."),
+        "it must name the date, got: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
