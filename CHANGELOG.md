@@ -54,11 +54,13 @@ names its section in these three forms:
 - The other 8 amendments keep their links. The OLRC table gave the same
   section before. Now the markup gives it, and `section-agreement` reads it:
   of the 32 rows that leave "no section under amendment was named", 31 agree.
-- One limit stays. The links of § 7201(e)(5) and (e)(6) (`d762c3039aec` and
-  the new `6a563dbab0b8`) are on `chapter_3/subchapter_II`, a path above a
-  section, so `section-agreement` still cannot compare them. It now says "could
-  not be read — no reason recorded" for these 2 rows, because the amendment has
-  an address and the path has no section.
+- `section-agreement` names a new limit: "could not be read — the link's path
+  is above a section". The links of § 7201(e)(5) and (e)(6) (`d762c3039aec`
+  and the new `6a563dbab0b8`) are on `chapter_3/subchapter_II`, which the
+  window adds whole. The amendment now has an address, but the path has no
+  section to compare with it. These 2 rows give this reason, and they do not
+  count as agree. Without it, they said "no reason recorded" (#140). No row of
+  the fresh build says "no reason recorded".
 - Method versions: `address, window and quoted words@8` (was 7) and
   `amendingAction type=redesignate@7` (was 6). Run `redesignations` and
   `link-by-evidence` again.
