@@ -51,6 +51,8 @@ pub(super) struct QuotedWords {
     enacted: Vec<Vec<String>>,
     /// Every word the amendment states, for ranking a tie.
     words: BTreeSet<String>,
+    /// A string it inserts or a block it enacts opens a new provision.
+    opens_a_provision: bool,
 }
 
 /// One of an amendment's quoted strings or enacted blocks that a change
@@ -62,9 +64,16 @@ pub(super) struct Shown {
     pub said: String,
     /// Its words, as they are compared.
     words: Vec<String>,
+    /// An enacted block (`<quotedContent>`), and not a quoted string.
+    pub enacted: bool,
     /// An enacted block that holds every word the provision now prints: the
     /// amendment rewrote it.
     pub rewrote: bool,
+    /// An enacted block that the change shows by a few words alone: the
+    /// provision prints no more than [`FEW_WORDS`] words, and the block holds
+    /// more. A heading such as "In general" is in many blocks, so it is weak
+    /// evidence that this block made the change (#389).
+    pub few_words: bool,
 }
 
 impl Shown {
@@ -83,6 +92,12 @@ impl Shown {
             .all(|word| COMMON_WORDS.contains(&word.as_str()))
     }
 }
+
+/// The most words a provision can print and still be shown by an enacted
+/// block only weakly, when the block holds more words than that. 22 U.S.C.
+/// 9613(g)(2)(E) prints "support—", and blocks of the same law that enact
+/// other provisions hold "support" too (#389).
+const FEW_WORDS: usize = 3;
 
 /// The words that join and qualify the Code's clauses. A quoted string made
 /// of these alone is too little to say which change an amendment made: a
@@ -129,10 +144,17 @@ impl QuotedWords {
             .filter(|token| is_word(token))
             .cloned()
             .collect();
+        let opens_a_provision = quoted
+            .iter()
+            .filter(|quoted| quoted.direction == Direction::Inserted)
+            .map(|quoted| quoted.tokens.clone())
+            .chain(facts.enacted_text.iter().map(|block| tokens_of(block)))
+            .any(|tokens| opens_with_a_designation(&tokens));
         Self {
             quoted,
             enacted,
             words,
+            opens_a_provision,
         }
     }
 
@@ -148,6 +170,15 @@ impl QuotedWords {
     /// amendment.
     pub(super) fn quotes_strings(&self) -> bool {
         !self.quoted.is_empty()
+    }
+
+    /// Whether the amendment inserts or enacts words that open a new
+    /// provision: a designation with words after it, at the start of the words
+    /// or after a quotation mark. *Striking "Subparagraphs" and inserting "(I)
+    /// In general.—Subparagraphs"* moves the words of a clause down into a new
+    /// subclause (I).
+    pub(super) fn opens_a_provision(&self) -> bool {
+        self.opens_a_provision
     }
 
     /// Whether every word the bill quotes for this amendment is words it
@@ -187,7 +218,9 @@ impl QuotedWords {
             .map(|quoted| Shown {
                 said: quoted.described(),
                 words: quoted.tokens.clone(),
+                enacted: false,
                 rewrote: false,
+                few_words: false,
             });
         let after_words = words_of(after);
         let after_words_undone: Vec<String> = after_undone
@@ -195,19 +228,23 @@ impl QuotedWords {
             .filter(|token| is_word(token))
             .cloned()
             .collect();
-        let blocks = self
-            .enacted
-            .iter()
-            .enumerate()
-            .filter(|(_, block)| {
-                (!after_words.is_empty() && contains_run(block, &after_words))
-                    || (!after_words_undone.is_empty() && contains_run(block, &after_words_undone))
-            })
-            .map(|(at, block)| Shown {
+        let blocks = self.enacted.iter().enumerate().filter_map(|(at, block)| {
+            let shows = |words: &[String]| !words.is_empty() && contains_run(block, words);
+            let shown_by = if shows(&after_words) {
+                &after_words
+            } else if shows(&after_words_undone) {
+                &after_words_undone
+            } else {
+                return None;
+            };
+            Some(Shown {
                 said: format!("enacted text {} of {}", at + 1, self.enacted.len()),
                 words: block.clone(),
-                rewrote: !after_words.is_empty() && contains_run(block, &after_words),
-            });
+                enacted: true,
+                rewrote: shows(&after_words),
+                few_words: shown_by.len() <= FEW_WORDS && block.len() > shown_by.len(),
+            })
+        });
         let shown: Vec<Shown> = strings.chain(blocks).collect();
         // Common words alone decide nothing, unless they are all the change
         // struck or inserted.
@@ -289,6 +326,23 @@ impl Quoted {
             Direction::Either => was != is,
         }
     }
+}
+
+/// Whether tokens open a new provision: a designation, such as `(I)`, with
+/// words after it, at the start or after a quotation mark. The bill opens each
+/// provision it quotes with a quotation mark: `thereof—"(1) 'calendar year
+/// 2017'`. A designation inside a sentence, as in "subsection (e)(8) or", is a
+/// reference and not a new provision.
+fn opens_with_a_designation(tokens: &[String]) -> bool {
+    (0..tokens.len())
+        .filter(|&at| at == 0 || tokens[at - 1] == "\"")
+        .any(|at| {
+            matches!(
+                &tokens[at..],
+                [open, designation, close, next, ..]
+                    if open == "(" && close == ")" && is_word(designation) && next != "("
+            )
+        })
 }
 
 /// The page marks a public law prints inside the text it enacts: `139 STAT. 82`.

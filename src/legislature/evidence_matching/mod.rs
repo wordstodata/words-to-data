@@ -241,8 +241,16 @@ pub enum Stage {
 /// the nearest earlier amendment in the same section of the bill named, so the
 /// markup gives these amendments their address. Before, only the OLRC's table
 /// could give one, and only the section.
+///
+/// Version 7 (#389, #390): an enacted block that a change shows by three
+/// words or fewer, inside a longer block, is weak evidence. It is not counted
+/// where other words show in the change, and it gives way to a provision
+/// around the change that carries it. A provision carries every change inside
+/// it only when its amendment enacted it anew, renumbered it, or inserted words
+/// that open a new provision. A provision whose words the amendment only
+/// edited carries only the removal of a provision inside it.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 6)
+    Method::new("address, window and quoted words", 7)
 }
 
 /// Who a link this method writes says made it.
