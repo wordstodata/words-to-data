@@ -275,6 +275,51 @@ another amendment.
 With the address fix below (#387) too, all links: 3,329 before, 3,224 after, on
 a fresh build of `eval.sqlite`.
 
+### An added provision is matched with the provisions below it ([#432](https://github.com/wordstodata/words-to-data/issues/432))
+
+The diff lists a provision that a window added as one path, and nothing below
+it, so the change holds every provision below it (#336). Before, the matcher
+compared an enacted block with the added provision's own words only:
+
+- A provision with no words of its own could not be shown. 10 U.S.C.
+  9062(n) prints all its words in its paragraphs, and had no link.
+- A few own words matched a wrong block. 10 U.S.C. 9062(j)(4) prints "In
+  this subsection:", and the block of § 1632(a) of Pub. L. 119-60 holds those
+  words, so § 1632(a) was given (j)(4) and not (n).
+- A provision whose subparagraphs stand between its chapeau and its
+  continuation was not one run of the block: 26 U.S.C. 904(b)(5) and (6).
+- An amendment that only strikes could take an added provision with no own
+  words, because such a change brought no new words.
+
+Now an added provision's words are the words of each field of it and of every
+provision below it, in the order the Code prints them. A block shows the
+provision when each field is a run of the block, in that order. The Code
+does not always print a block's words as the bill does (a marginal note
+inside the words, "July 4, 2025" for "the date of enactment"), so a block
+also shows it when the provision's own words are one run of the block, as
+before. Where the own words are three or fewer, the block must also hold,
+after them, a field below of more than three words.
+
+#### Measured on a fresh build of `eval.sqlite`
+
+`link-by-evidence` against `main` at 1b77f66, both on a copy of one fresh
+build: 3,405 links become 3,417. 3 links are removed and 15 are added; 2 of
+the added links move a change to another amendment of the same section.
+Amendments stopped at resolving: 69 before, 63 after.
+
+- The 3 removed links were wrong: 10 U.S.C. 9062(j)(4) to § 1632(a); 22 U.S.C.
+  9613(b)(6) to § 8729 of Pub. L. 119-60 (the wrong link the #389 measure
+  above names), which now has 9613(k), the subsection it adds; and 50 U.S.C.
+  3024(e)(7) to an amendment that only strikes subsection (e).
+- All 15 added links were checked by hand. 14 are right: 10 U.S.C. 9062(n),
+  139(l), 806(a), 1563a(a)(4) and 4174(d); 22 U.S.C. 2651a(b)(4), 2651a(c)(5)
+  and 9613(k); 26 U.S.C. 170(d)(2)(D), 904(b)(5), 904(b)(6), 1202(b)(5) and
+  6041(h); 50 U.S.C. 3024(e)(7), to the amendment whose struck and inserted
+  words are in it. 1 is partly right: 22 U.S.C. 2651a(q) to § 5162 of Pub. L.
+  119-60. Ten amendments of the law build (q). § 5162 adds (q)(10), and
+  § 5114 adds (q) itself. An added provision has one cause, and before, (q)
+  had none.
+
 ### The address keeps the units the line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387))
 
 - **An amending line of the form "Subsection (c)(7) of section 102A of the
@@ -291,8 +336,8 @@ a fresh build of `eval.sqlite`.
   the amendments that do act there (18 new links). All links: 3,329 before,
   3,227 after this fix alone. The renumbering reader records 11 more moves (296 to 307), in
   15 U.S.C. 278s(i)(2) and 22 U.S.C. 9613(g)(2).
-- Method versions: `address, window and quoted words@7` (was 6; #387, #389
-  and #390 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
+- Method versions: `address, window and quoted words@7` (was 6; #387, #389,
+  #390 and #432 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
   `redesignations` again; `residue` then lists the links that only an older
   version made, for review.
 

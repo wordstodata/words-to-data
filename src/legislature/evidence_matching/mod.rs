@@ -51,6 +51,7 @@ use serde::Serialize;
 use crate::dataset::{Dataset, DatasetError, ExpressionId, WorkId};
 use crate::diff::{FieldChangeEvent, TreeDiff};
 use crate::document::{DocumentNode, NodeData};
+use crate::inspect::provision_words;
 use crate::legislature::AmendingAction;
 use crate::legislature::redesignation::Reason;
 use crate::legislature::redesignation::{SectionIndex, Step, walk_down};
@@ -63,7 +64,7 @@ use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::UslmFacts;
 use crate::uslm::amendment_address::{AmendmentAddress, addresses_in, units_named_in};
 
-use quoted_words::QuotedWords;
+use quoted_words::{AddedWords, QuotedWords};
 use resolve::{Change, Contender, Resolution, Whole, resolve};
 
 mod olrc;
@@ -254,6 +255,11 @@ pub enum Stage {
 /// it only when its amendment enacted it anew, renumbered it, or inserted words
 /// that open a new provision. A provision whose words the amendment only
 /// edited carries only the removal of a provision inside it.
+///
+/// Version 7 (#432): a provision the window added is compared with the words
+/// of every provision below it, field by field, in the order the Code prints
+/// them. Its own words alone show it only when they are more than three
+/// words, or when the block also holds a field below them.
 pub fn evidence_method() -> Method {
     Method::new("address, window and quoted words", 7)
 }
@@ -1038,7 +1044,7 @@ fn windows_after<S: Storage + LegislatureReader>(
         let diff = dataset.compute_diff(&from, &to)?;
         let renumberings = renumberings(&dataset.storage().links_for_pair(&from, &to)?);
         let mut changes = Vec::new();
-        collect_changes(&diff, &renumberings, &mut changes);
+        collect_changes(&diff, &later.root, &renumberings, &mut changes);
         views.push(WindowView {
             from,
             to,
@@ -1101,7 +1107,17 @@ fn renumberings(links: &[Link]) -> Renumberings {
 
 /// Every change in a diff, with its words before and after: a provision whose
 /// own words changed, or one that was added, removed or renumbered.
-fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut Vec<Change>) {
+///
+/// `later` is the later document of the window. An added provision holds
+/// every provision below it (#336), and the diff lists only the provision, so
+/// its words after the change are read from `later`, with the provisions below
+/// it (#432).
+fn collect_changes(
+    diff: &TreeDiff,
+    later: &DocumentNode,
+    renumberings: &Renumberings,
+    changes: &mut Vec<Change>,
+) {
     if !diff.changes.is_empty() {
         let joined = |value: fn(&FieldChangeEvent) -> &str| {
             diff.changes
@@ -1110,40 +1126,71 @@ fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut V
                 .collect::<Vec<&str>>()
                 .join(" ")
         };
-        changes.push(Change {
-            path: diff.root_path.clone(),
-            before: joined(|field| &field.old_value),
-            after: joined(|field| &field.new_value),
-            renumbered_by: Vec::new(),
-            whole: None,
-        });
+        changes.push(Change::new(
+            diff.root_path.clone(),
+            joined(|field| &field.old_value),
+            joined(|field| &field.new_value),
+            None,
+        ));
     }
-    changes.extend(diff.added.iter().map(|node| Change {
-        path: node.path.to_string(),
-        before: String::new(),
-        after: own_text(node),
-        renumbered_by: Vec::new(),
-        whole: Some(Whole::Added),
-    }));
-    changes.extend(diff.removed.iter().map(|node| Change {
-        path: node.path.to_string(),
-        before: own_text(node),
-        after: String::new(),
-        renumbered_by: Vec::new(),
-        whole: Some(Whole::Removed),
+    changes.extend(
+        diff.added
+            .iter()
+            .map(|node| Change::added(node.path.to_string(), added_words(later, node))),
+    );
+    changes.extend(diff.removed.iter().map(|node| {
+        Change::new(
+            node.path.to_string(),
+            own_text(node),
+            String::new(),
+            Some(Whole::Removed),
+        )
     }));
     changes.extend(diff.moved.iter().map(|moved| {
         let paths = (moved.from.path.to_string(), moved.to.path.to_string());
         Change {
-            path: moved.to.path.to_string(),
-            before: own_text(&moved.from),
-            after: own_text(&moved.to),
             renumbered_by: renumberings.get(&paths).cloned().unwrap_or_default(),
-            whole: None,
+            ..Change::new(
+                moved.to.path.to_string(),
+                own_text(&moved.from),
+                own_text(&moved.to),
+                None,
+            )
         }
     }));
     for child in &diff.child_diffs {
-        collect_changes(child, renumberings, changes);
+        collect_changes(child, later, renumberings, changes);
+    }
+}
+
+/// The words of an added provision and of every provision below it, field by
+/// field, as the window's later document prints them.
+///
+/// 26 U.S.C. 904(b)(5) prints subparagraphs (A) to (C) between its chapeau
+/// and its continuation, and the block that enacted it holds them there too.
+/// Its own words alone are not one run of the block (#432).
+fn added_words(later: &DocumentNode, added: &NodeData) -> AddedWords {
+    let own = own_text(added);
+    let found = later
+        .find_all(&added.path)
+        .into_iter()
+        .find(|found| found.data == *added);
+    let Some(node) = found else {
+        return AddedWords {
+            fields: vec![own.clone()],
+            own,
+            below: Vec::new(),
+        };
+    };
+    let fields = provision_words(node);
+    AddedWords {
+        below: fields
+            .iter()
+            .filter(|field| field.path != *added.path)
+            .map(|field| field.text.clone())
+            .collect(),
+        fields: fields.into_iter().map(|field| field.text).collect(),
+        own,
     }
 }
 
