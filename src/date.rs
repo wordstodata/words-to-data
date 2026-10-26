@@ -38,6 +38,29 @@ fn month_from_number(n: i32) -> Result<time::Month> {
     }
 }
 
+/// A typed date in the one spelling a dataset holds: `YYYY-MM-DD`, zero-padded.
+///
+/// [`date_str_to_date`] accepts `2025-7-18`. A date kept as typed then finds
+/// nothing, and is sorted as text among the held dates, so a notice named
+/// false dates around it (#424). Each command input reads a date here.
+///
+/// ```
+/// use words_to_data::date::held_spelling;
+///
+/// assert_eq!(held_spelling("2025-7-18").unwrap(), "2025-07-18");
+/// assert_eq!(held_spelling("2025-07-18").unwrap(), "2025-07-18");
+/// assert!(held_spelling("2025-13-01").is_err());
+/// ```
+pub fn held_spelling(date_str: &str) -> Result<String> {
+    let date = date_str_to_date(date_str)?;
+    Ok(format!(
+        "{:04}-{:02}-{:02}",
+        date.year(),
+        date.month() as u8,
+        date.day()
+    ))
+}
+
 /// Parse a date string in YYYY-MM-DD format to a Date
 ///
 /// # Arguments

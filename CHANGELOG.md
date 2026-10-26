@@ -65,6 +65,51 @@ before this change and by the build after it:
   opinion's default code@4`. These versions changed for #412 and #410 and
   are not released yet, so this change goes in the same versions.
 
+### `diff` over a span of several windows pairs the moves of each window ([#423](https://github.com/wordstodata/words-to-data/issues/423))
+
+A renumbering link is recorded for one window of two adjacent release points.
+`diff` and `coverage` over a span of several windows read the links of that
+exact pair of dates only, found none, and paired by position. Each
+renumbering became a "changed" or a removal and an addition. `path` over the
+same span read the move correctly, so the two did not agree.
+
+Now `diff` and `coverage` read the renumbering links of every window inside
+the span, in date order, and chain them as `path` does:
+
+- A provision moved (R) to (S) in one window and not moved later is moved
+  (R) to (S) over the span.
+- A provision moved (R) to (S) and later (S) to (T) is moved (R) to (T).
+- A provision under a container that moved is carried with it.
+- A provision moved and then changed is a move with a change, as in one
+  window.
+
+A span of one window gives the same output as before.
+
+#### Measured on `eval.sqlite`
+
+Title 26, 2025-07-18 to 2026-07-12 (4 windows):
+
+| | before | after | windows one by one |
+|---|---|---|---|
+| `diff` changed | 543 | 467 | 460 + 0 + 14 + 3 |
+| `diff` added | 365 | 320 | 315 + 0 + 3 + 2 |
+| `diff` removed | 161 | 104 | 104 + 0 + 0 + 0 |
+| `diff` moved | 0 | 48 | 48 + 0 + 0 + 0 |
+| `coverage` changed paths | 1,063 | 885 | 874 + 0 + 16 + 5 |
+
+The 48 moves over the span are the 48 moves of the first window. The added
+and removed paths over the span are the union of those of the windows. The
+changed paths are the union less 7 paths that a window adds and a later
+window rewords, which the span gives as added. The `diff`
+output of each window alone does not change. Title 7 over the same span: 6
+moves, before 0.
+
+#### Breaking changes for agents
+
+- `diff`, `coverage` and the library's `Dataset::compute_diff` over a span of
+  several windows give moves, and fewer changed, added and removed paths.
+- New: `Redesignations::then` and `Redesignations::new_path_of` are public.
+
 ### A tag inside a line no longer breaks the line ([#412](https://github.com/wordstodata/words-to-data/issues/412))
 
 The markup reader put a newline in place of every tag. In Harvard's XML,
@@ -217,6 +262,28 @@ input that the dataset does not hold.
 
 ### Fixes
 
+- Inputs that the #392 and #395 checks did not reach
+  ([#424](https://github.com/wordstodata/words-to-data/issues/424)):
+  - `redesignations --between` refuses a first date that is not older than
+    the second, and a date that no expression holds (the notice that `search
+    --at` gives). Before, `--between 2025-07-30 2025-07-18` exited 0 and
+    recorded a method run.
+  - A date that is not zero-padded is read as the date the dataset holds:
+    `2025-7-18` is `2025-07-18`, in `--at`, `--between` and every
+    `<work>@<date>`. Before, `search --at 2025-7-18` said that the dataset
+    holds no expression on that date, and named false dates around it.
+  - `link-amendment --path` reads a path as the other commands do: a trailing
+    `/` goes, and an ASCII hyphen in a section number is the en dash.
+  - `link-amendment --amendment` and `amendment-addresses --amendment` take
+    the start of an id, such as the 12 characters that `annotations` prints.
+    A start that names more than one amendment is refused with the count, as
+    in `settle`. When the bill holds no such amendment, the notice names each
+    other bill that does. Before, `amendment-addresses --amendment 8` listed
+    43 amendments.
+  - `redesignations --bill-id` and `link-amendment --bill` refuse a bill not
+    held with the notice that `residue` gives.
+  - An id in upper case is read as the same id, in `settle --link`,
+    `link-amendment --amendment` and `amendment-addresses --amendment`.
 - `settle --explain` on a `judicial.cites` link prints no "Causes" line. A
   citation's subject is a passage, not a change, and the line counted the
   other provisions that passage cites as amendments: 219 of the 434 citation
