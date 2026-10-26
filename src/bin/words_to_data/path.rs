@@ -39,14 +39,18 @@ pub struct Args {
     pub json: bool,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let pair = match (&args.from, &args.to) {
-        (Some(from), Some(to)) => Some((from, to)),
+        (Some(from), Some(to)) => {
+            crate::held::refuse_unless_window_held(&ds, from, to);
+            Some((from, to))
+        }
         _ => None,
     };
+    args.path = with_dataset!(&ds, d => crate::held::path_argument(d, &args.path));
 
     let matching = crate::annotations::path_matching(args.exact);
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let report = crate::fail::or_exit(
         with_dataset!(&ds, d => inspect::path_report(d, &args.path, pair, matching)),
         "Error building path report",

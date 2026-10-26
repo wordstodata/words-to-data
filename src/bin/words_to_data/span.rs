@@ -71,7 +71,10 @@ impl Span {
                 }
                 between.pairs
             }
-            (None, Some(from), Some(to)) => vec![(from.clone(), to.clone())],
+            (None, Some(from), Some(to)) => {
+                crate::held::refuse_unless_window_held_in(reader, from, to);
+                vec![(from.clone(), to.clone())]
+            }
             // clap's `required_unless_present` and `requires` between them make
             // the remaining combinations unreachable.
             _ => unreachable!("clap requires --between or --from/--to"),
