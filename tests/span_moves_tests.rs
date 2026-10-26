@@ -45,7 +45,12 @@ fn title_26_over_two_windows() -> Dataset<InMemoryStorage> {
     }
     let stated = redesignations_stated_in_file(BILL_ID, BILL).expect("the bill should parse");
     dataset
-        .record_redesignations(BILL_ID, &stated, &expression(DATES[0]), &expression(DATES[1]))
+        .record_redesignations(
+            BILL_ID,
+            &stated,
+            &expression(DATES[0]),
+            &expression(DATES[1]),
+        )
         .expect("the redesignations should record");
     dataset
 }

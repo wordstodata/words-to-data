@@ -319,7 +319,9 @@ impl<S: Storage> Dataset<S> {
         Ok(by_window
             .values()
             .map(|links| Redesignations::from_links(links))
-            .fold(Redesignations::none(), |so_far, window| so_far.then(&window)))
+            .fold(Redesignations::none(), |so_far, window| {
+                so_far.then(&window)
+            }))
     }
 
     /// Read the redesignations a bill states and record each one as a link.

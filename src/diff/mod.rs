@@ -269,7 +269,9 @@ impl Redesignations {
         let mut by_old_path = HashMap::new();
         // Each earlier move, continued by the later moves.
         for (old, middle) in &self.by_old_path {
-            let new = later.carried_forward(middle).unwrap_or_else(|| middle.clone());
+            let new = later
+                .carried_forward(middle)
+                .unwrap_or_else(|| middle.clone());
             by_old_path.insert(old.clone(), new);
         }
         // Each later move, named by the path its provision had on the first
@@ -280,8 +282,10 @@ impl Redesignations {
             .map(|(old, new)| (new.as_str(), old.as_str()))
             .collect();
         for (middle, new) in &later.by_old_path {
-            let old = carry(middle, |head| earlier_back.get(head).map(|old| old.to_string()))
-                .unwrap_or_else(|| middle.clone());
+            let old = carry(middle, |head| {
+                earlier_back.get(head).map(|old| old.to_string())
+            })
+            .unwrap_or_else(|| middle.clone());
             by_old_path.entry(old).or_insert_with(|| new.clone());
         }
         // A provision moved away and back again did not move over the span.
