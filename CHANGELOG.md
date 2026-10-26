@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### A tag inside a line no longer breaks the line ([#412](https://github.com/wordstodata/words-to-data/issues/412))
+
+The markup reader put a newline in place of every tag. In Harvard's XML,
+`5 U.S.C. §§ 8901</extracted-citation>(5), 8905` became `8901` and `(5)` on
+two lines, and the U.S.C. reader does not read a subdivision after a line
+break. Italic words broke lines too, so a search for "Amici Curiae" failed.
+
+Now only a tag that ends a block, such as `<p>`, `<div>` or `<br>`, gives a
+newline:
+
+- A tag inside a line gives nothing: the citation tags (`extracted-citation`,
+  `cross_reference`), the emphasis tags (`em`, `i`, `b`, `strong`, `s`), `a`
+  and `span`. Where such a tag is the only thing between two words, as in
+  `<s>tens of</s>thousands`, a space goes in.
+- A footnote or page mark is a word of its own, with a space at each side:
+  `footnotemark`, `page-number`, `sup`, and an `a` or a `span` of class
+  `footnote`, `page-label` or `star-pagination`. `§ 183<footnotemark>1` reads
+  `§ 183 1`, not `§ 1831`.
+- A tag this reader does not name still gives a newline.
+
+The text method goes to version 2. Paragraphs, pages and paths do not change.
+
+Measured on the opinions of `evals/opinions.txt`, added to two copies of
+`dataset-demo.sqlite`: the words of 204 of 3,428 passages change, and no
+path. Each change is a newline that becomes a space (1,531) or goes (278, all
+next to punctuation, such as `530⏎,` to `530,`). `judicial.cites` goes from
+434 links to 435, all in the *Windsor* majority: § 2056 becomes § 2056(a),
+§ 8901 becomes § 8901(5), § 115 becomes § 115(a)(1)(A), § 208 becomes
+§ 208(a), and § 8905 is new.
+
 ### A few words do not show that an enacted block made a change ([#389](https://github.com/wordstodata/words-to-data/issues/389))
 
 A provision that prints three words or fewer, such as the heading "In
