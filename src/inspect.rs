@@ -1643,9 +1643,11 @@ pub fn how_made<S: Storage>(dataset: &S, link: &Link) -> Result<HowMade, Dataset
 /// links must know the others are there. Counted from the dataset every time,
 /// because it depends on every link, not on this one
 /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
-/// A link whose subject is not a change is its own only cause.
+/// A link whose subject is not a change is its own only cause: a citation's
+/// subject is a passage, and the other provisions that passage cites are not
+/// causes of anything (#411).
 pub fn causes_of<S: Storage>(dataset: &S, link: &Link) -> Result<usize, DatasetError> {
-    let Some(path) = link.subject.path() else {
+    let Target::Change { path, .. } = &link.subject else {
         return Ok(1);
     };
     let causes: BTreeSet<String> = dataset

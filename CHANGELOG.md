@@ -80,6 +80,11 @@ input that the dataset does not hold.
 
 ### Fixes
 
+- `settle --explain` on a `judicial.cites` link prints no "Causes" line. A
+  citation's subject is a passage, not a change, and the line counted the
+  other provisions that passage cites as amendments: 219 of the 434 citation
+  links in `eval.sqlite` printed "Causes: one of N amendments linked to this
+  change" ([#411](https://github.com/wordstodata/words-to-data/issues/411)).
 - `annotations --bill`, `section-agreement --bill` and `amendment-addresses
   --bill` refuse a bill that the dataset does not hold, with exit 1 and the
   notice that `residue` gives. `annotations` and `section-agreement` accept a
