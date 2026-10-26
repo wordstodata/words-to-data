@@ -52,8 +52,8 @@ pub struct Args {
     #[arg(long)]
     pub bill: String,
 
-    /// The amendment's id, in full. `show-bill` prints it
-    #[arg(long)]
+    /// The amendment's id, or the start of it. `show-bill` prints it
+    #[arg(long, value_parser = crate::held::id_argument)]
     pub amendment: String,
 
     /// Older expression of the window, e.g. `uscode/title_26@2025-07-18`
@@ -138,7 +138,7 @@ impl From<NoLinkSaid> for NoLinkCategory {
     }
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
     // The reason is the link's evidence, and a reviewer reads it to judge the
     // link. A link with none has nothing behind it, so it is refused before the
     // dataset is even opened.
@@ -156,18 +156,17 @@ pub fn run(args: Args) {
     let output = if crate::load::is_sqlite(&args.dataset) {
         None
     } else {
-        Some(crate::load::output_or_refuse(
-            &args.dataset,
-            args.output.as_deref(),
-            "link-amendment",
-        ))
+        Some(
+            crate::load::output_or_refuse(&args.dataset, args.output.as_deref(), "link-amendment")
+                .to_string(),
+        )
     };
 
     match output {
         None => {
             let mut dataset =
                 crate::fail::or_exit(Dataset::open_sqlite(&args.dataset), "Error opening dataset");
-            record(&mut dataset, &args);
+            record(&mut dataset, &mut args);
             println!("\nWrote {}", args.dataset);
         }
         Some(output) => {
@@ -175,9 +174,9 @@ pub fn run(args: Args) {
                 crate::load::load_compact(&args.dataset),
                 "Error loading dataset",
             );
-            record(&mut dataset, &args);
+            record(&mut dataset, &mut args);
             crate::fail::or_exit(
-                crate::load::save_compact(&dataset, output),
+                crate::load::save_compact(&dataset, &output),
                 "Error saving dataset",
             );
             println!("\nWrote {output}");
@@ -188,7 +187,14 @@ pub fn run(args: Args) {
 /// Write what the run concluded, and say what was written.
 ///
 /// Every check runs before the first write, so a refusal writes nothing.
-fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args) {
+fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &mut Args) {
+    // Each path in the spelling the dataset holds, as every command reads one
+    // (#395, #424). A link names the held path, never a trailing `/`.
+    args.paths = args
+        .paths
+        .iter()
+        .map(|typed| crate::held::path_argument(&*dataset, typed))
+        .collect();
     let amendment = find_amendment(dataset, args);
     match args.no_link {
         Some(category) => record_no_link(dataset, &amendment, category.into(), args),
@@ -257,24 +263,19 @@ fn find_amendment<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     args: &Args,
 ) -> BillAmendment {
-    let bill = crate::fail::or_exit(dataset.get_bill(&args.bill), "Error reading the bill");
-    let Some(mut bill) = bill else {
-        eprintln!(
-            "This dataset holds no bill `{}`, so nothing was written.\n\
-             `words_to_data bills {}` lists the bills it holds.",
-            args.bill, args.dataset
-        );
-        std::process::exit(1);
-    };
-    let Some(amendment) = bill.amendments.remove(&args.amendment) else {
-        eprintln!(
-            "Bill `{}` holds no amendment `{}`, so nothing was written.\n\
-             `words_to_data show-bill {} {}` prints the id of each amendment.",
-            args.bill, args.amendment, args.dataset, args.bill
-        );
-        std::process::exit(1);
-    };
-    amendment
+    crate::held::refuse_unless_bill_held_in(dataset, &args.dataset, &args.bill);
+    let mut bill = crate::fail::or_exit(dataset.get_bill(&args.bill), "Error reading the bill")
+        .expect("the bill is held");
+    let id = crate::held::amendment_id_argument(
+        dataset,
+        bill.amendments.keys(),
+        &args.dataset,
+        &args.bill,
+        &args.amendment,
+    );
+    bill.amendments
+        .remove(&id)
+        .expect("the id is one of the bill's amendments")
 }
 
 /// Refuse the run unless `--from` and `--to` are two adjacent expressions of

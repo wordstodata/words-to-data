@@ -129,7 +129,12 @@ pub fn redesignations_stated_in_document(
 /// Every redesignation a bill states, read from the bill a dataset holds.
 ///
 /// The same statements, in the same order, as
-/// [`redesignations_stated`] reads out of the same bill's XML.
+/// [`redesignations_stated`] reads out of the same bill's XML. One reading
+/// differs: where the amending line says *"Such section"* or *"Such
+/// subsection"*, this reader places the renumbering in the unit an earlier
+/// amendment named, as the address reader does
+/// ([`crate::uslm::amendment_address`], #431). The markup reader does not read
+/// the phrase, and refuses the statement.
 ///
 /// # Examples
 ///
@@ -476,6 +481,9 @@ pub(crate) fn own_text(level: &Node) -> String {
 /// [`Reason::NoTitleForSection`]. A title nobody told us is a confident guess,
 /// and this is the one place a wrong guess would silently move a provision
 /// between titles of the Code.
+///
+/// A line that says *"Such section"* is not read here. The stored reader
+/// ([`redesignations_stated_in`]), which a dataset uses, reads it (#431).
 fn section_under_amendment(
     line: &str,
     holder: Node,

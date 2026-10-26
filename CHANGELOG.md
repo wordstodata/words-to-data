@@ -2,6 +2,108 @@
 
 ## Unreleased
 
+### The renumbering reader reads "Such section" ([#431](https://github.com/wordstodata/words-to-data/issues/431))
+
+A bill can name the section a renumbering acts in as *"Such section"*: Pub.
+L. 119-60 § 6402(c)(1) says "Section 102a.—Such section is further amended—(A)
+by redesignating subsections (f) through (z) as subsections (e) through (y)".
+#364 taught the address reader of `legislature.amended_by` this phrase, but
+not the renumbering reader. That reader read the bare "Section 102a" in the
+heading, found no title for it, and did not record the renumbering.
+
+Now both readers read the section in one function
+(`Scope::section_cited_by`), so they cannot come to different answers again.
+*"Such section"*, *"Such subsection"* and *"Subsection (h) of such section"*
+place a renumbering where the address reader places the amendment. The
+reader of the bill's XML (`redesignations_stated`), which only the tests use,
+still does not read the phrase.
+
+#### Measured on a fresh build of the 7 bills from the caches
+
+| | before | after |
+|---|---|---|
+| renumbering statements placed (all bills) | 118 of 230 | 123 of 230 |
+| `legislature.redesignated_as` links | 307 | 335 |
+| `legislature.amended_by` links | 3,405 | 3,412 |
+| amendments with a link | 1,142 | 1,144 |
+| `diff` of 50 U.S.C. 3024, 2026-01-23 → 2026-07-12 | 69 changed, 61 added, 80 removed, 0 moved | 7 changed, 0 added, 3 removed, 21 moved |
+| changes in 50 U.S.C. 3024 with no link | 190 | 0 |
+
+- The 5 statements placed: § 6402(c)(1)(A) (50 U.S.C. 3024), § 141(b)(2)
+  (10 U.S.C. 9062(j)), and three more in 10 U.S.C. 115a, 181(h) and 321(b).
+- The address of each amendment does not change. The `amended_by` links
+  change through the new renumbering links: 26 go and 33 come. The 5 wrong
+  links that #431 lists go. The strike of 3024(e) (§ 6402(b)(1)) loses 14
+  wrong links in the new (e), and is now in `residue`. § 6402(b)(2) names
+  3024(f)(2), which § 6402(c)(1)(A) then moves to (e)(2). Its change at
+  (e)(2) is now given to the renumbering, and § 6402(b)(2) is in `residue`.
+- Method versions: `amendingAction type=redesignate@6` stays at 6, because
+  version 6 (#387) is not released yet. `address, window and quoted words@7`
+  does not change. Run `redesignations` and `link-by-evidence` again.
+
+### Opinion plain text: the watermark goes, star breaks stay in the body, a glued footnote mark is no part of a section ([#413](https://github.com/wordstodata/words-to-data/issues/413))
+
+Three faults in the text of opinions that CourtListener gives only as
+`plain_text`:
+
+- **The watermark.** A preliminary print of the United States Reports prints
+  "Page Proof Pending Publication" on each page. It stayed in the words, and
+  in *Polselli* it broke Justice Jackson's citation "26 U. S. C. Page Proof
+  Pending Publication § 7609(c)(2)(D)(i)". Now the plain-text rule removes
+  it. Where pdftotext puts its words at the ends of the first lines of a
+  paragraph ("Page     Proof", " To pursue         Pending"), the rule removes
+  those words too, and the lines go on as one paragraph.
+- **Stars.** A centred line of stars, "***" or "* * *", is a break between
+  two parts of an opinion. The rule read it as a footnote mark, and all the
+  body text after it on the page went into a false footnote. Now the line is
+  a paragraph of its own, as Harvard's XML keeps it, and the text after it
+  stays in the body. Stars followed by more stars ("* * *.”") are an
+  ellipsis, not a mark. A star against the first word of a footnote
+  ("*There is much…") is its label, so the footnote is `footnote_*`, not
+  `footnote_`. In a double-spaced text, two blank lines continue a footnote
+  only after a footnote has started, so a caption stays in the body.
+- **A glued footnote mark.** "5 U. S. C. §706.3" was read as section "706.3".
+  No section of the Code has a full stop in its number. Now, when the writing
+  has a footnote with the label after the full stop, the citation reader
+  reads § 706, and the 3 is the mark. When the writing has no such footnote,
+  the number is read as written, as before. The default-code reader does the
+  same: "IRC section 179.17" is § 179.
+
+#### Measured on the opinions of `evals/opinions.txt`
+
+Added to two copies of `dataset-demo.sqlite` from the cache, by the build
+before this change and by the build after it:
+
+- **Paths change in 11 writings of 8 cases.** A path change is a break. 23 paths go and 29 come: the false footnotes `footnote_***`,
+  `footnote_*` and `footnote_` go, and their text is in paragraphs again; 4
+  star footnotes go from `footnote_` to `footnote_*`; and the paragraphs
+  after each change are numbered again. *Polselli* (opinion 10516288-1) has
+  42 paragraphs, not 50, because the watermark split paragraphs. The text of
+  412 passages changes, most of it because the paragraph numbers moved.
+- **Words.** Per writing, the only words that go are the watermark (102 times)
+  and the star of 6 footnotes, which is now their label. A word broken at a
+  hyphen across the watermark now joins (`owner-` and `ship` give
+  `owner-ship`). The 4 section breaks and the ellipsis in *Khalaf* get back
+  the star that the false label took. A caption of 12 lines in *District of
+  Columbia v. USDA* is in the body again, one paragraph to a line.
+- **`judicial.cites`** goes from 438 links to 441, and from 484 places to
+  488. The 4 new places: § 7609(c)(2)(D)(i) in Justice Jackson's concurrence
+  in *Polselli*, § 706 in *Loper Bright*, § 5311 in *Bittner* and § 179 in
+  *Khalaf*. No place is lost. Other links change only their subject path,
+  where the paragraph number moved.
+- One paragraph is worse: in *Polselli* the watermark stood between the
+  lead-in "“issued in aid of the collection of—" and the item "“(i) an
+  assessment made…", and split them. Now the two lines join, and the rest of
+  item (i) is a paragraph of its own.
+
+#### Breaking changes for agents
+
+- Method version: `plain-text-paragraphs@3` (was 2).
+- The text method stays at version 2 and the citation rules stay at
+  `reporters-db laws.json U.S.C. patterns@6` and `bare section under the
+  opinion's default code@4`. These versions changed for #412 and #410 and
+  are not released yet, so this change goes in the same versions.
+
 ### `diff` over a span of several windows pairs the moves of each window ([#423](https://github.com/wordstodata/words-to-data/issues/423))
 
 A renumbering link is recorded for one window of two adjacent release points.
@@ -244,6 +346,28 @@ input that the dataset does not hold.
 
 ### Fixes
 
+- Inputs that the #392 and #395 checks did not reach
+  ([#424](https://github.com/wordstodata/words-to-data/issues/424)):
+  - `redesignations --between` refuses a first date that is not older than
+    the second, and a date that no expression holds (the notice that `search
+    --at` gives). Before, `--between 2025-07-30 2025-07-18` exited 0 and
+    recorded a method run.
+  - A date that is not zero-padded is read as the date the dataset holds:
+    `2025-7-18` is `2025-07-18`, in `--at`, `--between` and every
+    `<work>@<date>`. Before, `search --at 2025-7-18` said that the dataset
+    holds no expression on that date, and named false dates around it.
+  - `link-amendment --path` reads a path as the other commands do: a trailing
+    `/` goes, and an ASCII hyphen in a section number is the en dash.
+  - `link-amendment --amendment` and `amendment-addresses --amendment` take
+    the start of an id, such as the 12 characters that `annotations` prints.
+    A start that names more than one amendment is refused with the count, as
+    in `settle`. When the bill holds no such amendment, the notice names each
+    other bill that does. Before, `amendment-addresses --amendment 8` listed
+    43 amendments.
+  - `redesignations --bill-id` and `link-amendment --bill` refuse a bill not
+    held with the notice that `residue` gives.
+  - An id in upper case is read as the same id, in `settle --link`,
+    `link-amendment --amendment` and `amendment-addresses --amendment`.
 - `settle --explain` on a `judicial.cites` link prints no "Causes" line. A
   citation's subject is a passage, not a change, and the line counted the
   other provisions that passage cites as amendments: 219 of the 434 citation

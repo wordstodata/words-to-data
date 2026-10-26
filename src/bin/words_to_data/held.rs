@@ -13,7 +13,7 @@ use words_to_data::inspect::{
 };
 use words_to_data::query::{LinkQuery, Locator};
 use words_to_data::storage::DocumentReader;
-use words_to_data::storage::LinkReader;
+use words_to_data::storage::{LegislatureReader, LinkReader};
 
 use crate::load::{OpenDataset, with_dataset};
 
@@ -22,8 +22,18 @@ use crate::load::{OpenDataset, with_dataset};
 /// The notice goes to stderr, where each of these commands puts its other
 /// refusals, so `--json` output is never a half answer.
 pub fn refuse_unless_bill_held(dataset: &OpenDataset, path: &str, bill_id: &str) {
+    with_dataset!(dataset, d => refuse_unless_bill_held_in(d, path, bill_id));
+}
+
+/// [`refuse_unless_bill_held`], for a caller that holds a reader rather than
+/// an open dataset.
+pub fn refuse_unless_bill_held_in<R: LegislatureReader + ?Sized>(
+    reader: &R,
+    path: &str,
+    bill_id: &str,
+) {
     let absent = crate::fail::or_exit(
-        with_dataset!(dataset, d => bill_not_held(d, bill_id)),
+        bill_not_held(reader, bill_id),
         "Error reading the dataset's bills",
     );
     if let Some(absent) = absent {
@@ -81,6 +91,19 @@ pub fn refuse_unless_work_held(dataset: &OpenDataset, path: &str, work: &str) {
     }
 }
 
+/// Stop the run with exit 1 when no expression in the dataset at `path` is
+/// dated `date`. The notice is the one `search --at` gives.
+pub fn refuse_unless_date_held_in<R: DocumentReader + ?Sized>(reader: &R, path: &str, date: &str) {
+    let locator = Locator::new().in_window(date, date);
+    let absent = crate::fail::or_exit(
+        absent_scope(reader, &locator),
+        "Error reading the dataset's expressions",
+    );
+    if let Some(absent) = absent {
+        crate::fail::refuse(&crate::search::scope_notice(&absent, path, false));
+    }
+}
+
 /// Stop the run with exit 1 unless `--from` and `--to` are two held
 /// expressions of one work, the older one first.
 pub fn refuse_unless_window_held(dataset: &OpenDataset, from: &ExpressionId, to: &ExpressionId) {
@@ -132,6 +155,65 @@ fn window_notice(fault: &WindowNotHeld) -> String {
     }
 }
 
+/// The full id of the one amendment of bill `bill_id` whose id starts with
+/// `typed`, from the ids the bill holds. Stops the run with exit 1 when no id
+/// starts with it, or when more than one does.
+///
+/// `annotations` and `amendment-addresses` print the first 12 characters of an
+/// id, so a command takes any start of one, as `settle` takes a link's. When
+/// no id of the bill starts with it, the notice names each other bill that
+/// holds such an amendment: the id is often right and the bill wrong.
+pub fn amendment_id_argument<'a, R: LegislatureReader + ?Sized>(
+    reader: &R,
+    held: impl IntoIterator<Item = &'a String>,
+    path: &str,
+    bill_id: &str,
+    typed: &str,
+) -> String {
+    let matched: Vec<&String> = held
+        .into_iter()
+        .filter(|id| id.starts_with(typed))
+        .collect();
+    match matched.as_slice() {
+        [one] => one.to_string(),
+        [_, _, ..] => crate::fail::refuse(&format!(
+            "`{typed}` names {} amendments of bill {bill_id}. Type more of the id.",
+            matched.len()
+        )),
+        [] => {
+            let mut notice = format!("Bill {bill_id} holds no amendment {typed}.");
+            for other in bills_with_amendment(reader, bill_id, typed) {
+                notice.push_str(&format!(
+                    "\nBill {other} holds an amendment whose id starts with {typed}."
+                ));
+            }
+            notice.push_str(&format!(
+                "\n`words_to_data show-bill {path} {bill_id}` prints the id of each amendment."
+            ));
+            crate::fail::refuse(&notice)
+        }
+    }
+}
+
+/// Each bill other than `bill_id` with an amendment whose id starts with
+/// `typed`.
+fn bills_with_amendment<R: LegislatureReader + ?Sized>(
+    reader: &R,
+    bill_id: &str,
+    typed: &str,
+) -> Vec<String> {
+    let bill_ids =
+        crate::fail::or_exit(reader.list_bill_ids(), "Error reading the dataset's bills");
+    bill_ids
+        .into_iter()
+        .filter(|other| other != bill_id)
+        .filter(|other| {
+            let bill = crate::fail::or_exit(reader.get_bill(other), "Error reading a bill");
+            bill.is_some_and(|bill| bill.amendments.keys().any(|id| id.starts_with(typed)))
+        })
+        .collect()
+}
+
 /// A path argument in the spelling the dataset holds: no trailing `/`, and a
 /// section number's hyphen read as the dash the dataset prints
 /// ([`path_as_held`]).
@@ -144,4 +226,11 @@ pub fn path_argument<R: DocumentReader + ?Sized>(reader: &R, typed: &str) -> Str
         eprintln!("Reading {typed} as {held}, the spelling this dataset holds.");
     }
     held
+}
+
+/// An id argument (a link's or an amendment's, or the start of one) in the
+/// spelling the dataset holds: an id is lower-case hex, and `8348E252` names
+/// the same id as `8348e252` (#424). A `clap` value parser.
+pub fn id_argument(typed: &str) -> Result<String, std::convert::Infallible> {
+    Ok(typed.to_lowercase())
 }
