@@ -49,13 +49,114 @@ The 23 new fields of `"mathematical or clerical error"` hold the words without
 the quote marks, as § 6213(b)(1) does. The last query finds the definition
 only, before and after.
 
+### Opinion plain text: the first item of a quoted list starts its own paragraph ([#430](https://github.com/wordstodata/words-to-data/issues/430))
+
+In *Polselli* the Court quotes 26 U.S.C. § 7609(c)(2)(D): the lead-in
+"“issued in aid of the collection of—" and then the item "“(i) an assessment
+made…". The watermark that #413 removed stood between the two lines and split
+them. Without it, the lead-in and the first line of item (i) were one
+paragraph, and the rest of item (i) was a paragraph of its own.
+
+Now an indented line that opens with a list designation, "(i)" or "“(i)",
+after a line that ends with "—" or ":" starts a paragraph, and the wrapped
+lines of the item stay with it. At the margin the rule does not apply: in the
+Tax Court opinions "means services consisting of— / (i) engaging in…" goes on
+in the sentence.
+
+#### Measured on the opinions of `evals/opinions.txt`
+
+Added to two copies of `dataset-demo.sqlite` from the cache, by the build
+before this change and by the build after it. Of the 29 writings read from
+plain text, 2 change, and no words change:
+
+- *Polselli* (opinion 10516288-1): 2 paragraphs change. The lead-in is a
+  paragraph of its own, and item (i) is one paragraph. The writing keeps 42
+  paragraphs.
+- *Medina v. Planned Parenthood* (opinion 11084231-1): "…including each of the
+  following rights:" and "“(i) Free choice" are now two paragraphs
+  (`paragraph_57` and `paragraph_58`), so the writing has 80 paragraphs, not
+  79, and the 22 paragraphs after them are numbered again. Its 9 footnotes do
+  not change.
+- **`judicial.cites`** stays at 441 links and 488 places. One link changes
+  only its subject path: the citation of 42 U.S.C. § 1395a in *Medina* moves
+  from `paragraph_68` to `paragraph_69`, where the paragraph number moved.
+- No other writing changes.
+
+#### Breaking changes for agents
+
+- Method version: `plain-text-paragraphs@4` (was 3). A dataset built with
+  0.6.1 keeps the old paragraphs of these writings until you run
+  `add-opinions` again.
+
+## 0.6.1
+
+Fewer wrong links, and commands that refuse what the dataset does not hold. The
+address reader keeps the units a line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387)),
+and the renumbering reader reads "Such section" ([#431](https://github.com/wordstodata/words-to-data/issues/431)). The matcher does not
+take a few words as evidence ([#389](https://github.com/wordstodata/words-to-data/issues/389)), gives the changes inside a provision only
+to the amendment that rewrote it ([#390](https://github.com/wordstodata/words-to-data/issues/390)), and matches an added provision with
+the provisions below it ([#432](https://github.com/wordstodata/words-to-data/issues/432)). Citations read subdivisions such as (ii) and
+(14A) ([#410](https://github.com/wordstodata/words-to-data/issues/410)), and the plain text of opinions loses the publisher's watermark
+([#413](https://github.com/wordstodata/words-to-data/issues/413)). An input the dataset does not hold stops a command with exit 1
+([#392](https://github.com/wordstodata/words-to-data/issues/392), [#424](https://github.com/wordstodata/words-to-data/issues/424), [#425](https://github.com/wordstodata/words-to-data/issues/425)), and the readers report the newest review of a
+link ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
+
+### Upgrade from 0.6.0
+
+- **The stored format does not change** (`SCHEMA_VERSION` 10). A dataset built
+  with 0.6.0 opens and reads as before, and keeps the links 0.6.0 made. The
+  fixes below change a dataset only when you run its commands again.
+- **Run `redesignations` for each bill and window, then `link-by-evidence`**,
+  to get the renumberings of version 6 and the evidence links of version 7.
+  `residue` then lists each link that only an older version made, for review.
+- **Add the opinions again with `add-opinions`** to get the text of version 2,
+  the paragraphs of version 3 and the citation links of version 6 and 4 (a
+  cached response costs no request).
+- **Change programs that read the exit code or the `--json` output** of the
+  commands in "Breaking changes for agents".
+- **Rust library:** `inspect::EvidenceWords` has a new variant, `Cited`, so a
+  `match` on it with no wildcard arm does not compile. `Locator`'s window is
+  now a span (see below). The other changes add functions only.
+
+### Breaking changes for agents
+
+- **Not held is exit 1.** An input the dataset does not hold (a bill, a work,
+  a date, a window, a path where nothing was found) stops the command with
+  exit 1, the notice on stderr and nothing on stdout. Before, several commands
+  exited 0 and printed "0 annotation(s)", "This dataset holds no amendment link
+  to check." or a notice on stdout (#392, #424, #425):
+  - `path`, `annotations --path`, `search --path`, `section-agreement --path`
+    and `cases-citing --path` with a path not held, where nothing was found.
+    The `absent_path` field of `--json` is given only when a link, a citation
+    or a classification names the path (`path`, `annotations`), and `search
+    --json` no longer has `absent_path`.
+  - `search --work` and `search --at` with a work or a date not held. `search
+    --json` no longer has `absent_scope`.
+- `votes` with a held bill and no House roll call exits 0 (before, 1). The
+  notice is on stdout, and `--json` gives `[]`.
+- `annotations --json` and `path --json`: each entry in `links` has `status`
+  and `review` (`record`, `verdict`, `reviewer`, `reasoning`, `at`, or
+  `null`). The record's `status` is the status its links report, and `"Mixed"`
+  when they differ. Before, it was the maker's stored state. The
+  `contradictions --json` totals have `refuted_left_out` (#415).
+- `cases-citing --json`: each place has `status` and `review`, as above. A
+  refuted citation is not in the answer (#415).
+- `section-agreement --json --limit N` gives N rows and `rows_total` (#426).
+- `Locator`'s window is a span: a link matches when the window it was recorded
+  over is inside the span. A span of one window matches as before (#388).
+- Method versions: `address, window and quoted words@7` (was 6),
+  `amendingAction type=redesignate@6` (was 5), `reporters-db laws.json U.S.C.
+  patterns@6` (was 5), `bare section under the opinion's default code@4` (was
+  3), `plain-text-paragraphs@3` (was 2), and the text method of opinions 2 (was
+  1). A link records the version that made it.
+
 ### One rule for "not held", and "matched nothing" said as that ([#425](https://github.com/wordstodata/words-to-data/issues/425))
 
 An input the dataset does not hold stops the run with exit 1, the notice on
 stderr and nothing on stdout, as #392 chose. A filter that matches nothing in
 held data exits 0 and says that the filter matched nothing.
 
-### Fixes
+#### Fixes
 
 - A path that no expression holds, where the command found nothing, is
   refused as `diff` refuses it, with the nearest held path: `path`,
@@ -89,24 +190,6 @@ held data exits 0 and says that the filter matched nothing.
   status a review gives, and who gave it: "link 1a2956ce5231 is Verified,
   confirmed by agent:x on 2026-10-26"
   ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
-
-#### Breaking changes for agents
-
-- `path`, `annotations --path`, `search --path`, `section-agreement --path`
-  and `cases-citing --path`: a path not held, where nothing was found, exits 1
-  with the notice on stderr. Before, exit 0 and the notice on stdout. The
-  `absent_path` field of `--json` is given only when a link, a citation or a
-  classification names the path (`path`, `annotations`), and `search --json`
-  no longer has `absent_path`.
-- `search --work` and `search --at` with a work or a date not held exit 1 with
-  the notice on stderr. Before, exit 0. `search --json` no longer has
-  `absent_scope`.
-- `votes` with a held bill and no House roll call exits 0 (before, 1). The
-  notice is on stdout, and `--json` gives `[]`.
-- `section-agreement --json --limit N` gives N rows and `rows_total`.
-- `cases-citing --json`: each place has `status` and `review` (`record`,
-  `verdict`, `reviewer`, `reasoning`, `at`, or `null`). A refuted citation is
-  not in the answer.
 
 ### The renumbering reader reads "Such section" ([#431](https://github.com/wordstodata/words-to-data/issues/431))
 
@@ -361,7 +444,7 @@ it anew, renumbered it, or inserted words that open a new provision, such as
 edited carries only the removal of a provision inside it: *striking "which"
 and all that follows* can strike the clauses below.
 
-### Measured on `eval.sqlite`
+#### #389 and #390 measured on `eval.sqlite`
 
 `link-by-evidence` at version 7 against version 6: 3,329 links become 3,288.
 50 links are removed and 9 are added. 6 of the added links move a change to
@@ -447,10 +530,10 @@ Amendments stopped at resolving: 69 before, 63 after.
   `redesignations` again; `residue` then lists the links that only an older
   version made, for review.
 
+### Commands read their inputs in one way, and other fixes ([#392](https://github.com/wordstodata/words-to-data/issues/392), [#424](https://github.com/wordstodata/words-to-data/issues/424))
+
 Commands read a bill, a work, a window and a path in one way, and refuse an
 input that the dataset does not hold.
-
-### Fixes
 
 - Inputs that the #392 and #395 checks did not reach
   ([#424](https://github.com/wordstodata/words-to-data/issues/424)):
@@ -526,19 +609,6 @@ input that the dataset does not hold.
   - The cause count, in `annotations` and `settle --explain`, does not count a
     refuted link
   ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
-
-### Breaking changes for agents
-
-- `Locator`'s window is a span: a link matches when the window it was recorded
-  over is inside the span. A span of one window matches as before.
-- A run that gave "0 annotation(s)" or "This dataset holds no amendment link to
-  check." with exit 0 for an input not held now exits 1, with the notice on
-  stderr and nothing on stdout.
-- `annotations --json` and `path --json`: each entry in `links` has `status`
-  and `review` (`record`, `verdict`, `reviewer`, `reasoning`, `at`, or
-  `null`). The record's `status` is the status its links report, and `"Mixed"`
-  when they differ. Before, it was the maker's stored state. The
-  `contradictions --json` totals have `refuted_left_out` (#415).
 
 ### `contradictions` reads a citation at the place it was written ([#397](https://github.com/wordstodata/words-to-data/issues/397))
 
