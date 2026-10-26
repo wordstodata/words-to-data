@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+### Opinion plain text: the watermark goes, star breaks stay in the body, a glued footnote mark is no part of a section ([#413](https://github.com/wordstodata/words-to-data/issues/413))
+
+Three faults in the text of opinions that CourtListener gives only as
+`plain_text`:
+
+- **The watermark.** A preliminary print of the United States Reports prints
+  "Page Proof Pending Publication" on each page. It stayed in the words, and
+  in *Polselli* it broke Justice Jackson's citation "26 U. S. C. Page Proof
+  Pending Publication § 7609(c)(2)(D)(i)". Now the plain-text rule removes
+  it. Where pdftotext puts its words at the ends of the first lines of a
+  paragraph ("Page     Proof", " To pursue         Pending"), the rule removes
+  those words too, and the lines go on as one paragraph.
+- **Stars.** A centred line of stars, "***" or "* * *", is a break between
+  two parts of an opinion. The rule read it as a footnote mark, and all the
+  body text after it on the page went into a false footnote. Now the line is
+  a paragraph of its own, as Harvard's XML keeps it, and the text after it
+  stays in the body. Stars followed by more stars ("* * *.”") are an
+  ellipsis, not a mark. A star against the first word of a footnote
+  ("*There is much…") is its label, so the footnote is `footnote_*`, not
+  `footnote_`. In a double-spaced text, two blank lines continue a footnote
+  only after a footnote has started, so a caption stays in the body.
+- **A glued footnote mark.** "5 U. S. C. §706.3" was read as section "706.3".
+  No section of the Code has a full stop in its number. Now, when the writing
+  has a footnote with the label after the full stop, the citation reader
+  reads § 706, and the 3 is the mark. When the writing has no such footnote,
+  the number is read as written, as before. The default-code reader does the
+  same: "IRC section 179.17" is § 179.
+
+#### Measured on the opinions of `evals/opinions.txt`
+
+Added to two copies of `dataset-demo.sqlite` from the cache, by the build
+before this change and by the build after it:
+
+- **Paths change in 11 writings of 8 cases.** A path change is a break. 23 paths go and 29 come: the false footnotes `footnote_***`,
+  `footnote_*` and `footnote_` go, and their text is in paragraphs again; 4
+  star footnotes go from `footnote_` to `footnote_*`; and the paragraphs
+  after each change are numbered again. *Polselli* (opinion 10516288-1) has
+  42 paragraphs, not 50, because the watermark split paragraphs. The text of
+  412 passages changes, most of it because the paragraph numbers moved.
+- **Words.** Per writing, the only words that go are the watermark (102 times)
+  and the star of 6 footnotes, which is now their label. A word broken at a
+  hyphen across the watermark now joins (`owner-` and `ship` give
+  `owner-ship`). The 4 section breaks and the ellipsis in *Khalaf* get back
+  the star that the false label took. A caption of 12 lines in *District of
+  Columbia v. USDA* is in the body again, one paragraph to a line.
+- **`judicial.cites`** goes from 438 links to 441, and from 484 places to
+  488. The 4 new places: § 7609(c)(2)(D)(i) in Justice Jackson's concurrence
+  in *Polselli*, § 706 in *Loper Bright*, § 5311 in *Bittner* and § 179 in
+  *Khalaf*. No place is lost. Other links change only their subject path,
+  where the paragraph number moved.
+- One paragraph is worse: in *Polselli* the watermark stood between the
+  lead-in "“issued in aid of the collection of—" and the item "“(i) an
+  assessment made…", and split them. Now the two lines join, and the rest of
+  item (i) is a paragraph of its own.
+
+#### Breaking changes for agents
+
+- Method version: `plain-text-paragraphs@3` (was 2).
+- The text method stays at version 2 and the citation rules stay at
+  `reporters-db laws.json U.S.C. patterns@6` and `bare section under the
+  opinion's default code@4`. These versions changed for #412 and #410 and
+  are not released yet, so this change goes in the same versions.
+
 ### `diff` over a span of several windows pairs the moves of each window ([#423](https://github.com/wordstodata/words-to-data/issues/423))
 
 A renumbering link is recorded for one window of two adjacent release points.
