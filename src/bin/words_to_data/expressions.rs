@@ -23,6 +23,9 @@ pub struct Args {
 pub fn run(args: Args) {
     let work = args.work.as_deref().map(WorkId::new);
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    if let Some(work) = &args.work {
+        crate::held::refuse_unless_work_held(&ds, &args.dataset, work);
+    }
     let expressions = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::expressions(&d, work.as_ref())),
         "Error reading expressions",

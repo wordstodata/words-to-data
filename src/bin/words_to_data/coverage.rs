@@ -14,11 +14,15 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Older expression, e.g. `uscode/title_9@2025-07-18`
+    /// Older end of the span, e.g. `uscode/title_9@2025-07-18`
+    ///
+    /// A span can hold more than one window. The diff is then the diff of the
+    /// whole span, and a changed path is annotated when a link of any window
+    /// inside the span names it
     #[arg(long)]
     pub from: ExpressionId,
 
-    /// Newer expression of the same work
+    /// Newer end of the span, an expression of the same work
     #[arg(long)]
     pub to: ExpressionId,
 
@@ -33,6 +37,7 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    crate::held::refuse_unless_window_held(&ds, &args.from, &args.to);
     let report = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::coverage(&d, &args.from, &args.to)),
         "Error computing coverage",

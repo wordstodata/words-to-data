@@ -890,3 +890,48 @@ fn should_say_such_section_had_no_antecedent_when_no_earlier_amendment_names_a_s
          section of the bill names a section"
     );
 }
+
+// --- Units the line states before a section of an Act (#387) -----------------
+
+/// Pub. L. 119-60 § 6402(a):
+///
+/// > Subsection (c)(7) of section 102A of the National Security Act of 1947
+/// > (50 U.S.C. 3024) is amended by striking "(A) The Director" and all that
+/// > follows through "(B) The Director" and inserting "The Director".
+///
+/// The publisher's reference places the whole of § 102A at 50 U.S.C. 3024, so
+/// the units the line names stay below it. The address is 3024(c)(7), and not
+/// the whole section: there, the inserted words "The Director" matched 117
+/// provisions that the amendment does not touch (#387).
+#[test]
+fn should_keep_the_units_the_line_names_when_a_reference_places_the_whole_section_of_an_act() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Subsection (c)(7) of section 102A of the National Security Act of 1947",
+    );
+
+    assert_eq!(printed(&address), "/us/usc/t50/s3024(c)(7)");
+}
+
+/// Pub. L. 119-60 § 8725:
+///
+/// > Section 1413(g) of the Better Utilization of Investments Leading to
+/// > Development Act of 2018 (22 U.S.C. 9613) is amended …
+///
+/// The reference names § 9613 alone, and the citation's own (g) stays below
+/// it: the address is 9613(g) (#387).
+#[test]
+fn should_keep_the_citations_designations_when_a_reference_places_the_whole_section_of_an_act() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Section 1413(g) of the Better Utilization of Investments Leading to Development Act",
+    );
+
+    assert_eq!(printed(&address), "/us/usc/t22/s9613(g)");
+}

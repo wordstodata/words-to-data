@@ -598,7 +598,7 @@ fn stored_section_under_amendment(
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
-    if let Some(placed) = section_of_an_act(line, &number, stored_usc_references(holder)) {
+    if let Some(placed) = section_of_an_act(line, &number, &trail, stored_usc_references(holder)) {
         return placed;
     }
 
@@ -650,11 +650,21 @@ fn stored_section_under_amendment(
 /// the answer is [`Reason::SectionOfAnotherLaw`]: the number is the other
 /// law's, which no bare-section reading can turn into the Code's.
 ///
+/// `trail` is what the line states below the section, outermost first: the
+/// units it names before the citation and the citation's own designations.
+/// The reference is the authority for where the Act sits in the Code. Where
+/// its trail starts the line's, the two agree, and the line's trail is kept:
+/// `Subsection (c)(7) of section 102A of the National Security Act of 1947
+/// (50 U.S.C. 3024)` places the whole of § 102A at § 3024, so the address is
+/// 3024(c)(7) (#387). Where the two disagree, the Act's numbering is not the
+/// Code's, and the reference's trail is kept.
+///
 /// Both readers of a bill read form 2 here, so the stored bill and its markup
 /// come to the same answer about the same sentence.
 pub(crate) fn section_of_an_act(
     line: &str,
     number: &str,
+    trail: &[String],
     references: Vec<UscReference>,
 ) -> Option<Result<(String, Vec<String>), Reason>> {
     let another_law = cites_a_section_of_another_law(line);
@@ -666,9 +676,14 @@ pub(crate) fn section_of_an_act(
         .filter(|reference| line.contains(reference.display.trim()))
         .collect();
     if let Some(reference) = in_line.iter().find(|reference| places_a_section(reference)) {
+        let below = if trail.starts_with(&reference.trail) {
+            trail.to_vec()
+        } else {
+            reference.trail.clone()
+        };
         return Some(Ok((
             uslm_section_id(&reference.title, &reference.section),
-            reference.trail.clone(),
+            below,
         )));
     }
     // The publisher placed the Act only as a note or as a range, or the line

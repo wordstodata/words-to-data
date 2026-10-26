@@ -242,6 +242,11 @@ pub enum Stage {
 /// markup gives these amendments their address. Before, only the OLRC's table
 /// could give one, and only the section.
 ///
+/// Version 7 (#387): where the publisher's reference places a whole section of
+/// an Act, the address keeps the units the line names below it:
+/// *"Subsection (c)(7) of section 102A of the National Security Act of 1947
+/// (50 U.S.C. 3024)"* acts in 3024(c)(7), not in the whole of § 3024.
+///
 /// Version 7 (#389, #390): an enacted block that a change shows by three
 /// words or fewer, inside a longer block, is weak evidence. It is not counted
 /// where other words show in the change, and it gives way to a provision

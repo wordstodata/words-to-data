@@ -38,11 +38,14 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Older expression of the pair, e.g. `uscode/title_26@2025-07-18` (requires `--to`)
+    /// Older end of the span, e.g. `uscode/title_26@2025-07-18` (requires `--to`)
+    ///
+    /// A span can hold more than one window, and the check reads the links of
+    /// every window inside it
     #[arg(long, requires = "to")]
     pub from: Option<ExpressionId>,
 
-    /// Newer expression of the pair (requires `--from`)
+    /// Newer end of the span, an expression of the same work (requires `--from`)
     #[arg(long, requires = "from")]
     pub to: Option<ExpressionId>,
 
@@ -74,13 +77,19 @@ pub struct Args {
 }
 
 pub fn run(args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    if let Some(bill) = &args.bill {
+        crate::held::refuse_unless_bill_held_or_linked(&ds, &args.dataset, bill);
+    }
     let mut locator = Locator::new();
     if let (Some(from), Some(to)) = (&args.from, &args.to) {
+        crate::held::refuse_unless_window_held(&ds, from, to);
         locator = locator
             .in_work(from.work.to_string())
             .in_window(from.at.clone(), to.at.clone());
     }
-    if let Some(path) = &args.path {
+    if let Some(typed) = &args.path {
+        let path = with_dataset!(&ds, d => crate::held::path_argument(d, typed));
         locator = locator.at_path(path, crate::annotations::path_matching(args.exact));
     }
 
@@ -92,7 +101,6 @@ pub fn run(args: Args) {
         query = query.with_object_prefix(words_to_data::link::bill_reference_prefix(bill));
     }
 
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let report = crate::fail::or_exit(
         with_dataset!(ds, d => section_agreement::section_agreement(&d, &query)),
         "Error checking the amendments against their paths",

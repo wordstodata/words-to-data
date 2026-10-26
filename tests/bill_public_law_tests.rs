@@ -135,8 +135,52 @@ fn should_refuse_by_name_when_show_bill_is_given_a_law_the_dataset_does_not_hold
     assert!(output.stdout.is_empty(), "and no half answer is printed");
     let said = String::from_utf8_lossy(&output.stderr);
     assert!(
-        said.contains("Pub. L. 119-22") && said.contains("bills"),
+        said.contains("Pub. L. 119-22")
+            && said.contains("holds no document")
+            && said.contains("bills"),
         "the refusal names the law and the command that lists the held ones, got: {said}"
+    );
+}
+
+/// The document of Pub. L. 119-60 alone, with no bill, saved as a database.
+///
+/// The law is held, and no held bill became it: the case where "holds no
+/// document" is false (#394).
+fn law_without_its_bill() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let path = format!(
+            "{}/bill_public_law_without_bill.sqlite",
+            env!("CARGO_TARGET_TMPDIR")
+        );
+        let _ = std::fs::remove_file(&path);
+        let xml = std::fs::read_to_string(format!("{CACHE}/s/1071/public_law.xml"))
+            .expect("the law should read");
+        let document = roxmltree::Document::parse(&xml).expect("the law should parse");
+        let (law, _) = bill_expression(&document, "119-s-1071").expect("the law should read");
+        let mut dataset: Dataset<InMemoryStorage> = Dataset::new(DatasetMetadata::default());
+        dataset.add_expression(law).expect("the law should add");
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+#[test]
+fn should_name_the_held_law_and_say_no_held_bill_became_it_when_show_bill_is_given_that_law() {
+    let output = run(&["show-bill", law_without_its_bill(), "Pub. L. 119-60"]);
+
+    assert_eq!(output.status.code(), Some(1), "no bill is shown");
+    assert!(output.stdout.is_empty(), "and no half answer is printed");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !said.contains("holds no document"),
+        "the dataset holds the law's document, so the refusal must not deny it, got: {said}"
+    );
+    assert!(
+        said.contains("publiclawdocument_119-60") && said.contains("no bill"),
+        "the refusal names the law's work and says no held bill became it, got: {said}"
     );
 }
 

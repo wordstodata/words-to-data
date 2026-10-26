@@ -52,15 +52,114 @@ another amendment.
   § 8729 of Pub. L. 119-60, because step 2 now gives two other changes under
   its address to § 8725.
 
-### Upgrade
+With the address fix below (#387) too, all links: 3,329 before, 3,214 after.
 
-- **Run `link-by-evidence` again** to get the evidence links of version 7. It
-  adds links and removes none, so the links that only version 6 made stay, and
-  `residue` lists them for review.
+### The address keeps the units the line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387))
+
+- **An amending line of the form "Subsection (c)(7) of section 102A of the
+  National Security Act of 1947 (50 U.S.C. 3024)" now has the address
+  50 U.S.C. 3024(c)(7).** Before, the address reader kept only the section from
+  the publisher's reference and dropped the units that the line names. The
+  citation's own designations stay too: "Section 1413(g) of the … Act of 2018
+  (22 U.S.C. 9613)" is 9613(g). Where the reference gives designations that do
+  not agree with the line, the reference is the authority, as before.
+- On `eval.sqlite`, 21 amendments get a narrower address. Pub. L. 119-60
+  § 6402(a) (`4bc796d6b54a`) had 120 `legislature.amended_by` links, and 117
+  were wrong. Now it has the 3 under 3024(c)(7). § 8725 (`a518c65a04b0`) loses
+  its 3 wrong links in 9613(f). The provisions they free go by elimination to
+  the amendments that do act there (18 new links). All links: 3,329 before,
+  3,227 after. The renumbering reader records 11 more moves (296 to 307), in
+  15 U.S.C. 278s(i)(2) and 22 U.S.C. 9613(g)(2).
+- Method versions: `address, window and quoted words@7` (was 6; #387, #389
+  and #390 share version 7) and `amendingAction type=redesignate@6` (was 5). Run `link-by-evidence` and
+  `redesignations` again; `residue` then lists the links that only an older
+  version made, for review.
+
+Commands read a bill, a work, a window and a path in one way, and refuse an
+input that the dataset does not hold.
+
+### Fixes
+
+- `annotations --bill`, `section-agreement --bill` and `amendment-addresses
+  --bill` refuse a bill that the dataset does not hold, with exit 1 and the
+  notice that `residue` gives. `annotations` and `section-agreement` accept a
+  bill that the dataset holds no record of when its links name the bill
+  ([#392](https://github.com/wordstodata/words-to-data/issues/392)).
+- `expressions --work` refuses a work not held, with the notice that `search
+  --work` gives ([#392](https://github.com/wordstodata/words-to-data/issues/392)).
+- `annotations`, `section-agreement`, `path`, `diff`, `coverage` and
+  `redesignations` refuse a window with an expression not held (the notice
+  names the held dates of the work), a window of two works, and a window with
+  `--from` not older than `--to`
+  ([#392](https://github.com/wordstodata/words-to-data/issues/392)).
+- A span of more than one window gives the links of every window inside it.
+  `annotations --from A@2025-07-18 --to A@2026-07-12` listed 0 links, and
+  `coverage` over that span gave 0.0 %
+  ([#388](https://github.com/wordstodata/words-to-data/issues/388)).
+- A path argument loses a trailing `/`, and an ASCII hyphen in a section number
+  is read as the en dash the dataset holds (`section_1400Z-1` is
+  `section_1400Z–1`), in `path`, `annotations`, `search`, `diff`,
+  `section-agreement` and `cases-citing`. `cases-citing --path …/section_174/`
+  said that no opinion cites § 174 itself
+  ([#395](https://github.com/wordstodata/words-to-data/issues/395)).
 
 ### Breaking changes for agents
 
-- Method versions: `address, window and quoted words@7` (was 6).
+- `Locator`'s window is a span: a link matches when the window it was recorded
+  over is inside the span. A span of one window matches as before.
+- A run that gave "0 annotation(s)" or "This dataset holds no amendment link to
+  check." with exit 0 for an input not held now exits 1, with the notice on
+  stderr and nothing on stdout.
+
+### `contradictions` reads a citation at the place it was written ([#397](https://github.com/wordstodata/words-to-data/issues/397))
+
+- **A passage that cites several provisions is not a disagreement.** A
+  `judicial.cites` link says that the words at one place in a passage lead to a
+  provision. `contradictions` now groups citation links by that place, and not
+  by the passage alone. Two citation links disagree only when they read the same
+  place and name different provisions. Before, paragraph 88 of *Torres* (T.C.
+  2025), which cites 15 U.S.C. § 78u-6 and 26 U.S.C. § 199A and its parts, was
+  a disagreement because two rules made its links. On the benchmark dataset the
+  disagreements go from 8 to 7.
+- A group of citation links names the words at its place: the text output has
+  an `at the words "..."` line, and `--json` has the field `occurrence`. Groups
+  of other kinds do not change.
+- An `amended_by` link that is outdated (#185) still counts. It stands until a
+  reviewer refutes it, so a disagreement between it and a newer link is a true
+  report about the dataset. On the benchmark dataset all 7 disagreements are of
+  this type: a link of `evidence_matching@4` against one of `@6`.
+
+### `show-bill` says why it found no bill for a public law ([#394](https://github.com/wordstodata/words-to-data/issues/394))
+
+- **Two refusals in place of one.** `show-bill <dataset> "Pub. L. 119-25"` said
+  "This dataset holds no document of Pub. L. 119-25" also when the dataset held
+  that document (`publiclawdocument_119-25`). Now it gives the true reason, with
+  exit 1 in both cases:
+  - The dataset holds no document of the law.
+  - The dataset holds the document of the law, which the message names by its
+    work, but no held bill became that law. A bill is joined to a law when the
+    law's document holds the bill's amendments.
+- **Correction to 0.6.0.** The 0.6.0 entry says "A law whose document the dataset
+  does not hold is refused". The condition was wrong: `show-bill` refuses a law
+  when no held bill became it, and that is also so for some laws whose document
+  the dataset holds.
+
+### `settle` shows a citation's evidence, and names the record it writes ([#393](https://github.com/wordstodata/words-to-data/issues/393))
+
+- **`settle --explain` on a citation link shows its evidence.** Before, it said
+  "This dataset holds the provision at neither end" for every `judicial.cites`
+  link, also when the dataset held the cited provision. Now it shows the words
+  the court wrote at each place in the passage, and the words of the cited
+  provision in the printing the link was resolved in (`resolved_in`). When the
+  dataset does not hold that printing, it says so.
+- A link whose subject is not a change and that is not a citation gets a true
+  message: its subject is not a change to a provision, so there are no words at
+  two ends to show. "Neither end" is now said only for a change.
+- **`settle --verdict` prints the id of the record it writes**, as
+  `link-amendment` does: `Recorded a review: confirmed by human:jesse on
+  2026-10-25: record <id>`. The id finds the review in `settle --explain` and
+  in the readers.
+- In the library, `inspect::EvidenceWords` has a new variant, `Cited`.
 
 ## 0.6.0
 
@@ -203,8 +302,11 @@ A citation of a range of subdivisions links each one ([#366](https://github.com/
   `cases-citing`, `residue` and `coverage` agree. A difference in letters, digits,
   punctuation or white space is still a change. `diff --help` states the rule, and
   `diff --json` names the characters in a new field, `ignored_characters`. Over
-  title 26 between 2025-07-18 and 2025-07-30, one path fewer is changed (536, not
-  537): the heading of § 7206(5)(B) differs only in a soft hyphen.
+  title 26 between 2025-07-18 and 2025-07-30, the library's `TreeDiff` finds one
+  path fewer changed (536, not 537): the heading of § 7206(5)(B) differs only in a
+  soft hyphen. `TreeDiff` does not pair a moved provision with its old place.
+  `diff` pairs them, so over the same window it prints `Changed (460)`, with 315
+  added, 104 removed and 48 moved.
 
 
 ## 0.5.0

@@ -44,7 +44,13 @@ pub const DEFAULT_LIMIT: usize = 20;
 pub struct Locator {
     /// One work, such as `uscode/title_26`. `None` means every work.
     pub work: Option<String>,
-    /// One window, as two dates. `None` means every window.
+    /// A span of dates, from the first to the last. `None` means every date.
+    ///
+    /// An expression is inside the span when its date is. A link is inside it
+    /// when the window it was recorded over is: a link is recorded for one
+    /// window of two adjacent printings, so a span of several windows holds the
+    /// links of each of them. Matching the span's two dates exactly gave 0 for
+    /// a span of two windows, which reads as "nothing changed" (#388).
     ///
     /// A [`Window`] rather than the CLI's `Span`: `Span` is a `clap` type that
     /// resolves dates and belongs to the binary, and a library vocabulary must
@@ -96,8 +102,10 @@ impl Locator {
                 return false;
             }
         }
-        if let Some(window) = &self.window
-            && link.subject.window().as_ref() != Some(window)
+        if let Some(span) = &self.window
+            && !link.subject.window().is_some_and(|window| {
+                window.from_date >= span.from_date && window.to_date <= span.to_date
+            })
         {
             return false;
         }
