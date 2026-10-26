@@ -889,6 +889,21 @@ fn step_of(link: &Link, reviews: &[Link]) -> Option<RedesignationStep> {
     })
 }
 
+/// The status a reader prints for `link`: the verdict of its newest review,
+/// and the maker's own state when no review names it.
+///
+/// A review never changes the link it reviews (ADR 0012), so the status is
+/// read from the record, here, and every reader that prints a status asks this.
+pub fn status_reported(link: &Link, review: Option<&crate::review::Review>) -> AnnotationStatus {
+    use crate::review::Verdict;
+    match review.map(|review| review.verdict) {
+        Some(Verdict::Confirmed) => AnnotationStatus::Verified,
+        Some(Verdict::Refuted) => AnnotationStatus::Rejected,
+        Some(Verdict::Disputed) => AnnotationStatus::Disputed,
+        None => status_of(link.provenance.verification),
+    }
+}
+
 /// Map a verification state back onto a stored status.
 ///
 /// The reverse of [`verification_of`], and lossy in one place: `Asserted` and

@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### `diff` over a span of several windows pairs the moves of each window ([#423](https://github.com/wordstodata/words-to-data/issues/423))
+
+A renumbering link is recorded for one window of two adjacent release points.
+`diff` and `coverage` over a span of several windows read the links of that
+exact pair of dates only, found none, and paired by position. Each
+renumbering became a "changed" or a removal and an addition. `path` over the
+same span read the move correctly, so the two did not agree.
+
+Now `diff` and `coverage` read the renumbering links of every window inside
+the span, in date order, and chain them as `path` does:
+
+- A provision moved (R) to (S) in one window and not moved later is moved
+  (R) to (S) over the span.
+- A provision moved (R) to (S) and later (S) to (T) is moved (R) to (T).
+- A provision under a container that moved is carried with it.
+- A provision moved and then changed is a move with a change, as in one
+  window.
+
+A span of one window gives the same output as before.
+
+#### Measured on `eval.sqlite`
+
+Title 26, 2025-07-18 to 2026-07-12 (4 windows):
+
+| | before | after | windows one by one |
+|---|---|---|---|
+| `diff` changed | 543 | 467 | 460 + 0 + 14 + 3 |
+| `diff` added | 365 | 320 | 315 + 0 + 3 + 2 |
+| `diff` removed | 161 | 104 | 104 + 0 + 0 + 0 |
+| `diff` moved | 0 | 48 | 48 + 0 + 0 + 0 |
+| `coverage` changed paths | 1,063 | 885 | 874 + 0 + 16 + 5 |
+
+The 48 moves over the span are the 48 moves of the first window. The added
+and removed paths over the span are the union of those of the windows. The
+changed paths are the union less 7 paths that a window adds and a later
+window rewords, which the span gives as added. The `diff`
+output of each window alone does not change. Title 7 over the same span: 6
+moves, before 0.
+
+#### Breaking changes for agents
+
+- `diff`, `coverage` and the library's `Dataset::compute_diff` over a span of
+  several windows give moves, and fewer changed, added and removed paths.
+- New: `Redesignations::then` and `Redesignations::new_path_of` are public.
+
 ### A tag inside a line no longer breaks the line ([#412](https://github.com/wordstodata/words-to-data/issues/412))
 
 The markup reader put a newline in place of every tag. In Harvard's XML,
@@ -210,6 +255,24 @@ input that the dataset does not hold.
   `119-s-1071` 40 s to 31 s, `119-hr-1` 40 s to 37 s (it acts in most
   titles). The whole `residue` is 41 s, as before
   ([#398](https://github.com/wordstodata/words-to-data/issues/398)).
+- The readers report the newest review of a link. After `settle --verdict
+  refuted`, `annotations` and `path` printed the link as `[Pending]`, and
+  `contradictions`, `coverage` and the "1 of N causes" count still read it as
+  a standing link. On a copy of `eval.sqlite`, with 5ecc26e86618 refuted and
+  § 8722 of `119-s-1071` linked at 22 U.S.C. 9613(b)(6), `contradictions`
+  reported a disagreement there and told the reviewer to settle the link that
+  was already refuted. Now:
+  - `annotations` and `path` print the status of the newest review
+    (refuted is `[Rejected]`, confirmed is `[Verified]`, disputed is
+    `[Disputed]`), and each link line starts with the verdict, the reviewer
+    and the date: `[refuted by agent:x on 2026-10-26, elimination]`.
+  - `contradictions` leaves a refuted link out of every group, and says how
+    many it left out ("Refuted: N link(s) left out").
+  - `coverage` lists a change again when its only links are refuted, as
+    `residue` lists their amendment again.
+  - The cause count, in `annotations` and `settle --explain`, does not count a
+    refuted link
+  ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
 
 ### Breaking changes for agents
 
@@ -218,6 +281,11 @@ input that the dataset does not hold.
 - A run that gave "0 annotation(s)" or "This dataset holds no amendment link to
   check." with exit 0 for an input not held now exits 1, with the notice on
   stderr and nothing on stdout.
+- `annotations --json` and `path --json`: each entry in `links` has `status`
+  and `review` (`record`, `verdict`, `reviewer`, `reasoning`, `at`, or
+  `null`). The record's `status` is the status its links report, and `"Mixed"`
+  when they differ. Before, it was the maker's stored state. The
+  `contradictions --json` totals have `refuted_left_out` (#415).
 
 ### `contradictions` reads a citation at the place it was written ([#397](https://github.com/wordstodata/words-to-data/issues/397))
 
