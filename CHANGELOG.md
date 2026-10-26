@@ -233,6 +233,24 @@ input that the dataset does not hold.
   `119-s-1071` 40 s to 31 s, `119-hr-1` 40 s to 37 s (it acts in most
   titles). The whole `residue` is 41 s, as before
   ([#398](https://github.com/wordstodata/words-to-data/issues/398)).
+- The readers report the newest review of a link. After `settle --verdict
+  refuted`, `annotations` and `path` printed the link as `[Pending]`, and
+  `contradictions`, `coverage` and the "1 of N causes" count still read it as
+  a standing link. On a copy of `eval.sqlite`, with 5ecc26e86618 refuted and
+  § 8722 of `119-s-1071` linked at 22 U.S.C. 9613(b)(6), `contradictions`
+  reported a disagreement there and told the reviewer to settle the link that
+  was already refuted. Now:
+  - `annotations` and `path` print the status of the newest review
+    (refuted is `[Rejected]`, confirmed is `[Verified]`, disputed is
+    `[Disputed]`), and each link line starts with the verdict, the reviewer
+    and the date: `[refuted by agent:x on 2026-10-26, elimination]`.
+  - `contradictions` leaves a refuted link out of every group, and says how
+    many it left out ("Refuted: N link(s) left out").
+  - `coverage` lists a change again when its only links are refuted, as
+    `residue` lists their amendment again.
+  - The cause count, in `annotations` and `settle --explain`, does not count a
+    refuted link
+  ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
 
 ### Breaking changes for agents
 
@@ -241,6 +259,11 @@ input that the dataset does not hold.
 - A run that gave "0 annotation(s)" or "This dataset holds no amendment link to
   check." with exit 0 for an input not held now exits 1, with the notice on
   stderr and nothing on stdout.
+- `annotations --json` and `path --json`: each entry in `links` has `status`
+  and `review` (`record`, `verdict`, `reviewer`, `reasoning`, `at`, or
+  `null`). The record's `status` is the status its links report, and `"Mixed"`
+  when they differ. Before, it was the maker's stored state. The
+  `contradictions --json` totals have `refuted_left_out` (#415).
 
 ### `contradictions` reads a citation at the place it was written ([#397](https://github.com/wordstodata/words-to-data/issues/397))
 

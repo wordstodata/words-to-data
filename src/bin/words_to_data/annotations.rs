@@ -260,14 +260,26 @@ pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
     }
 }
 
-/// How a link was decided, in a few words: `  [elimination, address from
-/// olrc, 1 of 5 causes]`. The kind is the word `--json` gives as `chosen`, so
-/// what a person reads is what an agent filters on. An outdated link says so,
-/// with the version that made it and the newer one that did not make it again.
+/// How a link was decided, in a few words: `  [refuted by agent:x on
+/// 2026-10-26, elimination, address from olrc, 1 of 5 causes]`. The kind is
+/// the word `--json` gives as `chosen`, so what a person reads is what an
+/// agent filters on. The newest review comes first, with who gave it and
+/// when (#415). An outdated link says so, with the version that made it and
+/// the newer one that did not make it again.
 /// Empty for a link with nothing of the kind to say.
 fn decision(link: &words_to_data::inspect::LinkMade) -> String {
     let made = &link.made;
     let mut parts: Vec<String> = Vec::new();
+    // First, because a verdict outweighs how the link was made (#415).
+    if let Some(reported) = &link.review {
+        let review = &reported.review;
+        parts.push(format!(
+            "{} by {} on {}",
+            review.verdict,
+            review.reviewer,
+            review.at.date()
+        ));
+    }
     if let Some(outdated) = &link.outdated {
         parts.push(format!(
             "outdated: made by @{}, not made again by @{}",
