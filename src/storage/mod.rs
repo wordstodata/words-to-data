@@ -172,6 +172,10 @@ pub trait DocumentReader {
     /// many matched, so a caller that showed twenty of a thousand can say so.
     /// One word over the real corpus answered with 1135 hits and no way to ask
     /// for fewer (#235).
+    ///
+    /// What matches is [`crate::search`]'s rule, in each back end. That rule
+    /// removes one pair of quote marks around the whole query: see
+    /// [`crate::search::unquoted`] (#439).
     fn search_text_in(
         &self,
         query: &str,

@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### `search` removes one pair of quote marks around the query ([#439](https://github.com/wordstodata/words-to-data/issues/439))
+
+An agent puts a phrase in quote marks, as for a web search engine. `search`
+read the quote marks as text, so `"Immigration parole fee"` found 0 fields
+where `Immigration parole fee` found 6. In the 314 runs of eval
+20261026-101630-basalt4-777de60, 94 searches had a query in quote marks, and
+62 of them found nothing.
+
+Now `search` removes one pair of double quote marks, straight (`"`) or curly
+(`“` `”`), around the whole query, and the first line of the answer says so:
+"Searched without the quote marks: Immigration parole fee". `--json` gives
+the same line as `notice`. The rule is in the library
+(`words_to_data::search::unquoted`), so the library search and the command
+read a query the same way.
+
+Text that holds quote marks is still found. The rule for it:
+
+- A query that only starts or only ends with a quote mark is read as it is.
+  So `"mathematical or clerical error" means` finds only the definition in
+  § 6213(g)(2), where the Code prints the quote marks.
+- A query with more than one pair, such as `"person" and "whoever"`, is read
+  as it is.
+- The removal never hides a match: a field that holds the phrase with its
+  quote marks also holds the phrase.
+- The text of the Code is stored with straight quote marks. A query with a
+  curly quote mark inside it, such as `“mathematical or clerical error”
+  means`, still finds nothing in the Code.
+
+#### Measured on `data/eval.sqlite`
+
+Fields found, before (a release build of 777de60) and after (a release
+build of this change):
+
+| Query | Before | After |
+|---|---|---|
+| `"Immigration parole fee"` | 0 | 6 |
+| `"critical skill incentive"` | 0 | 17 |
+| `"Math and Taxpayer Help"` | 0 | 1 |
+| `"error alleged"` | 0 | 15 |
+| `“Immigration parole fee”` | 0 | 6 |
+| `"mathematical or clerical error"` (title 26 at 2026-07-12) | 1 | 24 |
+| `"mathematical or clerical error" means` (title 26 at 2026-07-12) | 1 | 1 |
+
+The 23 new fields of `"mathematical or clerical error"` hold the words without
+the quote marks, as § 6213(b)(1) does. The last query finds the definition
+only, before and after.
+
 ### Opinion plain text: the first item of a quoted list starts its own paragraph ([#430](https://github.com/wordstodata/words-to-data/issues/430))
 
 In *Polselli* the Court quotes 26 U.S.C. § 7609(c)(2)(D): the lead-in
