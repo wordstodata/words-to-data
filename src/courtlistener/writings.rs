@@ -61,6 +61,9 @@ pub(crate) const STAFF_SUMMARY: &str = "staff-summary";
 ///   footnote mark, stars before more stars are an ellipsis, a star against
 ///   the first word of a footnote is its label, and in a double-spaced text
 ///   two blank lines go on with a footnote only once a footnote has started.
+///   In the same release (#430), an indented line that opens with a list
+///   designation, "“(i)", after a lead-in that ends with "—" or ":" starts a
+///   paragraph.
 pub(crate) fn rule(name: &str) -> Method {
     let version = match name {
         PARAGRAPHS => 3,

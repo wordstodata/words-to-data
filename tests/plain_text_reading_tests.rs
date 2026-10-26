@@ -385,3 +385,37 @@ fn should_keep_the_caption_in_the_body_when_two_blank_lines_stand_before_any_foo
         .expect("the first party of the caption should be a passage");
     assert!(path.contains("/paragraph_"), "{path} should be a paragraph");
 }
+
+// --- A list after its lead-in -----------------------------------------------
+
+/// In *Polselli* the Court quotes 26 U. S. C. § 7609(c)(2)(D): the lead-in
+/// "“issued in aid of the collection of—" and then the items "“(i) an
+/// assessment made…" and "“(ii) the liability…", each with its wrapped
+/// lines below it. The watermark stood between the lead-in and item (i).
+/// Without it, an item that opens with its designation after a lead-in that
+/// ends with a dash starts a paragraph of its own, and its wrapped lines stay
+/// with it (#430).
+#[test]
+fn should_start_a_paragraph_at_a_quoted_list_item_when_the_line_before_ends_with_a_dash() {
+    let every = passages(&case_from(10049688, &[opinion(10516288)]));
+    let majority: Vec<&str> = every
+        .iter()
+        .filter(|(path, _)| path.starts_with("judicial/case_10049688/opinion_10516288-1/"))
+        .map(|(_, words)| words.as_str())
+        .collect();
+
+    let lead_in = majority
+        .iter()
+        .position(|words| words.starts_with("“issued in aid of the collection of—"))
+        .expect("the lead-in should open a paragraph");
+    assert_eq!(majority[lead_in], "“issued in aid of the collection of—");
+    assert_eq!(
+        majority[lead_in + 1],
+        "“(i) an assessment made or judgment rendered against the person with respect to whose liability the summons is issued; or"
+    );
+    assert!(
+        majority[lead_in + 2].starts_with("“(ii) the liability at law or in equity"),
+        "{}",
+        majority[lead_in + 2]
+    );
+}
