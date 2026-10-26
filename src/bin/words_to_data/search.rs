@@ -17,6 +17,7 @@ use serde::Serialize;
 use words_to_data::dataset::{ExpressionId, SearchAnswer, SearchResult};
 use words_to_data::inspect::{AbsentScope, FEW_WORKS, absent_path, absent_scope};
 use words_to_data::query::{DEFAULT_LIMIT, Locator};
+use words_to_data::search::unquoted;
 
 use crate::annotations::{absent_notice, path_matching};
 use crate::load::{self, with_dataset};
@@ -43,6 +44,13 @@ pub struct Args {
     /// matches its letters, and a hyphen between two letters is not read, so
     /// "substantially" matches "substan-tially". No other spellings are made
     /// equal ("U.S.C.A." stays as it is). Snippets show the text as stored
+    ///
+    /// One pair of double quote marks, straight or curly, around the whole
+    /// query is removed, and the answer says so on its first line: `"error
+    /// alleged"` finds what `error alleged` finds. Other quote marks are text.
+    /// A query with a word outside its quote marks, or with more than one pair,
+    /// is read as it is, so `"mathematical or clerical error" means` finds only
+    /// the text that prints the quote marks
     pub query: String,
 
     /// Search only this work, e.g. `uscode/title_26`
@@ -207,15 +215,23 @@ pub fn run(mut args: Args) {
 /// reader that walked away from a disk that filled up.
 fn report(args: &Args, hits: &[SearchResult], found: &SearchAnswer) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
+    let notice = unquoted_notice(&args.query);
 
     if args.json {
-        let answer = serde_json::json!({
+        let mut answer = serde_json::json!({
             "hits": hits,
             "total": found.total,
             "occurrences": found.occurrences,
         });
+        if let Some(notice) = notice {
+            answer["notice"] = notice.into();
+        }
         writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
         return out.flush();
+    }
+
+    if let Some(notice) = notice {
+        writeln!(out, "{notice}")?;
     }
 
     for hit in hits {
@@ -347,6 +363,15 @@ fn counted(n: usize, noun: &str) -> String {
     }
 }
 
+/// The line that says the quote marks around the query were not read, or
+/// `None` when search read the query as it is.
+///
+/// Search removes them (#439). An agent that put them there must not take the
+/// hits for text that holds them, so the answer says what it searched for.
+fn unquoted_notice(query: &str) -> Option<String> {
+    unquoted(query).map(|words| format!("Searched without the quote marks: {words}"))
+}
+
 /// Each occurrence in each field, as a hit of its own, in the order found.
 fn each_occurrence(fields: &[SearchResult], width: usize) -> Vec<Occurrence> {
     fields
@@ -368,14 +393,22 @@ fn each_occurrence(fields: &[SearchResult], width: usize) -> Vec<Occurrence> {
 /// `total` counts every occurrence the search found, listed or not.
 fn report_occurrences(args: &Args, listed: &[Occurrence], total: usize) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
+    let notice = unquoted_notice(&args.query);
 
     if args.json {
-        let answer = serde_json::json!({
+        let mut answer = serde_json::json!({
             "hits": listed,
             "total": total,
         });
+        if let Some(notice) = notice {
+            answer["notice"] = notice.into();
+        }
         writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
         return out.flush();
+    }
+
+    if let Some(notice) = notice {
+        writeln!(out, "{notice}")?;
     }
 
     for hit in listed {
