@@ -1636,7 +1636,8 @@ pub fn how_made<S: Storage>(dataset: &S, link: &Link) -> Result<HowMade, Dataset
 }
 
 /// How many things the dataset links as the cause of the change `link` is
-/// about, `link`'s own object among them.
+/// about, `link`'s own object among them. A link that a review refutes is
+/// no cause, and the count leaves it out (#415).
 ///
 /// Several amendments can edit one provision in place, and the diff reports
 /// that as one change: 26 U.S.C. § 6041(a) has five. A reviewer of one of those
@@ -1648,10 +1649,13 @@ pub fn causes_of<S: Storage>(dataset: &S, link: &Link) -> Result<usize, DatasetE
     let Some(path) = link.subject.path() else {
         return Ok(1);
     };
-    let causes: BTreeSet<String> = dataset
-        .links_for_path(path)?
-        .into_iter()
+    // A review copies the subject of the link it reviews, so the reviews of
+    // these links come back in the same rows. A refuted link is no cause (#415).
+    let at_path = dataset.links_for_path(path)?;
+    let causes: BTreeSet<String> = at_path
+        .iter()
         .filter(|other| other.kind == link.kind && other.subject == link.subject)
+        .filter(|other| !crate::review::is_refuted(other, &at_path))
         .map(|other| other.object.name())
         .chain(std::iter::once(link.object.name()))
         .collect();
@@ -2452,7 +2456,9 @@ pub struct AnnotationSummary {
     pub bill_id: String,
     pub amendment_id: String,
     pub causative_text: String,
-    /// Verification status, serde string form (e.g. `"Pending"`).
+    /// What the record's links report, in the words of `AnnotationStatus`
+    /// (`"Pending"`, `"Rejected"`), and `"Mixed"` when its links differ. Each
+    /// link in `links` gives its own.
     pub status: String,
     pub confidence: Option<f32>,
     pub annotator: String,
@@ -2482,6 +2488,13 @@ pub struct LinkMade {
     pub id: String,
     /// The path the link states.
     pub path: String,
+    /// What a reader reports about the link: the verdict of its newest review,
+    /// and the maker's own state when no review names it, in the words the
+    /// record's `status` uses (`"Rejected"`, `"Pending"`).
+    pub status: String,
+    /// The newest review of the link, with the id of its record. `None` when no
+    /// review names the link.
+    pub review: Option<crate::review::Reported>,
     #[serde(flatten)]
     pub made: HowMade,
     /// Set when the current version of the link's batch method no longer
@@ -2489,6 +2502,24 @@ pub struct LinkMade {
     /// the re-run did not make this link (#185). `None` for a current link and
     /// for every link an agent or a person made. Derived, and never stored.
     pub outdated: Option<OutdatedLink>,
+}
+
+/// The status a record reports: the status its links share, and `"Mixed"`
+/// when they differ.
+///
+/// Read from the links, not from the maker's stored state, because a review
+/// never touches the link it reviews (ADR 0012). Each path of a record is its
+/// own link and is settled on its own (#232), so a record whose links differ
+/// says so, and each link gives its own status (#415).
+fn record_status(ann: &ChangeAnnotation, links: &[LinkMade]) -> String {
+    let Some(first) = links.first() else {
+        return format!("{:?}", ann.metadata.status);
+    };
+    if links.iter().all(|link| link.status == first.status) {
+        first.status.clone()
+    } else {
+        "Mixed".to_string()
+    }
 }
 
 /// Build a summary for `ann`, tagging it with the expression pair it was found
@@ -2510,7 +2541,7 @@ fn summarize(
         bill_id: ann.source_bill.bill_id.clone(),
         amendment_id: ann.source_bill.amendment_id.clone(),
         causative_text: ann.source_bill.causative_text.clone(),
-        status: format!("{:?}", ann.metadata.status),
+        status: record_status(ann, &links),
         confidence: ann.metadata.confidence,
         annotator: ann.metadata.annotator.clone(),
         paths: ann.paths.clone(),
@@ -2545,6 +2576,9 @@ pub fn annotations<S: Storage>(
         .into_iter()
         .map(|row| (row.link_id.clone(), row))
         .collect();
+    // Every review, read once for every link of the answer. A review names its
+    // link in its object, so an answer narrowed by bill does not carry them.
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
 
     // Grouped by the window they were made over, because an annotation is
     // reported with its pair and a link carries the pair in its subject.
@@ -2572,9 +2606,14 @@ pub fn annotations<S: Storage>(
         for (ann, link_ids) in crate::link::annotations_with_their_links(&group) {
             let mut links = Vec::new();
             for (id, path) in link_ids.iter().zip(&ann.paths) {
+                let review = crate::review::reported_naming(id, &reviews);
+                let status =
+                    crate::link::status_reported(by_id[id], review.as_ref().map(|r| &r.review));
                 links.push(LinkMade {
                     id: crate::review::short_id(id).to_string(),
                     path: path.clone(),
+                    status: format!("{status:?}"),
+                    review,
                     made: how_made(dataset, by_id[id])?,
                     outdated: outdated.remove(id),
                 });
@@ -2695,9 +2734,10 @@ pub struct CoverageReport {
     pub to_date: String,
     /// Distinct paths in the change universe.
     pub changed_path_count: usize,
-    /// Change-universe paths that carry at least one annotation.
+    /// Change-universe paths that carry at least one annotation that no review
+    /// refutes.
     pub annotated_count: usize,
-    /// Change-universe paths with no annotation.
+    /// Change-universe paths with no annotation, or only refuted ones.
     pub unannotated_count: usize,
     /// The unannotated changed paths, sorted.
     pub unannotated_paths: Vec<String>,
@@ -2733,6 +2773,13 @@ pub fn coverage<S: Storage>(
                     .in_window(from.at.clone(), to.at.clone())),
         )?
         .rows;
+    // A refuted link claims no change, so its path is unclaimed again, as its
+    // amendment is back on the residue (#415).
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
+    let links: Vec<Link> = links
+        .into_iter()
+        .filter(|link| !crate::review::is_refuted(link, &reviews))
+        .collect();
     let annotated: std::collections::HashSet<String> = crate::link::annotations_from_links(&links)
         .iter()
         .flat_map(|a| a.paths.iter().cloned())
@@ -3568,6 +3615,9 @@ pub struct ContradictionTotals {
     pub duplication: usize,
     /// Disagreement groups found.
     pub disagreement: usize,
+    /// Links left out of every group because a review refutes them, or their
+    /// maker stored them as refuted. Counted in `links_read` too (#415).
+    pub refuted_left_out: usize,
 }
 
 /// The subjects a dataset holds more than one link about, in two categories.
@@ -3614,15 +3664,25 @@ pub struct Contradictions {
 ///
 /// They still count toward `links_read`, because that figure says how much was
 /// looked at.
+///
+/// **A refuted link is left out of every group.** Its newest review settles it
+/// as wrong, so it is not an answer that can contradict another. A group it
+/// stayed in told a reviewer to settle a link they had already refuted (#415).
+/// `refuted_left_out` says how many links this left out.
 pub fn contradictions<S: Storage>(dataset: &S) -> Result<Contradictions, DatasetError> {
     let mut report = Contradictions::default();
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
     for kind in dataset.count_links_by_kind()?.into_keys() {
         let links = dataset.links_by_kind(&kind)?;
         report.totals.links_read += links.len();
         if LinkKind::new(&kind).namespace() == LinkKind::REVIEW {
             continue;
         }
-        report.add_kind(&kind, &links);
+        let (refuted, standing): (Vec<Link>, Vec<Link>) = links
+            .into_iter()
+            .partition(|link| crate::review::is_refuted(link, &reviews));
+        report.totals.refuted_left_out += refuted.len();
+        report.add_kind(&kind, &standing);
     }
     report.totals.duplication = report.duplication.len();
     report.totals.disagreement = report.disagreement.len();

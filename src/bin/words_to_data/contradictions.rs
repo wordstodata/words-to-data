@@ -91,6 +91,13 @@ pub fn run(args: Args) {
     println!("Links read:   {}", report.totals.links_read);
     println!("Duplication:  {} subject(s)", report.totals.duplication);
     println!("Disagreement: {} subject(s)", report.totals.disagreement);
+    // Said, so a reviewer who refuted a link knows why it is not listed (#415).
+    if report.totals.refuted_left_out > 0 {
+        println!(
+            "Refuted:      {} link(s) left out",
+            report.totals.refuted_left_out
+        );
+    }
 
     print_category(
         "Duplication — one subject, one object, links in more than one window",
