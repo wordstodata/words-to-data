@@ -16,9 +16,10 @@
 //!
 //! The redesignation reader ([`crate::uslm::bill_redesignation`]) asks the same
 //! question about one kind of clause, and it asks it here. The walk up through
-//! the enclosing levels, the phrases that open a scope and the three forms of
-//! citation live in this module once, so the two readers cannot come to
-//! different answers about the same sentence. Before #248 three readers of
+//! the enclosing levels, the phrases that open a scope, the three forms of
+//! citation and the words *"Such section"* (#364, #431) live in this module
+//! once, so the two readers cannot come to different answers about the same
+//! sentence. Before #248 three readers of
 //! "which section does this amendment name" existed, and they disagreed.
 //!
 //! # What is resolved here and what is not
@@ -232,7 +233,12 @@ impl<'a> Scope<'a> {
     /// The section this scope acts in, and every step below it: the
     /// citation's designations first, then the scope phrases.
     ///
-    /// Only the amending line's own citation is read. A renumbering such as
+    /// Where the line names its target as *"Such section"* or *"Such
+    /// subsection"*, the target is the unit an earlier amendment of the same
+    /// section of the bill named ([`such_unit_address`]), as for
+    /// [`Self::address`] (#431).
+    ///
+    /// Otherwise only the amending line's own citation is read. A renumbering such as
     /// *"redesignating section 224 as section 225 and inserting after section
     /// 223 the following new section: SEC. 224."* renumbers inside the part the
     /// line names, and the new section 224 is not where it acts.
@@ -249,30 +255,18 @@ impl<'a> Scope<'a> {
     /// As [`Self::section`], and where the amending line names no section but
     /// the instruction inserts a whole new one, the new section
     /// ([`new_section_inserted`]).
-    ///
-    /// Where the line names its target as *"Such section"* or *"Such
-    /// subsection"*, the target is the unit an earlier amendment of the same
-    /// section of the bill named ([`such_unit_address`]). Only this reader
-    /// reads the phrase. The redesignation readers do not yet, so the markup
-    /// reader and the stored reader of a renumbering still agree.
     fn address(
         &self,
         came_through: &[&DocumentNode],
         code_of_1986: &[String],
     ) -> Result<(String, Vec<Step>), Reason> {
-        if let Some((line, holder)) = &self.amending_line
-            && such_unit_named_by(line).is_some()
-        {
-            let named = such_unit_address(line, holder, came_through, code_of_1986)?;
-            let mut container: Vec<Step> = named.whole.into_iter().map(Step::numbered).collect();
-            container.extend(self.steps.iter().cloned());
-            return Ok((named.section, container));
-        }
         self.section_cited_by(came_through, code_of_1986, |line| {
             citation_in(line).or_else(|| new_section_inserted(&self.clause, came_through))
         })
     }
 
+    /// The section and the steps below it, for both readers: a line that says
+    /// *"Such section"* first, then the line's citation as `cite` reads it.
     fn section_cited_by(
         &self,
         came_through: &[&DocumentNode],
@@ -285,6 +279,12 @@ impl<'a> Scope<'a> {
         let Some((line, holder)) = &self.amending_line else {
             return Err(Reason::NoAmendingLine);
         };
+        if such_unit_named_by(line).is_some() {
+            let named = such_unit_address(line, holder, came_through, code_of_1986)?;
+            let mut container: Vec<Step> = named.whole.into_iter().map(Step::numbered).collect();
+            container.extend(self.steps.iter().cloned());
+            return Ok((named.section, container));
+        }
         if let Some(found) = section_of_a_list_item(holder, came_through) {
             return found.map(|(section, trail)| {
                 let mut container: Vec<Step> = trail.into_iter().map(Step::numbered).collect();
