@@ -83,6 +83,7 @@ pub fn run(args: Args) {
 /// Read what the bill renumbered, and write a link for each statement it can
 /// place.
 fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args) {
+    crate::held::refuse_unless_bill_held_in(&*dataset, &args.dataset, &args.bill_id);
     let bill = crate::fail::or_exit(
         dataset.bill_document(&args.bill_id),
         "Error reading the dataset's bills",
@@ -99,7 +100,7 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
     // The windows this run names, and then the step over them. The same step
     // `build-dataset` runs after it has loaded everything (#181): one
     // mechanism, and the window named by whoever knows which one matters.
-    let pairs = args.span.resolve(&*dataset);
+    let pairs = args.span.resolve(&*dataset, &args.dataset);
     let report = crate::fail::or_exit(
         dataset.record_redesignations_over(&args.bill_id, &bill, &pairs),
         "Error recording redesignations",

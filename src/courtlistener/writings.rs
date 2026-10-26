@@ -56,9 +56,15 @@ pub(crate) const STAFF_SUMMARY: &str = "staff-summary";
 ///   no writing.
 /// - `plain-text-paragraphs@2` (#315): a rule of em dashes is a footnote rule
 ///   only at the left margin.
+/// - `plain-text-paragraphs@3` (#413): the watermark of a preliminary print is
+///   no word of the text, a centred line of stars is a section break and no
+///   footnote mark, stars before more stars are an ellipsis, a star against
+///   the first word of a footnote is its label, and in a double-spaced text
+///   two blank lines go on with a footnote only once a footnote has started.
 pub(crate) fn rule(name: &str) -> Method {
     let version = match name {
-        RUNNING_HEADS | PARAGRAPHS => 2,
+        PARAGRAPHS => 3,
+        RUNNING_HEADS => 2,
         _ => 1,
     };
     Method::new(name, version)
