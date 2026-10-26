@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### The renumbering reader reads "Such section" ([#431](https://github.com/wordstodata/words-to-data/issues/431))
+
+A bill can name the section a renumbering acts in as *"Such section"*: Pub.
+L. 119-60 § 6402(c)(1) says "Section 102a.—Such section is further amended—(A)
+by redesignating subsections (f) through (z) as subsections (e) through (y)".
+#364 taught the address reader of `legislature.amended_by` this phrase, but
+not the renumbering reader. That reader read the bare "Section 102a" in the
+heading, found no title for it, and did not record the renumbering.
+
+Now both readers read the section in one function
+(`Scope::section_cited_by`), so they cannot come to different answers again.
+*"Such section"*, *"Such subsection"* and *"Subsection (h) of such section"*
+place a renumbering where the address reader places the amendment. The
+reader of the bill's XML (`redesignations_stated`), which only the tests use,
+still does not read the phrase.
+
+#### Measured on a fresh build of the 7 bills from the caches
+
+| | before | after |
+|---|---|---|
+| renumbering statements placed (all bills) | 118 of 230 | 123 of 230 |
+| `legislature.redesignated_as` links | 307 | 335 |
+| `legislature.amended_by` links | 3,405 | 3,412 |
+| amendments with a link | 1,142 | 1,144 |
+| `diff` of 50 U.S.C. 3024, 2026-01-23 → 2026-07-12 | 69 changed, 61 added, 80 removed, 0 moved | 7 changed, 0 added, 3 removed, 21 moved |
+| changes in 50 U.S.C. 3024 with no link | 190 | 0 |
+
+- The 5 statements placed: § 6402(c)(1)(A) (50 U.S.C. 3024), § 141(b)(2)
+  (10 U.S.C. 9062(j)), and three more in 10 U.S.C. 115a, 181(h) and 321(b).
+- The address of each amendment does not change. The `amended_by` links
+  change through the new renumbering links: 26 go and 33 come. The 5 wrong
+  links that #431 lists go. The strike of 3024(e) (§ 6402(b)(1)) loses 14
+  wrong links in the new (e), and is now in `residue`. § 6402(b)(2) names
+  3024(f)(2), which § 6402(c)(1)(A) then moves to (e)(2). Its change at
+  (e)(2) is now given to the renumbering, and § 6402(b)(2) is in `residue`.
+- Method versions: `amendingAction type=redesignate@6` stays at 6, because
+  version 6 (#387) is not released yet. `address, window and quoted words@7`
+  does not change. Run `redesignations` and `link-by-evidence` again.
+
 ### Opinion plain text: the watermark goes, star breaks stay in the body, a glued footnote mark is no part of a section ([#413](https://github.com/wordstodata/words-to-data/issues/413))
 
 Three faults in the text of opinions that CourtListener gives only as
