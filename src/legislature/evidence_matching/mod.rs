@@ -264,7 +264,13 @@ pub enum Stage {
 /// them. Its own words alone show it only when they are more than three
 /// words, or when the block also holds a field below them.
 ///
-/// Version 8 (#434): a section a line says *is repealed* is an address, where
+/// Version 8 (#438): an item of a list under a line that names part of a
+/// title gives the section it names after *by amending*, after the
+/// publisher's marginal note, or in the `§ 310.` heading of a new section it
+/// inserts: *"Chapter 73 of title 46 … is amended— (1) by amending section
+/// 7306 …"* acts in § 7306.
+///
+/// Also in version 8 (#434): a section a line says *is repealed* is an address, where
 /// the line names the Code. Where two amendments' quoted words fit a change
 /// equally, the one whose address is inside the address of every other gets
 /// it. An address that a later amendment of the same law renumbered in the

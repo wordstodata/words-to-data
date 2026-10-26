@@ -79,6 +79,116 @@ Method version: `address, window and quoted words@8` (was 7). Run
 `link-by-evidence` again; `residue` then lists the links that only version 7
 made, for review.
 
+### The address reader reads the section an item of a list names after "by amending" ([#438](https://github.com/wordstodata/words-to-data/issues/438))
+
+Pub. L. 119-60 § 7301(d) says "Chapter 73 of title 46, United States Code, is
+amended— (1) by amending section 7306 to read as follows: …". The line names
+a chapter, and the item names the section. #365 read an item of such a list
+only when it opened with *In* or *Section*, so this item had no address from
+the markup ("no section under amendment was named"). Only the OLRC table gave
+it one, and `section-agreement` could not check its links.
+
+Now an item of a list under a line that names a title, or part of one, also
+names its section in these three forms:
+
+- *"(1) by amending section 7306 to read as follows"*: § 7306. Another verb
+  does not name the section: in *"by inserting after section 309"*, § 309 is
+  only where the new text goes.
+- *"(3) 46 USC 7308.in section 7308 by striking …"*: the publisher's
+  marginal note stands before *in section*. The renumbering reader reads this
+  form too.
+- *"(5) by inserting after section 309 … the following: "§ 310. Director of
+  …"*: the item inserts a whole new section, and the `§ 310.` heading of the
+  text it enacts gives the number. Only the address reader reads this form,
+  and only for an item of such a list, as for `new_section_inserted`.
+
+#### Measured on a fresh build of the 7 bills from the caches
+
+| | before | after |
+|---|---|---|
+| amendments | 1,683 | 1,683 |
+| amendments that stop at the address | 395 | 394 |
+| `legislature.amended_by` links | 3,424 | 3,425 |
+| `amended_by` links removed / added | | 0 / 1 |
+| renumbering statements of 119-s-1071 placed | 85 of 171 | 86 of 171 |
+| `legislature.redesignated_as` links of 119-s-1071 | 258 | 259 |
+| `section-agreement --all`: "no section under amendment was named" | 117 | 85 |
+| `section-agreement`, 2026-01-23 → 2026-07-12 | 1,965 agree, 0 disagree, 244 not read | 1,996 agree, 0 disagree, 214 not read |
+
+- 9 amendments of Pub. L. 119-60 get an address from the markup. No address
+  changes or goes. Checked by hand against the bill's text, the Code and the
+  OLRC table, all 9 are correct: § 7201(e)(4) 14 U.S.C. 307, (e)(5) § 310,
+  (e)(6) § 316, (e)(7) § 333; § 7301(d)(1) 46 U.S.C. 7306, (d)(3) § 7308,
+  (d)(6) § 7315, (g)(3) § 7511(a), (g)(4) § 7512.
+- The amendment ids do not change: the bill's parser splits the same lists.
+- The one link added (`6a563dbab0b8`, checked by hand): § 7201(e)(6) inserts
+  14 U.S.C. 316 into chapter 3 of title 14. The window 2026-01-23 →
+  2026-07-12 adds `chapter_3/subchapter_II`, which holds the new § 316. The
+  link of § 7201(e)(5) (§ 310) is on the same change. Before, the amendment
+  stopped at the address.
+- The one renumbering placed (`8de93d394db5`, checked by hand): § 7301(g)(3)(C)
+  "by redesignating paragraph (2) as paragraph (3)" in 46 U.S.C. 7511(a).
+- The other 8 amendments keep their links. The OLRC table gave the same
+  section before. Now the markup gives it, and `section-agreement` reads it:
+  of the 32 rows that leave "no section under amendment was named", 31 agree.
+- `section-agreement` names a new limit: "could not be read — the link's path
+  is above a section". The links of § 7201(e)(5) and (e)(6) (`d762c3039aec`
+  and the new `6a563dbab0b8`) are on `chapter_3/subchapter_II`, which the
+  window adds whole. The amendment now has an address, but the path has no
+  section to compare with it. These 2 rows give this reason, and they do not
+  count as agree. Without it, they said "no reason recorded" (#140). No row of
+  the fresh build says "no reason recorded".
+- Method versions: `address, window and quoted words@8` (was 7) and
+  `amendingAction type=redesignate@7` (was 6). Run `redesignations` and
+  `link-by-evidence` again.
+
+### `search` removes one pair of quote marks around the query ([#439](https://github.com/wordstodata/words-to-data/issues/439))
+
+An agent puts a phrase in quote marks, as for a web search engine. `search`
+read the quote marks as text, so `"Immigration parole fee"` found 0 fields
+where `Immigration parole fee` found 6. In the 314 runs of eval
+20261026-101630-basalt4-777de60, 94 searches had a query in quote marks, and
+62 of them found nothing.
+
+Now `search` removes one pair of double quote marks, straight (`"`) or curly
+(`“` `”`), around the whole query, and the first line of the answer says so:
+"Searched without the quote marks: Immigration parole fee". `--json` gives
+the same line as `notice`. The rule is in the library
+(`words_to_data::search::unquoted`), so the library search and the command
+read a query the same way.
+
+Text that holds quote marks is still found. The rule for it:
+
+- A query that only starts or only ends with a quote mark is read as it is.
+  So `"mathematical or clerical error" means` finds only the definition in
+  § 6213(g)(2), where the Code prints the quote marks.
+- A query with more than one pair, such as `"person" and "whoever"`, is read
+  as it is.
+- The removal never hides a match: a field that holds the phrase with its
+  quote marks also holds the phrase.
+- The text of the Code is stored with straight quote marks. A query with a
+  curly quote mark inside it, such as `“mathematical or clerical error”
+  means`, still finds nothing in the Code.
+
+#### Measured on `data/eval.sqlite`
+
+Fields found, before (a release build of 777de60) and after (a release
+build of this change):
+
+| Query | Before | After |
+|---|---|---|
+| `"Immigration parole fee"` | 0 | 6 |
+| `"critical skill incentive"` | 0 | 17 |
+| `"Math and Taxpayer Help"` | 0 | 1 |
+| `"error alleged"` | 0 | 15 |
+| `“Immigration parole fee”` | 0 | 6 |
+| `"mathematical or clerical error"` (title 26 at 2026-07-12) | 1 | 24 |
+| `"mathematical or clerical error" means` (title 26 at 2026-07-12) | 1 | 1 |
+
+The 23 new fields of `"mathematical or clerical error"` hold the words without
+the quote marks, as § 6213(b)(1) does. The last query finds the definition
+only, before and after.
+
 ### Opinion plain text: the first item of a quoted list starts its own paragraph ([#430](https://github.com/wordstodata/words-to-data/issues/430))
 
 In *Polselli* the Court quotes 26 U.S.C. § 7609(c)(2)(D): the lead-in
