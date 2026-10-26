@@ -358,7 +358,7 @@ fn should_find_and_categorise_the_duplicated_pairs_when_the_dataset_holds_two_wi
             // Method and version, so a reader can tell a statement this build
             // would make again from one it would not (#182).
             assert_eq!(
-                link["method"], "amendingAction type=redesignate@6",
+                link["method"], "amendingAction type=redesignate@7",
                 "every link names its method with its version, got:\n{link:#}"
             );
             assert!(
@@ -379,7 +379,7 @@ fn should_find_and_categorise_the_duplicated_pairs_when_the_dataset_holds_two_wi
         );
     }
     assert!(
-        text.contains("amendingAction type=redesignate@6"),
+        text.contains("amendingAction type=redesignate@7"),
         "human output should name the method with its version, got:\n{text}"
     );
 }

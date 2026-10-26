@@ -1490,8 +1490,13 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// *"Section 1413(g) of the … Act of 2018 (22 U.S.C. 9613) is amended … by
 /// redesignating subparagraph …"* resolves in 9613(g), not in the whole of
 /// § 9613.
+///
+/// Version 7 (#438): an item of a list that opens with the publisher's
+/// marginal note, *"(3) 46 USC 7511.in section 7511(a)—"*, or with *"by
+/// amending section"*, names its section as an item that opens with *In*
+/// does.
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 6)
+    Method::new("amendingAction type=redesignate", 7)
 }
 
 /// How far the words at a redesignation's two ends agree.
