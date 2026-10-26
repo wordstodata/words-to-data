@@ -1,6 +1,6 @@
 # Matching is evidence-first, and the batch calls no model
 
-Status: accepted. Not yet built — the tickets under #179 build it.
+Status: accepted. Built by the tickets under #179: `link-by-evidence` runs the evidence-first batch.
 
 The removal in **What this removes** was made in #252.
 

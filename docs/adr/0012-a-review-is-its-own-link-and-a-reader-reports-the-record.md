@@ -1,6 +1,6 @@
 # A review is its own link, and a reader reports the record
 
-Status: accepted. Not yet built — #227 builds it.
+Status: accepted. Built in #227: `settle --verdict` records a review, and the readers report the record.
 
 A dataset can hold a link that is wrong, and until now it had no way to say so.
 
