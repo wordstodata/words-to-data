@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+### A tag inside a line no longer breaks the line ([#412](https://github.com/wordstodata/words-to-data/issues/412))
+
+The markup reader put a newline in place of every tag. In Harvard's XML,
+`5 U.S.C. §§ 8901</extracted-citation>(5), 8905` became `8901` and `(5)` on
+two lines, and the U.S.C. reader does not read a subdivision after a line
+break. Italic words broke lines too, so a search for "Amici Curiae" failed.
+
+Now only a tag that ends a block, such as `<p>`, `<div>` or `<br>`, gives a
+newline:
+
+- A tag inside a line gives nothing: the citation tags (`extracted-citation`,
+  `cross_reference`), the emphasis tags (`em`, `i`, `b`, `strong`, `s`), `a`
+  and `span`. Where such a tag is the only thing between two words, as in
+  `<s>tens of</s>thousands`, a space goes in.
+- A footnote or page mark is a word of its own, with a space at each side:
+  `footnotemark`, `page-number`, `sup`, and an `a` or a `span` of class
+  `footnote`, `page-label` or `star-pagination`. `§ 183<footnotemark>1` reads
+  `§ 183 1`, not `§ 1831`.
+- A tag this reader does not name still gives a newline.
+
+The text method goes to version 2. Paragraphs, pages and paths do not change.
+
+Measured on the opinions of `evals/opinions.txt`, added to two copies of
+`dataset-demo.sqlite`: the words of 204 of 3,428 passages change, and no
+path. Each change is a newline that becomes a space (1,531) or goes (278, all
+next to punctuation, such as `530⏎,` to `530,`). `judicial.cites` goes from
+434 links to 435, all in the *Windsor* majority: § 2056 becomes § 2056(a),
+§ 8901 becomes § 8901(5), § 115 becomes § 115(a)(1)(A), § 208 becomes
+§ 208(a), and § 8905 is new.
+
+### A citation reads a subdivision of more than one character ([#410](https://github.com/wordstodata/words-to-data/issues/410))
+
+The U.S.C. reader and the default-code reader read a subdivision of one
+letter or one or two digits only. They stopped before a longer designation,
+with no report. `7 U.S.C. § 2015(o)(4)(A)(ii)` was a link to (A), not to
+clause (ii).
+
+Now both readers also read:
+
+- a roman numeral of more than one letter: `(ii)`, `(xiv)`, `(II)`;
+- a doubled letter (an item): `(cc)`;
+- a number and a capital letter: `(14A)`.
+
+A single letter is read as before. `(i)` can be a subsection or a clause, and
+the printing decides. The ends of a range of subdivisions take the same
+designations.
+
+#### Measured on `eval.sqlite`
+
+The citations of all opinions were read again from the cache, by the build
+before this change and by the build after it: 434 `judicial.cites` links
+before, 437 after. The 15 links that #410 lists are all changed:
+
+- 12 links to a provision one level too high are replaced by links to the
+  provision written: 10 to a clause (ii), 1 to a clause (iii)
+  (`IRC section 280F(d)(4)(A)(iii)`) and 1 to a subclause (II)
+  (`20 U. S. C. §1091b(b)(2)(C)(i)(II)`, before a link to (i)).
+- 3 links stay, with one place fewer: the same passage also cites
+  `2015(o)(4)(A)` alone. The place that writes `(A)(ii)` is now in a new link
+  to clause (ii).
+- So 15 links are new. All 15 were checked by hand: each ends at the
+  provision its words write, and none has a part that does not resolve.
+- 5 of the changed links are made by the default-code reader
+  (`I.R.C. § 199A(c)(3)(A)(ii)`, `section 199A(g)(1)(B)(ii)`), and 10 by the
+  U.S.C. reader. No other link changes.
+
+#### Breaking changes for agents
+
+- Method versions: `reporters-db laws.json U.S.C. patterns@6` (was 5) and
+  `bare section under the opinion's default code@4` (was 3). A link records
+  the version that made it. Link ids do not change, because an id does not
+  hash the method.
+
 ### A few words do not show that an enacted block made a change ([#389](https://github.com/wordstodata/words-to-data/issues/389))
 
 A provision that prints three words or fewer, such as the heading "In
