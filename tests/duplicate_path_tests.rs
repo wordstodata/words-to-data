@@ -191,18 +191,16 @@ fn should_say_which_provision_was_added_when_a_path_gains_one() {
         "the later expression holds two paragraphs (4), so the pair has two slots"
     );
 
-    // The first paragraph (4) survived, and it is the one the footnote was
-    // added to. Attributing that heading change to the new provision inverts
-    // the meaning of the report.
+    // The first paragraph (4) survived. The OLRC footnoted its heading "So in
+    // original. There are two pars. (4).", and a footnote is not part of the
+    // words (#416): it is a node of its own under the paragraph. So the words
+    // of the surviving provision did not change.
     assert_eq!(report.provisions[0].presence, Presence::InBoth);
     assert_eq!(report.provisions[0].from_position, Some(0));
     assert_eq!(report.provisions[0].to_position, Some(0));
     assert!(
-        report.provisions[0]
-            .changes
-            .iter()
-            .any(|c| c.field == "heading"),
-        "the surviving provision carries the heading change, got {:?}",
+        report.provisions[0].changes.is_empty(),
+        "only a footnote came to the surviving provision, got {:?}",
         report.provisions[0].changes
     );
 
@@ -250,8 +248,9 @@ fn should_say_which_provision_was_removed_when_a_path_loses_one() {
     assert_eq!(report.provisions.len(), 2);
 
     // Position pairing keeps the leading provision. The document agrees here:
-    // the subparagraph citing section 6226(a)(2) is the one that survived, and
-    // it lost the "two subpars. (JJ) have been enacted" footnote with it.
+    // the subparagraph citing section 6226(a)(2) is the one that survived. Its
+    // "two subpars. (JJ) have been enacted" footnote went, and the footnote is
+    // not part of its words (#416); the full stop at its end became a comma.
     assert_eq!(report.provisions[0].presence, Presence::InBoth);
     assert_eq!(report.provisions[0].to_position, Some(0));
     let content = report.provisions[0]
@@ -260,16 +259,14 @@ fn should_say_which_provision_was_removed_when_a_path_loses_one() {
         .find(|c| c.field == "content")
         .expect("the surviving subparagraph changed its content");
     assert!(
-        content
-            .old_value
-            .contains("Two subpars. (JJ) have been enacted"),
-        "the older text should carry the footnote, got {:?}",
+        content.old_value.contains("section 6226(a)(2)")
+            && !content.old_value.contains("Two subpars"),
+        "the older text should be the 6226 subparagraph, without its footnote, got {:?}",
         content.old_value
     );
     assert!(
-        content.new_value.contains("section 6226(a)(2)")
-            && !content.new_value.contains("Two subpars"),
-        "the newer text should keep the 6226 citation and drop the footnote, got {:?}",
+        content.new_value.contains("section 6226(a)(2)"),
+        "the newer text should keep the 6226 citation, got {:?}",
         content.new_value
     );
 

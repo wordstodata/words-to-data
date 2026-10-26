@@ -28,14 +28,29 @@ fn release_point(file: &str, date: &str) -> DocumentNode {
     common::parsed(&path, date)
 }
 
-/// Every node of a tree, root included.
+/// Whether a node holds one of the OLRC's footnotes.
+///
+/// The parser has held each footnote in a node of its own since #416, under
+/// the provision it annotates. Those nodes are new, so the figures below,
+/// measured before #129, leave them out: every node and path that was there
+/// before is still there, in the same order.
+fn is_footnote(node: &DocumentNode) -> bool {
+    node.data.node_type.local() == "footnote"
+}
+
+/// Every node of a tree, root included, except the footnotes.
 fn node_count(node: &DocumentNode) -> usize {
-    1 + node.children.iter().map(node_count).sum::<usize>()
+    1 + node
+        .children
+        .iter()
+        .filter(|child| !is_footnote(child))
+        .map(node_count)
+        .sum::<usize>()
 }
 
 fn collect_paths(node: &DocumentNode, into: &mut Vec<String>) {
     into.push(node.data.path.to_string());
-    for child in &node.children {
+    for child in node.children.iter().filter(|child| !is_footnote(child)) {
         collect_paths(child, into);
     }
 }
@@ -385,14 +400,17 @@ fn should_compute_the_same_diff_as_before_nodes_became_class_neutral() {
 
     // Measured on the build before #129, over these same two release points:
     // 537. One of them, the heading of § 7206(5)(B), differs only in the soft
-    // hyphen of "rec\u{ad}ords", and that is not a change (#363).
+    // hyphen of "rec\u{ad}ords", and that is not a change (#363). 33 more
+    // differ only in the OLRC's footnotes, which are not the words (#416): a
+    // footnote numbered again, or added or taken away. The 14 footnotes the
+    // OLRC added and the 16 it took away are nodes of their own.
     assert_eq!(
         changed.len(),
-        536,
-        "title 26 changed at 536 paths between {EARLY} and {LATER}"
+        503,
+        "title 26 changed at 503 paths between {EARLY} and {LATER}"
     );
-    assert_eq!(count_added(&diff), 360, "360 nodes were added");
-    assert_eq!(count_removed(&diff), 161, "161 nodes were removed");
+    assert_eq!(count_added(&diff), 360 + 14, "374 nodes were added");
+    assert_eq!(count_removed(&diff), 161 + 16, "177 nodes were removed");
 
     // A specific one, so the count cannot be right by accident.
     assert!(

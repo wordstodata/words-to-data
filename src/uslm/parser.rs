@@ -6,7 +6,8 @@ use crate::{
     document::{DocumentNode, NodeData},
     io::load_xml_file,
     uslm::{
-        BillType, DocumentType, ElementType, RefPair, SourceCredit, USCType, USLMError, UslmFacts,
+        BillType, DocumentType, ElementType, FootnoteMark, RefPair, SourceCredit, USCType,
+        USLMError, UslmFacts, footnote,
         path::{path_segment_from_heading, should_include_in_uslm_path},
     },
 };
@@ -194,6 +195,8 @@ struct TextContents {
     pub proviso: Option<String>,
     pub content: Option<String>,
     pub continuation: Option<String>,
+    /// The OLRC's footnotes, taken out of the five fields above (#416).
+    pub footnotes: Vec<footnote::Footnote>,
 }
 
 pub struct Number {
@@ -388,6 +391,7 @@ fn parse_document(
                 amendment: None,
                 amending_actions: Vec::new(),
                 references: Vec::new(),
+                footnote_mark: None,
             };
             let container_data = NodeData::new(
                 "uscode",
@@ -857,6 +861,7 @@ fn parse_element(
         amendment: None,
         amending_actions: Vec::new(),
         references: Vec::new(),
+        footnote_mark: None,
     };
 
     let element_data = NodeData {
@@ -928,11 +933,72 @@ fn parse_element(
             },
         }
     }
+    // The footnotes come after the law below this element, as the Code prints
+    // them at the foot of the page.
+    for (index, footnote) in text_contents.footnotes.into_iter().enumerate() {
+        children.push(footnote_node(
+            footnote,
+            index + 1,
+            &structural_path,
+            &verbose_name,
+            document_type,
+            d,
+        )?);
+    }
     let element = DocumentNode {
         data: element_data,
         children,
     };
     Ok(element)
+}
+
+/// A node for one of the OLRC's footnotes, under the provision it annotates.
+///
+/// It is numbered by its place among the footnotes of that provision, never by
+/// the OLRC's own number, which changes from printing to printing (#416). So
+/// the second footnote of 26 U.S.C. 164(b)(6) is `…/paragraph_6/footnote_2`
+/// whatever number the printing gives it, and a renumbered footnote is the
+/// same node with the same words.
+fn footnote_node(
+    footnote: footnote::Footnote,
+    place: usize,
+    parent_path: &str,
+    parent_name: &str,
+    document_type: &DocumentType,
+    date: time::Date,
+) -> Result<DocumentNode> {
+    let facts = UslmFacts {
+        number_value: place.to_string(),
+        number_display: String::new(),
+        verbose_name: format!("{parent_name} footnote {place}"),
+        uslm_id: None,
+        uslm_uuid: None,
+        document_type: document_type.clone(),
+        source_credits: Vec::new(),
+        amendment: None,
+        amending_actions: Vec::new(),
+        references: Vec::new(),
+        footnote_mark: Some(FootnoteMark {
+            field: footnote.field.to_string(),
+            at: footnote.at,
+        }),
+    };
+    let data = NodeData {
+        path: format!("{parent_path}/footnote_{place}").into(),
+        node_type: crate::document::NodeType::new(format!(
+            "{}.footnote",
+            document_type.namespace()
+        )),
+        date,
+        heading: None,
+        chapeau: None,
+        proviso: None,
+        content: rewrap_string(footnote.text.map(|text| normalize_quotes(&text))),
+        continuation: None,
+        provenance: None,
+        payload: Some(facts.to_payload()?),
+    };
+    Ok(DocumentNode::leaf(data))
 }
 
 /// True when an element inside a heading annotates the name, rather than being
@@ -1070,9 +1136,10 @@ pub fn extract_number(element_type: ElementType, node: &roxmltree::Node) -> Resu
     }
 }
 
+/// The words of a text element, without the OLRC's footnotes (#416).
 fn extract_text(node: Option<roxmltree::Node>) -> Option<String> {
     node.map(|n| {
-        let text = collect_all_text(&n);
+        let text = footnote::words_of(&n);
         if text.is_empty() {
             return None;
         }
@@ -1080,30 +1147,47 @@ fn extract_text(node: Option<roxmltree::Node>) -> Option<String> {
     })?
 }
 
-fn collect_all_text(node: &roxmltree::Node) -> String {
-    let mut result = String::new();
-    for child in node.children() {
-        if child.is_text() {
-            if let Some(t) = child.text() {
-                result.push_str(t);
-            }
-        } else if child.is_element() {
-            result.push_str(&collect_all_text(&child));
-        }
-    }
-    result
-}
-
 fn extract_text_contents(node: &roxmltree::Node) -> TextContents {
-    // TODO handle amending actions
-    // TODO deal with page data funkiness
-    TextContents {
-        heading: extract_text(node.children().find(|n| n.has_tag_name("heading"))),
-        chapeau: extract_text(node.children().find(|n| n.has_tag_name("chapeau"))),
-        proviso: extract_text(node.children().find(|n| n.has_tag_name("proviso"))),
-        content: extract_text(node.children().find(|n| n.has_tag_name("content"))),
-        continuation: extract_text(node.children().find(|n| n.has_tag_name("continuation"))),
+    let mut contents = TextContents {
+        heading: None,
+        chapeau: None,
+        proviso: None,
+        content: None,
+        continuation: None,
+        footnotes: Vec::new(),
+    };
+    // In document order, so the footnotes are numbered in the order the
+    // provision prints them. Only the first element of each name is read.
+    let mut num_read = false;
+    for child in node.children().filter(|n| n.is_element()) {
+        let (name, field) = match child.tag_name().name() {
+            "heading" => ("heading", &mut contents.heading),
+            "chapeau" => ("chapeau", &mut contents.chapeau),
+            "proviso" => ("proviso", &mut contents.proviso),
+            "content" => ("content", &mut contents.content),
+            "continuation" => ("continuation", &mut contents.continuation),
+            // The number is read by `extract_number`. A footnote can sit in it
+            // ("§ 9815.¹ So in original. No section 9814 has been enacted."),
+            // and that footnote is the element's too.
+            "num" if !num_read => {
+                num_read = true;
+                contents
+                    .footnotes
+                    .extend(footnote::read(&child, "num").footnotes);
+                continue;
+            }
+            _ => continue,
+        };
+        if field.is_some() {
+            continue;
+        }
+        let words = footnote::read(&child, name);
+        if !words.text.is_empty() {
+            *field = Some(normalize_quotes(&words.text));
+        }
+        contents.footnotes.extend(words.footnotes);
     }
+    contents
 }
 
 #[cfg(test)]

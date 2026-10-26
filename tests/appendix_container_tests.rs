@@ -234,7 +234,8 @@ fn should_hold_no_uuid_path_when_a_release_point_is_parsed(#[case] file: &str) {
 
 /// Title 26 is the control. It holds no numberless container the parser reaches
 /// and no `<article>`, so neither change may touch it. 57,391 elements is the
-/// count the dataset holds at this release point.
+/// count the dataset holds at this release point, and 291 nodes more hold the
+/// OLRC's footnotes, one for each mark (#416).
 #[test]
 fn should_leave_a_title_with_no_numberless_container_unchanged() {
     let root = parse(&format!("tests/test_data/usc/{RELEASE}/usc26.xml"), RELEASE)
@@ -242,7 +243,11 @@ fn should_leave_a_title_with_no_numberless_container_unchanged() {
 
     // The `uscode` container is not one of the title's own elements.
     let count = element_count(&root) - 1;
-    assert_eq!(count, 57_391, "title 26 at {RELEASE} holds 57,391 elements");
+    assert_eq!(
+        count,
+        57_391 + 291,
+        "title 26 at {RELEASE} holds 57,391 elements and 291 footnotes"
+    );
 }
 
 #[test]

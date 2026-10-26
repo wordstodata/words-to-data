@@ -25,6 +25,7 @@ use crate::document::{ClassPayload, NodeData, NodeType};
 pub mod amendment_address;
 pub mod bill_parser;
 pub mod bill_redesignation;
+pub(crate) mod footnote;
 pub mod parser;
 pub mod path;
 
@@ -544,6 +545,33 @@ pub struct UslmFacts {
     /// read out of the text by [`crate::citation::usc`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<UscReference>,
+
+    /// Where the mark of an OLRC footnote was, on the node for that footnote
+    ///
+    /// The parser takes the OLRC's footnotes out of a provision's words and
+    /// holds each one in a node of its own under the provision (#416). This
+    /// says which words the footnote is about: "The comma probably should not
+    /// appear" is about the comma just before the mark. `None` on every node
+    /// that is not a footnote.
+    ///
+    /// A class fact, not a core one, under the checklist on
+    /// [`ClassPayload`](crate::document::ClassPayload): the footnote node's
+    /// path, type and text already report it, and a reader that cannot open
+    /// this loses only the exact place of the mark. Nothing outside this class
+    /// reads it, and it says nothing about how far to trust the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footnote_mark: Option<FootnoteMark>,
+}
+
+/// Where the mark of an OLRC footnote was in the words of its provision
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FootnoteMark {
+    /// The text element that held the mark: `heading`, `chapeau`, `proviso`,
+    /// `content`, `continuation`, or `num` for the element's number.
+    pub field: String,
+    /// How many characters of that element's stored words come before the
+    /// mark. The number's words are in the payload, as `number_display`.
+    pub at: usize,
 }
 
 /// A reference into the US Code, as a bill's publisher wrote it
