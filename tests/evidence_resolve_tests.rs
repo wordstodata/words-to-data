@@ -641,3 +641,53 @@ fn should_link_an_added_provision_by_its_own_words_when_a_marginal_note_splits_t
         "§ 70307 added {subsection_n}: {of_70307:?}"
     );
 }
+
+#[test]
+fn should_give_a_change_to_the_amendment_with_the_narrower_address_when_two_quote_the_same_words() {
+    // 26 U.S.C. 168(k)(5)(A)(i). Two amendments of the law strike "the
+    // applicable percentage" and insert "100 percent":
+    //
+    // - § 70301(b)(1), addressed to the whole of 168(k): "(A) in paragraph
+    //   (1)(A), by striking …";
+    // - § 70301(b)(2), addressed to 168(k)(5)(A)(i) itself.
+    //
+    // The clause shows the words of both, as much and with the same overlap.
+    // The amendment addressed to the clause is nearer to it than the one
+    // addressed to the whole subsection around it, as in step 2 (#339), so
+    // the clause is its change (#434).
+    let clause_i = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_5/subparagraph_A/clause_i";
+    let matches = title_26_matches();
+
+    assert_eq!(
+        linked_paths(matches, "2852a8dd94f5"),
+        vec![clause_i.to_string()]
+    );
+    assert!(
+        !linked_paths(matches, "1be2c21a3613").contains(&clause_i.to_string()),
+        "the amendment to the whole subsection is not a cause of the clause"
+    );
+}
+
+#[test]
+fn should_read_an_address_through_a_renumbering_the_law_makes_after_it_when_both_act_in_one_window()
+{
+    // 26 U.S.C. 67. Section 70110 of the law says, in this order:
+    //
+    // - (a): "Section 67(g) is amended—(1) by striking ', and before January
+    //   1, 2026', and (2) by striking '2018 Through 2025' in the heading …";
+    // - (b)(2): "Section 67 is amended by redesignating subsection (g), as
+    //   amended by this section, as subsection (h), and by inserting after
+    //   subsection (f) the following new section: '(g) Educator Expenses …'".
+    //
+    // § 70110(a) acts first, on the old (g). The Code after the window prints
+    // that provision as (h), and a new (g) where it was. The address is read
+    // through the renumbering, so (h) is § 70110(a)'s change (#434).
+    let subsection_h =
+        "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_I/section_67/subsection_h";
+    let matches = title_26_matches();
+
+    assert_eq!(
+        linked_paths(matches, "a54c7b4eef28"),
+        vec![subsection_h.to_string()]
+    );
+}
