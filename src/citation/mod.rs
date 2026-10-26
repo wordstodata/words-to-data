@@ -163,8 +163,13 @@ impl Opinion {
 /// `26 U. S. C. §§994(a)(1)-(3)`, as a citation of each subdivision in the
 /// range: a link to each, and each place holds the whole written form. Version
 /// 4 read the first end alone and lost the rest.
+///
+/// Version 6 (#410) reads a designation of more than one character: a roman
+/// numeral, `(ii)` or `(II)`, a doubled letter, `(cc)`, and a number and a
+/// capital letter, `(14A)`. Version 5 stopped before it, so
+/// `7 U.S.C. § 2015(o)(4)(A)(ii)` was a link to (A).
 fn citation_rule() -> Method {
-    Method::new("reporters-db laws.json U.S.C. patterns", 5)
+    Method::new("reporters-db laws.json U.S.C. patterns", 6)
 }
 
 /// The rule that reads a bare section reference under the default code an
@@ -176,8 +181,11 @@ fn citation_rule() -> Method {
 ///
 /// Version 3 (#366): a range of subdivisions after one section, `section
 /// 41(b)(1)-(3)`, is read as [`citation_rule`] version 5 reads it.
+///
+/// Version 4 (#410): a designation of more than one character,
+/// `section 199A(c)(3)(A)(ii)`, is read as [`citation_rule`] version 6 reads it.
 fn default_code_rule() -> Method {
-    Method::new("bare section under the opinion's default code", 3)
+    Method::new("bare section under the opinion's default code", 4)
 }
 
 /// A link for every provision a citation resolved to, saying the passage of

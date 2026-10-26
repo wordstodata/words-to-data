@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### A citation reads a subdivision of more than one character ([#410](https://github.com/wordstodata/words-to-data/issues/410))
+
+The U.S.C. reader and the default-code reader read a subdivision of one
+letter or one or two digits only. They stopped before a longer designation,
+with no report. `7 U.S.C. § 2015(o)(4)(A)(ii)` was a link to (A), not to
+clause (ii).
+
+Now both readers also read:
+
+- a roman numeral of more than one letter: `(ii)`, `(xiv)`, `(II)`;
+- a doubled letter (an item): `(cc)`;
+- a number and a capital letter: `(14A)`.
+
+A single letter is read as before. `(i)` can be a subsection or a clause, and
+the printing decides. The ends of a range of subdivisions take the same
+designations.
+
+#### Measured on `eval.sqlite`
+
+The citations of all opinions were read again from the cache, by the build
+before this change and by the build after it: 434 `judicial.cites` links
+before, 437 after. The 15 links that #410 lists are all changed:
+
+- 12 links to a provision one level too high are replaced by links to the
+  provision written: 10 to a clause (ii), 1 to a clause (iii)
+  (`IRC section 280F(d)(4)(A)(iii)`) and 1 to a subclause (II)
+  (`20 U. S. C. §1091b(b)(2)(C)(i)(II)`, before a link to (i)).
+- 3 links stay, with one place fewer: the same passage also cites
+  `2015(o)(4)(A)` alone. The place that writes `(A)(ii)` is now in a new link
+  to clause (ii).
+- So 15 links are new. All 15 were checked by hand: each ends at the
+  provision its words write, and none has a part that does not resolve.
+- 5 of the changed links are made by the default-code reader
+  (`I.R.C. § 199A(c)(3)(A)(ii)`, `section 199A(g)(1)(B)(ii)`), and 10 by the
+  U.S.C. reader. No other link changes.
+
+#### Breaking changes for agents
+
+- Method versions: `reporters-db laws.json U.S.C. patterns@6` (was 5) and
+  `bare section under the opinion's default code@4` (was 3). A link records
+  the version that made it. Link ids do not change, because an id does not
+  hash the method.
+
 ### A few words do not show that an enacted block made a change ([#389](https://github.com/wordstodata/words-to-data/issues/389))
 
 A provision that prints three words or fewer, such as the heading "In
