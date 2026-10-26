@@ -157,7 +157,7 @@ pub mod text_method {
     /// a different field chosen, markup stripped differently, a new OCR source
     /// — and never for a change that leaves the words alone
     /// (`crate::method::Method`).
-    pub const VERSION: u32 = 1;
+    pub const VERSION: u32 = 2;
 }
 
 /// Facts about a node that only the class defining its type understands.

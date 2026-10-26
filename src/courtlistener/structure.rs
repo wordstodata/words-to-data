@@ -26,7 +26,7 @@
 //! exactly what the flat reading held, and a page mark's own text, such as
 //! `*441`, stays where the page breaks.
 
-use super::markup::{MarkupReport, text_of_markup};
+use super::markup::{MarkupReport, attribute, element_name, has_class, text_of_markup};
 
 impl Passage {
     /// A paragraph on no page, with no ids and no footnote references.
@@ -205,32 +205,6 @@ struct Tag<'a> {
     end: usize,
 }
 
-/// The value of one attribute of a tag, when it has it.
-fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let pattern = format!("{name}=\"");
-    let mut from = 0;
-    while let Some(found) = tag[from..].find(&pattern) {
-        let at = from + found;
-        // `label=` must not match the end of `data-label=`.
-        let whole = tag[..at]
-            .chars()
-            .next_back()
-            .is_none_or(char::is_whitespace);
-        let value_start = at + pattern.len();
-        if whole {
-            let value_end = tag[value_start..].find('"')? + value_start;
-            return Some(&tag[value_start..value_end]);
-        }
-        from = value_start;
-    }
-    None
-}
-
-/// Whether a tag's `class` names this class.
-fn has_class(tag: &str, class: &str) -> bool {
-    attribute(tag, "class").is_some_and(|classes| classes.split_whitespace().any(|c| c == class))
-}
-
 /// The next tag at or after `from`, when there is one.
 ///
 /// `<?xml …?>` and a comment come back with an empty name: they are no
@@ -240,12 +214,7 @@ fn next_tag(markup: &str, from: usize) -> Option<Tag<'_>> {
     let end = markup[start..].find('>')? + start + 1;
     let inner = &markup[start + 1..end - 1];
     let closing = inner.starts_with('/');
-    let name: String = inner
-        .trim_start_matches('/')
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect::<String>()
-        .to_ascii_lowercase();
+    let name = element_name(inner);
     Some(Tag {
         name,
         closing,
