@@ -272,7 +272,7 @@ impl<S: Storage> Dataset<S> {
         from: &ExpressionId,
         to: &ExpressionId,
     ) -> Result<TreeDiff, DatasetError> {
-        let known = Redesignations::from_links(&self.storage.links_for_pair(from, to)?);
+        let known = self.redesignations_over(from, to)?;
         if known.is_empty() {
             return self.storage.compute_diff(from, to);
         }
@@ -283,6 +283,45 @@ impl<S: Storage> Dataset<S> {
             &to_expression.root,
             &known,
         ))
+    }
+
+    /// The renumberings between two dates of one work, window by window.
+    ///
+    /// A renumbering is recorded for one window of two adjacent printings, so a
+    /// span of several windows holds the links of each window inside it, by the
+    /// locator's own rule (#388). They are read in date order, and each
+    /// window's moves continue from where the windows before it left each
+    /// provision (#423). A span of one window reads that window's links, as
+    /// before.
+    fn redesignations_over(
+        &self,
+        from: &ExpressionId,
+        to: &ExpressionId,
+    ) -> Result<Redesignations, DatasetError> {
+        use crate::query::{LinkQuery, Locator};
+
+        let links = self
+            .storage
+            .links_matching(
+                &LinkQuery::new()
+                    .of_kind(crate::link::LinkKind::REDESIGNATED_AS)
+                    .at(Locator::new()
+                        .in_work(from.work.to_string())
+                        .in_window(from.at.clone(), to.at.clone())),
+            )?
+            .rows;
+        let mut by_window: BTreeMap<crate::link::Window, Vec<Link>> = BTreeMap::new();
+        for link in links {
+            if let Some(window) = link.subject.window() {
+                by_window.entry(window).or_default().push(link);
+            }
+        }
+        Ok(by_window
+            .values()
+            .map(|links| Redesignations::from_links(links))
+            .fold(Redesignations::none(), |so_far, window| {
+                so_far.then(&window)
+            }))
     }
 
     /// Read the redesignations a bill states and record each one as a link.

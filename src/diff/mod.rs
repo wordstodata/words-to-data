@@ -233,6 +233,72 @@ impl Redesignations {
         )
     }
 
+    /// These renumberings, then the `later` ones, as one set over both periods.
+    ///
+    /// A diff over a span of several windows compares the first date with the
+    /// last, so it needs where each provision went over the whole span. A
+    /// provision moved twice went to where the second move put it, and a
+    /// provision moved under a container that moved is carried along (#423).
+    ///
+    /// ```
+    /// use words_to_data::diff::Redesignations;
+    ///
+    /// let pairs = |pairs: &[(&str, &str)]| {
+    ///     Redesignations::from_pairs(pairs.iter().map(|(a, b)| (a.to_string(), b.to_string())))
+    /// };
+    /// // (R) became (S), and later (S) became (T).
+    /// let span = pairs(&[("p/R", "p/S")]).then(&pairs(&[("p/S", "p/T")]));
+    /// assert_eq!(span.new_path_of("p/R"), Some("p/T"));
+    /// assert_eq!(span.new_path_of("p/S"), None, "(S) on the first date is not what moved to (T)");
+    ///
+    /// // (c) became (d), and later (d)(1) became (d)(2).
+    /// let span = pairs(&[("s/c", "s/d")]).then(&pairs(&[("s/d/1", "s/d/2")]));
+    /// assert_eq!(span.new_path_of("s/c"), Some("s/d"));
+    /// assert_eq!(span.new_path_of("s/c/1"), Some("s/d/2"));
+    ///
+    /// // (c)(1) became (c)(2), and later (c) became (d).
+    /// let span = pairs(&[("s/c/1", "s/c/2")]).then(&pairs(&[("s/c", "s/d")]));
+    /// assert_eq!(span.new_path_of("s/c/1"), Some("s/d/2"));
+    /// assert_eq!(span.new_path_of("s/c"), Some("s/d"));
+    ///
+    /// // (R) became (S), and later (S) became (R) again: no move over the span.
+    /// let span = pairs(&[("p/R", "p/S")]).then(&pairs(&[("p/S", "p/R")]));
+    /// assert!(span.is_empty());
+    /// ```
+    pub fn then(&self, later: &Redesignations) -> Self {
+        let mut by_old_path = HashMap::new();
+        // Each earlier move, continued by the later moves.
+        for (old, middle) in &self.by_old_path {
+            let new = later
+                .carried_forward(middle)
+                .unwrap_or_else(|| middle.clone());
+            by_old_path.insert(old.clone(), new);
+        }
+        // Each later move, named by the path its provision had on the first
+        // date. An earlier move already continued above wins.
+        let earlier_back: HashMap<&str, &str> = self
+            .by_old_path
+            .iter()
+            .map(|(old, new)| (new.as_str(), old.as_str()))
+            .collect();
+        for (middle, new) in &later.by_old_path {
+            let old = carry(middle, |head| {
+                earlier_back.get(head).map(|old| old.to_string())
+            })
+            .unwrap_or_else(|| middle.clone());
+            by_old_path.entry(old).or_insert_with(|| new.clone());
+        }
+        // A provision moved away and back again did not move over the span.
+        by_old_path.retain(|old, new| old != new);
+        Self { by_old_path }
+    }
+
+    /// Where these renumberings put `path`, counting a move of a container
+    /// above it. `None` when nothing moved it.
+    fn carried_forward(&self, path: &str) -> Option<String> {
+        carry(path, |head| self.by_old_path.get(head).cloned())
+    }
+
     /// True when nothing is known, so the diff behaves exactly as it did before
     /// redesignations existed.
     pub fn is_empty(&self) -> bool {
@@ -249,7 +315,7 @@ impl Redesignations {
     /// Only what a bill stated about *this* path. A provision carried along by a
     /// renumbered ancestor is not here, because no bill said anything about it —
     /// ask [`Redesignations::is_one_provision`] about that.
-    fn new_path_of(&self, old_path: &str) -> Option<&str> {
+    pub fn new_path_of(&self, old_path: &str) -> Option<&str> {
         self.by_old_path.get(old_path).map(String::as_str)
     }
 
@@ -285,6 +351,19 @@ impl Redesignations {
             old_head = old_rest;
             new_head = new_rest;
         }
+    }
+}
+
+/// `path`, renamed by the nearest container at or above it that `renamed`
+/// names. The segments below that container stay as they were, because a
+/// renumbering changes one segment and carries what is below it.
+fn carry(path: &str, renamed: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let mut head = path;
+    loop {
+        if let Some(new_head) = renamed(head) {
+            return Some(format!("{new_head}{}", &path[head.len()..]));
+        }
+        head = head.rsplit_once('/')?.0;
     }
 }
 
