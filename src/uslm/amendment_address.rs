@@ -254,14 +254,19 @@ impl<'a> Scope<'a> {
     ///
     /// As [`Self::section`], and where the amending line names no section but
     /// the instruction inserts a whole new one, the new section
-    /// ([`new_section_inserted`]).
+    /// ([`new_section_inserted`], [`new_section_an_item_inserts`]).
     fn address(
         &self,
         came_through: &[&DocumentNode],
         code_of_1986: &[String],
     ) -> Result<(String, Vec<Step>), Reason> {
         self.section_cited_by(came_through, code_of_1986, |line| {
-            citation_in(line).or_else(|| new_section_inserted(&self.clause, came_through))
+            citation_in(line)
+                .or_else(|| new_section_inserted(&self.clause, came_through))
+                .or_else(|| {
+                    let (_, holder) = self.amending_line.as_ref()?;
+                    new_section_an_item_inserts(holder, &self.clause, came_through)
+                })
         })
     }
 
@@ -729,13 +734,47 @@ fn new_section_inserted(
     if !clause.contains("the following new section") {
         return None;
     }
+    let number = SECTION_HEADING.captures(&first_enacted_block(came_through)?)?[1].to_string();
+    Some((number, Vec::new()))
+}
+
+/// The number of the whole new section an item of a list inserts, when it
+/// inserts one (#438).
+///
+/// > (e) Chapter 3 of title 14, United States Code, is amended—
+/// > (5) by inserting after section 309 … the following: "§ 310. Director of
+/// > Coast Guard Investigative Service …
+///
+/// § 309 is only the anchor. An item of a list under a line that names part of
+/// a title enacts the section as the Code prints it, with a `§ 310.` heading,
+/// and says only *the following*. The list's line gives the title. Only an item
+/// of such a list is read so; for the amending line of one instruction, see
+/// [`new_section_inserted`].
+fn new_section_an_item_inserts(
+    holder: &DocumentNode,
+    clause: &str,
+    came_through: &[&DocumentNode],
+) -> Option<(String, Vec<String>)> {
+    static CODE_SECTION_HEADING: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"^\W*§\s*([0-9][0-9A-Za-z]*)\s*\."#)
+            .expect("the Code section heading pattern must compile")
+    });
+    stored_list_title(holder)?;
+    if !clause.contains("the following") {
+        return None;
+    }
+    let number = CODE_SECTION_HEADING.captures(&first_enacted_block(came_through)?)?[1].to_string();
+    Some((number, Vec::new()))
+}
+
+/// The first block of text the instruction at the end of `came_through`
+/// enacts, trimmed.
+fn first_enacted_block(came_through: &[&DocumentNode]) -> Option<String> {
     let instruction = came_through
         .iter()
         .rev()
         .find_map(|node| stored_facts(node).and_then(|facts| facts.amendment))?;
-    let first_block = instruction.enacted_text.first()?;
-    let number = SECTION_HEADING.captures(first_block.trim())?[1].to_string();
-    Some((number, Vec::new()))
+    Some(instruction.enacted_text.first()?.trim().to_string())
 }
 
 // --- Reading the words, shared with the markup reader ---
@@ -990,16 +1029,26 @@ pub(crate) fn title_a_list_amends(line: &str) -> Option<String> {
 /// > (10) In chapter 40, by redesignating section 711 (relating to …) as
 /// > section 710a …
 /// > (1) Section 2101(2) is amended by striking …
+/// > (1) by amending section 7306 to read as follows: …
 ///
-/// The item must open with *In* or *Section*, which is how an item names where
-/// it acts, and only its words before the first quotation count: a quoted
-/// string is words of the Code. An item that edits an index — *"In the
+/// The item must open with *In*, *Section* or *by amending section*, which is
+/// how an item names where it acts, and only its words before the first
+/// quotation count: a quoted string is words of the Code. *By amending section
+/// 7306* names the section it changes (#438). Another verb does not: in *"by
+/// inserting after section 309"* the section is only where new text goes. The
+/// publisher's marginal note can stand before the words: *"(3) 46 USC 7308.in
+/// section 7308 by striking …"*. An item that edits an index — *"In the
 /// analysis for chapter 700 by striking the item relating to section 70006"*
 /// — names no section it acts on.
 pub(crate) fn section_a_list_item_names(words: &str) -> Option<(String, Vec<String>)> {
     static OPENS_WITH_A_PLACE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)^\W*(?:\([0-9A-Za-z]{1,6}\)\s*)?(?:in|section)\b")
-            .expect("the list-item pattern must compile")
+        Regex::new(concat!(
+            r"(?i)^\W*(?:\([0-9A-Za-z]{1,6}\)\s*)?",
+            // The publisher's marginal note: `46 USC 7308.`
+            r"(?:[0-9]+[A-Za-z]?\s*USC\s*(?:prec\.\s*)?[0-9A-Za-z.\-]*?\.\s*)?",
+            r"(?:in|section|by\s+amending\s+section)\b",
+        ))
+        .expect("the list-item pattern must compile")
     });
     let unquoted = words.split('"').next().unwrap_or_default();
     if !OPENS_WITH_A_PLACE.is_match(unquoted) {

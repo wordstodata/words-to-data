@@ -283,3 +283,84 @@ fn should_not_address_the_section_a_heading_names_when_the_items_name_their_own(
         "{sections:?}"
     );
 }
+
+/// Pub. L. 119-60 § 7301(d)(1) (#438):
+///
+/// > (d) Chapter 73 of title 46, United States Code, is amended—
+/// > (1) by amending section 7306 to read as follows: …
+///
+/// The line names a chapter, and the item names the section it acts on after
+/// *by amending*. The list gives the title.
+#[test]
+fn should_address_the_section_an_item_amends_when_the_item_says_by_amending_section() {
+    let addresses = addresses_in(committed_ndaa());
+
+    let address = address_saying(&addresses, "by amending section 7306 to read as follows");
+
+    assert!(
+        address
+            .path
+            .ends_with("section_7301/subsection_d/paragraph_1"),
+        "the item should be its own amendment: {}",
+        address.path
+    );
+    assert_eq!(
+        address.section.as_deref(),
+        Some("/us/usc/t46/s7306"),
+        "{address:?}"
+    );
+}
+
+/// Pub. L. 119-60 § 7301(d)(3) (#438):
+///
+/// > (3) [46 USC 7308.] in section 7308 by striking "18 months" …
+///
+/// The publisher's marginal note sits before *in section*, and the item still
+/// names the section it acts on.
+#[test]
+fn should_address_the_section_an_item_names_when_a_marginal_note_opens_the_item() {
+    let addresses = addresses_in(committed_ndaa());
+
+    let address = addresses
+        .iter()
+        .find(|address| {
+            address
+                .path
+                .ends_with("section_7301/subsection_d/paragraph_3")
+        })
+        .expect("the item should be an amendment");
+
+    assert_eq!(
+        address.section.as_deref(),
+        Some("/us/usc/t46/s7308"),
+        "{address:?}"
+    );
+}
+
+/// Pub. L. 119-60 § 7201(e)(5) (#438):
+///
+/// > (e) Chapter 3 of title 14, United States Code, is amended—
+/// > (5) by inserting after section 309 (as so redesignated …) the following:
+/// > "§ 310. Director of Coast Guard Investigative Service …
+///
+/// § 309 is only where the new text goes. The item inserts a whole new
+/// section, and the heading of the text it enacts gives its number.
+#[test]
+fn should_address_the_new_section_when_an_item_of_the_list_inserts_one() {
+    let addresses = addresses_in(committed_ndaa());
+
+    let address = addresses
+        .iter()
+        .find(|address| {
+            address
+                .path
+                .ends_with("section_7201/subsection_e/paragraph_5")
+        })
+        .expect("the item should be an amendment");
+
+    assert_eq!(
+        address.section.as_deref(),
+        Some("/us/usc/t14/s310"),
+        "{address:?}"
+    );
+}

@@ -260,8 +260,14 @@ pub enum Stage {
 /// of every provision below it, field by field, in the order the Code prints
 /// them. Its own words alone show it only when they are more than three
 /// words, or when the block also holds a field below them.
+///
+/// Version 8 (#438): an item of a list under a line that names part of a
+/// title gives the section it names after *by amending*, after the
+/// publisher's marginal note, or in the `§ 310.` heading of a new section it
+/// inserts: *"Chapter 73 of title 46 … is amended— (1) by amending section
+/// 7306 …"* acts in § 7306.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 7)
+    Method::new("address, window and quoted words", 8)
 }
 
 /// Who a link this method writes says made it.
