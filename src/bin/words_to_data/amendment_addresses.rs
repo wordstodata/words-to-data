@@ -43,13 +43,17 @@ pub fn run(args: Args) {
         with_dataset!(&ds, d => d.bill_document(&args.bill)),
         "Error reading the bill",
     );
+    // The document is the public law, joined to the bill by the amendments it
+    // states. Most often a bill has none because it did not become law, so
+    // that reason comes first (#425).
     let Some(document) = document else {
-        eprintln!(
-            "The dataset holds no document for bill {}. A dataset built before \
-             the bill was stored as a document (#196) has none to read.",
+        crate::fail::refuse(&format!(
+            "This dataset holds bill {}, and no public-law document that states its \
+             amendments, so no address can be read.\nA bill that did not become law has \
+             none. A dataset built before bills were stored as documents (#196) has none \
+             either.",
             args.bill
-        );
-        std::process::exit(1);
+        ));
     };
 
     let mut addresses = addresses_in(&document.root);

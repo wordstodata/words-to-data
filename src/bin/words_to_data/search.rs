@@ -15,7 +15,7 @@ use std::io::Write;
 use clap::Args as ClapArgs;
 use serde::Serialize;
 use words_to_data::dataset::{ExpressionId, SearchAnswer, SearchResult};
-use words_to_data::inspect::{AbsentPath, AbsentScope, FEW_WORKS, absent_path, absent_scope};
+use words_to_data::inspect::{AbsentScope, FEW_WORKS, absent_path, absent_scope};
 use words_to_data::query::{DEFAULT_LIMIT, Locator};
 
 use crate::annotations::{absent_notice, path_matching};
@@ -150,11 +150,14 @@ pub fn run(mut args: Args) {
     );
     // Asked only when nothing matched: a hit proves the work, the date and the
     // path are held. An empty search over a guessed path must not read like one
-    // over a real path (#305), nor one over a work or date not held (#337).
-    let absent = match found.total {
-        0 => Absent::find(&ds, &locator, &args.dataset),
-        _ => Absent::default(),
-    };
+    // over a real path (#305), nor one over a work or date not held (#337). It
+    // is not an answer, so the run refuses it, as `diff` and `expressions` do
+    // (#392, #425).
+    if found.total == 0
+        && let Some(notice) = not_held(&ds, &locator, &args.dataset, args.exact)
+    {
+        crate::fail::refuse(&notice);
+    }
 
     if args.occurrences {
         // The limit went to the search as a count of fields. Each field holds
@@ -164,7 +167,7 @@ pub fn run(mut args: Args) {
         if let Some(limit) = limit {
             listed.truncate(limit);
         }
-        if let Err(error) = report_occurrences(&args, &listed, found.occurrences, &absent)
+        if let Err(error) = report_occurrences(&args, &listed, found.occurrences)
             && error.kind() != std::io::ErrorKind::BrokenPipe
         {
             crate::fail::refuse(&format!("Error writing the answer: {error}"));
@@ -191,7 +194,7 @@ pub fn run(mut args: Args) {
     // A reader that closed the pipe has read enough, which is a clean stop and
     // not a failure. `println!` panics on a broken pipe, so `search | head`
     // exited 101 where the same run without a pipe exited 0 (#235).
-    if let Err(error) = report(&args, &hits, &found, &absent)
+    if let Err(error) = report(&args, &hits, &found)
         && error.kind() != std::io::ErrorKind::BrokenPipe
     {
         crate::fail::refuse(&format!("Error writing the answer: {error}"));
@@ -202,27 +205,17 @@ pub fn run(mut args: Args) {
 ///
 /// Returns the write error rather than panicking on it, so the caller can tell a
 /// reader that walked away from a disk that filled up.
-fn report(
-    args: &Args,
-    hits: &[SearchResult],
-    found: &SearchAnswer,
-    absent: &Absent,
-) -> std::io::Result<()> {
+fn report(args: &Args, hits: &[SearchResult], found: &SearchAnswer) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
 
     if args.json {
-        let mut answer = serde_json::json!({
+        let answer = serde_json::json!({
             "hits": hits,
             "total": found.total,
             "occurrences": found.occurrences,
         });
-        absent.add_to(&mut answer);
         writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
         return out.flush();
-    }
-
-    if let Some(notice) = absent.notice(args.exact) {
-        writeln!(out, "{notice}")?;
     }
 
     for hit in hits {
@@ -256,58 +249,30 @@ fn report(
     out.flush()
 }
 
-/// What an empty search reached nothing of: a work or a date not held, or else
-/// a path not held. Both are empty when the search found something.
-#[derive(Default)]
-struct Absent {
-    scope: Option<AbsentScope>,
-    path: Option<AbsentPath>,
-    /// The dataset file, for the command a notice names.
-    dataset: String,
-}
-
-impl Absent {
-    /// Check the work and the date first. A path is "not held" only inside a
-    /// work and a date that are held: when the date is not held, the path is
-    /// not the filter that matched nothing (#337).
-    fn find(ds: &load::OpenDataset, locator: &Locator, dataset: &str) -> Self {
-        let scope = crate::fail::or_exit(
-            with_dataset!(ds, d => absent_scope(d, locator)),
-            "Error checking the work and the date",
-        );
-        let path = match scope {
-            Some(_) => None,
-            None => crate::fail::or_exit(
-                with_dataset!(ds, d => absent_path(d, locator)),
-                "Error checking the path",
-            ),
-        };
-        Self {
-            scope,
-            path,
-            dataset: dataset.to_string(),
-        }
+/// The notice for an empty search over a filter the dataset does not hold, or
+/// `None` when every filter is held.
+///
+/// The work and the date are checked first. A path is "not held" only inside
+/// a work and a date that are held: when the date is not held, the path is not
+/// the filter that matched nothing (#337).
+fn not_held(
+    ds: &load::OpenDataset,
+    locator: &Locator,
+    dataset: &str,
+    exact: bool,
+) -> Option<String> {
+    let scope = crate::fail::or_exit(
+        with_dataset!(ds, d => absent_scope(d, locator)),
+        "Error checking the work and the date",
+    );
+    if let Some(scope) = scope {
+        return Some(scope_notice(&scope, dataset, exact));
     }
-
-    /// Put what is absent into the `--json` answer. Only when something is, so
-    /// the answer over a held scope is the same as it was.
-    fn add_to(&self, answer: &mut serde_json::Value) {
-        if let Some(scope) = &self.scope {
-            answer["absent_scope"] = serde_json::json!(scope);
-        }
-        if let Some(path) = &self.path {
-            answer["absent_path"] = serde_json::json!(path);
-        }
-    }
-
-    /// The lines a person reads before the count.
-    fn notice(&self, exact: bool) -> Option<String> {
-        if let Some(scope) = &self.scope {
-            return Some(scope_notice(scope, &self.dataset, exact));
-        }
-        let path = self.path.as_ref()?;
-        Some(absent_notice(path, exact, "this search reads"))
-    }
+    let path = crate::fail::or_exit(
+        with_dataset!(ds, d => absent_path(d, locator)),
+        "Error checking the path",
+    );
+    path.map(|path| absent_notice(&path, exact, "this search reads"))
 }
 
 /// The lines that say which filter matched no expression, and what is held
@@ -401,26 +366,16 @@ fn each_occurrence(fields: &[SearchResult], width: usize) -> Vec<Occurrence> {
 /// Write the occurrences to stdout, and say how many the limit left out.
 ///
 /// `total` counts every occurrence the search found, listed or not.
-fn report_occurrences(
-    args: &Args,
-    listed: &[Occurrence],
-    total: usize,
-    absent: &Absent,
-) -> std::io::Result<()> {
+fn report_occurrences(args: &Args, listed: &[Occurrence], total: usize) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
 
     if args.json {
-        let mut answer = serde_json::json!({
+        let answer = serde_json::json!({
             "hits": listed,
             "total": total,
         });
-        absent.add_to(&mut answer);
         writeln!(out, "{}", serde_json::to_string_pretty(&answer).unwrap())?;
         return out.flush();
-    }
-
-    if let Some(notice) = absent.notice(args.exact) {
-        writeln!(out, "{notice}")?;
     }
 
     for hit in listed {

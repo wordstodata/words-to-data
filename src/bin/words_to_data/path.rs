@@ -67,6 +67,23 @@ pub fn run(mut args: Args) {
     } else {
         None
     };
+    // A path that no expression holds and nothing names is not held: the run
+    // refuses it, as `diff` does (#392, #425). A link, a citation or a
+    // classification can name a path no expression holds, and then the report
+    // is a true answer and is printed with the notice.
+    let names_it = !report.annotations.is_empty()
+        || !report.citations.is_empty()
+        || !report.olrc_classifications.is_empty()
+        || !report.unfollowed_redesignations.is_empty();
+    if let Some(absent) = &absent
+        && !names_it
+    {
+        crate::fail::refuse(&crate::annotations::absent_notice(
+            absent,
+            args.exact,
+            &crate::held::scope_of(None, None),
+        ));
+    }
 
     if args.json {
         // Only when the path is absent, so the answer over a real path is the
