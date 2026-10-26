@@ -317,12 +317,13 @@ fn should_read_the_bare_section_without_the_footnote_mark_when_the_mark_follows_
 
 // --- The rule's version ------------------------------------------------------
 
-/// The plain-text rule now finds other paragraphs and footnotes than it found
-/// at version 2: the watermark is out of the words, a centred line of stars
-/// is no footnote mark, and a star against a word is one. So each passage it
-/// reads names version 3.
+/// The plain-text rule now finds other paragraphs than it found at version 3
+/// (0.6.1): the first item of an indented list after its lead-in starts a
+/// paragraph (#430). Version 3 (#413) took the watermark out of the words,
+/// read a centred line of stars as no footnote mark, and a star against a
+/// word as one. So each passage it reads names version 4.
 #[test]
-fn should_name_plain_text_paragraphs_at_version_3_when_a_passage_is_read_from_plain_text() {
+fn should_name_plain_text_paragraphs_at_version_4_when_a_passage_is_read_from_plain_text() {
     let case = case_from(4797751, &[opinion(4578098)]);
 
     let paragraph = case
@@ -338,7 +339,7 @@ fn should_name_plain_text_paragraphs_at_version_3_when_a_passage_is_read_from_pl
         .expect("the paragraph should say what it was based on");
     assert!(
         reasoning.contains(
-            "plain-text-paragraphs@3: paragraphs and footnotes read from the layout of the text"
+            "plain-text-paragraphs@4: paragraphs and footnotes read from the layout of the text"
         ),
         "{reasoning}"
     );

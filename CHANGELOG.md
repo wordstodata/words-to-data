@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+### Opinion plain text: the first item of a quoted list starts its own paragraph ([#430](https://github.com/wordstodata/words-to-data/issues/430))
+
+In *Polselli* the Court quotes 26 U.S.C. § 7609(c)(2)(D): the lead-in
+"“issued in aid of the collection of—" and then the item "“(i) an assessment
+made…". The watermark that #413 removed stood between the two lines and split
+them. Without it, the lead-in and the first line of item (i) were one
+paragraph, and the rest of item (i) was a paragraph of its own.
+
+Now an indented line that opens with a list designation, "(i)" or "“(i)",
+after a line that ends with "—" or ":" starts a paragraph, and the wrapped
+lines of the item stay with it. At the margin the rule does not apply: in the
+Tax Court opinions "means services consisting of— / (i) engaging in…" goes on
+in the sentence.
+
+#### Measured on the opinions of `evals/opinions.txt`
+
+Added to two copies of `dataset-demo.sqlite` from the cache, by the build
+before this change and by the build after it. Of the 29 writings read from
+plain text, 2 change, and no words change:
+
+- *Polselli* (opinion 10516288-1): 2 paragraphs change. The lead-in is a
+  paragraph of its own, and item (i) is one paragraph. The writing keeps 42
+  paragraphs.
+- *Medina v. Planned Parenthood* (opinion 11084231-1): "…including each of the
+  following rights:" and "“(i) Free choice" are now two paragraphs
+  (`paragraph_57` and `paragraph_58`), so the writing has 80 paragraphs, not
+  79, and the 22 paragraphs after them are numbered again. Its 9 footnotes do
+  not change.
+- **`judicial.cites`** stays at 441 links and 488 places. One link changes
+  only its subject path: the citation of 42 U.S.C. § 1395a in *Medina* moves
+  from `paragraph_68` to `paragraph_69`, where the paragraph number moved.
+- No other writing changes.
+
+#### Breaking changes for agents
+
+- Method version: `plain-text-paragraphs@4` (was 3). A dataset built with
+  0.6.1 keeps the old paragraphs of these writings until you run
+  `add-opinions` again.
+
 ## 0.6.1
 
 Fewer wrong links, and commands that refuse what the dataset does not hold. The
@@ -61,44 +102,6 @@ link ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
   patterns@6` (was 5), `bare section under the opinion's default code@4` (was
   3), `plain-text-paragraphs@3` (was 2), and the text method of opinions 2 (was
   1). A link records the version that made it.
-
-### Opinion plain text: the first item of a quoted list starts its own paragraph ([#430](https://github.com/wordstodata/words-to-data/issues/430))
-
-In *Polselli* the Court quotes 26 U.S.C. § 7609(c)(2)(D): the lead-in
-"“issued in aid of the collection of—" and then the item "“(i) an assessment
-made…". The watermark that #413 removed stood between the two lines and split
-them. Without it, the lead-in and the first line of item (i) were one
-paragraph, and the rest of item (i) was a paragraph of its own.
-
-Now an indented line that opens with a list designation, "(i)" or "“(i)",
-after a line that ends with "—" or ":" starts a paragraph, and the wrapped
-lines of the item stay with it. At the margin the rule does not apply: in the
-Tax Court opinions "means services consisting of— / (i) engaging in…" goes on
-in the sentence.
-
-#### Measured on the opinions of `evals/opinions.txt`
-
-Added to two copies of `dataset-demo.sqlite` from the cache, by the build
-before this change and by the build after it. Of the 29 writings read from
-plain text, 2 change, and no words change:
-
-- *Polselli* (opinion 10516288-1): 2 paragraphs change. The lead-in is a
-  paragraph of its own, and item (i) is one paragraph. The writing keeps 42
-  paragraphs.
-- *Medina v. Planned Parenthood* (opinion 11084231-1): "…including each of the
-  following rights:" and "“(i) Free choice" are now two paragraphs
-  (`paragraph_57` and `paragraph_58`), so the writing has 80 paragraphs, not
-  79, and the 22 paragraphs after them are numbered again. Its 9 footnotes do
-  not change.
-- **`judicial.cites`** stays at 441 links and 488 places. One link changes
-  only its subject path: the citation of 42 U.S.C. § 1395a in *Medina* moves
-  from `paragraph_68` to `paragraph_69`, where the paragraph number moved.
-- No other writing changes.
-
-#### Breaking changes for agents
-
-- The method stays at `plain-text-paragraphs@3`. Version 3 changed for #413
-  and is not released yet, so this change goes in the same version.
 
 ### One rule for "not held", and "matched nothing" said as that ([#425](https://github.com/wordstodata/words-to-data/issues/425))
 
