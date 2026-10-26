@@ -9,7 +9,8 @@
 
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect::{
-    BillNotHeld, WindowNotHeld, absent_scope, bill_not_held, path_as_held, window_not_held,
+    BillNotHeld, WindowNotHeld, absent_path, absent_scope, bill_not_held, path_as_held,
+    window_not_held,
 };
 use words_to_data::query::{LinkQuery, Locator};
 use words_to_data::storage::DocumentReader;
@@ -226,6 +227,37 @@ pub fn path_argument<R: DocumentReader + ?Sized>(reader: &R, typed: &str) -> Str
         eprintln!("Reading {typed} as {held}, the spelling this dataset holds.");
     }
     held
+}
+
+/// Stop the run with exit 1 when no expression the `locator` reads holds its
+/// path, or a path beneath it.
+///
+/// For a command that found nothing at that path: a link or a citation can
+/// name a path that no expression holds, and what it found is a true answer,
+/// so the caller asks only when it found nothing. "0 annotation(s)" over a
+/// guessed path, exit 0, read as an answer about a held path (#305, #425).
+///
+/// `scope` says which expressions were read, as words that follow "No
+/// expression": "in the dataset", or "of <work> from <date> to <date>".
+pub fn refuse_unless_path_held_in<R: DocumentReader + ?Sized>(
+    reader: &R,
+    locator: &Locator,
+    exact: bool,
+    scope: &str,
+) {
+    let absent = crate::fail::or_exit(absent_path(reader, locator), "Error checking the path");
+    if let Some(absent) = absent {
+        crate::fail::refuse(&crate::annotations::absent_notice(&absent, exact, scope));
+    }
+}
+
+/// The words that say which expressions a window reads, for
+/// [`refuse_unless_path_held_in`]: "in the dataset" with no window.
+pub fn scope_of(from: Option<&ExpressionId>, to: Option<&ExpressionId>) -> String {
+    match (from, to) {
+        (Some(from), Some(to)) => format!("of {} from {} to {}", from.work, from.at, to.at),
+        _ => "in the dataset".to_string(),
+    }
 }
 
 /// An id argument (a link's or an amendment's, or the start of one) in the

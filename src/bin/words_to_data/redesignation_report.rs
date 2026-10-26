@@ -75,7 +75,12 @@ pub fn run(args: Args) {
     }
 
     if report.rows.is_empty() {
-        println!("\nThis dataset holds no bill that states a renumbering.");
+        // About the bill asked for, when one was: the dataset can hold other
+        // bills that state renumberings (#425).
+        match &args.bill_id {
+            Some(bill) => println!("\nBill {bill} states no renumbering."),
+            None => println!("\nThis dataset holds no bill that states a renumbering."),
+        }
         return;
     }
 

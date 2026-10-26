@@ -727,21 +727,32 @@ fn annotation_list(args: &[&str]) -> Vec<serde_json::Value> {
     list.as_array().expect("an array").clone()
 }
 
+/// A `path` or `annotations` run that found nothing at a path no expression
+/// holds: refused, with exit 1, the notice on stderr and nothing on stdout
+/// (#392, #425). The fixture holds title 9 and its statements name title 26,
+/// so no expression holds a path of title 26.
+fn assert_refused(args: &[&str]) {
+    let output = run(args);
+    assert_eq!(output.status.code(), Some(1), "{args:?}");
+    assert!(output.stdout.is_empty(), "{args:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("No expression in the dataset holds"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn should_report_the_annotations_beneath_a_section_when_path_names_a_section() {
     let dataset = matched_statements_fixture();
 
     let by_default = annotation_list(&["path", dataset, SECTION_163, "--json"]);
-    let exactly_there = annotation_list(&["path", dataset, SECTION_163, "--exact", "--json"]);
+    assert_refused(&["path", dataset, SECTION_163, "--exact", "--json"]);
 
     assert_eq!(
         by_default.len(),
         8,
         "naming a section must report the records held beneath it"
-    );
-    assert!(
-        exactly_there.is_empty(),
-        "--exact keeps the answer this section used to give"
     );
 }
 
@@ -750,7 +761,7 @@ fn should_report_the_annotations_beneath_a_section_when_annotations_is_given_one
     let dataset = matched_statements_fixture();
 
     let by_default = annotation_list(&["annotations", dataset, "--path", SECTION_163, "--json"]);
-    let exactly_there = annotation_list(&[
+    assert_refused(&[
         "annotations",
         dataset,
         "--path",
@@ -764,19 +775,15 @@ fn should_report_the_annotations_beneath_a_section_when_annotations_is_given_one
         8,
         "both commands must answer a section the same way"
     );
-    assert!(exactly_there.is_empty(), "--exact means exactly");
 }
 
 #[test]
 fn should_not_report_a_longer_section_number_when_the_path_is_a_string_prefix() {
     let dataset = matched_statements_fixture();
 
-    let shorter_number = annotation_list(&["annotations", dataset, "--path", SECTION_16, "--json"]);
-
-    assert!(
-        shorter_number.is_empty(),
-        "§16 is not §163: a path matches whole segments, not characters"
-    );
+    // §16 is not §163: a path matches whole segments, not characters. So
+    // nothing is found, and the path is refused as not held.
+    assert_refused(&["annotations", dataset, "--path", SECTION_16, "--json"]);
 }
 
 /// The subtree changes which annotations are listed, and nothing else. An agent

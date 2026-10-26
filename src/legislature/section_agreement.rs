@@ -143,6 +143,13 @@ pub fn section_agreement<S: Storage>(
     amendments.kind = Some(LinkKind::AMENDED_BY.to_string());
     amendments.limit = None;
     let Answer { rows: links, .. } = dataset.links_matching(&amendments)?;
+    // A refuted link is reviewed and claims nothing: it is not checked, and it
+    // is not queued for a reviewer again (#415).
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
+    let links: Vec<Link> = links
+        .into_iter()
+        .filter(|link| !crate::review::is_refuted(link, &reviews))
+        .collect();
 
     let mut addresses = Addresses::default();
     let mut checked: Vec<Row> = Vec::with_capacity(links.len());

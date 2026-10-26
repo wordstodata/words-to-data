@@ -387,3 +387,42 @@ fn should_list_the_change_as_unclaimed_when_coverage_reads_a_path_whose_only_lin
         "a refuted link claims no change, so {path} is unclaimed again"
     );
 }
+
+/// The short ids of the links `section-agreement --json` queues.
+fn queued(file: &str) -> Vec<String> {
+    let said = run(&["section-agreement", file, "--json"]);
+    let report: serde_json::Value = serde_json::from_str(&said).expect("the answer is JSON");
+    report["rows"]
+        .as_array()
+        .expect("the queue is a list")
+        .iter()
+        .map(|row| {
+            row["id"]
+                .as_str()
+                .expect("a row names its link")
+                .to_string()
+        })
+        .collect()
+}
+
+/// A review queue that keeps a refuted link asks a reviewer to review it again
+/// (#415). The links here name a bill the fixture holds no document for, so
+/// every one of them is queued as "could not be read" until it is refuted.
+#[test]
+fn should_leave_a_refuted_link_out_of_the_queue_when_section_agreement_reads_it() {
+    let mut dataset = evidence_dataset();
+    let (_, links) = path_with_several_causes(&dataset);
+    let refuted = &links[0];
+    let short = review::short_id(&refuted.id()).to_string();
+    let before = queued(&on_disk(&dataset, "agreement_before"));
+    assert!(before.contains(&short), "queued before the review");
+
+    settle(&mut dataset, refuted, Verdict::Refuted);
+    let after = queued(&on_disk(&dataset, "agreement_after"));
+
+    assert!(
+        !after.contains(&short),
+        "{short} is refuted, and still queued"
+    );
+    assert_eq!(after.len(), before.len() - 1);
+}

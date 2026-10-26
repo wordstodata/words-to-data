@@ -123,6 +123,16 @@ pub fn run(mut args: Args) {
         with_dataset!(&ds, d => inspect::absent_path(d, &locator)),
         "Error checking the path",
     );
+    let scope = crate::held::scope_of(args.from.as_ref(), args.to.as_ref());
+    // Nothing found at a path no expression holds is not an answer: the run
+    // refuses the path, as `diff` does (#392, #425). What a link or a
+    // citation names there is still listed, with the notice.
+    if let Some(absent) = &absent
+        && found.total == 0
+        && citations_total == 0
+    {
+        crate::fail::refuse(&absent_notice(absent, args.exact, &scope));
+    }
 
     if args.json {
         let mut answer = serde_json::json!({
@@ -143,10 +153,6 @@ pub fn run(mut args: Args) {
     }
 
     if let Some(absent) = &absent {
-        let scope = match (&args.from, &args.to) {
-            (Some(from), Some(to)) => format!("of {} from {} to {}", from.work, from.at, to.at),
-            _ => "in the dataset".to_string(),
-        };
         println!("{}", absent_notice(absent, args.exact, &scope));
     }
 

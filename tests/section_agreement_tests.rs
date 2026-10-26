@@ -466,3 +466,39 @@ fn should_not_name_a_section_when_it_sits_only_in_the_inserted_text() {
          names no section; found {at_529a:?}"
     );
 }
+
+/// `--json --limit 3` gave every row. `annotations --json` and `opinions
+/// --json` honor an explicit `--limit`, and so does this command now, with the
+/// count of every row beside the ones given (#426).
+#[test]
+fn should_give_as_many_rows_as_the_limit_and_the_total_when_json_is_given_a_limit() {
+    let path = format!(
+        "{}/section_agreement_limit.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    amendment_links()
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+
+    let run = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(["section-agreement", &path, "--json", "--limit", "3"])
+        .output()
+        .expect("the binary should run");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&run.stdout).expect("--json should emit json");
+
+    assert_eq!(report["rows"].as_array().expect("rows").len(), 3);
+    assert!(
+        report["rows_total"]
+            .as_u64()
+            .expect("the count of every row")
+            > 3,
+        "{}",
+        report["rows_total"]
+    );
+}

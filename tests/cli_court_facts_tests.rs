@@ -195,19 +195,28 @@ fn should_print_page_count_download_url_and_sha1_when_the_record_carries_them() 
     }
 }
 
+/// This dataset holds opinions and no Code, so `path` refuses the Code path
+/// as not held (#425), and prints no court facts for it.
 #[test]
 fn should_give_no_court_facts_when_the_path_is_not_judicial() {
     let dataset = with_the_ten("facts_not_judicial");
 
     let path = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174";
-    let judicial = judicial_of(&dataset, path);
-    let out = printed(&dataset, path);
+    for json in [false, true] {
+        let mut args = vec!["path", dataset.as_str(), path];
+        if json {
+            args.push("--json");
+        }
+        let output = run(&args);
 
-    assert!(judicial.is_null(), "{judicial:#}");
-    assert!(
-        !out.lines().any(|line| line.starts_with("Case ")),
-        "a Code path has no case:\n{out}"
-    );
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(
+            output.stdout.is_empty(),
+            "a Code path has no case: {args:?}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!stderr.contains("Case "), "{stderr}");
+    }
 }
 
 /// A writing a rule found says so, and says which rule and by what words, so a

@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+### One rule for "not held", and "matched nothing" said as that ([#425](https://github.com/wordstodata/words-to-data/issues/425))
+
+An input the dataset does not hold stops the run with exit 1, the notice on
+stderr and nothing on stdout, as #392 chose. A filter that matches nothing in
+held data exits 0 and says that the filter matched nothing.
+
+### Fixes
+
+- A path that no expression holds, where the command found nothing, is
+  refused as `diff` refuses it, with the nearest held path: `path`,
+  `annotations --path`, `search --path`, `section-agreement --path` and
+  `cases-citing --path` (#425). Before, each one exited 0 with the notice on
+  stdout. What a link, a citation or a classification names at such a path is
+  still listed, with the notice. `cases-citing --path` in a work the dataset
+  does not carry still answers "out of scope", as `--cites` does.
+- `search --work` and `search --at` with a work or a date not held are refused
+  as `expressions --work` refuses them (#425).
+- `section-agreement` with a filter that matches no link says "No amendment
+  link matches --bill 119-hr-2215." Before, it said "This dataset holds no
+  amendment link to check." on a dataset that holds 3,224 (#425).
+- `redesignation-report --bill-id` with a held bill that states no renumbering
+  says "Bill 119-hr-42 states no renumbering." Before, it said that the
+  dataset holds no bill that states one (#425).
+- `amendment-addresses` with a held bill that has no public-law document says
+  that a bill that did not become law has none. Before, it gave only "built
+  before #196" as the reason (#425).
+- `votes` with a held bill that has no House roll call exits 0, as
+  `annotations --bill` does for a held bill with no link. `--json` gives `[]`
+  (#425).
+- `cases-citing --cites "26 U.S.C. § 174 and 26 U.S.C. § 162"` answers each
+  citation. Before, it answered § 174 alone, with no notice
+  ([#426](https://github.com/wordstodata/words-to-data/issues/426)).
+- `section-agreement --json` honors an explicit `--limit`, and gives
+  `rows_total` beside the rows (#426).
+- After `settle --verdict refuted`, `cases-citing` leaves the refuted citation
+  out, so it does not count its opinion, and `section-agreement` leaves the
+  refuted link out of its counts and its queue. `cases-citing` prints the
+  status a review gives, and who gave it: "link 1a2956ce5231 is Verified,
+  confirmed by agent:x on 2026-10-26"
+  ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
+
+#### Breaking changes for agents
+
+- `path`, `annotations --path`, `search --path`, `section-agreement --path`
+  and `cases-citing --path`: a path not held, where nothing was found, exits 1
+  with the notice on stderr. Before, exit 0 and the notice on stdout. The
+  `absent_path` field of `--json` is given only when a link, a citation or a
+  classification names the path (`path`, `annotations`), and `search --json`
+  no longer has `absent_path`.
+- `search --work` and `search --at` with a work or a date not held exit 1 with
+  the notice on stderr. Before, exit 0. `search --json` no longer has
+  `absent_scope`.
+- `votes` with a held bill and no House roll call exits 0 (before, 1). The
+  notice is on stdout, and `--json` gives `[]`.
+- `section-agreement --json --limit N` gives N rows and `rows_total`.
+- `cases-citing --json`: each place has `status` and `review` (`record`,
+  `verdict`, `reviewer`, `reasoning`, `at`, or `null`). A refuted citation is
+  not in the answer.
+
 ### `diff` over a span of several windows pairs the moves of each window ([#423](https://github.com/wordstodata/words-to-data/issues/423))
 
 A renumbering link is recorded for one window of two adjacent release points.
