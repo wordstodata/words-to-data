@@ -30,6 +30,9 @@ pub mod default_code;
 pub mod resolve;
 pub mod usc;
 
+use std::sync::LazyLock;
+
+use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 
@@ -167,7 +170,10 @@ impl Opinion {
 /// Version 6 (#410) reads a designation of more than one character: a roman
 /// numeral, `(ii)` or `(II)`, a doubled letter, `(cc)`, and a number and a
 /// capital letter, `(14A)`. Version 5 stopped before it, so
-/// `7 U.S.C. § 2015(o)(4)(A)(ii)` was a link to (A).
+/// `7 U.S.C. § 2015(o)(4)(A)(ii)` was a link to (A). In the same release
+/// (#413), a footnote mark against the full stop after a section number,
+/// `§5311.6`, is no part of the number when the writing has that footnote
+/// ([`without_footnote_marks`]).
 fn citation_rule() -> Method {
     Method::new("reporters-db laws.json U.S.C. patterns", 6)
 }
@@ -183,7 +189,8 @@ fn citation_rule() -> Method {
 /// 41(b)(1)-(3)`, is read as [`citation_rule`] version 5 reads it.
 ///
 /// Version 4 (#410): a designation of more than one character,
-/// `section 199A(c)(3)(A)(ii)`, is read as [`citation_rule`] version 6 reads it.
+/// `section 199A(c)(3)(A)(ii)`, is read as [`citation_rule`] version 6 reads it,
+/// and so is a footnote mark after a full stop, `IRC section 179.17` (#413).
 fn default_code_rule() -> Method {
     Method::new("bare section under the opinion's default code", 4)
 }
@@ -291,10 +298,17 @@ pub fn citations_by_passage<'a>(
         joined.push_str(words);
     }
 
-    let (mut citations, report) = usc::find_with_report(&joined);
+    let footnotes: Vec<&str> = passages
+        .iter()
+        .filter_map(|(path, _)| path.rsplit_once("/footnote_"))
+        .map(|(_, label)| label)
+        .collect();
+    let read = without_footnote_marks(&joined, &footnotes);
+
+    let (mut citations, report) = usc::find_with_report(&read);
     let mut bare = 0;
     if let Some(default) = default {
-        let found = default_code::find_bare(&joined, default, &citations);
+        let found = default_code::find_bare(&read, default, &citations);
         bare = found.len();
         citations.extend(found);
     }
@@ -314,6 +328,31 @@ pub fn citations_by_passage<'a>(
         report,
         bare,
     }
+}
+
+/// A footnote mark set against the full stop after a section number, at the
+/// end of a sentence: the `.6` of `31 U. S. C. §5311.6 Here we see`.
+static FOOTNOTE_MARK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?:§§?|\b[Ss]ec(?:tion)?s?\.?)\s*\d+[a-zA-Z]{0,4}(?P<mark>\.(?P<label>\d{1,3}))(?:\s|$)",
+    )
+    .expect("the footnote-mark pattern must compile")
+});
+
+/// The text with each footnote mark against a section number's full stop set
+/// as spaces, so that the reader reads `§5311.6` as § 5311 (#413). No section
+/// of the Code has a full stop in its number, so `5311.6` names nothing. The
+/// mark is taken out only when the writing has a footnote with that label,
+/// `footnotes`. The text keeps its length, so every offset stays true.
+fn without_footnote_marks(text: &str, footnotes: &[&str]) -> String {
+    let mut read = text.to_string();
+    for found in FOOTNOTE_MARK.captures_iter(text) {
+        if footnotes.contains(&&found["label"]) {
+            let mark = found.name("mark").expect("the pattern names the mark");
+            read.replace_range(mark.range(), &" ".repeat(mark.len()));
+        }
+    }
+    read
 }
 
 /// One place in a passage where the court wrote a citation of a provision.
