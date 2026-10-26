@@ -102,6 +102,13 @@ input that the dataset does not hold.
   `section-agreement` and `cases-citing`. `cases-citing --path …/section_174/`
   said that no opinion cites § 174 itself
   ([#395](https://github.com/wordstodata/words-to-data/issues/395)).
+- `residue --bill` matches only the titles of the Code that the bill acts in,
+  with the amendments of every law in those titles. Before, it matched every
+  title and then kept the bill's rows. The output does not change. On
+  `eval.sqlite`: `119-hr-42` 40 s to 1.0 s, `119-hr-618` 40 s to 0.45 s,
+  `119-s-1071` 40 s to 31 s, `119-hr-1` 40 s to 37 s (it acts in most
+  titles). The whole `residue` is 41 s, as before
+  ([#398](https://github.com/wordstodata/words-to-data/issues/398)).
 
 ### Breaking changes for agents
 

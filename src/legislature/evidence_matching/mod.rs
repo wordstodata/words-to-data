@@ -395,6 +395,31 @@ pub fn match_by_evidence_reporting<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     progress: &dyn crate::progress::Progress,
 ) -> Result<EvidenceMatching, DatasetError> {
+    match_laws(dataset, None, progress)
+}
+
+/// What the matcher finds for every amendment of the public law `bill` became,
+/// in the order the bill states them.
+///
+/// These are the answers [`match_by_evidence`] gives for the bill, in less
+/// time: only the titles of the Code that the bill's amendments act in are
+/// matched (#398). Each of those titles is still matched with the amendments
+/// of every law that act in it, because the amendments that act in one section
+/// in one window are resolved together.
+pub fn match_bill_by_evidence<S: Storage + LegislatureReader>(
+    dataset: &Dataset<S>,
+    bill: &str,
+) -> Result<Vec<AmendmentMatch>, DatasetError> {
+    Ok(match_laws(dataset, Some(bill), &crate::progress::Silent)?.matches)
+}
+
+/// The matcher over every public law or, when `bill` is given, over the titles
+/// of the Code that the bill acts in, with answers for that bill alone.
+fn match_laws<S: Storage + LegislatureReader>(
+    dataset: &Dataset<S>,
+    bill: Option<&str>,
+    progress: &dyn crate::progress::Progress,
+) -> Result<EvidenceMatching, DatasetError> {
     progress.begin("read the amendments", None);
     let mut stated = stated_amendments(dataset)?;
     let classifications = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
@@ -410,6 +435,10 @@ pub fn match_by_evidence_reporting<S: Storage + LegislatureReader>(
             Ok(work) => by_work.entry(work).or_default().push(at),
             Err(reason) => outcomes[at] = Some(residue(Stage::Address, reason)),
         }
+    }
+    // A title the bill does not act in can change none of the bill's answers.
+    if let Some(bill) = bill {
+        by_work.retain(|_, members| members.iter().any(|&at| stated[at].bill_id == bill));
     }
 
     // One work at a time, so only one title of the Code is in memory at once.
@@ -430,6 +459,7 @@ pub fn match_by_evidence_reporting<S: Storage + LegislatureReader>(
     let matches = stated
         .into_iter()
         .zip(outcomes)
+        .filter(|(amendment, _)| bill.is_none_or(|bill| bill == amendment.bill_id))
         .map(|(amendment, outcome)| AmendmentMatch {
             bill_id: amendment.bill_id,
             public_law: amendment.public_law,
