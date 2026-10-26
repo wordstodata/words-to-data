@@ -133,8 +133,10 @@ writing.
 
 "combined record … kept as a source, not as text" means the publisher also holds the whole case as one
 record with the same words, and the dataset stores the split writings instead.
-"court not recorded" means the dataset does not hold the court; it does not
-mean there is no court.
+"court not recorded" means the dataset does not hold the court as a field; it
+does not mean there is no court. The case text often names it: read the
+headmatter (`search <dataset> "" --path judicial/case_<cluster>/headmatter
+--snippet 0`), and quote the court from there.
 
 **Scope.** `info` prints `Covers:`, the works the dataset holds. If the dataset
 has a declaration, `info` also prints `Declared:`, any `Excluded:` path with its
