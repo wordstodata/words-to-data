@@ -47,23 +47,12 @@ pub(crate) const STAFF_SUMMARY: &str = "staff-summary";
 /// A rule, as a provenance names it: `justice-headings@1`.
 ///
 /// Each rule has its own version. Raise it when what the rule finds changes
-/// (`crate::method::Method`):
+/// (`crate::method::Method`).
 ///
-/// - `running-heads@2` (#315): a running head names its writing in mixed case
-///   too, has only words in lower case after "dissenting" or "concurring",
-///   and a writing starts at its opening line when that line is not the first
-///   of its page. The cover and the Reporter's Note of a preliminary print are
-///   no writing.
-/// - `plain-text-paragraphs@2` (#315): a rule of em dashes is a footnote rule
-///   only at the left margin.
-/// - `plain-text-paragraphs@3` (#413): the watermark of a preliminary print is
-///   no word of the text, a centred line of stars is a section break and no
-///   footnote mark, stars before more stars are an ellipsis, a star against
-///   the first word of a footnote is its label, and in a double-spaced text
-///   two blank lines go on with a footnote only once a footnote has started.
-/// - `plain-text-paragraphs@4` (#430): an indented line that opens with a
-///   list designation, "“(i)", after a lead-in that ends with "—" or ":"
-///   starts a paragraph.
+/// What each version changed is in `CHANGELOG.md`: search it for the rule's
+/// name and `@`, as `plain-text-paragraphs@`.
+/// To raise a version, change only the number below, and say so in the
+/// PR's file in `changelog.d/` (`changelog.d/README.md`).
 pub(crate) fn rule(name: &str) -> Method {
     let version = match name {
         PARAGRAPHS => 4,

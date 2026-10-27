@@ -41,9 +41,10 @@ use crate::storage::{DocumentReader, LinkReader, Storage};
 /// The carry, named, at the version it is at now. Raise the version when the
 /// map gives other answers.
 ///
-/// Version 2 (#316) reads every written form of a link, from the places in its
-/// payload, so an old link matches a new link that holds its form at any
-/// place. Version 1 read the one form a link held.
+/// What each version changed is in `CHANGELOG.md`: search it for
+/// `citation-review-carry@`.
+/// To raise the version, change only the number below, and say so in the
+/// PR's file in `changelog.d/` (`changelog.d/README.md`).
 pub fn carry_method() -> Method {
     Method::new("citation-review-carry", 2)
 }

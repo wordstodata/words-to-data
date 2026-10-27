@@ -231,62 +231,10 @@ pub enum Stage {
 /// apart, a different window rule. Tidying the code that gives the same answers
 /// is not such a change (`crate::method::Method`).
 ///
-/// Version 4 (#274): elimination gives an amendment only a change its own
-/// words can have made. The change must be in a unit its words name, and of a
-/// kind its action makes: a strike brings no new words, and an addition removes
-/// no provision.
-///
-/// Version 5 (#339): the address keeps every container the bill states
-/// (*"is amended, in subsection (c)"*, *"Paragraph (2) of section 6213(b)"*,
-/// *"Section 6213(b)(1) of the Internal Revenue Code"*). A provision placed
-/// by quoted words does not carry a change that another amendment is
-/// addressed to, and that amendment takes the provision at its own address by
-/// elimination.
-///
-/// Version 6 (#364): *"Such section"* and *"Such subsection"* name the unit
-/// the nearest earlier amendment in the same section of the bill named, so the
-/// markup gives these amendments their address. Before, only the OLRC's table
-/// could give one, and only the section.
-///
-/// Version 7 (#387): where the publisher's reference places a whole section of
-/// an Act, the address keeps the units the line names below it:
-/// *"Subsection (c)(7) of section 102A of the National Security Act of 1947
-/// (50 U.S.C. 3024)"* acts in 3024(c)(7), not in the whole of § 3024.
-///
-/// Version 7 (#389, #390): an enacted block that a change shows by three
-/// words or fewer, inside a longer block, is weak evidence. It is not counted
-/// where other words show in the change, and it gives way to a provision
-/// around the change that carries it. A provision carries every change inside
-/// it only when its amendment enacted it anew, renumbered it, or inserted words
-/// that open a new provision. A provision whose words the amendment only
-/// edited carries only the removal of a provision inside it.
-///
-/// Version 7 (#432): a provision the window added is compared with the words
-/// of every provision below it, field by field, in the order the Code prints
-/// them. Its own words alone show it only when they are more than three
-/// words, or when the block also holds a field below them.
-///
-/// Version 8 (#438): an item of a list under a line that names part of a
-/// title gives the section it names after *by amending*, after the
-/// publisher's marginal note, or in the `§ 310.` heading of a new section it
-/// inserts: *"Chapter 73 of title 46 … is amended— (1) by amending section
-/// 7306 …"* acts in § 7306.
-///
-/// Also in version 8 (#434): a section a line says *is repealed* is an address, where
-/// the line names the Code. Where two amendments' quoted words fit a change
-/// equally, the one whose address is inside the address of every other gets
-/// it. An address that a later amendment of the same law renumbered in the
-/// window is read at the new number.
-///
-/// Also in version 8 (#433): an enacted block shows a change also as the OLRC prints
-/// it: *"title 5"* for *"title 5, United States Code"*, the Code's citation
-/// for a reference to a law that the bill cites, and the date of enactment
-/// for *"the date of the enactment of this Act"*. A single and a double
-/// quotation mark are one mark.
-///
-/// Version 9 (#452): an enacted block shows an added provision also when the
-/// Code prints two of its words with no space between them, as a table cell
-/// of two lines: *"Applicablepercentage"* at 26 U.S.C. 1202(a)(5).
+/// What each version changed is in `CHANGELOG.md`: search it for
+/// `address, window and quoted words@`.
+/// To raise the version, change only the number below, and say so in the
+/// PR's file in `changelog.d/` (`changelog.d/README.md`).
 pub fn evidence_method() -> Method {
     Method::new("address, window and quoted words", 9)
 }

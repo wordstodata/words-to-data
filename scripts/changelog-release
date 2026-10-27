@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# changelog-release <version>: move the entries in changelog.d/ into CHANGELOG.md.
+#
+# Each file changelog.d/<issue>-<topic>.md holds one entry, starting with its
+# `### ` heading (changelog.d/README.md). This script puts all of them, in the
+# order of their issue numbers, in a new `## <version>` section below
+# `## Unreleased`, and deletes the files. Then the release PR writes the summary
+# and the "Upgrade from" section by hand at the top of the new section.
+set -euo pipefail
+
+if [[ $# -ne 1 || -z $1 || $1 == -* ]]; then
+	echo "usage: scripts/changelog-release <version>" >&2
+	exit 2
+fi
+version=$1
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+changelog=$root/CHANGELOG.md
+dir=$root/changelog.d
+
+if grep -qxF "## $version" "$changelog"; then
+	echo "CHANGELOG.md already has a section ## $version" >&2
+	exit 1
+fi
+if ! grep -qx '## Unreleased' "$changelog"; then
+	echo "CHANGELOG.md has no line ## Unreleased" >&2
+	exit 1
+fi
+
+# The entries, in the order of their issue numbers. A file with another name
+# stops the script, so that no entry is left behind without a word.
+fragments=()
+while IFS= read -r name; do
+	[[ $name == README.md ]] && continue
+	if [[ ! $name =~ ^[0-9]+-[A-Za-z0-9._-]+\.md$ ]]; then
+		echo "changelog.d/$name: the name is not <issue>-<topic>.md" >&2
+		exit 1
+	fi
+	fragments+=("$dir/$name")
+done < <(cd "$dir" && ls -1A | sort -t- -k1,1n -k2)
+
+if [[ ${#fragments[@]} -eq 0 ]]; then
+	echo "changelog.d/ holds no entries" >&2
+	exit 1
+fi
+for f in "${fragments[@]}"; do
+	if [[ $(head -n1 "$f") != '### '* ]]; then
+		echo "changelog.d/$(basename "$f"): the first line is not a ### heading" >&2
+		exit 1
+	fi
+done
+
+# The new section: the heading, then each entry with no blank lines at its
+# ends, one blank line between two entries.
+section=$(mktemp)
+trap 'rm -f "$section" "$changelog.new"' EXIT
+{
+	printf '## %s\n' "$version"
+	for f in "${fragments[@]}"; do
+		printf '\n'
+		sed -e '/./,$!d' "$f" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+	done
+	printf '\n'
+} >"$section"
+
+# Put the section before the first `## ` heading after `## Unreleased`, or at
+# the end when there is none.
+awk -v section="$section" '
+	function put() { while ((getline line < section) > 0) print line; done = 1 }
+	/^## / && seen && !done { put() }
+	{ print }
+	/^## Unreleased$/ { seen = 1 }
+	END { if (!done) { print ""; put() } }
+' "$changelog" >"$changelog.new"
+mv "$changelog.new" "$changelog"
+
+rm -- "${fragments[@]}"
+echo "CHANGELOG.md: ## $version holds ${#fragments[@]} entries; the files in changelog.d/ are deleted."
+echo "Write the summary and the Upgrade from section at the top of ## $version."
