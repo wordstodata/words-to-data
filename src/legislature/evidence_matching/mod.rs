@@ -16,7 +16,9 @@
 //!    changed in any window, but a window added or removed a provision the
 //!    address is inside, that provision is the change: the diff lists it as
 //!    one path and nothing beneath it (#336). The method gives it only to an
-//!    amendment that only adds, and only when the provision was added.
+//!    amendment that only adds, and only when the provision was added. When
+//!    the amendment's words do not show that provision, the change is the
+//!    provision at its address, added with it (#450).
 //!    Where a later amendment of the same law renumbered the provision the
 //!    address names in that window, the address is read at the new number
 //!    (#434).
@@ -282,8 +284,13 @@ pub enum Stage {
 /// for a reference to a law that the bill cites, and the date of enactment
 /// for *"the date of the enactment of this Act"*. A single and a double
 /// quotation mark are one mark.
+///
+/// Version 9 (#450): an amendment that only adds, whose address is inside a
+/// provision the window added whole, takes that provision only when its words
+/// show it. Otherwise it takes the provision at its address, which the window
+/// added too.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 8)
+    Method::new("address, window and quoted words", 9)
 }
 
 /// Who a link this method writes says made it.
@@ -741,7 +748,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
         }
         return Ok(Vec::new());
     }
-    let windows = windows_after(dataset, work, earliest_enactment)?;
+    let mut windows = windows_after(dataset, work, earliest_enactment)?;
     // Where each amendment is in the order the laws state them.
     let stated_at: BTreeMap<&str, usize> = stated
         .iter()
@@ -831,7 +838,8 @@ fn match_in_work<S: Storage + LegislatureReader>(
             .iter()
             .all(|&change| windows[inside.window].changes[change].whole == Some(Whole::Added));
         if added_whole && only_inserts(&stated[at]) {
-            placed.insert(at, vec![inside]);
+            let made = added_inside(&mut windows[inside.window], &stated[at], inside);
+            placed.insert(at, vec![made]);
         } else {
             enclosed.insert(at, inside);
         }
@@ -980,6 +988,50 @@ fn match_in_work<S: Storage + LegislatureReader>(
         .into_iter()
         .map(|view| (view.from, view.to))
         .collect())
+}
+
+/// The change an amendment that only adds made inside a provision the window
+/// added whole: that provision, when the amendment's words show it, and
+/// otherwise the provision at the amendment's address (#450).
+///
+/// The diff lists an added provision as one path, and nothing beneath it
+/// (#336). An amendment that enacts a new part with its sections made the
+/// part, and its block shows the part's words. An amendment whose block
+/// enacts one section inside it made that section, and not the unit above
+/// it: in the window where § 3117(a) of Pub. L. 119-60 adds 10 U.S.C. 6340,
+/// the OLRC moved the Atomic Energy Defense Act into a new subpart B of title
+/// 10, and the window adds the whole subpart. The section is added in the
+/// window too, so it is given as a change of its own, added whole.
+fn added_inside(view: &mut WindowView, amendment: &Stated, inside: Placed) -> Placed {
+    let shows_the_holder = inside.candidates.iter().any(|&change| {
+        let change = &view.changes[change];
+        !amendment
+            .evidence
+            .shown(&change.before, &change.after, change.added.as_ref(), &[])
+            .is_empty()
+    });
+    if shows_the_holder {
+        return inside;
+    }
+    let Some(node) = view.later.find(&inside.address) else {
+        return inside;
+    };
+    let added = Change::added(inside.address.clone(), added_words(&view.later, &node.data));
+    let at = match view
+        .changes
+        .iter()
+        .position(|change| change.path == added.path && change.whole == Some(Whole::Added))
+    {
+        Some(at) => at,
+        None => {
+            view.changes.push(added);
+            view.changes.len() - 1
+        }
+    };
+    Placed {
+        candidates: vec![at],
+        ..inside
+    }
 }
 
 /// The units an amendment's words name, read only when it quotes nothing
