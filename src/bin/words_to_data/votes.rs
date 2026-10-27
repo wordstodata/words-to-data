@@ -15,7 +15,8 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Bill identifier (e.g. `119-hr-1`)
+    /// Bill identifier (e.g. `119-hr-1`), or the public law it became
+    /// (`Pub. L. 119-21`, `PL 119-21` or `119-21`)
     pub bill_id: String,
 
     /// Emit JSON instead of human-readable text
@@ -23,9 +24,9 @@ pub struct Args {
     pub json: bool,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
-    crate::held::refuse_unless_bill_held(&ds, &args.dataset, &args.bill_id);
+    args.bill_id = crate::held::bill_argument(&ds, &args.dataset, &args.bill_id);
     let tallies = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::votes(&d, &args.bill_id)),
         "Error reading votes",

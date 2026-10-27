@@ -174,7 +174,7 @@ pub fn warn_unplaced(bill: &str, report: &RedesignationReport) {
             "  {} {}",
             warn_text(&format!("{unplaced} not placed.")),
             dim(&format!(
-                "To list them: words_to_data redesignation-report <dataset> --bill-id {bill}"
+                "To list them: words_to_data redesignation-report <dataset> --bill {bill}"
             ))
         );
     }
