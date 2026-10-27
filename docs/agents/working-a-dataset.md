@@ -462,7 +462,11 @@ words_to_data link-amendment <dataset> --bill <bill> --amendment <id> \
 ```
 
 Write the reason for a reader who will check you. Quote the amendment and the
-changed words. Your record is `MachineSuggested`, like every machine's, and a
+changed words. The SLEUTH tools refuse a reason that does not quote at least 5
+consecutive words of the amendment's text (`amendment-addresses --json` prints
+it), and a placeholder such as "TODO". Quote marks, dashes and case do not
+count. A verdict reason must quote 5 consecutive words of what
+`settle --explain` prints. Your record is `MachineSuggested`, like every machine's, and a
 person or another agent may refute it.
 
 ## Job 3 — review links
