@@ -54,6 +54,7 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
+use serde::Serialize;
 
 use super::default_code::DefaultCode;
 use crate::dataset::WorkId;
@@ -435,6 +436,37 @@ pub struct UscCitation {
     /// Internal Revenue Code ([`super::default_code::find_bare`]). `None` for a
     /// citation that names its title.
     pub default_code: Option<DefaultCode>,
+    /// The edition of the Code the citation names, in brackets right after
+    /// it: `(1976 ed.)` of `8 U.S.C. § 1105a(a) (1976 ed.)` (#449). `None` when
+    /// it names none.
+    pub edition: Option<Edition>,
+}
+
+/// An edition of the Code that a citation names: the words in the brackets
+/// after it, and the year of the edition.
+///
+/// The Supreme Court writes `(1976 ed.)` or `(1994 ed., Supp. II)`. The
+/// Bluebook writes the year alone, `(1988)`. Each names a printing of the Code
+/// from that year. A section number can be used again for a different
+/// provision, so the section at that number in a later printing is not always
+/// the law the court read.
+///
+/// ```
+/// use words_to_data::citation::usc;
+///
+/// let found = usc::find("review under 8 U.S.C. § 1105a(a)\n(1976 ed.).) There,");
+///
+/// let edition = found[0].edition.as_ref().expect("the citation names an edition");
+/// assert_eq!(edition.written, "1976 ed.");
+/// assert_eq!(edition.year, "1976");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Edition {
+    /// The words in the brackets, with each run of whitespace as one space:
+    /// `1976 ed.`, `1994 ed., Supp. II` or `1988`.
+    pub written: String,
+    /// The year of the edition: `1976`.
+    pub year: String,
 }
 
 /// A repair the reader made to read a citation: what the text wrote, and what it
@@ -853,6 +885,7 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
                 .expect("the pattern names a title")
                 .as_str()
                 .to_string(),
+            edition: edition_after(text, end),
             sections,
             text: text[whole.start()..end].to_string(),
             start: whole.start(),
@@ -860,6 +893,26 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
     }
 
     found
+}
+
+/// The brackets that name an edition of the Code, right after a citation:
+/// `(1976 ed.)`, `(1994 ed., Supp. II)` or `(1988)`. Anchored, because
+/// brackets later in the sentence belong to something else.
+static EDITION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*\((?P<written>(?P<year>(?:18|19|20)\d\d)(?:\s+ed\.[^()]{0,40})?)\)")
+        .expect("the edition pattern must compile")
+});
+
+/// The edition that the text at `end`, the end of a citation, names.
+fn edition_after(text: &str, end: usize) -> Option<Edition> {
+    let found = EDITION.captures(&text[end..])?;
+    Some(Edition {
+        written: found["written"]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+        year: found["year"].to_string(),
+    })
 }
 
 /// The repair that reads `written`, a spelling of [`OCR_REPORTERS`].

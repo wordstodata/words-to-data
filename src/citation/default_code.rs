@@ -197,6 +197,7 @@ pub fn find_bare(text: &str, default: &DefaultCode, read: &[UscCitation]) -> Vec
                 start: whole.start(),
                 repair: None,
                 default_code: Some(default.clone()),
+                edition: None,
             });
         }
     }
