@@ -173,7 +173,7 @@ link, and why. `words_to_data --help` lists every command.
 
 ```toml
 [dependencies]
-words-to-data = { version = "0.6", default-features = false }
+words-to-data = { version = "0.7", default-features = false }
 ```
 
 ```rust
