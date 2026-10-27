@@ -269,7 +269,15 @@ read the words.
    at `residue` for the bill: the amendment may be listed there with its
    candidate changes. That is Job 2. **An amendment can also be linked in part**
    — one of its changes linked, another not — and then `residue` does not list
-   it. `coverage` lists every change in a window that no link claims:
+   it. `residue --bill <bill> --partial` lists it too, with the category
+   `linked_in_part` and each change under its address that no link claims:
+   ```
+   words_to_data residue <dataset> --bill <bill> --partial --json
+   ```
+   Such a row does not say that a change is the amendment's. Read the
+   amendment's words and the change, and link the change only when those words
+   made it. A change under no amendment's address is not on that list.
+   `coverage` lists every change in a window that no link claims:
    ```
    words_to_data coverage <dataset> --from <work@date> --to <work@date> --all
    ```

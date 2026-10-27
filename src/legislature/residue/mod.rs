@@ -1,5 +1,6 @@
 //! Every amendment of a public law that no standing `legislature.amended_by`
-//! link names, with the stage and the reason it stopped (#251).
+//! link names, with the stage and the reason it stopped (#251), and, when the
+//! caller asks, every amendment that is linked in part (#271).
 //!
 //! Stage 5 of
 //! `docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`.
@@ -19,6 +20,18 @@
 //! amendment's change is, so an amendment whose every link is refuted is work
 //! again, and its row names each refuted link with the reviewer and the
 //! reason. A newer review that confirms the link takes it off the list again.
+//!
+//! **An amendment is linked in part when a standing link names it and a change
+//! under its address is claimed by no link** (#271). The address and the
+//! window are the matcher's. A change is claimed when a standing `amended_by`
+//! link, for any amendment, names it in that window. The row lists each change
+//! that is not claimed, and says no more: that the change is under the address
+//! and unclaimed. It does not say that the change is the amendment's. An agent
+//! reads the words and decides. A change whose link to this amendment was
+//! refuted is not listed again, because a reviewer has said that it is not
+//! this amendment's. These rows are not in the default list, which is the
+//! work the playbook gives an agent: a caller asks for them with
+//! [`Rows::AlsoLinkedInPart`] (`residue --partial`).
 //!
 //! **What it knows comes from the matcher.** Each unlinked amendment is
 //! described by the answer [`crate::legislature::evidence_matching`] gives for
@@ -40,7 +53,7 @@
 //! because a stored list goes false the moment someone links an amendment
 //! (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -51,7 +64,7 @@ use crate::legislature::evidence_matching::{
     match_by_evidence,
 };
 use crate::legislature::redesignation::Reason;
-use crate::link::{LinkKind, amendment_reference, bill_reference_prefix};
+use crate::link::{LinkKind, Target, amendment_reference, bill_reference_prefix};
 use crate::olrc::law_section::{LawSection, classifications_of};
 use crate::query::LinkQuery;
 use crate::review::{NoLink, Verdict, newest_naming, standing_no_links};
@@ -60,7 +73,8 @@ use crate::uslm::amendment_address::AmendmentAddress;
 
 pub use crate::olrc::law_section::Classification;
 
-/// One amendment no standing link names, and what is known about it.
+/// One amendment no standing link names, or one that is linked in part, and
+/// what is known about it.
 #[derive(Debug, Clone, Serialize)]
 pub struct Unlinked {
     /// The bill, as the dataset names it: `119-hr-1`.
@@ -91,12 +105,12 @@ pub struct Unlinked {
     /// The newest conclusion that the amendment has no correct link, when the
     /// category is [`Category::ReviewedNoLink`].
     pub no_link: Option<NoLink>,
-    /// Each `amended_by` link that names the amendment. A row is listed only
-    /// when no link of it stands, so each of these was refuted. Empty when no
-    /// link names it.
+    /// Each refuted `amended_by` link that names the amendment. Empty when no
+    /// link of it is refuted.
     pub refuted: Vec<RefutedLink>,
     /// The stage of the method it stopped at. `None` when the method links it
-    /// ([`Category::Unwritten`]).
+    /// ([`Category::Unwritten`], and [`Category::LinkedInPart`] when the method
+    /// made the link).
     pub stage: Option<Stage>,
     /// Why, in words a reviewer can act on.
     pub reason: String,
@@ -106,7 +120,8 @@ pub struct Unlinked {
     /// The newer expression of that window.
     pub to: Option<ExpressionId>,
     /// The changes under the address in that window, in document order: where
-    /// a reviewer starts to look.
+    /// a reviewer starts to look. For [`Category::LinkedInPart`], only the
+    /// changes that no standing link claims.
     pub changes: Vec<String>,
 }
 
@@ -144,19 +159,41 @@ pub enum Category {
     /// A reviewer concluded it has no correct link, and recorded why
     /// ([`crate::review::NoLink`]). Not work.
     ReviewedNoLink,
+    /// A standing link names it, and a change under its address in its window
+    /// is claimed by no link (#271). Work: an agent decides whether each such
+    /// change is the amendment's.
+    LinkedInPart,
+}
+
+/// Which rows [`unlinked_amendments`] gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rows {
+    /// Only the amendments that no standing link names. This is the default
+    /// list, the work the playbook gives an agent.
+    Unlinked,
+    /// Also each amendment that is linked in part ([`Category::LinkedInPart`],
+    /// `residue --partial`).
+    AlsoLinkedInPart,
 }
 
 /// Every amendment of the public law `bill` became, or of every public law the
 /// dataset holds when `bill` is `None`, that no standing `amended_by` link
-/// names.
+/// names. With [`Rows::AlsoLinkedInPart`], also every one that is linked in
+/// part.
 ///
 /// In the order each bill states its amendments.
 pub fn unlinked_amendments<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     bill: Option<&str>,
+    rows: Rows,
 ) -> Result<Vec<Unlinked>, DatasetError> {
     let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
     let links = amendment_links(dataset, bill, &reviews)?;
+    // Read only when the caller asks for the amendments linked in part.
+    let claims = match rows {
+        Rows::AlsoLinkedInPart => Some(claims(dataset, &reviews)?),
+        Rows::Unlinked => None,
+    };
     let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
     let no_links = standing_no_links(&dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?, &reviews);
     // For one bill, only the titles of the Code that it acts in are matched
@@ -165,22 +202,77 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
         Some(bill) => match_bill_by_evidence(dataset, bill)?,
         None => match_by_evidence(dataset)?.matches,
     };
-    let unlinked = matches
+    let listed = matches
         .into_iter()
-        .filter(|amendment| {
-            !links.standing.contains_key(&amendment_reference(
-                &amendment.bill_id,
-                &amendment.amendment_id,
-            ))
-        })
-        .map(|amendment| {
+        .filter_map(|amendment| {
             let reference = amendment_reference(&amendment.bill_id, &amendment.amendment_id);
-            let no_link = no_links.get(&reference).cloned();
             let refuted = links.refuted.get(&reference).cloned().unwrap_or_default();
-            unlinked(amendment, &classified, no_link, refuted)
+            if links.standing.contains_key(&reference) {
+                let claims = claims.as_ref()?;
+                return linked_in_part(amendment, &classified, refuted, claims, &reference);
+            }
+            let no_link = no_links.get(&reference).cloned();
+            Some(unlinked(amendment, &classified, no_link, refuted))
         })
         .collect();
-    Ok(unlinked)
+    Ok(listed)
+}
+
+/// The row of an amendment a standing link names, when a change under its
+/// address in its window is claimed by no standing link. `None` when every
+/// such change is claimed.
+///
+/// A change whose link to this amendment was refuted is left out: a reviewer
+/// said that it is not this amendment's change, so it is not offered again.
+fn linked_in_part(
+    amendment: AmendmentMatch,
+    classified: &[crate::link::Link],
+    refuted: Vec<RefutedLink>,
+    claims: &Claims,
+    reference: &str,
+) -> Option<Unlinked> {
+    let (stage, from, to, under_address) = match &amendment.outcome {
+        Outcome::Linked(linked) => (
+            None,
+            linked.from.clone(),
+            linked.to.clone(),
+            linked.under_address.clone(),
+        ),
+        Outcome::Residue(residue) => (
+            Some(residue.stage),
+            residue.from.clone()?,
+            residue.to.clone()?,
+            residue.changes.clone(),
+        ),
+    };
+    // The diff can list one path twice, when the Code prints two provisions
+    // with one number. The row names each path once.
+    let mut unclaimed: Vec<String> = Vec::new();
+    for path in under_address {
+        if !unclaimed.contains(&path) {
+            unclaimed.push(path);
+        }
+    }
+    unclaimed.retain(|path| {
+        let change = ChangeAt::new(&from, &to, path);
+        !claims.claimed.contains(&change)
+            && !claims.refuted.contains(&(reference.to_string(), change))
+    });
+    if unclaimed.is_empty() {
+        return None;
+    }
+    let mut row = unlinked(amendment, classified, None, refuted);
+    row.category = Category::LinkedInPart;
+    row.stage = stage;
+    row.reason = format!(
+        "a standing link names it, and {} change(s) under its address in its window \
+         are claimed by no link",
+        unclaimed.len()
+    );
+    row.from = Some(from);
+    row.to = Some(to);
+    row.changes = unclaimed;
+    Some(row)
 }
 
 /// One row, from the matcher's answer for an amendment no standing link
@@ -288,6 +380,84 @@ pub fn standing_links<S: LinkReader + ?Sized>(
 ) -> Result<BTreeMap<String, usize>, DatasetError> {
     let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
     Ok(amendment_links(dataset, bill, &reviews)?.standing)
+}
+
+/// One change, as a link's subject names it: a path of a work between two
+/// dates.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ChangeAt {
+    work: String,
+    from: String,
+    to: String,
+    path: String,
+}
+
+impl ChangeAt {
+    fn new(from: &ExpressionId, to: &ExpressionId, path: &str) -> Self {
+        Self {
+            work: from.work.to_string(),
+            from: from.at.clone(),
+            to: to.at.clone(),
+            path: path.to_string(),
+        }
+    }
+
+    /// The change a link's subject names, when it names one.
+    fn of(subject: &Target) -> Option<Self> {
+        let Target::Change {
+            work,
+            path,
+            from_date,
+            to_date,
+        } = subject
+        else {
+            return None;
+        };
+        Some(Self {
+            work: work.to_string(),
+            from: from_date.clone(),
+            to: to_date.clone(),
+            path: path.clone(),
+        })
+    }
+}
+
+/// Which changes the `amended_by` links claim, from every bill.
+#[derive(Default)]
+struct Claims {
+    /// Each change that at least one standing link names.
+    claimed: BTreeSet<ChangeAt>,
+    /// Each change whose link to an amendment was refuted, with that
+    /// amendment's object reference.
+    refuted: BTreeSet<(String, ChangeAt)>,
+}
+
+/// Every change the standing `amended_by` links claim, and every change whose
+/// link to an amendment was refuted.
+///
+/// From every bill, because a change under one law's address can be another
+/// law's change. A link stands unless its newest review refutes it, as for
+/// [`amendment_links`].
+fn claims<S: LinkReader + ?Sized>(
+    dataset: &S,
+    reviews: &[crate::link::Link],
+) -> Result<Claims, DatasetError> {
+    let mut claims = Claims::default();
+    let query = LinkQuery::new().of_kind(LinkKind::AMENDED_BY);
+    for link in dataset.links_matching(&query)?.rows {
+        let Some(change) = ChangeAt::of(&link.subject) else {
+            continue;
+        };
+        match newest_naming(&link.id(), reviews) {
+            Some(review) if review.verdict == Verdict::Refuted => {
+                claims.refuted.insert((link.object.name(), change));
+            }
+            _ => {
+                claims.claimed.insert(change);
+            }
+        }
+    }
+    Ok(claims)
 }
 
 /// What the `amended_by` links say about each amendment they name, by its
