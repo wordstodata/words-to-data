@@ -5,18 +5,110 @@
 //! `annotations` then gave "0 annotation(s)" for a bill, a date or a window not
 //! held, and a path typed with a trailing `/` matched nothing (#392, #395).
 //! Each command that takes one of these reads it here, so every command
-//! refuses in the same words and reads a path in the same way.
+//! refuses in the same words and reads a path in the same way. A bill is read
+//! here too when it is typed as the public law it became (#396).
 
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect::{
-    BillNotHeld, WindowNotHeld, absent_path, absent_scope, bill_not_held, path_as_held,
+    self, BillNotHeld, WindowNotHeld, absent_path, absent_scope, bill_not_held, path_as_held,
     window_not_held,
 };
 use words_to_data::query::{LinkQuery, Locator};
-use words_to_data::storage::DocumentReader;
+use words_to_data::storage::{DocumentReader, Storage};
 use words_to_data::storage::{LegislatureReader, LinkReader};
 
 use crate::load::{OpenDataset, with_dataset};
+
+/// The held bill that `typed` names, or stop the run with exit 1.
+///
+/// Every command that takes a bill reads it here (#396). `typed` is a bill id
+/// such as `119-hr-1`, or the public law the bill became, in each form that
+/// `show-bill` reads since #297: `Pub. L. 119-21`, `PL 119-21` or `119-21`.
+/// Before, only `show-bill` read a law. The other commands refused it, and
+/// their notice did not name the bill that became the law.
+pub fn bill_argument(dataset: &OpenDataset, path: &str, typed: &str) -> String {
+    with_dataset!(dataset, d => bill_argument_in(d, path, typed))
+}
+
+/// [`bill_argument`], for a caller that holds a reader rather than an open
+/// dataset.
+pub fn bill_argument_in<R: Storage + LegislatureReader>(
+    reader: &R,
+    path: &str,
+    typed: &str,
+) -> String {
+    let bill_id = bill_of_typed(reader, path, typed);
+    refuse_unless_bill_held_in(reader, path, &bill_id);
+    bill_id
+}
+
+/// [`bill_argument`], for a command that reads links. A bill not held is not
+/// refused when a link names it ([`refuse_unless_bill_held_or_linked`]).
+pub fn bill_argument_or_linked(dataset: &OpenDataset, path: &str, typed: &str) -> String {
+    let bill_id = with_dataset!(dataset, d => bill_of_typed(d, path, typed));
+    refuse_unless_bill_held_or_linked(dataset, path, &bill_id);
+    bill_id
+}
+
+/// The bill id `typed` names: the bill of the law it names, or `typed` itself.
+fn bill_of_typed<R: Storage + LegislatureReader>(reader: &R, path: &str, typed: &str) -> String {
+    match inspect::public_law_named(typed) {
+        Some(law) => bill_of_law(reader, path, &law),
+        None => typed.to_string(),
+    }
+}
+
+/// The bill that became public law `law`, or stop the run with exit 1 when no
+/// held bill did.
+///
+/// Two cases, two refusals: the dataset holds no document of the law, or it
+/// holds the document and no held bill became it (#394). Saying the first for
+/// the second sent an agent away from a law it could read.
+fn bill_of_law<R: Storage + LegislatureReader>(reader: &R, path: &str, law: &str) -> String {
+    let bill = crate::fail::or_exit(
+        inspect::bill_of_public_law(reader, law),
+        "Error reading the dataset's public laws",
+    );
+    if let Some(bill) = bill {
+        return bill;
+    }
+    let work = crate::fail::or_exit(
+        inspect::public_law_work(reader, law),
+        "Error reading the dataset's public laws",
+    );
+    let why = match work {
+        None => format!(
+            "This dataset holds no document of Pub. L. {law}, so no bill is known to have become it."
+        ),
+        Some(work) => format!(
+            "This dataset holds the document of Pub. L. {law} ({work}), but no bill it holds \
+             became that law.\n\
+             A bill is joined to a law when the law's document holds the bill's amendments."
+        ),
+    };
+    crate::fail::refuse(&format!(
+        "{why}{}\n`words_to_data bills {path}` lists each bill it holds and its public law.",
+        held_laws(reader)
+    ))
+}
+
+/// A line that names each public law the dataset holds and the bill that
+/// became it, or nothing when it holds none. The law typed is often a near
+/// miss of a held one, and the bill id is the form every command reads (#396).
+fn held_laws<R: Storage + LegislatureReader>(reader: &R) -> String {
+    let bills = crate::fail::or_exit(inspect::bills(reader), "Error reading the dataset's bills");
+    let laws: Vec<String> = bills
+        .iter()
+        .filter_map(|bill| {
+            let law = bill.public_law.as_deref()?;
+            Some(format!("Pub. L. {law} ({})", bill.bill_id))
+        })
+        .collect();
+    match laws.is_empty() {
+        true => String::new(),
+        false => format!("\nHeld public laws and their bills: {}", laws.join(", ")),
+    }
+}
 
 /// Stop the run with exit 1 when the dataset at `path` holds no bill `bill_id`.
 ///

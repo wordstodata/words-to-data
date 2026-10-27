@@ -30,9 +30,12 @@ pub struct Args {
     /// Path to a dataset (compact JSON or SQLite) holding the works the bill amends
     pub dataset: String,
 
-    /// Which bill to read, as the dataset names it, such as `119-hr-1`
-    #[arg(long)]
-    pub bill_id: String,
+    /// Which bill to read, such as `119-hr-1`, or the public law it became
+    /// (`Pub. L. 119-21`, `PL 119-21` or `119-21`)
+    //
+    // `--bill-id` is the old name, kept hidden for one release (#396).
+    #[arg(long, alias = "bill-id")]
+    pub bill: String,
 
     #[command(flatten)]
     pub span: Span,
@@ -83,16 +86,16 @@ pub fn run(args: Args) {
 /// Read what the bill renumbered, and write a link for each statement it can
 /// place.
 fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args) {
-    crate::held::refuse_unless_bill_held_in(&*dataset, &args.dataset, &args.bill_id);
+    let bill_id = crate::held::bill_argument_in(&*dataset, &args.dataset, &args.bill);
     let bill = crate::fail::or_exit(
-        dataset.bill_document(&args.bill_id),
+        dataset.bill_document(&bill_id),
         "Error reading the dataset's bills",
     )
     .unwrap_or_else(|| {
         eprintln!(
             "This dataset holds no document for bill {}. Load the bill with \
              build-dataset, which stores it (#196).",
-            args.bill_id
+            bill_id
         );
         std::process::exit(1);
     });
@@ -102,12 +105,12 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &Args)
     // mechanism, and the window named by whoever knows which one matters.
     let pairs = args.span.resolve(&*dataset, &args.dataset);
     let report = crate::fail::or_exit(
-        dataset.record_redesignations_over(&args.bill_id, &bill, &pairs),
+        dataset.record_redesignations_over(&bill_id, &bill, &pairs),
         "Error recording redesignations",
     );
     println!(
         "{} states {} redesignation(s).",
-        args.bill_id,
+        bill_id,
         report.statements()
     );
 

@@ -34,7 +34,8 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// One bill, as the dataset names it, such as `119-hr-1`
+    /// One bill, such as `119-hr-1`, or the public law it became
+    /// (`Pub. L. 119-21`, `PL 119-21` or `119-21`)
     ///
     /// Every public law the dataset holds, when this is left out.
     #[arg(long)]
@@ -54,10 +55,10 @@ struct Listing {
     outdated: Vec<OutdatedLink>,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     if let Some(bill) = &args.bill {
-        crate::held::refuse_unless_bill_held(&ds, &args.dataset, bill);
+        args.bill = Some(crate::held::bill_argument(&ds, &args.dataset, bill));
     }
     let (rows, outdated) = crate::fail::or_exit(
         with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref())
