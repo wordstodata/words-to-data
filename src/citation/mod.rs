@@ -174,8 +174,13 @@ impl Opinion {
 /// (#413), a footnote mark against the full stop after a section number,
 /// `§5311.6`, is no part of the number when the writing has that footnote
 /// ([`without_footnote_marks`]).
+///
+/// Version 7 (#449) reads the edition of the Code that a citation names in
+/// brackets after it, `8 U.S.C. § 1105a(a) (1976 ed.)` or `26 U.S.C. § 162
+/// (1988)`. Each place of the link records the edition, and the evidence ends
+/// with it. The link and its object do not change.
 fn citation_rule() -> Method {
-    Method::new("reporters-db laws.json U.S.C. patterns", 6)
+    Method::new("reporters-db laws.json U.S.C. patterns", 7)
 }
 
 /// The rule that reads a bare section reference under the default code an
@@ -242,6 +247,7 @@ pub fn cites_links_in(
                     written: section.section.clone(),
                     words: citation.text.clone(),
                     unresolved: reached.unresolved.clone(),
+                    edition: citation.edition.clone(),
                 };
                 match gathered.iter_mut().find(|link| link.object == reached.path) {
                     Some(link) => link.add(citation, place),
@@ -368,6 +374,12 @@ struct Place {
     /// them: `(e)` of `174(e)`. Absent when every one leads to a provision.
     #[serde(skip_serializing_if = "Option::is_none")]
     unresolved: Option<String>,
+    /// The edition of the Code the court named after the citation, such as
+    /// `1976 ed.`, and its year (#449). The object was resolved in a printing
+    /// held, which is not that edition, and the section at that number can now
+    /// hold another provision. Absent when the court named no edition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edition: Option<usc::Edition>,
 }
 
 /// The places of one link, gathered before the link is made.
@@ -498,12 +510,16 @@ impl Gathered {
 /// read as "U.S.C.")`. A bare reference is read only because of the opinion's
 /// default, so the default follows the words, with the writing that states it.
 fn evidence_of(citation: &UscCitation) -> String {
-    match (&citation.repair, &citation.default_code) {
+    let read = match (&citation.repair, &citation.default_code) {
         (Some(repair), _) => format!("{} ({repair})", citation.text),
         (None, Some(default)) => format!(
             "{} (title {} from the default stated in {}: \"{}\")",
             citation.text, default.title, default.stated_in, default.statement
         ),
         (None, None) => citation.text.clone(),
+    };
+    match &citation.edition {
+        Some(edition) => format!("{read} ({})", edition.written),
+        None => read,
     }
 }

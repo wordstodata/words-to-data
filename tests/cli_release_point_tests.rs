@@ -276,7 +276,7 @@ fn should_name_no_conversion_when_a_sqlite_dataset_grows() {
     );
     assert!(
         printed.contains(&format!(
-            "words_to_data redesignations {dataset} --bill-id <bill> --between 2025-07-18 2025-07-30"
+            "words_to_data redesignations {dataset} --bill <bill> --between 2025-07-18 2025-07-30"
         )),
         "the step runs on the dataset itself, got:\n{printed}"
     );

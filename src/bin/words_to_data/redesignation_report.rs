@@ -33,24 +33,27 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// One bill, as the dataset names it, such as `119-hr-1`
+    /// One bill, such as `119-hr-1`, or the public law it became
+    /// (`Pub. L. 119-21`, `PL 119-21` or `119-21`)
     ///
     /// Every bill the dataset holds, when this is left out.
-    #[arg(long)]
-    pub bill_id: Option<String>,
+    //
+    // `--bill-id` is the old name, kept hidden for one release (#396).
+    #[arg(long, alias = "bill-id")]
+    pub bill: Option<String>,
 
     /// Emit JSON instead of human-readable text
     #[arg(long)]
     pub json: bool,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
-    if let Some(bill) = &args.bill_id {
-        crate::held::refuse_unless_bill_held(&ds, &args.dataset, bill);
+    if let Some(bill) = &args.bill {
+        args.bill = Some(crate::held::bill_argument(&ds, &args.dataset, bill));
     }
     let report = crate::fail::or_exit(
-        with_dataset!(ds, d => inspect::redesignation_report(&d, args.bill_id.as_deref())),
+        with_dataset!(ds, d => inspect::redesignation_report(&d, args.bill.as_deref())),
         "Error reading the dataset's redesignations",
     );
 
@@ -77,7 +80,7 @@ pub fn run(args: Args) {
     if report.rows.is_empty() {
         // About the bill asked for, when one was: the dataset can hold other
         // bills that state renumberings (#425).
-        match &args.bill_id {
+        match &args.bill {
             Some(bill) => println!("\nBill {bill} states no renumbering."),
             None => println!("\nThis dataset holds no bill that states a renumbering."),
         }

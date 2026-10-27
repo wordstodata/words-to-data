@@ -110,9 +110,9 @@ fn should_link_the_opinion_to_the_provision_when_the_dataset_holds_the_title() {
             .evidence
             .as_ref()
             .and_then(|evidence| evidence.reasoning.as_deref()),
-        Some("26 U.S.C. § 174"),
-        "the matched text is the evidence, so a reviewer can read what the \
-         rule read"
+        Some("26 U.S.C. § 174 (2018)"),
+        "the matched text is the evidence, and the edition the citation names \
+         follows it (#449), so a reviewer can read what the rule read"
     );
     assert_eq!(
         link.payload

@@ -42,7 +42,9 @@ pub struct Args {
     /// each other, and so do "U.S." and "U. S.", and "§7" and "§ 7". A soft
     /// hyphen or a zero-width character is not read, a ligature such as "ﬁ"
     /// matches its letters, and a hyphen between two letters is not read, so
-    /// "substantially" matches "substan-tially". No other spellings are made
+    /// "substantially" matches "substan-tially". A curly quote mark matches
+    /// the straight one, double or single, so `court's` matches "court’s" and
+    /// `“error”` matches `"error"`. No other spellings are made
     /// equal ("U.S.C.A." stays as it is). Snippets show the text as stored
     ///
     /// One pair of double quote marks, straight or curly, around the whole

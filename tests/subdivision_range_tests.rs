@@ -314,6 +314,7 @@ fn reached_in_title_26(section: &str) -> Vec<Reached> {
         start: 0,
         repair: None,
         default_code: None,
+        edition: None,
     };
     let [cited] = resolve(&citation, &scope, index)
         .try_into()

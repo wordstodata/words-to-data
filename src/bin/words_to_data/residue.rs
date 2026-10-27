@@ -1,6 +1,10 @@
 //! `words_to_data residue` — every amendment of a public law that no standing
 //! `legislature.amended_by` link names, with the stage and the reason it
 //! stopped (#251). A link stands unless its newest review refutes it (#268).
+//! With `--partial`, it also lists each amendment that is linked in part: a
+//! standing link names it, and a change under its address is claimed by no
+//! link (#271). The default list leaves these out, because it is the work the
+//! playbook gives an agent.
 //!
 //! See [`words_to_data::legislature::residue`] for what counts as unlinked,
 //! where the reasons come from and what each category means.
@@ -22,7 +26,7 @@ use clap::Args as ClapArgs;
 use serde::Serialize;
 use words_to_data::legislature::evidence_matching::Stage;
 use words_to_data::legislature::outdated::{OutdatedLink, outdated_links};
-use words_to_data::legislature::residue::{Category, Unlinked, unlinked_amendments};
+use words_to_data::legislature::residue::{Category, Rows, Unlinked, unlinked_amendments};
 use words_to_data::query::{Answer, DEFAULT_LIMIT};
 use words_to_data::review::short_id;
 
@@ -34,11 +38,22 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// One bill, as the dataset names it, such as `119-hr-1`
+    /// One bill, such as `119-hr-1`, or the public law it became
+    /// (`Pub. L. 119-21`, `PL 119-21` or `119-21`)
     ///
     /// Every public law the dataset holds, when this is left out.
     #[arg(long)]
     pub bill: Option<String>,
+
+    /// Also list each amendment that is linked in part
+    ///
+    /// A standing link names the amendment, and a change under its address,
+    /// in its window, is claimed by no link. Its row has the category
+    /// `linked_in_part` and lists only the unclaimed changes. The row does not
+    /// say that a change is the amendment's: read the words and decide. These
+    /// rows are not in the default list.
+    #[arg(long)]
+    pub partial: bool,
 
     /// Emit JSON instead of human-readable text
     #[arg(long)]
@@ -54,13 +69,18 @@ struct Listing {
     outdated: Vec<OutdatedLink>,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     if let Some(bill) = &args.bill {
-        crate::held::refuse_unless_bill_held(&ds, &args.dataset, bill);
+        args.bill = Some(crate::held::bill_argument(&ds, &args.dataset, bill));
     }
+    let listed = if args.partial {
+        Rows::AlsoLinkedInPart
+    } else {
+        Rows::Unlinked
+    };
     let (rows, outdated) = crate::fail::or_exit(
-        with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref())
+        with_dataset!(ds, d => unlinked_amendments(&d, args.bill.as_deref(), listed)
             .and_then(|rows| Ok((rows, outdated_links(&d, args.bill.as_deref())?)))),
         "Error reading the dataset's amendments",
     );
@@ -73,7 +93,7 @@ pub fn run(args: Args) {
         return;
     }
 
-    print_counts(&rows);
+    print_counts(&rows, args.partial);
     if !rows.is_empty() {
         print_queue(rows);
     }
@@ -127,20 +147,21 @@ fn print_outdated(outdated: &[OutdatedLink]) {
 fn queue_place(category: Category) -> u8 {
     match category {
         Category::Work => 0,
-        Category::Unwritten => 1,
-        Category::NotHeld => 2,
-        Category::Quiet => 3,
-        Category::ReviewedNoLink => 4,
+        Category::LinkedInPart => 1,
+        Category::Unwritten => 2,
+        Category::NotHeld => 3,
+        Category::Quiet => 4,
+        Category::ReviewedNoLink => 5,
     }
 }
 
 /// How many rows fall in each category, and for the work, at which stage and
 /// for which reason.
-fn print_counts(rows: &[Unlinked]) {
+fn print_counts(rows: &[Unlinked], partial: bool) {
     let count = |category: Category| rows.iter().filter(|row| row.category == category).count();
     println!(
         "{} amendment(s) that no standing link names",
-        ui::figure(rows.len())
+        ui::figure(rows.len() - count(Category::LinkedInPart))
     );
     println!(
         "  {:>4}  {}",
@@ -162,6 +183,13 @@ fn print_counts(rows: &[Unlinked]) {
         );
     }
 
+    if partial {
+        println!(
+            "  {:>4}  {}: a link names it, and a change under its address is claimed by no link",
+            ui::attention(count(Category::LinkedInPart)).bold(),
+            ui::heading("linked in part")
+        );
+    }
     println!(
         "  {:>4}  linked by the evidence method, and not written: run link-by-evidence",
         count(Category::Unwritten)
@@ -200,6 +228,7 @@ fn print_row(row: &Unlinked) {
         (Category::Unwritten, _) => "unwritten".to_string(),
         (Category::NotHeld, _) => "not held".to_string(),
         (Category::Quiet, _) => "quiet".to_string(),
+        (Category::LinkedInPart, _) => "linked in part".to_string(),
     };
     println!(
         "  {}  {} {}: {}",
@@ -249,8 +278,12 @@ fn print_row(row: &Unlinked) {
     if let (Some(from), Some(to)) = (&row.from, &row.to) {
         println!("    {} {from} -> {}", ui::quiet("window:"), to.at);
     }
+    let change_label = match row.category {
+        Category::LinkedInPart => "unclaimed change:",
+        _ => "change:",
+    };
     for change in &row.changes {
-        println!("    {} {change}", ui::quiet("change:"));
+        println!("    {} {change}", ui::quiet(change_label));
     }
     for classified in &row.olrc {
         let descriptions: Vec<&str> = classified

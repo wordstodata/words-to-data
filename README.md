@@ -128,7 +128,7 @@ export CONGRESS_API_KEY=<your key>
 
 words_to_data build-dataset law.sqlite --uslm-dates 2025-07-18,2025-07-30 --bills 119-hr-1
 words_to_data add-classifications law.sqlite
-words_to_data redesignations law.sqlite --bill-id 119-hr-1 --between 2025-07-18 2025-07-30
+words_to_data redesignations law.sqlite --bill 119-hr-1 --between 2025-07-18 2025-07-30
 words_to_data link-by-evidence law.sqlite
 ```
 
