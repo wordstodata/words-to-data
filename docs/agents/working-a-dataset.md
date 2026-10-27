@@ -42,8 +42,9 @@ three jobs with the command alone:
 - A **public law** is stored as a document too, for example
   `publiclawdocument_119-21@2025-07-04`; its date is its enactment date. A bill's
   id, such as `119-hr-1`, names the same law. `bills` gives the public law of each
-  bill, and `show-bill` takes either name: `show-bill <dataset> "Pub. L. 119-21"`
-  (or `PL 119-21`, or `119-21`) shows `119-hr-1`.
+  bill, and every command that takes a bill takes either name: `show-bill
+  <dataset> "Pub. L. 119-21"` (or `PL 119-21`, or `119-21`) shows `119-hr-1`,
+  and `residue --bill "Pub. L. 119-21"` lists its residue.
 - An **amendment** is one instruction of a law ("Section 174 is amended by
   striking … and inserting …"). Each has a long hexadecimal id. Readers print
   its first twelve characters; `link-amendment` needs the **full** id, which
@@ -271,9 +272,17 @@ read the words.
    at `residue` for the bill: the amendment may be listed there with its
    candidate changes. That is Job 2. **An amendment can also be linked in part**
    — one of its changes linked, another not — and then `residue` does not list
-   it. `coverage` lists every change in a window that no link claims:
+   it. `residue --bill <bill> --partial` lists it too, with the category
+   `linked_in_part` and each change under its address that no link claims:
    ```
-   words_to_data coverage <dataset> --from <work@date> --to <work@date> --list
+   words_to_data residue <dataset> --bill <bill> --partial --json
+   ```
+   Such a row does not say that a change is the amendment's. Read the
+   amendment's words and the change, and link the change only when those words
+   made it. A change under no amendment's address is not on that list.
+   `coverage` lists every change in a window that no link claims:
+   ```
+   words_to_data coverage <dataset> --from <work@date> --to <work@date> --all
    ```
 8. **Effective dates and other words the Code does not carry** — "the amendments
    made by this section shall apply to…", transition rules, directions to an
@@ -465,7 +474,11 @@ words_to_data link-amendment <dataset> --bill <bill> --amendment <id> \
 ```
 
 Write the reason for a reader who will check you. Quote the amendment and the
-changed words. Your record is `MachineSuggested`, like every machine's, and a
+changed words. The SLEUTH tools refuse a reason that does not quote at least 5
+consecutive words of the amendment's text (`amendment-addresses --json` prints
+it), and a placeholder such as "TODO". Quote marks, dashes and case do not
+count. A verdict reason must quote 5 consecutive words of what
+`settle --explain` prints. Your record is `MachineSuggested`, like every machine's, and a
 person or another agent may refute it.
 
 ## Job 3 — review links

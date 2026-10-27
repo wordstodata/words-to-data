@@ -32,7 +32,8 @@ pub struct Args {
     #[arg(long, requires = "from")]
     pub to: Option<ExpressionId>,
 
-    /// Filter to annotations sourced from this bill
+    /// Filter to annotations sourced from this bill (`119-hr-1`), or from the
+    /// bill that became this public law (`Pub. L. 119-21`, `PL 119-21` or `119-21`)
     ///
     /// Combines with `--path` and `--from`/`--to`: every filter given is applied
     #[arg(long)]
@@ -65,7 +66,11 @@ pub struct Args {
 pub fn run(mut args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     if let Some(bill) = &args.bill {
-        crate::held::refuse_unless_bill_held_or_linked(&ds, &args.dataset, bill);
+        args.bill = Some(crate::held::bill_argument_or_linked(
+            &ds,
+            &args.dataset,
+            bill,
+        ));
     }
     let mut locator = Locator::new();
     if let (Some(from), Some(to)) = (&args.from, &args.to) {

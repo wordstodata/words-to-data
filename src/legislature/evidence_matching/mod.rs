@@ -139,10 +139,11 @@ pub struct Linked {
     pub to: ExpressionId,
     /// Each change the amendment caused, in document order.
     pub changes: Vec<CausedChange>,
-    /// How many changes under the address the window holds: the changes the
-    /// amendment's own were told apart from, its own among them. One means
-    /// the matcher had nothing to choose between.
-    pub changes_under_address: usize,
+    /// Every change under the address in the window, in document order: the
+    /// changes the amendment's own were told apart from, its own among them.
+    /// One means the matcher had nothing to choose between. `residue` reads
+    /// the ones no link claims (#271).
+    pub under_address: Vec<String>,
     /// Every later window in which something under the address changed too.
     ///
     /// Never a second link. The law landed in the first window after its
@@ -371,7 +372,7 @@ impl AmendmentMatch {
         );
         reasoning.push_str(&format!(
             "The address holds {} change(s) in this window. ",
-            linked.changes_under_address
+            linked.under_address.len()
         ));
         for later in &linked.later_windows {
             reasoning.push_str(&format!(
@@ -934,7 +935,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 Resolution::Caused(caused) => Outcome::Linked(Linked {
                     from: view.from.clone(),
                     to: view.to.clone(),
-                    changes_under_address: placed[at][0].candidates.len(),
+                    under_address: changes_under_address(),
                     changes: one_for_each_path(
                         caused
                             .iter()
