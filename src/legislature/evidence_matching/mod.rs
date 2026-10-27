@@ -282,8 +282,14 @@ pub enum Stage {
 /// for a reference to a law that the bill cites, and the date of enactment
 /// for *"the date of the enactment of this Act"*. A single and a double
 /// quotation mark are one mark.
+///
+/// Version 9 (#416): the rules do not change, but the words they read do. The
+/// words of the Code no longer hold the OLRC's footnotes, so a change that was
+/// only a footnote is no change, and an enacted block can match words that a
+/// footnote broke before. On a fresh build of the benchmark dataset, 14 links
+/// go and 22 come.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 8)
+    Method::new("address, window and quoted words", 9)
 }
 
 /// Who a link this method writes says made it.

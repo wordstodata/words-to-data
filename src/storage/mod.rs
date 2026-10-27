@@ -104,7 +104,15 @@ use crate::uslm::bill_parser::Bill;
 /// as overstating the problem. The issue still carries `breaking-changes`,
 /// because a serialized type changed shape and the JSON `words_to_data inspect`
 /// gives an agent now says `delete` where it said `strike`.
-pub const SCHEMA_VERSION: i32 = 10;
+///
+/// 11 takes the OLRC's footnotes out of the words of the law and puts them in a
+/// sixth text field, `footnotes`, which search reads and the diff does not
+/// compare (#416,
+/// `docs/adr/0015-a-publishers-footnotes-are-a-sixth-text-field-the-diff-does-not-compare.md`).
+/// The search index gets a `footnotes` column. A file at 10 holds the
+/// footnotes in the words, so its diff reports a renumbered footnote as a
+/// change to the law: it is refused, and built again.
+pub const SCHEMA_VERSION: i32 = 11;
 
 /// Reading the documents a dataset holds.
 ///

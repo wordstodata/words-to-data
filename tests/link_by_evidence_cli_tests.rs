@@ -26,8 +26,15 @@ fn dataset_stored_before_257(dir: &std::path::Path) -> std::path::PathBuf {
     entry
         .read_to_string(&mut json)
         .expect("the dataset should read");
+    // The fixture was written at schema 10. Schema 11 (#416) adds a field the
+    // fixture's nodes do not need, and takes the OLRC's footnotes out of the
+    // words of the Code; the fixture holds no Code. So the fixture reads the
+    // same at 11, and only its number is moved, to the number of this build.
+    let mut dataset: serde_json::Value =
+        serde_json::from_str(&json).expect("the fixture should be JSON");
+    dataset["schema_version"] = words_to_data::storage::SCHEMA_VERSION.into();
     let path = dir.join("stored_before_257.json");
-    std::fs::write(&path, json).expect("the dataset should write");
+    std::fs::write(&path, dataset.to_string()).expect("the dataset should write");
     path
 }
 

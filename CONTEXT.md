@@ -49,7 +49,7 @@ One work as it read on one date. A version of the law, not a version of a file.
 _Avoid_: Version snapshot, revision, edition
 
 **Document node**:
-One piece of a document, with its children, as a Dataset stores it. It carries a Structural path, a Node type, a date, up to five text fields, and where its text came from. It carries nothing that belongs to one class of document: those facts sit beside it in a Class payload. An Expression holds the root of a tree of them.
+One piece of a document, with its children, as a Dataset stores it. It carries a Structural path, a Node type, a date, up to five text fields of words, the publisher's footnotes to those words, and where its text came from. Search reads the footnotes, and the diff does not compare them (ADR 0015, #416). It carries nothing that belongs to one class of document: those facts sit beside it in a Class payload. An Expression holds the root of a tree of them.
 
 A whole document is one node when nothing has taken it apart, which is ordinary rather than degenerate: a writing of a court case read from a field that marks no structure (a court's PDF text, Lawbox's or a court website's HTML) is stored as a single node, and its structure is in its text. A writing read from Harvard's `xml_harvard` or Columbia's `html_columbia` is taken apart into its pages, paragraphs and footnotes (see Case, #314), and one read from a court's PDF text (`plain_text`) into paragraphs and footnotes by rule (#315).
 _Avoid_: Element, USLM element

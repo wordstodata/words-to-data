@@ -7,6 +7,7 @@ use crate::{
     io::load_xml_file,
     uslm::{
         BillType, DocumentType, ElementType, RefPair, SourceCredit, USCType, USLMError, UslmFacts,
+        footnote,
         path::{path_segment_from_heading, should_include_in_uslm_path},
     },
 };
@@ -194,6 +195,9 @@ struct TextContents {
     pub proviso: Option<String>,
     pub content: Option<String>,
     pub continuation: Option<String>,
+    /// The OLRC's footnotes, taken out of the five fields above and out of the
+    /// number (#416), one on each line.
+    pub footnotes: Option<String>,
 }
 
 pub struct Number {
@@ -868,6 +872,7 @@ fn parse_element(
         proviso: rewrap_string(text_contents.proviso),
         content: rewrap_string(text_contents.content),
         continuation: rewrap_string(text_contents.continuation),
+        footnotes: rewrap_string(text_contents.footnotes),
         // No per-node provenance. Every node of a release point came from the
         // same publisher by the same method, so recording it on each would state
         // one fact a million times over and cost a heap allocation each. A node
@@ -1072,7 +1077,7 @@ pub fn extract_number(element_type: ElementType, node: &roxmltree::Node) -> Resu
 
 fn extract_text(node: Option<roxmltree::Node>) -> Option<String> {
     node.map(|n| {
-        let text = collect_all_text(&n);
+        let text = footnote::words_of(&n);
         if text.is_empty() {
             return None;
         }
@@ -1080,30 +1085,50 @@ fn extract_text(node: Option<roxmltree::Node>) -> Option<String> {
     })?
 }
 
-fn collect_all_text(node: &roxmltree::Node) -> String {
-    let mut result = String::new();
-    for child in node.children() {
-        if child.is_text() {
-            if let Some(t) = child.text() {
-                result.push_str(t);
-            }
-        } else if child.is_element() {
-            result.push_str(&collect_all_text(&child));
-        }
-    }
-    result
-}
-
+/// The five fields of words of an element, and its footnotes.
+///
+/// The footnotes are in the order the element prints their marks, and the
+/// number comes first: "§ 9815.¹ So in original. No section 9814 has been
+/// enacted." puts a footnote in a section's `<num>`, and `extract_number` reads
+/// the number without it. Only the first element of each name is read.
 fn extract_text_contents(node: &roxmltree::Node) -> TextContents {
-    // TODO handle amending actions
-    // TODO deal with page data funkiness
-    TextContents {
-        heading: extract_text(node.children().find(|n| n.has_tag_name("heading"))),
-        chapeau: extract_text(node.children().find(|n| n.has_tag_name("chapeau"))),
-        proviso: extract_text(node.children().find(|n| n.has_tag_name("proviso"))),
-        content: extract_text(node.children().find(|n| n.has_tag_name("content"))),
-        continuation: extract_text(node.children().find(|n| n.has_tag_name("continuation"))),
+    let mut contents = TextContents {
+        heading: None,
+        chapeau: None,
+        proviso: None,
+        content: None,
+        continuation: None,
+        footnotes: None,
+    };
+    let mut footnotes: Vec<String> = Vec::new();
+    let mut num_read = false;
+    for child in node.children().filter(|n| n.is_element()) {
+        let field = match child.tag_name().name() {
+            "heading" => &mut contents.heading,
+            "chapeau" => &mut contents.chapeau,
+            "proviso" => &mut contents.proviso,
+            "content" => &mut contents.content,
+            "continuation" => &mut contents.continuation,
+            "num" if !num_read => {
+                num_read = true;
+                footnotes.extend(footnote::read(&child).footnotes);
+                continue;
+            }
+            _ => continue,
+        };
+        if field.is_some() {
+            continue;
+        }
+        let words = footnote::read(&child);
+        if !words.text.is_empty() {
+            *field = Some(normalize_quotes(&words.text));
+        }
+        footnotes.extend(words.footnotes);
     }
+    if !footnotes.is_empty() {
+        contents.footnotes = Some(normalize_quotes(&footnotes.join("\n")));
+    }
+    contents
 }
 
 #[cfg(test)]

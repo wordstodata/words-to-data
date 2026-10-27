@@ -142,6 +142,7 @@ impl InMemoryStorage {
             ("content", &element.data.content),
             ("proviso", &element.data.proviso),
             ("continuation", &element.data.continuation),
+            ("footnotes", &element.data.footnotes),
         ];
 
         let path = element.data.path.to_string();

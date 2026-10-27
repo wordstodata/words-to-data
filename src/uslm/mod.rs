@@ -25,6 +25,7 @@ use crate::document::{ClassPayload, NodeData, NodeType};
 pub mod amendment_address;
 pub mod bill_parser;
 pub mod bill_redesignation;
+pub(crate) mod footnote;
 pub mod parser;
 pub mod path;
 
