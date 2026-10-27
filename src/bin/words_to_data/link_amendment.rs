@@ -48,7 +48,8 @@ pub struct Args {
     /// expressions of the window
     pub dataset: String,
 
-    /// The bill the amendment belongs to, e.g. `119-hr-1`
+    /// The bill the amendment belongs to, e.g. `119-hr-1`, or the public law
+    /// it became (`Pub. L. 119-21`, `PL 119-21` or `119-21`)
     #[arg(long)]
     pub bill: String,
 
@@ -195,6 +196,8 @@ fn record<S: Storage + LegislatureReader>(dataset: &mut Dataset<S>, args: &mut A
         .iter()
         .map(|typed| crate::held::path_argument(&*dataset, typed))
         .collect();
+    // The bill as the dataset names it, also when the run names its law (#396).
+    args.bill = crate::held::bill_argument_in(&*dataset, &args.dataset, &args.bill);
     let amendment = find_amendment(dataset, args);
     match args.no_link {
         Some(category) => record_no_link(dataset, &amendment, category.into(), args),
@@ -263,7 +266,6 @@ fn find_amendment<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     args: &Args,
 ) -> BillAmendment {
-    crate::held::refuse_unless_bill_held_in(dataset, &args.dataset, &args.bill);
     let mut bill = crate::fail::or_exit(dataset.get_bill(&args.bill), "Error reading the bill")
         .expect("the bill is held");
     let id = crate::held::amendment_id_argument(

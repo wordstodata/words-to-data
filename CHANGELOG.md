@@ -56,6 +56,96 @@ by the build after it:
   a new field `edition_not_held`. When `edition_not_held` is set, `windows` is
   empty.
 
+### `search` reads a curly quote mark as the straight one ([#453](https://github.com/wordstodata/words-to-data/issues/453))
+
+The Code is stored with straight quote marks. Many court opinions keep the
+curly marks of their source, as "the court’s reason". Text copied from a PDF
+or a web page has curly marks too. `search` compared the marks as they are, so
+`“mathematical or clerical error” means` found nothing in the Code, and
+`court's` found only the opinions that write a straight apostrophe.
+
+Now `search` reads `“` and `”` as `"`, and `‘` and `’` as `'`, in the query
+and in the text. The rule is in the library (`words_to_data::search`,
+`CURLY_QUOTE_MARKS`), so the library search and the command read a query the
+same way. The rule of #439 does not change: one pair of double quote marks
+around the whole query is removed, with the same notice. Snippets show the
+text as it is stored. No link changes: no link method uses search.
+
+#### Measured on `data/eval.sqlite`
+
+Fields found, before (a release build of 0.6.2) and after (a release build
+of this change):
+
+| Query | Before | After |
+|---|---|---|
+| `“mathematical or clerical error” means` (title 26 at 2026-07-12) | 0 | 1 |
+| `"mathematical or clerical error" means` (title 26 at 2026-07-12) | 1 | 1 |
+| `taxpayer’s` (title 26 at 2026-07-12) | 0 | 511 |
+| `taxpayer's` (title 26 at 2026-07-12) | 511 | 511 |
+| `court’s` (opinions) | 144 | 224 |
+| `court's` (opinions) | 80 | 224 |
+| `the “ordinary and necessary”` (opinions) | 1 | 1 |
+| `the "ordinary and necessary"` (opinions) | 0 | 1 |
+
+The one field of the first query is the definition in § 6213(g)(2). The 224
+fields of `court's` are the 144 that write a curly apostrophe and the 80 that
+write a straight one.
+
+### `residue --partial` lists an amendment that is linked in part ([#271](https://github.com/wordstodata/words-to-data/issues/271))
+
+- **A new option, `residue --partial`, and a new category, `linked_in_part`.**
+  With the option, `residue` also lists an amendment that a standing link
+  names when a change under its address, in the window the matcher gives it,
+  is claimed by no standing `amended_by` link. The row's `changes` are those
+  unclaimed changes only. Before, only `coverage` showed such a change, and
+  `coverage` does not name an amendment.
+- **Without `--partial`, the output does not change**, as text and as
+  `--json`. The default list is the work the playbook gives an agent, so these
+  rows are not in it.
+- The row says that each change is under the address and unclaimed. It does not
+  say that the change is the amendment's: an agent reads the words and decides.
+- A change whose link to the same amendment was refuted is not listed again.
+- With `--partial`, the text output counts the rows as "linked in part" and
+  lists them after the work. The first line still counts the amendments that
+  no standing link names.
+- On a copy of `eval.sqlite`, `--partial` adds 151 rows (489 unclaimed changes,
+  272 different ones). The other counts do not change: 508 amendments that no
+  standing link names, 231 of them work.
+- **The stored format does not change** (`SCHEMA_VERSION` 10), and no method
+  version changes: the batch makes the same links. The playbook stays at
+  `resolve-residue@1`: Job 1 step 7 tells the agent about `--partial`.
+- **Rust library:** `residue::unlinked_amendments` has a third argument,
+  `residue::Rows` (`Unlinked` gives the list as before, `AlsoLinkedInPart`
+  adds the new rows), and `residue::Category` has a new variant,
+  `LinkedInPart`. In `evidence_matching::Linked`, the field
+  `changes_under_address` (a count) is now `under_address`, the list of those
+  changes.
+
+### One input has one name and one form in every command ([#396](https://github.com/wordstodata/words-to-data/issues/396))
+
+- **Every command that takes a bill reads the public law it became.**
+  `residue --bill`, `votes`, `amendment-addresses --bill`, `annotations --bill`,
+  `section-agreement --bill`, `redesignation-report --bill`, `redesignations
+  --bill` and `link-amendment --bill` now take `Pub. L. 119-21`, `PL 119-21` and
+  `119-21`, as `show-bill` does since [#297](https://github.com/wordstodata/words-to-data/issues/297). Before, they refused the law, and the
+  refusal did not name `119-hr-1`. A law that the dataset holds no bill for is
+  refused in the same words in each command, and the refusal now names each
+  held public law and its bill: `Pub. L. 119-21 (119-hr-1)`.
+- **`redesignation-report` and `redesignations` take `--bill`**, as every other
+  command does. `--bill-id` is the old name. It stays as a hidden alias for one
+  release.
+- **`coverage` takes `--all` and `--limit`**, as the other list commands do.
+  Human output now stops at 20 paths (before: 10). `--json` gives every path,
+  unless `--limit` is given. `--list` is the old name of `--all`. It stays as a
+  hidden alias for one release.
+- **`cases-citing --cites` reads a citation with no section marker.**
+  `26 USC 174`, `26 U.S.C. 174` and `26 U.S.C. § 174` give the same answer.
+  Before, the two forms without `§` were refused. Bill text writes
+  `26 USC 6213`. The reader of court text does not change: there a number with
+  no marker can be a page or a year, so it is still not read.
+- **Rust library:** one new function, `citation::usc::find_typed`. Nothing is
+  removed or changed. No stored data and no method version changes.
+
 ## 0.6.2
 
 More right links, and a search that reads a phrase in quote marks. The

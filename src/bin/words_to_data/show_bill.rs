@@ -3,7 +3,7 @@
 use clap::Args as ClapArgs;
 use words_to_data::inspect;
 
-use crate::load::{self, OpenDataset, with_dataset};
+use crate::load::{self, with_dataset};
 use crate::ui;
 
 #[derive(ClapArgs)]
@@ -22,11 +22,7 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
-    let bill_id = match inspect::public_law_named(&args.bill_id) {
-        Some(law) => bill_of_law(&ds, &args.dataset, &law),
-        None => args.bill_id.clone(),
-    };
-    crate::held::refuse_unless_bill_held(&ds, &args.dataset, &bill_id);
+    let bill_id = crate::held::bill_argument(&ds, &args.dataset, &args.bill_id);
     let summary = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::show_bill(&d, &bill_id)),
         "Error reading bill",
@@ -67,39 +63,6 @@ pub fn run(args: Args) {
         );
         println!("    {}", truncate(&a.amending_text, 200));
     }
-}
-
-/// The bill that became public law `law`, or stop the run with exit 1 when no
-/// held bill did.
-///
-/// Two cases, two refusals: the dataset holds no document of the law, or it
-/// holds the document and no held bill became it (#394). Saying the first for
-/// the second sent an agent away from a law it could read.
-fn bill_of_law(dataset: &OpenDataset, path: &str, law: &str) -> String {
-    let bill = crate::fail::or_exit(
-        with_dataset!(dataset, d => inspect::bill_of_public_law(d, law)),
-        "Error reading the dataset's public laws",
-    );
-    if let Some(bill) = bill {
-        return bill;
-    }
-    let work = crate::fail::or_exit(
-        with_dataset!(dataset, d => inspect::public_law_work(d, law)),
-        "Error reading the dataset's public laws",
-    );
-    let why = match work {
-        None => format!(
-            "This dataset holds no document of Pub. L. {law}, so no bill is known to have become it."
-        ),
-        Some(work) => format!(
-            "This dataset holds the document of Pub. L. {law} ({work}), but no bill it holds \
-             became that law.\n\
-             A bill is joined to a law when the law's document holds the bill's amendments."
-        ),
-    };
-    crate::fail::refuse(&format!(
-        "{why}\n`words_to_data bills {path}` lists each bill it holds and its public law."
-    ))
 }
 
 /// Shorten `text` to `max` characters, adding an ellipsis when clipped.

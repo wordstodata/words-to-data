@@ -171,3 +171,40 @@ fn should_say_nothing_about_quote_marks_when_the_query_is_read_as_it_is() {
         assert!(answer.get("notice").is_none(), "answer: {answer}");
     }
 }
+
+/// The Code is stored with straight quote marks, and text copied from a PDF or
+/// a web page has curly ones. Search reads a curly quote mark as the straight
+/// one (#453), so the curly form of a query finds what the straight form finds.
+#[test]
+fn should_find_straight_quote_marks_when_the_query_has_curly_ones() {
+    on_both_backends("curly_inside", |dataset| {
+        let section_1 = BTreeSet::from([(
+            "uscode/title_1/chapter_1/section_1".to_string(),
+            "content".to_string(),
+        )]);
+        assert_eq!(
+            found(
+                dataset,
+                "\u{201C}person\u{201D} and \u{201C}whoever\u{201D}"
+            ),
+            section_1
+        );
+        assert_eq!(found(dataset, "and \u{201C}whoever\u{201D}"), section_1);
+    });
+}
+
+/// 1 U.S.C. § 7 says "that individual's marriage", with a straight apostrophe.
+/// A curly apostrophe or single quote mark in the query finds it (#453).
+#[test]
+fn should_find_a_straight_apostrophe_when_the_query_has_a_curly_one() {
+    on_both_backends("curly_single", |dataset| {
+        let straight = found(dataset, "individual's marriage");
+        assert!(!straight.is_empty(), "title 1 holds the words");
+        assert_eq!(found(dataset, "individual\u{2019}s marriage"), straight);
+        assert_eq!(
+            found(dataset, "individual\u{2018}s marriage"),
+            straight,
+            "a left single quote mark is read as the straight one too"
+        );
+    });
+}

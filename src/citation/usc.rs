@@ -851,6 +851,49 @@ pub fn find_with_report(text: &str) -> (Vec<UscCitation>, FindReport) {
     (found, FindReport { skipped })
 }
 
+/// Every citation in text that a person typed to name a provision, such as
+/// the `--cites` of `cases-citing`.
+///
+/// The same pass as [`find_with_report`], with one difference: a citation with
+/// no section marker is read as if it had one. In a court's text the number
+/// after the reporter can be a page or a year, so [`find_with_report`] declines
+/// it ([`SkipReason::NoSectionMarker`]). A person who types a citation as a
+/// query means a section, and bill text writes `26 USC 6213` that way. Before
+/// #396, `26 USC 174` and `26 U.S.C. 174` were both refused, and only
+/// `26 U.S.C. § 174` was read.
+///
+/// Each citation read is the text with the marker put in, so the caller can say
+/// how the query was read.
+///
+/// ```
+/// use words_to_data::citation::usc;
+///
+/// for typed in ["26 USC 174", "26 U.S.C. 174", "26 U.S.C. § 174"] {
+///     let (found, report) = usc::find_typed(typed);
+///     assert_eq!(found.len(), 1, "{typed}");
+///     assert_eq!(found[0].title, "26");
+///     assert_eq!(found[0].sections, ["174"]);
+///     assert!(report.is_empty());
+/// }
+/// ```
+pub fn find_typed(text: &str) -> (Vec<UscCitation>, FindReport) {
+    let mut marked = String::with_capacity(text.len() + 4);
+    let mut copied = 0;
+    for candidate in CANDIDATE.captures_iter(text) {
+        if candidate.name("marker").is_some() || candidate.name("near_miss").is_some() {
+            continue;
+        }
+        let section = candidate
+            .name("section")
+            .expect("a candidate has a section");
+        marked.push_str(&text[copied..section.start()]);
+        marked.push_str("§ ");
+        copied = section.start();
+    }
+    marked.push_str(&text[copied..]);
+    find_with_report(&marked)
+}
+
 /// Every citation the vendored patterns read.
 fn read_citations(text: &str) -> Vec<UscCitation> {
     let mut found = Vec::new();

@@ -343,7 +343,7 @@ fn should_summarise_the_unplaced_renumberings_when_a_build_loads_a_bill() {
     succeeded(&build, "build-dataset");
     let said = stderr_of(&build);
     assert!(
-        said.contains(&format!("redesignation-report <dataset> --bill-id {BILL}")),
+        said.contains(&format!("redesignation-report <dataset> --bill {BILL}")),
         "the build should name the command that lists them: {said}"
     );
     let detail: Vec<&str> = said
