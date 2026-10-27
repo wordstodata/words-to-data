@@ -18,7 +18,9 @@
 //!    there shows, alone or inside longer words. Any other change goes to the
 //!    amendment whose quoted strings and enacted blocks it shows most. Where
 //!    two show equally, word overlap ranks them; where that ties too, the
-//!    change is held back and nobody gets it. An added or removed provision
+//!    amendment whose address is inside the address of every other gets it
+//!    (#434). Where none is, the change is held back and nobody gets it.
+//!    An added or removed provision
 //!    shows every string it holds, so it never has more than one cause.
 //!
 //!    A provision that prints three words or fewer, such as the heading "In
@@ -159,6 +161,8 @@ pub(super) struct Contender<'a> {
     /// The public law that makes the amendment: `119-21`.
     pub public_law: &'a str,
     pub evidence: &'a QuotedWords,
+    /// The path of the provision its address names.
+    pub address: &'a str,
     pub candidates: Vec<usize>,
     /// The amendment's only action is to renumber. Its changes are the moves
     /// the dataset's redesignation links name, so elimination gives it none.
@@ -528,7 +532,10 @@ fn by_words(
         .filter(|(_, shown)| shown.len() == strongest)
         .map(|(who, _)| *who)
         .collect();
-    let who = rank_by_overlap(change, contenders, &tied)?;
+    // Where the words overlap the change as much too, the amendment addressed
+    // nearest to it made it (#434).
+    let who = rank_by_overlap(change, contenders, &tied)
+        .or_else(|| narrowest_address(contenders, &tied))?;
     let (_, shown) = claims.iter().find(|(claimant, _)| *claimant == who)?;
     Some(vec![(who, found_by(shown))])
 }
@@ -668,6 +675,23 @@ fn rank_by_overlap(change: &Change, contenders: &[Contender], tied: &[usize]) ->
         [one] if best > 0.0 => Some(*one),
         _ => None,
     }
+}
+
+/// The one contender of `tied` whose address is inside the address of every
+/// other, or `None` when no single one is.
+///
+/// Such an amendment is nearer to a change under both addresses, as in step
+/// 2 ([`addressed_inside`]). 26 U.S.C. 168(k)(5)(A)(i): § 70301(b)(1) of Pub.
+/// L. 119-21 is addressed to 168(k) and § 70301(b)(2) to the clause itself,
+/// and both strike "the applicable percentage" and insert "100 percent". The
+/// clause is § 70301(b)(2)'s change (#434).
+fn narrowest_address(contenders: &[Contender], tied: &[usize]) -> Option<usize> {
+    let inside_every_other = |who: usize| {
+        tied.iter().all(|&other| {
+            other == who || is_below(contenders[who].address, contenders[other].address)
+        })
+    };
+    tied.iter().copied().find(|&who| inside_every_other(who))
 }
 
 fn why_stopped(

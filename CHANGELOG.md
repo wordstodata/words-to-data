@@ -71,13 +71,301 @@ All 15 added links were checked by hand, and all are right:
   clauses (i) and (ii) that the strike removed (§ 70522(b) of Pub. L.
   119-21); 26 U.S.C. 529A(b)(2)(B)(i) (§ 70115(a)(1)).
 
+### Recall of the evidence matcher: repeals, ties, renumbered addresses ([#434](https://github.com/wordstodata/words-to-data/issues/434))
+
+Four gaps of `link-by-evidence` left changes with no link. This fixes three of
+them and a doubled address. The fourth, one amendment that acts on many
+sections, needs a decision (see #434).
+
+- **A repeal has an address.** The address reader read only *"is amended"*,
+  so *"Section 147 of title 10, United States Code, is repealed."* had no
+  address. Now a line that says *is repealed* is read as an amending line,
+  when it names the Code: it names the title, or it cites the Code as
+  `20 U.S.C. 1087e(e)`. A repeal of a provision of another law that the Code
+  does not hold is not read: *"Subsection (a) of section 50262 of Public Law
+  117–169 30 USC 226. … is repealed, and any provision of law amended … by
+  that subsection is restored"* names (a) of the other law, and the marginal
+  note gives where the restored words are. 16 repeals get an address, and 13
+  get a link: the removal of the section they repeal.
+- **A tie goes to the narrower address.** Where two amendments' quoted words
+  fit a change equally, and the words overlap the change equally too, the
+  amendment whose address is inside the address of every other gets the
+  change. It is nearer to the change, as in step 2 (#339). 26 U.S.C.
+  168(k)(5)(A)(i) goes to § 70301(b)(2) of Pub. L. 119-21, which is addressed
+  to the clause, and not to § 70301(b)(1), which is addressed to 168(k). This
+  applies only to a tie of quoted words, not to elimination.
+- **An address is read through a later renumbering of the same law.** Where
+  an amendment names a provision, and a later amendment of the same law
+  renumbers that provision in the same window, the Code prints the provision
+  at its new number. The address is now read at the new number. § 70110(a)
+  of Pub. L. 119-21 amends 26 U.S.C. 67(g), and § 70110(b)(2) then moves (g)
+  to (h): § 70110(a) is linked to (h). An amendment that says *"as
+  redesignated"* already names the new number, so its address does not
+  change.
+- **A unit is read once.** *"in subsection (b) of section 502"* is one
+  citation. The scope reader read it as a scope as well, and the address was
+  14 U.S.C. 502(b)(b).
+
+#### Measured on a fresh build of the 7 bills from the caches
+
+`build-dataset --offline`, `add-classifications --offline` and
+`link-by-evidence`, with the binary of `main` (777de60) and with this branch.
+
+| | before | after |
+|---|---|---|
+| `legislature.amended_by` links | 3,424 | 3,436 |
+| amendments with a link | 1,149 | 1,172 |
+| stopped at the address | 395 | 379 |
+| stopped at the window | 78 | 75 |
+| stopped at resolving | 61 | 57 |
+| ties in `residue` | 11 | 9 |
+| `legislature.redesignated_as` links | 335 | 335 |
+
+29 links are added and 17 are removed. A hand check of all 46:
+
+- Added, all correct: the 13 repealed sections (each is in the Code before
+  the window and not after it, such as 10 U.S.C. 147, 656, 2839, 2859, 30
+  U.S.C. 1727 and 42 U.S.C. 7434); 8 changes that a tie held back (26 U.S.C.
+  168(k)(5)(A)(i), 951A(a), 951A(d)(2) and (d)(2)(B), 250(b), 529(c)(7)(A),
+  7 U.S.C. 2015(o)(4)(C), 22 U.S.C. 9613(f)(2)(A)); 7 changes at a
+  renumbered address (26 U.S.C. 67(h), 951A(d)(1)(A), 250(b)(2)(E), 10
+  U.S.C. 149(h)(2)(U), 3453(e), 4325(c), 50 U.S.C. 3024(e)(2)); and 14
+  U.S.C. 502(b), from the unit read once.
+- Removed, 15 wrong: 14 links of § 906(a)(1) of Pub. L. 119-60
+  (`66fa357409dc`), which moves 10 U.S.C. 149(f) to (h), to the
+  subparagraphs (h)(2)(U) to (HH). Their words changed because § 905
+  renumbered (U) to (GG) and inserted a new (U). § 905 is now addressed in
+  (h)(2), and gets (U). One link of § 7201(d)(1) (`72249c263e1f`) to 14
+  U.S.C. 502(b), which § 7201(d)(2) and (d)(3) made.
+- Removed, 2 changes that now go to the other of their two causes: 50 U.S.C.
+  3024(e)(2) and 26 U.S.C. 250(b)(2)(E) each sit in a provision a
+  renumbering moved, and an amendment of the same law edited their words.
+  The link goes from the renumbering to the edit, as for any change that
+  another amendment is addressed to (#339). The renumbering keeps the link
+  to its move.
+
+Method version: `address, window and quoted words@8` (was 7). Run
+`link-by-evidence` again; `residue` then lists the links that only version 7
+made, for review.
+
+### The address reader reads the section an item of a list names after "by amending" ([#438](https://github.com/wordstodata/words-to-data/issues/438))
+
+Pub. L. 119-60 § 7301(d) says "Chapter 73 of title 46, United States Code, is
+amended— (1) by amending section 7306 to read as follows: …". The line names
+a chapter, and the item names the section. #365 read an item of such a list
+only when it opened with *In* or *Section*, so this item had no address from
+the markup ("no section under amendment was named"). Only the OLRC table gave
+it one, and `section-agreement` could not check its links.
+
+Now an item of a list under a line that names a title, or part of one, also
+names its section in these three forms:
+
+- *"(1) by amending section 7306 to read as follows"*: § 7306. Another verb
+  does not name the section: in *"by inserting after section 309"*, § 309 is
+  only where the new text goes.
+- *"(3) 46 USC 7308.in section 7308 by striking …"*: the publisher's
+  marginal note stands before *in section*. The renumbering reader reads this
+  form too.
+- *"(5) by inserting after section 309 … the following: "§ 310. Director of
+  …"*: the item inserts a whole new section, and the `§ 310.` heading of the
+  text it enacts gives the number. Only the address reader reads this form,
+  and only for an item of such a list, as for `new_section_inserted`.
+
+#### Measured on a fresh build of the 7 bills from the caches
+
+| | before | after |
+|---|---|---|
+| amendments | 1,683 | 1,683 |
+| amendments that stop at the address | 395 | 394 |
+| `legislature.amended_by` links | 3,424 | 3,425 |
+| `amended_by` links removed / added | | 0 / 1 |
+| renumbering statements of 119-s-1071 placed | 85 of 171 | 86 of 171 |
+| `legislature.redesignated_as` links of 119-s-1071 | 258 | 259 |
+| `section-agreement --all`: "no section under amendment was named" | 117 | 85 |
+| `section-agreement`, 2026-01-23 → 2026-07-12 | 1,965 agree, 0 disagree, 244 not read | 1,996 agree, 0 disagree, 214 not read |
+
+- 9 amendments of Pub. L. 119-60 get an address from the markup. No address
+  changes or goes. Checked by hand against the bill's text, the Code and the
+  OLRC table, all 9 are correct: § 7201(e)(4) 14 U.S.C. 307, (e)(5) § 310,
+  (e)(6) § 316, (e)(7) § 333; § 7301(d)(1) 46 U.S.C. 7306, (d)(3) § 7308,
+  (d)(6) § 7315, (g)(3) § 7511(a), (g)(4) § 7512.
+- The amendment ids do not change: the bill's parser splits the same lists.
+- The one link added (`6a563dbab0b8`, checked by hand): § 7201(e)(6) inserts
+  14 U.S.C. 316 into chapter 3 of title 14. The window 2026-01-23 →
+  2026-07-12 adds `chapter_3/subchapter_II`, which holds the new § 316. The
+  link of § 7201(e)(5) (§ 310) is on the same change. Before, the amendment
+  stopped at the address.
+- The one renumbering placed (`8de93d394db5`, checked by hand): § 7301(g)(3)(C)
+  "by redesignating paragraph (2) as paragraph (3)" in 46 U.S.C. 7511(a).
+- The other 8 amendments keep their links. The OLRC table gave the same
+  section before. Now the markup gives it, and `section-agreement` reads it:
+  of the 32 rows that leave "no section under amendment was named", 31 agree.
+- `section-agreement` names a new limit: "could not be read — the link's path
+  is above a section". The links of § 7201(e)(5) and (e)(6) (`d762c3039aec`
+  and the new `6a563dbab0b8`) are on `chapter_3/subchapter_II`, which the
+  window adds whole. The amendment now has an address, but the path has no
+  section to compare with it. These 2 rows give this reason, and they do not
+  count as agree. Without it, they said "no reason recorded" (#140). No row of
+  the fresh build says "no reason recorded".
+- Method versions: `address, window and quoted words@8` (was 7) and
+  `amendingAction type=redesignate@7` (was 6). Run `redesignations` and
+  `link-by-evidence` again.
+
+### `search` removes one pair of quote marks around the query ([#439](https://github.com/wordstodata/words-to-data/issues/439))
+
+An agent puts a phrase in quote marks, as for a web search engine. `search`
+read the quote marks as text, so `"Immigration parole fee"` found 0 fields
+where `Immigration parole fee` found 6. In the 314 runs of eval
+20261026-101630-basalt4-777de60, 94 searches had a query in quote marks, and
+62 of them found nothing.
+
+Now `search` removes one pair of double quote marks, straight (`"`) or curly
+(`“` `”`), around the whole query, and the first line of the answer says so:
+"Searched without the quote marks: Immigration parole fee". `--json` gives
+the same line as `notice`. The rule is in the library
+(`words_to_data::search::unquoted`), so the library search and the command
+read a query the same way.
+
+Text that holds quote marks is still found. The rule for it:
+
+- A query that only starts or only ends with a quote mark is read as it is.
+  So `"mathematical or clerical error" means` finds only the definition in
+  § 6213(g)(2), where the Code prints the quote marks.
+- A query with more than one pair, such as `"person" and "whoever"`, is read
+  as it is.
+- The removal never hides a match: a field that holds the phrase with its
+  quote marks also holds the phrase.
+- The text of the Code is stored with straight quote marks. A query with a
+  curly quote mark inside it, such as `“mathematical or clerical error”
+  means`, still finds nothing in the Code.
+
+#### Measured on `data/eval.sqlite`
+
+Fields found, before (a release build of 777de60) and after (a release
+build of this change):
+
+| Query | Before | After |
+|---|---|---|
+| `"Immigration parole fee"` | 0 | 6 |
+| `"critical skill incentive"` | 0 | 17 |
+| `"Math and Taxpayer Help"` | 0 | 1 |
+| `"error alleged"` | 0 | 15 |
+| `“Immigration parole fee”` | 0 | 6 |
+| `"mathematical or clerical error"` (title 26 at 2026-07-12) | 1 | 24 |
+| `"mathematical or clerical error" means` (title 26 at 2026-07-12) | 1 | 1 |
+
+The 23 new fields of `"mathematical or clerical error"` hold the words without
+the quote marks, as § 6213(b)(1) does. The last query finds the definition
+only, before and after.
+
+### Opinion plain text: the first item of a quoted list starts its own paragraph ([#430](https://github.com/wordstodata/words-to-data/issues/430))
+
+In *Polselli* the Court quotes 26 U.S.C. § 7609(c)(2)(D): the lead-in
+"“issued in aid of the collection of—" and then the item "“(i) an assessment
+made…". The watermark that #413 removed stood between the two lines and split
+them. Without it, the lead-in and the first line of item (i) were one
+paragraph, and the rest of item (i) was a paragraph of its own.
+
+Now an indented line that opens with a list designation, "(i)" or "“(i)",
+after a line that ends with "—" or ":" starts a paragraph, and the wrapped
+lines of the item stay with it. At the margin the rule does not apply: in the
+Tax Court opinions "means services consisting of— / (i) engaging in…" goes on
+in the sentence.
+
+#### Measured on the opinions of `evals/opinions.txt`
+
+Added to two copies of `dataset-demo.sqlite` from the cache, by the build
+before this change and by the build after it. Of the 29 writings read from
+plain text, 2 change, and no words change:
+
+- *Polselli* (opinion 10516288-1): 2 paragraphs change. The lead-in is a
+  paragraph of its own, and item (i) is one paragraph. The writing keeps 42
+  paragraphs.
+- *Medina v. Planned Parenthood* (opinion 11084231-1): "…including each of the
+  following rights:" and "“(i) Free choice" are now two paragraphs
+  (`paragraph_57` and `paragraph_58`), so the writing has 80 paragraphs, not
+  79, and the 22 paragraphs after them are numbered again. Its 9 footnotes do
+  not change.
+- **`judicial.cites`** stays at 441 links and 488 places. One link changes
+  only its subject path: the citation of 42 U.S.C. § 1395a in *Medina* moves
+  from `paragraph_68` to `paragraph_69`, where the paragraph number moved.
+- No other writing changes.
+
+#### Breaking changes for agents
+
+- Method version: `plain-text-paragraphs@4` (was 3). A dataset built with
+  0.6.1 keeps the old paragraphs of these writings until you run
+  `add-opinions` again.
+
+## 0.6.1
+
+Fewer wrong links, and commands that refuse what the dataset does not hold. The
+address reader keeps the units a line names before a section of an Act ([#387](https://github.com/wordstodata/words-to-data/issues/387)),
+and the renumbering reader reads "Such section" ([#431](https://github.com/wordstodata/words-to-data/issues/431)). The matcher does not
+take a few words as evidence ([#389](https://github.com/wordstodata/words-to-data/issues/389)), gives the changes inside a provision only
+to the amendment that rewrote it ([#390](https://github.com/wordstodata/words-to-data/issues/390)), and matches an added provision with
+the provisions below it ([#432](https://github.com/wordstodata/words-to-data/issues/432)). Citations read subdivisions such as (ii) and
+(14A) ([#410](https://github.com/wordstodata/words-to-data/issues/410)), and the plain text of opinions loses the publisher's watermark
+([#413](https://github.com/wordstodata/words-to-data/issues/413)). An input the dataset does not hold stops a command with exit 1
+([#392](https://github.com/wordstodata/words-to-data/issues/392), [#424](https://github.com/wordstodata/words-to-data/issues/424), [#425](https://github.com/wordstodata/words-to-data/issues/425)), and the readers report the newest review of a
+link ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
+
+### Upgrade from 0.6.0
+
+- **The stored format does not change** (`SCHEMA_VERSION` 10). A dataset built
+  with 0.6.0 opens and reads as before, and keeps the links 0.6.0 made. The
+  fixes below change a dataset only when you run its commands again.
+- **Run `redesignations` for each bill and window, then `link-by-evidence`**,
+  to get the renumberings of version 6 and the evidence links of version 7.
+  `residue` then lists each link that only an older version made, for review.
+- **Add the opinions again with `add-opinions`** to get the text of version 2,
+  the paragraphs of version 3 and the citation links of version 6 and 4 (a
+  cached response costs no request).
+- **Change programs that read the exit code or the `--json` output** of the
+  commands in "Breaking changes for agents".
+- **Rust library:** `inspect::EvidenceWords` has a new variant, `Cited`, so a
+  `match` on it with no wildcard arm does not compile. `Locator`'s window is
+  now a span (see below). The other changes add functions only.
+
+### Breaking changes for agents
+
+- **Not held is exit 1.** An input the dataset does not hold (a bill, a work,
+  a date, a window, a path where nothing was found) stops the command with
+  exit 1, the notice on stderr and nothing on stdout. Before, several commands
+  exited 0 and printed "0 annotation(s)", "This dataset holds no amendment link
+  to check." or a notice on stdout (#392, #424, #425):
+  - `path`, `annotations --path`, `search --path`, `section-agreement --path`
+    and `cases-citing --path` with a path not held, where nothing was found.
+    The `absent_path` field of `--json` is given only when a link, a citation
+    or a classification names the path (`path`, `annotations`), and `search
+    --json` no longer has `absent_path`.
+  - `search --work` and `search --at` with a work or a date not held. `search
+    --json` no longer has `absent_scope`.
+- `votes` with a held bill and no House roll call exits 0 (before, 1). The
+  notice is on stdout, and `--json` gives `[]`.
+- `annotations --json` and `path --json`: each entry in `links` has `status`
+  and `review` (`record`, `verdict`, `reviewer`, `reasoning`, `at`, or
+  `null`). The record's `status` is the status its links report, and `"Mixed"`
+  when they differ. Before, it was the maker's stored state. The
+  `contradictions --json` totals have `refuted_left_out` (#415).
+- `cases-citing --json`: each place has `status` and `review`, as above. A
+  refuted citation is not in the answer (#415).
+- `section-agreement --json --limit N` gives N rows and `rows_total` (#426).
+- `Locator`'s window is a span: a link matches when the window it was recorded
+  over is inside the span. A span of one window matches as before (#388).
+- Method versions: `address, window and quoted words@7` (was 6),
+  `amendingAction type=redesignate@6` (was 5), `reporters-db laws.json U.S.C.
+  patterns@6` (was 5), `bare section under the opinion's default code@4` (was
+  3), `plain-text-paragraphs@3` (was 2), and the text method of opinions 2 (was
+  1). A link records the version that made it.
+
 ### One rule for "not held", and "matched nothing" said as that ([#425](https://github.com/wordstodata/words-to-data/issues/425))
 
 An input the dataset does not hold stops the run with exit 1, the notice on
 stderr and nothing on stdout, as #392 chose. A filter that matches nothing in
 held data exits 0 and says that the filter matched nothing.
 
-### Fixes
+#### Fixes
 
 - A path that no expression holds, where the command found nothing, is
   refused as `diff` refuses it, with the nearest held path: `path`,
@@ -111,24 +399,6 @@ held data exits 0 and says that the filter matched nothing.
   status a review gives, and who gave it: "link 1a2956ce5231 is Verified,
   confirmed by agent:x on 2026-10-26"
   ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
-
-#### Breaking changes for agents
-
-- `path`, `annotations --path`, `search --path`, `section-agreement --path`
-  and `cases-citing --path`: a path not held, where nothing was found, exits 1
-  with the notice on stderr. Before, exit 0 and the notice on stdout. The
-  `absent_path` field of `--json` is given only when a link, a citation or a
-  classification names the path (`path`, `annotations`), and `search --json`
-  no longer has `absent_path`.
-- `search --work` and `search --at` with a work or a date not held exit 1 with
-  the notice on stderr. Before, exit 0. `search --json` no longer has
-  `absent_scope`.
-- `votes` with a held bill and no House roll call exits 0 (before, 1). The
-  notice is on stdout, and `--json` gives `[]`.
-- `section-agreement --json --limit N` gives N rows and `rows_total`.
-- `cases-citing --json`: each place has `status` and `review` (`record`,
-  `verdict`, `reviewer`, `reasoning`, `at`, or `null`). A refuted citation is
-  not in the answer.
 
 ### The renumbering reader reads "Such section" ([#431](https://github.com/wordstodata/words-to-data/issues/431))
 
@@ -383,7 +653,7 @@ it anew, renumbered it, or inserted words that open a new provision, such as
 edited carries only the removal of a provision inside it: *striking "which"
 and all that follows* can strike the clauses below.
 
-### Measured on `eval.sqlite`
+#### #389 and #390 measured on `eval.sqlite`
 
 `link-by-evidence` at version 7 against version 6: 3,329 links become 3,288.
 50 links are removed and 9 are added. 6 of the added links move a change to
@@ -469,10 +739,10 @@ Amendments stopped at resolving: 69 before, 63 after.
   `redesignations` again; `residue` then lists the links that only an older
   version made, for review.
 
+### Commands read their inputs in one way, and other fixes ([#392](https://github.com/wordstodata/words-to-data/issues/392), [#424](https://github.com/wordstodata/words-to-data/issues/424))
+
 Commands read a bill, a work, a window and a path in one way, and refuse an
 input that the dataset does not hold.
-
-### Fixes
 
 - Inputs that the #392 and #395 checks did not reach
   ([#424](https://github.com/wordstodata/words-to-data/issues/424)):
@@ -548,19 +818,6 @@ input that the dataset does not hold.
   - The cause count, in `annotations` and `settle --explain`, does not count a
     refuted link
   ([#415](https://github.com/wordstodata/words-to-data/issues/415)).
-
-### Breaking changes for agents
-
-- `Locator`'s window is a span: a link matches when the window it was recorded
-  over is inside the span. A span of one window matches as before.
-- A run that gave "0 annotation(s)" or "This dataset holds no amendment link to
-  check." with exit 0 for an input not held now exits 1, with the notice on
-  stderr and nothing on stdout.
-- `annotations --json` and `path --json`: each entry in `links` has `status`
-  and `review` (`record`, `verdict`, `reviewer`, `reasoning`, `at`, or
-  `null`). The record's `status` is the status its links report, and `"Mixed"`
-  when they differ. Before, it was the maker's stored state. The
-  `contradictions --json` totals have `refuted_left_out` (#415).
 
 ### `contradictions` reads a citation at the place it was written ([#397](https://github.com/wordstodata/words-to-data/issues/397))
 

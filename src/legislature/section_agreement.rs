@@ -72,7 +72,8 @@ pub struct Row {
     /// The section the path sits in.
     pub path_section: Option<String>,
     pub outcome: Outcome,
-    /// Why the amendment could not be addressed, in the resolver's own words.
+    /// Why the amendment could not be addressed, in the resolver's own words,
+    /// or that the link's path is above a section, where nothing is compared.
     ///
     /// Only ever set on [`Outcome::CouldNotBeRead`]. A third case with no reason
     /// reads as a silent gap, and the whole point of the case is that the limit
@@ -235,6 +236,13 @@ fn check<S: Storage>(
     let path = link.subject.path().unwrap_or_default().to_string();
     let path_section = section_in_path(&path);
     let (named_section, reason) = match addresses.of(&link.object, dataset)? {
+        // A path above a section, such as a subchapter a window added whole,
+        // holds the section the amendment names or does not, and its own
+        // path cannot say which (#438).
+        Ok(section) if path_section.is_none() => (
+            Some(section),
+            Some("the link's path is above a section".to_string()),
+        ),
         Ok(section) => (Some(section), None),
         Err(why) => (None, Some(why)),
     };

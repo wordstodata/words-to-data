@@ -17,6 +17,9 @@
 //!    address is inside, that provision is the change: the diff lists it as
 //!    one path and nothing beneath it (#336). The method gives it only to an
 //!    amendment that only adds, and only when the provision was added.
+//!    Where a later amendment of the same law renumbered the provision the
+//!    address names in that window, the address is read at the new number
+//!    (#434).
 //! 3. **Resolve.** The changes under one section in that window, assigned to
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
@@ -262,7 +265,19 @@ pub enum Stage {
 /// them. Its own words alone show it only when they are more than three
 /// words, or when the block also holds a field below them.
 ///
-/// Version 8 (#433): an enacted block shows a change also as the OLRC prints
+/// Version 8 (#438): an item of a list under a line that names part of a
+/// title gives the section it names after *by amending*, after the
+/// publisher's marginal note, or in the `§ 310.` heading of a new section it
+/// inserts: *"Chapter 73 of title 46 … is amended— (1) by amending section
+/// 7306 …"* acts in § 7306.
+///
+/// Also in version 8 (#434): a section a line says *is repealed* is an address, where
+/// the line names the Code. Where two amendments' quoted words fit a change
+/// equally, the one whose address is inside the address of every other gets
+/// it. An address that a later amendment of the same law renumbered in the
+/// window is read at the new number.
+///
+/// Also in version 8 (#433): an enacted block shows a change also as the OLRC prints
 /// it: *"title 5"* for *"title 5, United States Code"*, the Code's citation
 /// for a reference to a law that the bill cites, and the date of enactment
 /// for *"the date of the enactment of this Act"*. A single and a double
@@ -685,6 +700,8 @@ struct WindowView {
     later: DocumentNode,
     /// Every change in the window, in document order.
     changes: Vec<Change>,
+    /// Who made each renumbering in the window.
+    renumberings: Renumberings,
 }
 
 /// Where one amendment's address changed in one window.
@@ -692,6 +709,8 @@ struct Placed {
     window: usize,
     /// The section's own path, which groups the amendments resolved together.
     section: String,
+    /// The path of the provision the address names, at or below `section`.
+    address: String,
     /// The changes under the address, by their place in the window's list.
     candidates: Vec<usize>,
 }
@@ -723,6 +742,12 @@ fn match_in_work<S: Storage + LegislatureReader>(
         return Ok(Vec::new());
     }
     let windows = windows_after(dataset, work, earliest_enactment)?;
+    // Where each amendment is in the order the laws state them.
+    let stated_at: BTreeMap<&str, usize> = stated
+        .iter()
+        .enumerate()
+        .map(|(at, amendment)| (amendment.address.amendment_id.as_str(), at))
+        .collect();
 
     // Stage 2: the window. Every window the amendment's address changed in,
     // oldest first.
@@ -748,6 +773,18 @@ fn match_in_work<S: Storage + LegislatureReader>(
             let Some((section, under)) = address_path(&later, &earlier, &amendment.address) else {
                 continue;
             };
+            let renumbered_later = |by: &str| {
+                stated_at.get(by).is_some_and(|&renumbering| {
+                    renumbering > at && stated[renumbering].public_law == amendment.public_law
+                })
+            };
+            let under = if amendment.amending_text.contains("as redesignated")
+                || amendment.amending_text.contains("as so redesignated")
+            {
+                under
+            } else {
+                through_later_renumberings(under, &view.renumberings, renumbered_later)
+            };
             found.insert(at);
             let candidates: Vec<usize> = (0..view.changes.len())
                 .filter(|&change| is_at_or_below(&view.changes[change].path, &under))
@@ -756,6 +793,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 placed.entry(at).or_default().push(Placed {
                     window,
                     section,
+                    address: under,
                     candidates,
                 });
                 continue;
@@ -775,6 +813,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
             enclosed.entry(at).or_insert(Placed {
                 window,
                 section,
+                address: under,
                 candidates: enclosing,
             });
         }
@@ -879,6 +918,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 only_inserts: only_inserts(&stated[*at]),
                 rewrites: stated[*at].amending_text.contains("to read as follows"),
                 evidence: &stated[*at].evidence,
+                address: &placed[at][0].address,
                 candidates: placed[at][0].candidates.clone(),
             })
             .collect();
@@ -1058,6 +1098,7 @@ fn windows_after<S: Storage + LegislatureReader>(
             earlier: earlier.root,
             later: later.root,
             changes,
+            renumberings,
         });
     }
     Ok(views)
@@ -1079,6 +1120,38 @@ fn address_path(
         let under = walk_down(section, &address.container).ok()?;
         Some((section.data.path.to_string(), under.data.path.to_string()))
     })
+}
+
+/// The path an address names, read through a renumbering that its own law
+/// makes after it in the same window (#434).
+///
+/// A law acts in the order it states its amendments. Where it amends a
+/// provision and a later amendment of it renumbers that provision, the Code
+/// after the window prints the provision at its new number. 26 U.S.C. 67:
+/// § 70110(a) of Pub. L. 119-21 amends 67(g), and § 70110(b)(2) then
+/// redesignates (g) as (h) and inserts a new (g). The change § 70110(a) made
+/// is at (h).
+///
+/// The address stays as it is where no renumbering, or more than one, moved
+/// it to a new path, and where the renumbering is another law's or comes
+/// earlier in the law: then the amendment names the provision by the number
+/// it already has.
+fn through_later_renumberings(
+    under: String,
+    renumberings: &Renumberings,
+    renumbered_later: impl Fn(&str) -> bool,
+) -> String {
+    let moved_to: BTreeSet<String> = renumberings
+        .iter()
+        .filter(|((from, _), by)| {
+            is_at_or_below(&under, from) && by.iter().any(|id| renumbered_later(id))
+        })
+        .map(|((from, to), _)| format!("{to}{}", &under[from.len()..]))
+        .collect();
+    match moved_to.into_iter().collect::<Vec<String>>().as_slice() {
+        [one] => one.clone(),
+        _ => under,
+    }
 }
 
 /// Who made each renumbering in a window, by the two paths it moved a provision
