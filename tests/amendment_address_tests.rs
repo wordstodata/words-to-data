@@ -351,10 +351,14 @@ fn should_show_only_that_amendment_when_the_command_is_given_its_id() {
 
 /// Two different gaps, which a reviewer works in different ways.
 ///
-/// > SEC. 50103. ROYALTIES ON EXTRACTED METHANE. Section 50263 of Public Law
-/// > 117–169 (30 U.S.C. 1727) is repealed.
+/// > (1) Onshore oil and gas royalty rates.—Subsection (a) of section 50262 of
+/// > Public Law 117–169 30 USC 226. (136 Stat. 2056) is repealed, and any
+/// > provision of law amended or repealed by that subsection is restored …
 ///
-/// No level says *is amended*, so the resolver found no amending line at all.
+/// No level says *is amended*, and the repeal names a provision of another
+/// law that the Code does not hold, so the resolver found no amending line at
+/// all. The marginal note `30 USC 226` gives where the restored words are,
+/// and (a) is the other law's subsection, not one of § 226 (#434).
 ///
 /// > Chapter 509 of title 51, United States Code, is amended by adding at the
 /// > end the following new section: "§ 50924. …
@@ -365,7 +369,10 @@ fn should_tell_no_amending_line_apart_from_no_section_named_when_an_instruction_
     let bill = committed_bill();
     let addresses = addresses_in(&bill);
 
-    let repeal = address_saying(&addresses, "Section 50263 of Public Law 117–169");
+    let repeal = address_saying(
+        &addresses,
+        "Subsection (a) of section 50262 of Public Law 117–169",
+    );
     let chapter = address_saying(&addresses, "Chapter 509 of title 51, United States Code");
 
     assert_eq!(repeal.unresolved, Some(Reason::NoAmendingLine));
@@ -1021,4 +1028,50 @@ fn should_keep_the_earlier_citations_designations_when_a_renumbering_says_such_s
     );
     assert_eq!(statement.unreadable, None);
     assert_eq!(placed(statement), "/us/usc/t10/s9062(j)");
+}
+
+// --- A repeal (#434) ---------------------------------------------------------
+
+/// Pub. L. 119-60 § 901(b):
+///
+/// > (b) Repeal of Chief Diversity Officer.—Section 147 of title 10, United
+/// > States Code, is repealed.
+///
+/// A repeal names its section as an amendment does, with *is repealed* in
+/// place of *is amended*. The publisher's marginal note `10 USC prec. 131.`
+/// sits before the words. The address is 10 U.S.C. 147.
+#[test]
+fn should_address_the_section_a_line_repeals_when_it_says_is_repealed() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(&addresses, "Section 147 of title 10, United States Code,");
+
+    assert_eq!(address.unresolved, None);
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t10/s147"));
+    assert!(address.container.is_empty());
+}
+
+// --- A unit the citation names, read once (#434) -----------------------------
+
+/// Pub. L. 119-60 § 7201(d):
+///
+/// > Subchapter I of chapter 5 of title 14, United States Code, is amended— …
+/// > (3) in subsection (b) of section 502, as so redesignated, by striking …
+///
+/// *subsection (b) of section 502* is one citation: the item names
+/// subsection (b) of § 502. It is not a scope phrase as well, so the address
+/// is 14 U.S.C. 502(b), and not 502(b)(b).
+#[test]
+fn should_read_a_unit_named_before_the_section_once_when_an_item_says_in_subsection_of_section() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "(3) in subsection (b) of section 502, as so redesignated",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t14/s502"));
+    assert_eq!(step_numbers(&address), ["b"]);
 }

@@ -2,6 +2,83 @@
 
 ## Unreleased
 
+### Recall of the evidence matcher: repeals, ties, renumbered addresses ([#434](https://github.com/wordstodata/words-to-data/issues/434))
+
+Four gaps of `link-by-evidence` left changes with no link. This fixes three of
+them and a doubled address. The fourth, one amendment that acts on many
+sections, needs a decision (see #434).
+
+- **A repeal has an address.** The address reader read only *"is amended"*,
+  so *"Section 147 of title 10, United States Code, is repealed."* had no
+  address. Now a line that says *is repealed* is read as an amending line,
+  when it names the Code: it names the title, or it cites the Code as
+  `20 U.S.C. 1087e(e)`. A repeal of a provision of another law that the Code
+  does not hold is not read: *"Subsection (a) of section 50262 of Public Law
+  117–169 30 USC 226. … is repealed, and any provision of law amended … by
+  that subsection is restored"* names (a) of the other law, and the marginal
+  note gives where the restored words are. 16 repeals get an address, and 13
+  get a link: the removal of the section they repeal.
+- **A tie goes to the narrower address.** Where two amendments' quoted words
+  fit a change equally, and the words overlap the change equally too, the
+  amendment whose address is inside the address of every other gets the
+  change. It is nearer to the change, as in step 2 (#339). 26 U.S.C.
+  168(k)(5)(A)(i) goes to § 70301(b)(2) of Pub. L. 119-21, which is addressed
+  to the clause, and not to § 70301(b)(1), which is addressed to 168(k). This
+  applies only to a tie of quoted words, not to elimination.
+- **An address is read through a later renumbering of the same law.** Where
+  an amendment names a provision, and a later amendment of the same law
+  renumbers that provision in the same window, the Code prints the provision
+  at its new number. The address is now read at the new number. § 70110(a)
+  of Pub. L. 119-21 amends 26 U.S.C. 67(g), and § 70110(b)(2) then moves (g)
+  to (h): § 70110(a) is linked to (h). An amendment that says *"as
+  redesignated"* already names the new number, so its address does not
+  change.
+- **A unit is read once.** *"in subsection (b) of section 502"* is one
+  citation. The scope reader read it as a scope as well, and the address was
+  14 U.S.C. 502(b)(b).
+
+#### Measured on a fresh build of the 7 bills from the caches
+
+`build-dataset --offline`, `add-classifications --offline` and
+`link-by-evidence`, with the binary of `main` (777de60) and with this branch.
+
+| | before | after |
+|---|---|---|
+| `legislature.amended_by` links | 3,424 | 3,436 |
+| amendments with a link | 1,149 | 1,172 |
+| stopped at the address | 395 | 379 |
+| stopped at the window | 78 | 75 |
+| stopped at resolving | 61 | 57 |
+| ties in `residue` | 11 | 9 |
+| `legislature.redesignated_as` links | 335 | 335 |
+
+29 links are added and 17 are removed. A hand check of all 46:
+
+- Added, all correct: the 13 repealed sections (each is in the Code before
+  the window and not after it, such as 10 U.S.C. 147, 656, 2839, 2859, 30
+  U.S.C. 1727 and 42 U.S.C. 7434); 8 changes that a tie held back (26 U.S.C.
+  168(k)(5)(A)(i), 951A(a), 951A(d)(2) and (d)(2)(B), 250(b), 529(c)(7)(A),
+  7 U.S.C. 2015(o)(4)(C), 22 U.S.C. 9613(f)(2)(A)); 7 changes at a
+  renumbered address (26 U.S.C. 67(h), 951A(d)(1)(A), 250(b)(2)(E), 10
+  U.S.C. 149(h)(2)(U), 3453(e), 4325(c), 50 U.S.C. 3024(e)(2)); and 14
+  U.S.C. 502(b), from the unit read once.
+- Removed, 15 wrong: 14 links of § 906(a)(1) of Pub. L. 119-60
+  (`66fa357409dc`), which moves 10 U.S.C. 149(f) to (h), to the
+  subparagraphs (h)(2)(U) to (HH). Their words changed because § 905
+  renumbered (U) to (GG) and inserted a new (U). § 905 is now addressed in
+  (h)(2), and gets (U). One link of § 7201(d)(1) (`72249c263e1f`) to 14
+  U.S.C. 502(b), which § 7201(d)(2) and (d)(3) made.
+- Removed, 2 changes that now go to the other of their two causes: 50 U.S.C.
+  3024(e)(2) and 26 U.S.C. 250(b)(2)(E) each sit in a provision a
+  renumbering moved, and an amendment of the same law edited their words.
+  The link goes from the renumbering to the edit, as for any change that
+  another amendment is addressed to (#339). The renumbering keeps the link
+  to its move.
+
+Method version: `address, window and quoted words@8` (was 7). Run
+`link-by-evidence` again; `residue` then lists the links that only version 7
+made, for review.
+
 ### The address reader reads the section an item of a list names after "by amending" ([#438](https://github.com/wordstodata/words-to-data/issues/438))
 
 Pub. L. 119-60 § 7301(d) says "Chapter 73 of title 46, United States Code, is

@@ -3,7 +3,8 @@
 //!
 //! An address is three things the bill already states:
 //!
-//! - **the section**, from the amending line — the words before *is amended*;
+//! - **the section**, from the amending line — the words before *is amended*,
+//!   or before *is repealed* where they name a section (#434);
 //! - **the designations below it** that the citation gives: `Section 898(c)`
 //!   reaches subsection (c);
 //! - **the containers the scope phrases open**: an instruction nested under
@@ -204,7 +205,7 @@ impl<'a> Scope<'a> {
             // The clause's own `in clause (i),` prefix counts as well: a bill
             // writes a one-line instruction either way.
             steps.extend(leading_in_phrase(&text).into_iter().rev());
-            if let Some(line) = amending_line_of(&text) {
+            if let Some(line) = amending_line_of(&text).or_else(|| repealing_line_of(&text)) {
                 steps.extend(in_phrase_after_amending_line(&text).into_iter().rev());
                 amending_line = Some((line, *level));
                 break;
@@ -819,6 +820,41 @@ static AMENDED: LazyLock<Regex> = LazyLock::new(|| {
     .expect("the amended pattern must compile")
 });
 
+/// The part of a level's text before `is repealed`, when it says that and
+/// names a section of the Code there (#434).
+///
+/// > Section 147 of title 10, United States Code, is repealed.
+/// >
+/// > Subsection (e) of section 455 of the Higher Education Act of 1965 (20
+/// > U.S.C. 1087e(e)) is repealed.
+///
+/// A repeal names its section as an amendment does. Only a line that cites a
+/// section and names the Code itself counts: it names the title, or it cites
+/// the Code as `20 U.S.C. 1087e(e)`. Other lines are left to the walk:
+///
+/// - *"(B) Paragraph (4) is repealed."* under an amending line names a unit
+///   of the section that line names.
+/// - *"Subsection (a) of section 50262 of Public Law 117–169 30 USC 226. …
+///   is repealed, and any provision of law amended … by that subsection is
+///   restored"* repeals a provision of another law. The publisher's marginal
+///   note `30 USC 226` says where the restored words are, and (a) is the other
+///   law's subsection, not one of § 226.
+/// - *"Subsection (c) of such section 321 … is repealed"* names a section of
+///   an Act the line before named, the Tariff Act of 1930, and not § 321 of
+///   the Internal Revenue Code.
+fn repealing_line_of(text: &str) -> Option<String> {
+    static REPEALED: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"\b(?:is|are)\s+(?:[0-9]+[A-Za-z]?\s*USC\s*(?:prec\.\s*)?[0-9A-Za-z.\-]*?\s*)?(?:hereby\s+)?repealed",
+        )
+        .expect("the repealed pattern must compile")
+    });
+    let found = REPEALED.find(text)?;
+    let line = &text[..found.start()];
+    let names_the_code = title_named_in(line).is_some() || line.contains("U.S.C.");
+    (citation_in(line).is_some() && names_the_code).then(|| line.to_string())
+}
+
 /// The steps a leading `in subsection (a)` phrase names, outermost first.
 ///
 /// Only at the front of the text, and only with the level spelt out, so a
@@ -826,6 +862,10 @@ static AMENDED: LazyLock<Regex> = LazyLock::new(|| {
 /// cannot be read as a scope. `in subsection (d)(2)` names two steps: the
 /// subsection, and the paragraph in it (#339). Empty when the text opens with
 /// no such phrase.
+///
+/// Empty too where the phrase goes on *of section*: *"in subsection (b) of
+/// section 502"* is one citation, and [`citation_in`] reads its units. Read as
+/// a scope as well, the unit came twice: 14 U.S.C. 502(b)(b) (#434).
 pub(crate) fn leading_in_phrase(text: &str) -> Vec<Step> {
     static IN_PHRASE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
@@ -833,9 +873,16 @@ pub(crate) fn leading_in_phrase(text: &str) -> Vec<Step> {
         )
         .unwrap()
     });
+    static OF_SECTION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)^\s*of\s+section\b").expect("the of-section pattern must compile")
+    });
     let Some(found) = IN_PHRASE.captures(text) else {
         return Vec::new();
     };
+    let after = found.get(0).map_or("", |phrase| &text[phrase.end()..]);
+    if OF_SECTION.is_match(after) {
+        return Vec::new();
+    }
     let level = match element_type_of(&found[1]) {
         ElementType::Unknown | ElementType::Level => return Vec::new(),
         level => level,
