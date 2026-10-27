@@ -165,7 +165,10 @@ read the words.
    and "§7" and "§ 7"; "U.S.C.A." is a different spelling. A soft hyphen or a
    zero-width character in the text is not read, a ligature such as "ﬁ"
    matches its letters, and a hyphen between two letters is not read, so
-   "substantially" finds "substan-tially". Other spellings of a citation are
+   "substantially" finds "substan-tially". A curly quote mark matches the
+   straight one, double or single: the Code is stored with straight marks,
+   and many opinions have curly ones, so `court's` finds "court’s". Other
+   spellings of a citation are
    not made equal: search for each one.
 
    Each hit is one field, and its line says how often the field holds the words
