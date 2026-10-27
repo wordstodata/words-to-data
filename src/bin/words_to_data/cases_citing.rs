@@ -724,6 +724,7 @@ fn field_name(field: &TextContentField) -> &'static str {
         TextContentField::Proviso => "proviso",
         TextContentField::Content => "content",
         TextContentField::Continuation => "continuation",
+        TextContentField::Footnotes => "footnotes",
     }
 }
 

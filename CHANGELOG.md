@@ -28,6 +28,40 @@
   evidence now says the block shows the change, not that the change sits
   inside 2012(u).
 
+### The quoted words find an address that another law moved in the window ([#391](https://github.com/wordstodata/words-to-data/issues/391))
+
+Two laws can change one section in one window. 26 U.S.C. 25C: another law
+redesignated (h) as (i) and inserted a new (h). § 70505(a) of Pub. L. 119-21
+amends "Section 25C(h)" by striking "placed in service" and all that follows
+through "December 31, 2032" and inserting "placed in service after December
+31, 2025". The Code after the window prints those words at (i). The matcher
+read the address by its number alone, and linked the amendment to the new
+(h) and (h)(2), which are the other law's.
+
+The maintainer decided the order of the evidence: first the quoted words,
+then the OLRC notes (#380). The effective date alone does not decide. Now the
+address is read at another provision only when the quoted words say so:
+
+- the provision at the address before the window holds every string the
+  amendment strikes or quotes to mark a place;
+- no change under the address shows the words the amendment inserts or
+  enacts;
+- one provision, and only one, that the window added whole beside the
+  address (the same provision above it, the same level) shows all of them.
+
+The dataset does not hold the OLRC notes (#380 is open), so they are not used.
+
+On a fresh build of `eval.sqlite`, `legislature.amended_by` goes from 3,452
+to 3,451 links. One amendment changes, and no other link changes:
+
+- Removed, 2 wrong links of § 70505(a) (`f1e4088d276d`): 26 U.S.C. 25C(h)
+  and 25C(h)(2).
+- Added, 1 link of § 70505(a): 26 U.S.C. 25C(i), which now prints "This
+  section shall not apply with respect to any property placed in service
+  after December 31, 2025."
+
+Linked amendments stay at 1,175, and the residue does not change.
+
 Method version: `address, window and quoted words@9` (was 8). Run
 `link-by-evidence` again; `residue` then lists the links that only version 8
 made, for review.
@@ -175,6 +209,215 @@ write a straight one.
   no marker can be a page or a year, so it is still not read.
 - **Rust library:** one new function, `citation::usc::find_typed`. Nothing is
   removed or changed. No stored data and no method version changes.
+
+### An amendment that adds one section is not linked to a whole new unit above it ([#450](https://github.com/wordstodata/words-to-data/issues/450))
+
+The diff lists a provision added whole as one path, and nothing beneath it
+(#336). Where nothing under an amendment's address changed, but a window
+added a unit that holds the address, the method gave the whole unit to the
+amendment that only adds. That is right where the amendment enacted the unit,
+as § 70204(a)(1) of Pub. L. 119-21 enacts part IX with § 530A. It is wrong
+where the window added the unit for another reason. § 3117(a) of Pub. L.
+119-60 adds § 4816 of the Atomic Energy Defense Act, 10 U.S.C. 6340, in the
+window where the OLRC moved the Act into a new subpart B of title 10. The
+method gave it the whole subpart (2,344 fields).
+
+Now such an amendment takes the added unit only when its quoted words show
+the unit. Otherwise it takes the provision at its address, which the window
+added too, as a change of its own. § 3117(a) is now linked to
+`…/subpart_B/chapter_608/subchapter_II/section_6340`.
+
+The method is now `address, window and quoted words@9`.
+
+#### Measured on a fresh build of `eval.sqlite`
+
+`link-by-evidence` against `main` at 8e4a3eb (0.6.2), both on a copy of one
+fresh build (`build-dataset --offline` and `add-classifications --offline`,
+as `scripts/build-eval` does): 3,452 links stay 3,452. 3 links are removed
+and 3 are added, each for the same amendment. Each was checked by hand:
+
+- 10 U.S.C. part VI subpart B to § 3117(a) of Pub. L. 119-60 (wrong) becomes
+  10 U.S.C. 6340 (right).
+- 14 U.S.C. chapter 3 subchapter II was linked to two amendments of
+  § 7201(e) of Pub. L. 119-60, (5) and (6) (wrong: the law reorganizes
+  chapter 3 into subchapters, and neither amendment enacts subchapter II).
+  Now (5) is linked to 14 U.S.C. 310, which it inserts, and (6) to 14 U.S.C.
+  316, which it inserts (right, both by the block). (6) also inserts § 317,
+  which still has no link: the address of (6) is § 316.
+
+### An amendment of "the heading for section X" links only to that heading ([#451](https://github.com/wordstodata/words-to-data/issues/451))
+
+*"The heading for section 951A is amended by striking "global intangible
+low-taxed income" …"* (§ 70323(a)(3)(E)(i) of Pub. L. 119-21) was also linked
+to the heading of 26 U.S.C. 951A(b). Its address is the whole section, and
+the heading of (b) lost the same words in the same window by a renumbering
+of the same law. Now an amendment whose words say *"the heading of"* or
+*"the heading for section X"*, where X is the section of its address, takes
+only the change to the provision at its address, and no change below it.
+
+The method is now `address, window and quoted words@9`.
+
+#### Measured on a fresh build of `eval.sqlite`
+
+`link-by-evidence` against `main` at 8e4a3eb (0.6.2), both on a copy of one
+fresh build (`build-dataset --offline` and `add-classifications --offline`,
+as `scripts/build-eval` does): 3,452 links become 3,457. 1 link is removed
+and 6 are added. Each was checked by hand:
+
+- Removed, wrong: 951A(b) to § 70323(a)(3)(E)(i). The link of the
+  renumbering to 951A(b), and the link of § 70323(a)(3)(E)(i) to the heading
+  of § 951A, stay.
+- Added, right: 26 U.S.C. 250(a)(1)(B)(i), (a)(2)(A), (a)(2)(A)(i),
+  (a)(2)(B)(ii) and (b)(3)(A)(i)(II) to § 70323(a)(3)(A)(i), which strikes
+  "global intangible low-taxed income" in those units; and 951A(d)(1)(A) to
+  § 70323(a)(3)(C), which strikes the same words in 951A(d). Before, the
+  heading amendments of § 250 and § 951A quoted the same words, the tie held
+  these changes back, and no amendment got them.
+
+### One amendment that acts on many sections is matched for each item ([#434](https://github.com/wordstodata/words-to-data/issues/434))
+
+Some amending instructions name an Act, and not a section, in their own line,
+and each item of the list below the line names the section it acts on:
+
+> The National Security Act of 1947 (50 U.S.C. 3001 et seq.) is amended—
+> (i) in section 103(c)(15) (50 U.S.C. 3025(c)(15)), by striking …
+> (ii) in section 112(c)(1), 50 USC 3047. by striking …
+
+Other lines cite several sections: *"Sections 351(a), 352(a), 353(a), and
+353(b) of such title are amended by striking …"*. Such an instruction had no
+address, and no link held its changes.
+
+Now the address of such an instruction has a new list, `items`: one item for
+each level of the list that names a section, or for each section the line
+cites, with the item's place in the bill, its section and the designations
+below it. The publisher's reference in the item's own words places the
+section; a parenthesis such as *"(50 U.S.C. 98d(a)(2), 98e(d)(1),
+98e(d)(2))"* places one section for each citation. Where the markup places
+no section, the OLRC's table can: the row for the item's own place in the
+law, or, for a section that a line cites, the row whose section has the
+cited number. The instruction stays one amendment with one id. `section` and
+`unresolved` do not change.
+
+The matcher then matches each item as one amendment, with only the words the
+item quotes, so the words of one item cannot take a change in another item's
+section. A link of an item says so in its evidence.
+
+Not changed: an instruction that adds, moves or rewrites a whole chapter or
+part. Its items name no section, so it has no items, and it stays in
+`residue` as before. *"of such title"* is still not read as a title.
+
+On a fresh build of `eval.sqlite`, `legislature.amended_by` goes from 3,452
+to 3,506 links: 54 added, 0 removed, each read by hand against the bill and
+the Code. Of the 81 amendments that stopped with "no section under amendment
+was named", 6 now have links (Pub. L. 119-21 § 71401(b); Pub. L. 119-60
+§§ 601(c)(4), 1411(c), 6402(c)(2)(A), 7701(g), 8402(a)). 1397aa(a) of title
+42 stays without a link: the Code prints the Act's § 2105(h) that item (1)
+quotes as § 1397ee(h). `section-agreement` finds 0 disagreements.
+
+The method is now `address, window and quoted words@9`.
+
+#### Upgrade
+
+- **`amendment-addresses --json`** can give a new field, `items`. The other
+  fields do not change.
+- **`residue --json` can give one amendment in more than one row**, one for
+  each item that no standing link holds, each with `"item": true` and the
+  item's own `address`. An item row goes away when a standing link of the
+  amendment changes the item's section. On `eval.sqlite` 3 amendments have
+  item rows (10 rows), and the rows go from 508 to 509.
+  With `residue --partial` (#271), a linked item is read as linked in part
+  against its own address: its row lists the changes under that address that
+  no link claims.
+- **`link-by-evidence`** counts each item as one answer and says how many
+  there are.
+- **Rust library:** `AmendmentAddress::items` and `ItemAddress` are new, and
+  so are `AmendmentMatch::item` and `Unlinked::item`. A struct literal of
+  `AmendmentAddress` must give `items`.
+
+### The OLRC's footnotes are out of the words of the law ([#416](https://github.com/wordstodata/words-to-data/issues/416))
+
+**Breaking: the stored format changes** (`SCHEMA_VERSION` 11, was 10). This
+change is for 0.7.0.
+
+The OLRC prints editorial footnotes in the Code: *"So in original. The comma
+probably should not appear."*, *"See References in Text note below."*. The
+parser kept the mark and the footnote text in the words of the provision, so
+26 U.S.C. 164(b)(6) read *"…December 31, 2017,22 So in original. The comma
+probably should not appear.—"*. The OLRC numbers its footnotes again in each
+printing, so `diff` showed a footnote that only got a new number as a change to
+the law, and `coverage` put it in the work queue.
+
+Now the marks and the footnote text go out of the five fields of words, and out
+of the number of an element (*"§ 9815."*). The footnote text goes in a sixth
+text field, `footnotes`, one footnote on each line
+(`docs/adr/0015-a-publishers-footnotes-are-a-sixth-text-field-the-diff-does-not-compare.md`):
+
+- **`search` reads it.** A hit in a footnote shows the field `[footnotes]`. A
+  search for "So in original" on the benchmark dataset finds every provision
+  that it found before (28,106 provisions), and 3,003 more: a second mark for a
+  footnote (a bare `<sup>2</sup>`) gives its provision the footnote text that
+  the OLRC printed at the first mark.
+- **`diff` and `coverage` do not compare it.** In titles 26 and 42, 51 changes
+  that were only a footnote go, and no change comes. Each cell is changed paths
+  / added and removed nodes / the work queue of `coverage`:
+
+  | Window | Before | After |
+  |---|---|---|
+  | title 26, 2025-07-18 → 2025-07-30 | 536 / 518 / 1,052 | 503 / 518 / 1,020 |
+  | title 26, 2025-07-30 → 2026-01-23 | 14 / 3 / 16 | 9 / 3 / 12 |
+  | title 42, 2025-07-18 → 2025-07-30 | 62 / 53 / 115 | 59 / 53 / 112 |
+  | title 42, 2025-07-30 → 2026-01-23 | 292 / 202 / 494 | 282 / 202 / 484 |
+
+- **The evidence matcher reads the words without the footnotes.** Method
+  version: `address, window and quoted words@9` (was 8). The rules do not
+  change. On a fresh build of `eval.sqlite`, `legislature.amended_by` goes from
+  3,452 to 3,460 links: 14 go and 22 come, and each one was examined.
+  - 22 come, and all are right. An enacted block now matches words that a
+    footnote broke (10 U.S.C. 222c(f), 26 U.S.C. 63(b)(6)), and a change that a
+    footnote hid now shows its quoted words (26 U.S.C. 6050W(a)(2), inserted
+    "and"; 31 U.S.C. 9705(f)(4)(B), which before went to the wrong amendment).
+  - 10 go because their change was only a footnote, for example a renumbered
+    footnote on a provision that 6 U.S.C. 124n moved.
+  - 1 goes to the right amendment (31 U.S.C. 9705(f)(4)(B), above).
+  - 2 go where two amendments of Pub. L. 119-60 make the same correction
+    (10 U.S.C. 4872(e)(1), 10 U.S.C. 5531(b)(2)). The footnote's own words
+    ("Probably should be "paragraph (1)"") gave the second amendment a
+    match. The change keeps its link to the first.
+  - 1 right link goes: 10 U.S.C. 132a, whose heading changes only in case,
+    "improvement officer" to "Improvement Officer". The matcher reads words in
+    lower case, so a change of case only shows nothing. Before, the footnote
+    repeated the words and gave the match by chance. The change is now in the
+    work queue of `coverage`.
+
+  `legislature.redesignated_as`, `olrc.classified_from` and `judicial.cites`
+  do not change, and `section-agreement` finds 0 disagreements.
+
+A raised number that is part of the words stays: the top of a fraction
+(`1⁄12`), a power (`kg/m2`), an isotope (`235U`). The narrow space that the
+OLRC puts before a mark goes with the mark.
+
+#### Upgrade
+
+- **Build each dataset again** with this build: `build-dataset`, then each
+  command that added to it (`add-classifications`, `link-by-evidence`,
+  `add-opinions`, …). A dataset at schema 10 does not open. The error names the
+  versions and the step. There is no migration.
+- **`search` output** can show the field `footnotes`. `search --json` gives
+  `"field": "footnotes"` for such a hit.
+- **The words of a provision change** where it holds a footnote: in `diff`,
+  `path` and `--json` output. The number of an element (in the
+  USLM payload, `number_display`) has no footnote.
+- **Rust library:** `TextContentField` has a new variant, `Footnotes`, and
+  `NodeData` a new field, `footnotes`. A `match` on `TextContentField` and a
+  `NodeData { … }` literal must name them. The compact JSON form writes
+  `footnotes` only on a node that has footnotes.
+
+#### Known limits
+
+- The place of a mark in the words is not kept. To know which comma a
+  footnote is about, read the OLRC's text.
+- A footnote that the OLRC prints in the foot of an XHTML table (`<tfoot>`) is
+  not USLM footnote markup, and it stays in the words: 5 U.S.C. 10203(a).
 
 ## 0.6.2
 

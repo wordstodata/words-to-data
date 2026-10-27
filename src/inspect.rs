@@ -3242,9 +3242,10 @@ fn weakest_first(left: Option<f32>, right: Option<f32>) -> std::cmp::Ordering {
 
 /// Full-text search across every expression, returning each field match.
 ///
-/// Both backends search all five text fields of each element: heading,
-/// chapeau, content, proviso and continuation. Each hit names the field it
-/// came from, so a proviso hit is a real hit. Both backends also return the
+/// Both backends search all six text fields of each element: heading,
+/// chapeau, content, proviso, continuation and footnotes. Each hit names the
+/// field it came from, so a proviso hit is a real hit, and a footnotes hit is
+/// the publisher's note and not the law's words (#416). Both backends also return the
 /// hits in the same order: work, then date, then document position, then that
 /// field order. The backend does not change what a miss means: no text field
 /// of the dataset holds the term.

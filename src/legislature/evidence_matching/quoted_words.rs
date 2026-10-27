@@ -110,6 +110,8 @@ pub(super) struct Shown {
     /// more. A heading such as "In general" is in many blocks, so it is weak
     /// evidence that this block made the change (#389).
     pub few_words: bool,
+    /// Words the amendment adds: a string it inserts, or a block it enacts.
+    pub adds: bool,
 }
 
 impl Shown {
@@ -195,6 +197,31 @@ impl QuotedWords {
         }
     }
 
+    /// The evidence one item of an instruction that acts on many sections
+    /// gives (#434): only the quoted strings and enacted blocks that the
+    /// item's own words, `item_words`, state.
+    ///
+    /// The bill stores the words of the whole instruction, and the words of
+    /// one item can show a change in another item's section. A string is the
+    /// item's when its words hold it inside quotation marks. A block is the
+    /// item's when its words hold the block's first words.
+    pub(super) fn of_item(facts: &AmendmentFacts, enacted_on: &str, item_words: &str) -> Self {
+        /// Enough words to tell one block from another.
+        const FIRST_WORDS: usize = 12;
+        let item_tokens = tokens_of(&without_page_marks(item_words));
+        let item_words = words_of(&without_page_marks(item_words));
+        let mut own = facts.clone();
+        own.quoted_text.retain(|quoted| {
+            contains_run(&item_tokens, &tokens_of(&format!("\"{}\"", quoted.text)))
+        });
+        own.enacted_text.retain(|block| {
+            let words = words_of(&without_page_marks(block));
+            let first = &words[..words.len().min(FIRST_WORDS)];
+            !first.is_empty() && contains_run(&item_words, first)
+        });
+        Self::of(&own, enacted_on)
+    }
+
     /// Whether the bill quotes any words for this amendment at all.
     ///
     /// An amendment that quotes words and whose words show in no change has
@@ -226,6 +253,30 @@ impl QuotedWords {
                 .quoted
                 .iter()
                 .all(|quoted| quoted.direction == Direction::Struck)
+    }
+
+    /// How many words the amendment adds: the strings it inserts and the
+    /// blocks it enacts.
+    pub(super) fn additions(&self) -> usize {
+        let inserted = self
+            .quoted
+            .iter()
+            .filter(|quoted| quoted.direction == Direction::Inserted)
+            .count();
+        inserted + self.enacted.len()
+    }
+
+    /// Whether `text` holds every string the amendment strikes or quotes to
+    /// mark a place, and the amendment quotes one such string at least: the
+    /// words it acts on were there.
+    pub(super) fn acts_on_words_in(&self, text: &str) -> bool {
+        let tokens = tokens_of(text);
+        let mut acted_on = self
+            .quoted
+            .iter()
+            .filter(|quoted| quoted.direction != Direction::Inserted)
+            .peekable();
+        acted_on.peek().is_some() && acted_on.all(|quoted| contains_run(&tokens, &quoted.tokens))
     }
 
     /// The amendment's quoted strings and enacted blocks this change shows.
@@ -268,6 +319,7 @@ impl QuotedWords {
                 enacted: false,
                 rewrote: false,
                 few_words: false,
+                adds: quoted.direction == Direction::Inserted,
             });
         let undone = |text: &str| -> Vec<String> {
             without(&tokens_of(text), &later_insertions)
@@ -299,6 +351,7 @@ impl QuotedWords {
                 enacted: true,
                 rewrote,
                 few_words: count <= FEW_WORDS && block.words.len() > count,
+                adds: true,
             })
         });
         let shown: Vec<Shown> = strings.chain(blocks).collect();

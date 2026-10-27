@@ -691,3 +691,30 @@ fn should_read_an_address_through_a_renumbering_the_law_makes_after_it_when_both
         vec![subsection_h.to_string()]
     );
 }
+
+#[test]
+fn should_read_an_address_at_the_provision_that_shows_its_inserted_words_when_another_law_moved_it_in_the_window()
+ {
+    // 26 U.S.C. 25C. § 70505(a) of the law says: "Section 25C(h) is amended by
+    // striking 'placed in service' and all that follows through 'December 31,
+    // 2032' and inserting 'placed in service after December 31, 2025'".
+    //
+    // In the same window the Code's editors also executed another law, which
+    // redesignated the termination rule (h) as (i) and inserted a new (h), the
+    // product identification rule. So the Code after the window prints the
+    // words this amendment inserted at (i), and the provision now at (h) is
+    // another law's.
+    //
+    // The quoted words decide (#391). The old (h) held the words it strikes.
+    // No change under (h) shows the words it inserts, and (i), added beside
+    // (h) in the window, shows them all. So (i) is its change, and nothing
+    // under (h) is.
+    let section_25c =
+        "uscode/title_26/subtitle_A/chapter_1/subchapter_A/part_IV/subpart_A/section_25C";
+    let matches = title_26_matches();
+
+    assert_eq!(
+        linked_paths(matches, "f1e4088d276d"),
+        vec![format!("{section_25c}/subsection_i")]
+    );
+}

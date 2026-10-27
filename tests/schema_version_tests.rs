@@ -88,33 +88,33 @@ fn should_refuse_a_dataset_written_by_a_different_schema() {
     }
 }
 
-/// A method gained a name and a version, a dataset gained a record of what has
-/// run over it, and `Target::Provision` became `Target::Node`. Every stored
-/// link changes shape and every provenance changes shape, in both on-disk
-/// forms, so a dataset from the build before must be refused by name
-/// (#182, #147).
+/// A node gained a sixth text field, `footnotes`, and the search index a
+/// column for it (#416). A dataset at 10 holds the OLRC's footnotes in the
+/// words of the law, and its index has no column for them, so it must be
+/// refused by name, with the step that fixes it.
 #[test]
 fn should_refuse_a_dataset_written_at_the_previous_schema() {
     assert_eq!(
-        SCHEMA_VERSION, 10,
-        "method identity, the record of what ran, and Target::Node are schema 10"
+        SCHEMA_VERSION, 11,
+        "the footnotes field and its search column are schema 11"
     );
 
-    let path = written_dataset("schema_nine");
+    let path = written_dataset("schema_ten");
     let conn = Connection::open(&path).expect("the file should open directly");
-    conn.execute("UPDATE schema_version SET version = 9", [])
+    conn.execute("UPDATE schema_version SET version = 10", [])
         .expect("the version should update");
     drop(conn);
 
     match SqliteStorage::open(&path) {
         Err(DatasetError::SchemaVersionMismatch { found, expected }) => {
-            assert_eq!(found, 9);
-            assert_eq!(expected, 10);
+            assert_eq!(found, 10);
+            assert_eq!(expected, 11);
             let message = DatasetError::SchemaVersionMismatch { found, expected }.to_string();
-            assert!(message.contains("regenerate"), "got: {message}");
+            assert!(message.contains("schema version 10"), "got: {message}");
+            assert!(message.contains("build-dataset"), "got: {message}");
         }
         Err(other) => panic!("the failure should name the schema, got {other}"),
-        Ok(_) => panic!("a dataset whose links hold a free-string method must not open"),
+        Ok(_) => panic!("a dataset that holds footnotes in the words must not open"),
     }
 }
 
@@ -187,25 +187,24 @@ fn should_refuse_a_json_dataset_written_by_a_different_schema() {
 /// The W2D file is refused at the same number, and for the same reason.
 ///
 /// Both stored forms carry one schema number, so a break that misses one of
-/// them is a file a reader half-understands. A compact file at 9 holds a
-/// provenance whose method is a free string and a target tagged `provision`,
-/// and this build reads neither.
+/// them is a file a reader half-understands. A compact file at 10 holds the
+/// OLRC's footnotes in the words of the law.
 #[test]
 fn should_refuse_a_json_dataset_written_at_the_previous_schema() {
-    let path = written_json_dataset("schema_nine_json");
+    let path = written_json_dataset("schema_ten_json");
 
     let json = std::fs::read_to_string(&path).expect("the file should read");
     let mut value: serde_json::Value = serde_json::from_str(&json).expect("it should be JSON");
     value
         .as_object_mut()
         .expect("the dataset should be an object")
-        .insert("schema_version".to_string(), serde_json::json!(9));
+        .insert("schema_version".to_string(), serde_json::json!(10));
     std::fs::write(&path, value.to_string()).expect("the file should write");
 
     match Dataset::load(&path, Format::Compact) {
         Err(DatasetError::SchemaVersionMismatch { found, expected }) => {
-            assert_eq!(found, 9);
-            assert_eq!(expected, 10);
+            assert_eq!(found, 10);
+            assert_eq!(expected, 11);
         }
         Err(other) => panic!("the failure should name the schema, got {other}"),
         Ok(_) => panic!("a W2D file from the schema before must not open"),

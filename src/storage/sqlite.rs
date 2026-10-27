@@ -112,8 +112,8 @@ impl ScopeClause {
 
 /// The columns of `element_index`, in the order the insert takes them.
 const ELEMENT_INDEX_INSERT: &str = "INSERT OR REPLACE INTO element_index \
-     (work, date, path, node_type, heading, chapeau, content, proviso, continuation, ordinal) \
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+     (work, date, path, node_type, heading, chapeau, content, proviso, continuation, footnotes, \
+     ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
 
 /// One row of the element index: every searchable field of one node, plus
 /// where it sits in a document-order walk.
@@ -128,6 +128,7 @@ struct ElementRow<'a> {
     content: Option<&'a str>,
     proviso: Option<&'a str>,
     continuation: Option<&'a str>,
+    footnotes: Option<&'a str>,
     ordinal: i64,
 }
 
@@ -147,6 +148,7 @@ impl ElementRow<'_> {
             self.content,
             self.proviso,
             self.continuation,
+            self.footnotes,
             self.ordinal,
         ])?;
         Ok(())
@@ -349,7 +351,7 @@ fn check_search_index(conn: &Connection, path: &str) -> Result<(), DatasetError>
         .query_map([], |row| row.get::<_, String>(1))?
         .collect::<Result<_, _>>()?;
 
-    let complete = ["chapeau", "proviso", "continuation", "ordinal"]
+    let complete = ["chapeau", "proviso", "continuation", "footnotes", "ordinal"]
         .iter()
         .all(|wanted| columns.iter().any(|held| held == wanted));
 
@@ -467,6 +469,9 @@ impl SqliteStorage {
                 content TEXT,
                 proviso TEXT,
                 continuation TEXT,
+                -- The publisher's footnotes, which search reads and the diff
+                -- does not compare (#416).
+                footnotes TEXT,
                 -- Position in a document-order walk, so search results can come
                 -- back in the order a reader meets the provisions, matching the
                 -- in-memory backend.
@@ -708,6 +713,7 @@ impl SqliteStorage {
             content: text(&element.data.content),
             proviso: text(&element.data.proviso),
             continuation: text(&element.data.continuation),
+            footnotes: text(&element.data.footnotes),
             ordinal: rows.len() as i64,
         });
 
@@ -1172,6 +1178,9 @@ impl DocumentReader for SqliteStorage {
              UNION ALL
              SELECT work, date, path, ordinal, 4, 'continuation', continuation
                  FROM element_index WHERE search_matches(continuation){scope}
+             UNION ALL
+             SELECT work, date, path, ordinal, 5, 'footnotes', footnotes
+                 FROM element_index WHERE search_matches(footnotes){scope}
              ORDER BY work, date, ordinal, field_rank",
             scope = scope.sql,
         ))?;

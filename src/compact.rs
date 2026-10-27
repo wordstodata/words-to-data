@@ -114,6 +114,9 @@ pub struct NodeDataCompact {
     pub proviso: Option<StrIdx>,
     pub content: Option<StrIdx>,
     pub continuation: Option<StrIdx>,
+    /// The publisher's footnotes, as [`NodeData::footnotes`] holds them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footnotes: Option<StrIdx>,
     /// Where the node's text came from. Stored whole rather than interned: most
     /// nodes carry none, and a `Provenance` is a record rather than a string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -339,6 +342,7 @@ impl DatasetCompact {
                 proviso: data.proviso.as_ref().map(|s| table.intern(s)),
                 content: data.content.as_ref().map(|s| table.intern(s)),
                 continuation: data.continuation.as_ref().map(|s| table.intern(s)),
+                footnotes: data.footnotes.as_ref().map(|s| table.intern(s)),
                 provenance: data.provenance.clone(),
                 payload: data.payload.as_ref().map(|payload| ClassPayloadCompact {
                     namespace: table.intern(&payload.namespace),
@@ -419,6 +423,7 @@ impl DatasetCompact {
                 proviso: table.get_arc_option(data.proviso, interner),
                 content: table.get_arc_option(data.content, interner),
                 continuation: table.get_arc_option(data.continuation, interner),
+                footnotes: table.get_arc_option(data.footnotes, interner),
                 provenance: data.provenance,
                 payload: data.payload.map(|payload| ClassPayload {
                     namespace: table.get_arc(payload.namespace, interner),

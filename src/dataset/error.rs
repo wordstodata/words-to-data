@@ -39,7 +39,8 @@ pub enum DatasetError {
 
     #[error(
         "This dataset was written with schema version {found}, and this build reads version \
-         {expected}. Datasets are rebuilt rather than migrated, so regenerate it."
+         {expected}. Datasets are rebuilt rather than migrated, so regenerate it: run \
+         `words_to_data build-dataset`, and each command that added to it, with this build."
     )]
     SchemaVersionMismatch { found: i32, expected: i32 },
 

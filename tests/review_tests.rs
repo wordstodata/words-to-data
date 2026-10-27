@@ -652,8 +652,9 @@ fn should_report_no_contradiction_when_two_reviewers_agree_about_one_link() {
     }
 }
 
-/// A review is stored by a dataset at schema 10, in place, with no format
-/// change.
+/// A review is stored by a dataset in place, with no format change. Schema 10
+/// held it; schema 11 came later, for the OLRC's footnotes (#416), and changed
+/// nothing a review holds.
 ///
 /// This is the whole claim of ADR 0012 put to a real file. A review is
 /// expressed entirely in the kind, which ADR 0002 made an open namespaced
@@ -662,11 +663,11 @@ fn should_report_no_contradiction_when_two_reviewers_agree_about_one_link() {
 /// needed. A database also grows in place, which is the form in which a review
 /// survives `add-release-points`.
 #[test]
-fn should_hold_the_review_at_schema_ten_when_a_database_is_settled_in_place() {
+fn should_hold_the_review_with_no_format_change_when_a_database_is_settled_in_place() {
     assert_eq!(
         words_to_data::storage::SCHEMA_VERSION,
-        10,
-        "a review costs no format change, so the schema does not move"
+        11,
+        "a review costs no format change, so the schema does not move for it"
     );
 
     let path = format!("{}/settle_in_place.sqlite", env!("CARGO_TARGET_TMPDIR"));
