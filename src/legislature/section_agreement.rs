@@ -235,7 +235,8 @@ fn check<S: Storage>(
 ) -> Result<Row, DatasetError> {
     let path = link.subject.path().unwrap_or_default().to_string();
     let path_section = section_in_path(&path);
-    let (named_section, reason) = match addresses.of(&link.object, dataset)? {
+    let named = addresses.of(&link.object, path_section.as_deref(), dataset)?;
+    let (named_section, reason) = match named {
         // A path above a section, such as a subchapter a window added whole,
         // holds the section the amendment names or does not, and its own
         // path cannot say which (#438).
@@ -279,9 +280,14 @@ struct Addresses {
 impl Addresses {
     /// The section number the amendment a link names acts on, or why it is
     /// not known.
+    ///
+    /// An amendment that acts on many sections names one for each item
+    /// (#434). The one the link's path sits in, `path_section`, is the one
+    /// its words name for this link, and where none is, every one is given.
     fn of<S: Storage>(
         &mut self,
         object: &Target,
+        path_section: Option<&str>,
         dataset: &S,
     ) -> Result<Result<String, String>, DatasetError> {
         let Target::External { reference, .. } = object else {
@@ -304,8 +310,19 @@ impl Addresses {
                 "bill {bill_id} states no amendment {amendment_id}"
             )));
         };
+        let items: Vec<&str> = address
+            .items
+            .iter()
+            .filter_map(|item| item.section.as_deref().map(section_number))
+            .collect();
         Ok(match (&address.section, &address.unresolved) {
             (Some(section), _) => Ok(section_number(section).to_string()),
+            (None, _) if !items.is_empty() => {
+                let sitting = items
+                    .iter()
+                    .find(|item| path_section.is_some_and(|sitting| same_section(item, sitting)));
+                Ok(sitting.map_or_else(|| items.join(", "), |item| item.to_string()))
+            }
             (None, Some(reason)) => Err(reason.to_string()),
             (None, None) => Err("the amendment could not be addressed".to_string()),
         })

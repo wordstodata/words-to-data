@@ -38,6 +38,15 @@
 //! it: the stage, the reason, the window and the changes under the address.
 //! Nothing here matches anything again.
 //!
+//! **An amendment that acts on many sections has one row for each item**
+//! (#434). Its address names no section, and each item of its list names
+//! one ([`crate::uslm::amendment_address::ItemAddress`]). A row for an item is
+//! listed when no standing link of the amendment changes the item's section,
+//! so that a linked item does not hide the items that are not. An item with
+//! no section is listed when no standing link of the amendment is outside the
+//! sections of the other items. Each such row has the amendment's id, the
+//! item's address and `item: true`.
+//!
 //! **Not every row is work.** A row falls in one [`Category`]: work for an
 //! agent, quiet, not held by the dataset, linked by the method with the link
 //! not yet written, or reviewed by someone who concluded it has no link.
@@ -85,8 +94,12 @@ pub struct Unlinked {
     pub amendment_id: String,
     /// The amendment's words, as the bill states them.
     pub amending_text: String,
-    /// Where the amendment acts.
+    /// Where the amendment acts. For an item, where the item acts.
     pub address: AmendmentAddress,
+    /// The row is for one item of an amendment that acts on many sections
+    /// (#434). The amendment can have more rows, one for each item.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub item: bool,
     /// Which evidence gave the address: the bill's markup or, when it names no
     /// section, the OLRC's classification table. `amendment-addresses` reads
     /// the markup alone (#336).
@@ -202,12 +215,20 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
         Some(bill) => match_bill_by_evidence(dataset, bill)?,
         None => match_by_evidence(dataset)?.matches,
     };
+    let item_sections = item_sections(&matches);
     let listed = matches
         .into_iter()
         .filter_map(|amendment| {
             let reference = amendment_reference(&amendment.bill_id, &amendment.amendment_id);
             let refuted = links.refuted.get(&reference).cloned().unwrap_or_default();
-            if links.standing.contains_key(&reference) {
+            // An item of an amendment that acts on many sections is linked
+            // when a standing link holds its own change, not when any
+            // standing link names the amendment (#434).
+            let linked = match amendment.item {
+                false => links.standing.contains_key(&reference),
+                true => item_is_linked(&amendment, &links, &item_sections),
+            };
+            if linked {
                 let claims = claims.as_ref()?;
                 return linked_in_part(amendment, &classified, refuted, claims, &reference);
             }
@@ -275,6 +296,66 @@ fn linked_in_part(
     Some(row)
 }
 
+/// The sections the items of each amendment that acts on many sections are
+/// addressed to, by the amendment's id.
+fn item_sections(matches: &[AmendmentMatch]) -> BTreeMap<String, Vec<String>> {
+    let mut sections: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for amendment in matches.iter().filter(|amendment| amendment.item) {
+        if let Some(section) = &amendment.address.section {
+            sections
+                .entry(amendment.amendment_id.clone())
+                .or_default()
+                .push(section.clone());
+        }
+    }
+    sections
+}
+
+/// Whether a standing link of the amendment holds the change of one of its
+/// items (#434).
+///
+/// An item with a section is linked when a standing link of the amendment
+/// changes that section. An item with none is linked when a standing link of
+/// the amendment changes a section that no other item is addressed to.
+fn item_is_linked(
+    item: &AmendmentMatch,
+    links: &AmendmentLinks,
+    item_sections: &BTreeMap<String, Vec<String>>,
+) -> bool {
+    let reference = amendment_reference(&item.bill_id, &item.amendment_id);
+    let Some(paths) = links.standing_paths.get(&reference) else {
+        return false;
+    };
+    match &item.address.section {
+        Some(section) => paths.iter().any(|path| is_in_section(path, section)),
+        None => {
+            let addressed = item_sections
+                .get(&item.amendment_id)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            paths
+                .iter()
+                .any(|path| !addressed.iter().any(|section| is_in_section(path, section)))
+        }
+    }
+}
+
+/// Whether a path of the Code is in the section a USLM identifier names:
+/// `uscode/title_50/chapter_44/subchapter_I/section_3025/subsection_c` is in
+/// `/us/usc/t50/s3025`.
+fn is_in_section(path: &str, section: &str) -> bool {
+    let Some((title, number)) = section
+        .strip_prefix("/us/usc/t")
+        .and_then(|rest| rest.split_once("/s"))
+    else {
+        return false;
+    };
+    path.starts_with(&format!("uscode/title_{title}/"))
+        && path
+            .split('/')
+            .any(|segment| segment == format!("section_{number}"))
+}
+
 /// One row, from the matcher's answer for an amendment no standing link
 /// names, the newest conclusion that it has no link, if a reviewer recorded
 /// one, and the links that name it and were refuted.
@@ -334,6 +415,7 @@ fn unlinked(
         amendment_id: amendment.amendment_id,
         amending_text: amendment.amending_text,
         address: amendment.address,
+        item: amendment.item,
         address_source: amendment.address_source,
         law_section: place.map(|place| place.to_string()),
         olrc,
@@ -467,6 +549,8 @@ struct AmendmentLinks {
     /// Every amendment that at least one standing link names, and how many
     /// standing links name it.
     standing: BTreeMap<String, usize>,
+    /// The path each standing link changes, by the amendment it names.
+    standing_paths: BTreeMap<String, Vec<String>>,
     /// The refuted links of each amendment, whether or not a link of it
     /// stands.
     refuted: BTreeMap<String, Vec<RefutedLink>>,
@@ -504,6 +588,13 @@ fn amendment_links<S: LinkReader + ?Sized>(
             }
             _ => {
                 *links.standing.entry(link.object.name()).or_insert(0) += 1;
+                if let Target::Change { path, .. } = &link.subject {
+                    links
+                        .standing_paths
+                        .entry(link.object.name())
+                        .or_default()
+                        .push(path.clone());
+                }
             }
         }
     }

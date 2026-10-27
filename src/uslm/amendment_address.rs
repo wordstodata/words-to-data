@@ -91,6 +91,40 @@ pub struct AmendmentAddress {
     pub container: Vec<Step>,
     /// Why no section could be read, when none could.
     pub unresolved: Option<Reason>,
+    /// Each place an instruction that names no section acts on, when it acts
+    /// on many sections and says where (#434).
+    ///
+    /// > The National Security Act of 1947 (50 U.S.C. 3001 et seq.) is
+    /// > amended— (i) in section 103(c)(15) (50 U.S.C. 3025(c)(15)), by
+    /// > striking … (ii) in section 112(c)(1), by striking …
+    ///
+    /// One item for each level of the list, or for each section a line such
+    /// as *"Sections 351(a), 352(a), 353(a), and 353(b) of such title are
+    /// amended"* cites. Empty when the instruction has a [`Self::section`],
+    /// and when no item names a section. The instruction stays one amendment
+    /// with one id: the items are read from it, and nothing splits it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<ItemAddress>,
+}
+
+/// Where one item of an instruction that acts on many sections acts, or why
+/// that could not be read (#434).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemAddress {
+    /// Where in the bill the item sits, as a structural path. A section that
+    /// a line cites among several has the instruction's own path.
+    pub path: String,
+    /// The item's own words, without the levels nested in it. For a section
+    /// a line cites among several, the citation.
+    pub text: String,
+    /// The section the item acts on, as a USLM identifier.
+    ///
+    /// `None` exactly when [`Self::unresolved`] says why.
+    pub section: Option<String>,
+    /// The designations the item's citation gives below the section.
+    pub container: Vec<Step>,
+    /// Why the markup gives the item no section, when it gives none.
+    pub unresolved: Option<Reason>,
 }
 
 /// The address of every amending instruction a stored bill states.
@@ -154,6 +188,7 @@ fn address_of(
         section: None,
         container: Vec::new(),
         unresolved: None,
+        items: Vec::new(),
     };
     match scope.address(came_through, code_of_1986) {
         Ok((section, container)) => {
@@ -161,6 +196,9 @@ fn address_of(
             address.container = container;
         }
         Err(reason) => {
+            if reason == Reason::NoSectionNamed {
+                address.items = scope.items(came_through, code_of_1986);
+            }
             address.container = scope.steps;
             address.unresolved = Some(reason);
         }
@@ -307,6 +345,267 @@ impl<'a> Scope<'a> {
         let mut container: Vec<Step> = trail.into_iter().map(Step::numbered).collect();
         container.extend(self.steps.iter().cloned());
         Ok((section, container))
+    }
+}
+
+// --- One instruction that acts on many sections (#434) ---
+
+impl Scope<'_> {
+    /// The place each item of the instruction acts on, when its own line
+    /// names no section and it acts on many.
+    ///
+    /// Two forms, read only from the instruction's own line, so that an
+    /// instruction inside a list is not read as the list:
+    ///
+    /// - the line cites more than one section: *"Sections 351(a), 352(a),
+    ///   353(a), and 353(b) of such title are amended"*
+    ///   ([`sections_a_line_cites`]);
+    /// - the line names an Act or a part of the Code, and the levels right
+    ///   below it name the sections: *"(i) in section 103(c)(15) (50 U.S.C.
+    ///   3025(c)(15)), by striking …"* ([`list_items`]).
+    ///
+    /// Empty when neither form gives an item that names a section. A chapter
+    /// that an instruction adds or rewrites whole is not read here.
+    fn items(&self, came_through: &[&DocumentNode], code_of_1986: &[String]) -> Vec<ItemAddress> {
+        let Some((line, holder)) = &self.amending_line else {
+            return Vec::new();
+        };
+        let is_the_instruction = came_through
+            .last()
+            .is_some_and(|instruction| std::ptr::eq(*instruction, *holder));
+        if !is_the_instruction {
+            return Vec::new();
+        }
+        match sections_a_line_cites(line) {
+            Some(cited) => items_cited_by(line, cited, holder, came_through, code_of_1986),
+            None => list_items(holder),
+        }
+    }
+}
+
+/// Each section a line cites, when it cites more than one section: *"Sections
+/// 351(a), 352(a), 353(a), and 353(b) of such title"*, each with the
+/// designations the citation gives.
+///
+/// `None` when the line does not open with such a list, and when every
+/// citation names the same section: *"Sections 1202(b)(2), 1202(g)(2)(A), and
+/// 1202(j)(1)(A)"* act in one section, which the instruction's own address
+/// gives.
+fn sections_a_line_cites(line: &str) -> Option<Vec<(String, Vec<String>)>> {
+    const ONE: &str = r"[0-9][0-9A-Za-z\-]*(?:\([0-9A-Za-z]{1,6}\))*";
+    static PLURAL: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(&format!(
+            r"(?i)\bsections\s+({ONE}(?:\s*,\s*(?:and\s+)?{ONE}|\s+and\s+{ONE})+)"
+        ))
+        .expect("the plural citation pattern must compile")
+    });
+    static NUMBER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"([0-9][0-9A-Za-z\-]*)((?:\([0-9A-Za-z]{1,6}\))*)")
+            .expect("the cited number pattern must compile")
+    });
+    let list = PLURAL.captures(&crate::citation::usc::fold_dashes(line))?[1].to_string();
+    let cited: Vec<(String, Vec<String>)> = NUMBER
+        .captures_iter(&list)
+        .map(|one| (one[1].to_string(), designations_in(&one[2])))
+        .collect();
+    let first = &cited.first()?.0;
+    cited
+        .iter()
+        .any(|(number, _)| number != first)
+        .then_some(cited)
+}
+
+/// One item for each section a line cites.
+///
+/// The line says once where all of them are. Where it names a title, *"of
+/// title 37, United States Code"*, each is in that title. Where it cites an
+/// Act, *"Sections 5(a)(2), 6(d)(1), and 6(d)(2) of such Act (50 U.S.C.
+/// 98d(a)(2), 98e(d)(1), 98e(d)(2))"*, the publisher's references place them,
+/// one for each citation in the same order, or none is placed. A bare
+/// citation is read as a bare section ([`stored_section_under_amendment`]).
+fn items_cited_by(
+    line: &str,
+    cited: Vec<(String, Vec<String>)>,
+    holder: &DocumentNode,
+    came_through: &[&DocumentNode],
+    code_of_1986: &[String],
+) -> Vec<ItemAddress> {
+    let path = holder.data.path.to_string();
+    let mut placing: Vec<UscReference> = references_in(line, stored_usc_references(holder))
+        .into_iter()
+        .filter(places_a_section)
+        .collect();
+    if placing.len() != cited.len() {
+        placing = code_citations_listed(line);
+    }
+    let one_for_each = placing.len() == cited.len();
+    let of_an_act = !one_for_each && cites_an_act_after_the_list(line);
+    cited
+        .iter()
+        .enumerate()
+        .map(|(at, (number, trail))| {
+            let text = format!(
+                "section {number}{}",
+                trail
+                    .iter()
+                    .map(|unit| format!("({unit})"))
+                    .collect::<String>()
+            );
+            let found = if title_named_in(line).is_some() || !(one_for_each || of_an_act) {
+                stored_section_under_amendment(
+                    (number.clone(), trail.clone()),
+                    line,
+                    holder,
+                    came_through,
+                    code_of_1986,
+                )
+            } else if one_for_each {
+                Ok(placed_by(&placing[at], trail))
+            } else {
+                Err(Reason::SectionOfAnotherLaw(number.clone()))
+            };
+            let mut item = ItemAddress::read(path.clone(), text, found);
+            if item.section.is_none() {
+                // The designations stay where the title is not known: the
+                // matcher can still place them below the section the OLRC
+                // gives.
+                item.container = trail.iter().cloned().map(Step::numbered).collect();
+            }
+            item
+        })
+        .collect()
+}
+
+/// The sections of the Code a parenthesis lists after one title:
+/// *"(50 U.S.C. 98d(a)(2), 98e(d)(1), 98e(d)(2))"* lists three sections of
+/// title 50.
+///
+/// The publisher marks only the first of them as a reference, so the words
+/// are read. Every part of the list must be one section and its designations,
+/// or nothing is read: *"note"* and *"et seq."* place no section.
+fn code_citations_listed(line: &str) -> Vec<UscReference> {
+    static TITLE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\(([0-9]+[A-Za-z]?)\s+U\.S\.C\.\s+")
+            .expect("the listed-citations pattern must compile")
+    });
+    static ONE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^([0-9][0-9A-Za-z\-]*)((?:\([0-9A-Za-z]{1,6}\))*)$")
+            .expect("the listed-section pattern must compile")
+    });
+    let Some(found) = TITLE.captures(line) else {
+        return Vec::new();
+    };
+    let title = found[1].to_string();
+    let rest = &line[found.get(0).map_or(0, |whole| whole.end())..];
+    // The list ends at the parenthesis that closes the one the title opens.
+    let mut depth = 1;
+    let end = rest.find(|character| {
+        match character {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        depth == 0
+    });
+    let Some(end) = end else {
+        return Vec::new();
+    };
+    let listed: Option<Vec<UscReference>> = rest[..end]
+        .split(',')
+        .map(|part| part.trim().trim_start_matches("and ").trim())
+        .map(|part| {
+            let one = ONE.captures(part)?;
+            Some(UscReference {
+                title: title.clone(),
+                section: one[1].to_string(),
+                trail: designations_in(&one[2]),
+                display: format!("{title} U.S.C. {part}"),
+            })
+        })
+        .collect();
+    listed.unwrap_or_default()
+}
+
+/// Whether the words after a list of citations name an Act or another law:
+/// *"of such Act"*, *"of the Act of June 7, 1956"*, *"of Public Law 115–97"*.
+fn cites_an_act_after_the_list(line: &str) -> bool {
+    static OF_AN_ACT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\)\s+of\s+(?:such\s+Act|the\s+|Public\s+Law)")
+            .expect("the of-an-Act pattern must compile")
+    });
+    OF_AN_ACT.is_match(line) && !line.contains("of the Internal Revenue Code")
+}
+
+/// One item for each level right below `holder`, when at least one of them
+/// names a section (#434).
+///
+/// > (A) The National Security Act of 1947 (50 U.S.C. 3001 et seq.) is
+/// > amended—
+/// > (i) in section 103(c)(15) (50 U.S.C. 3025(c)(15)), by striking …
+///
+/// An item names its section as an item of a list under a title does
+/// ([`section_a_list_item_names`]). The section is the Act's, so only the
+/// publisher's reference in the item's own words, before the first quotation,
+/// places it in the Code. Under a line that names part of a title of the Code,
+/// the line gives the title. An item that names no section comes back with
+/// [`Reason::NoSectionNamed`], so that the list is read whole.
+fn list_items(holder: &DocumentNode) -> Vec<ItemAddress> {
+    let items: Vec<ItemAddress> = holder
+        .children
+        .iter()
+        .filter(|item| is_stored_level(item))
+        .map(|item| {
+            let text = stored_own_text(item);
+            let found = list_item_section(holder, item, &text);
+            ItemAddress::read(item.data.path.to_string(), text, found)
+        })
+        .collect();
+    let any_named = items
+        .iter()
+        .any(|item| item.unresolved != Some(Reason::NoSectionNamed));
+    if any_named { items } else { Vec::new() }
+}
+
+/// The section one item of a list names, and the designations below it.
+fn list_item_section(
+    holder: &DocumentNode,
+    item: &DocumentNode,
+    text: &str,
+) -> Result<(String, Vec<String>), Reason> {
+    let (number, trail) = section_a_list_item_names(text).ok_or(Reason::NoSectionNamed)?;
+    if let Some(title) = stored_list_title(holder) {
+        return Ok((uslm_section_id(&title, &number), trail));
+    }
+    let unquoted = text.split('"').next().unwrap_or_default();
+    let references = stored_facts(item)
+        .map(|facts| facts.references)
+        .unwrap_or_default();
+    references_in(unquoted, references)
+        .iter()
+        .find(|reference| places_a_section(reference))
+        .map(|reference| placed_by(reference, &trail))
+        .ok_or(Reason::SectionOfAnotherLaw(number))
+}
+
+impl ItemAddress {
+    /// An item, addressed or with the reason it is not.
+    fn read(path: String, text: String, found: Result<(String, Vec<String>), Reason>) -> Self {
+        match found {
+            Ok((section, trail)) => Self {
+                path,
+                text,
+                section: Some(section),
+                container: trail.into_iter().map(Step::numbered).collect(),
+                unresolved: None,
+            },
+            Err(reason) => Self {
+                path,
+                text,
+                section: None,
+                container: Vec::new(),
+                unresolved: Some(reason),
+            },
+        }
     }
 }
 
@@ -677,25 +976,35 @@ pub(crate) fn section_of_an_act(
     if !line.contains(" of the ") && !another_law {
         return None;
     }
-    let in_line: Vec<UscReference> = references
-        .into_iter()
-        .filter(|reference| line.contains(reference.display.trim()))
-        .collect();
+    let in_line = references_in(line, references);
     if let Some(reference) = in_line.iter().find(|reference| places_a_section(reference)) {
-        let below = if trail.starts_with(&reference.trail) {
-            trail.to_vec()
-        } else {
-            reference.trail.clone()
-        };
-        return Some(Ok((
-            uslm_section_id(&reference.title, &reference.section),
-            below,
-        )));
+        return Some(Ok(placed_by(reference, trail)));
     }
     // The publisher placed the Act only as a note or as a range, or the line
     // cites another law and nothing places it.
     (another_law || !in_line.is_empty())
         .then(|| Err(Reason::SectionOfAnotherLaw(number.to_string())))
+}
+
+/// The references whose words `words` hold.
+fn references_in(words: &str, references: Vec<UscReference>) -> Vec<UscReference> {
+    references
+        .into_iter()
+        .filter(|reference| words.contains(reference.display.trim()))
+        .collect()
+}
+
+/// The section a reference places a citation of an Act at, and the
+/// designations below it, as [`section_of_an_act`] says: the citation's
+/// `trail` where the reference's trail starts it, and the reference's own
+/// where the two disagree.
+fn placed_by(reference: &UscReference, trail: &[String]) -> (String, Vec<String>) {
+    let below = if trail.starts_with(&reference.trail) {
+        trail.to_vec()
+    } else {
+        reference.trail.clone()
+    };
+    (uslm_section_id(&reference.title, &reference.section), below)
 }
 
 /// Whether a reference to the Code names one section of it.
