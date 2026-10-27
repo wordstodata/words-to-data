@@ -120,6 +120,39 @@ fn should_find_proviso_and_continuation_text_on_both_backends_when_searching() {
     }
 }
 
+/// The OLRC's footnotes are out of the words of the law, in the `footnotes`
+/// field (#416). Search still reads them, so "So in original" finds the
+/// provision the footnote is about, and the hit says that the words are a
+/// footnote.
+#[test]
+fn should_find_footnote_text_on_both_backends_when_searching() {
+    let memory = title_26();
+    let (_dir, sqlite) = to_sqlite(&memory);
+    let subclause = "uscode/title_26/subtitle_F/chapter_79/section_7701/subsection_b/paragraph_5/subparagraph_A/clause_iv/subclause_II";
+
+    let query = "So in original. The comma probably should not appear.";
+    let from_memory = inspect::search(&memory, query).expect("search memory");
+    let from_sqlite = inspect::search(&sqlite, query).expect("search sqlite");
+
+    assert!(
+        from_memory
+            .iter()
+            .any(|r| r.field == "footnotes" && r.path == subclause),
+        "the footnote of {subclause} should be found, got {:?}",
+        hits(&from_memory)
+    );
+    assert!(
+        from_memory.iter().all(|r| r.field == "footnotes"),
+        "the footnote should be in no field of words, got {:?}",
+        hits(&from_memory)
+    );
+    assert_eq!(
+        hits(&from_sqlite),
+        hits(&from_memory),
+        "both backends should agree on a footnote match"
+    );
+}
+
 #[test]
 fn should_return_results_in_the_same_order_on_both_backends_when_a_query_matches_widely() {
     let memory = title_9();

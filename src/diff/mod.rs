@@ -742,7 +742,9 @@ impl MovePlan {
 ///
 /// Compares all five text content fields (Heading, Chapeau, Proviso, Content,
 /// Continuation) between two versions of the same element and returns change
-/// events for any fields that differ.
+/// events for any fields that differ. The footnotes are not compared: they are
+/// the publisher's notes about the words, and a publisher numbers them again
+/// in each printing (#416).
 ///
 /// # Arguments
 ///

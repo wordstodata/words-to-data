@@ -174,7 +174,10 @@ read the words.
 
    Each hit is one field, and its line says how often the field holds the words
    (`[content]  5 occurrences`). The last line counts both: `1 field, 5
-   occurrences`. A hit in a court writing names the paragraph or footnote that
+   occurrences`. A hit in the field `footnotes` is a footnote that the OLRC
+   printed in the provision, such as "So in original. The comma probably
+   should not appear.": it is not the words of the law, and `diff` and
+   `coverage` do not compare it. A hit in a court writing names the paragraph or footnote that
    holds the words, such as
    `judicial/case_122262/opinion_9434365/page_457/paragraph_3`; a writing stored
    as one node is one field, so one hit is not one mention. `--occurrences`
@@ -356,6 +359,15 @@ names. Each row has a **category** and, for work, the **stage** that stopped it:
 For each `work` row, read the row in full first — `residue --bill <bill> --json`
 gives its address (if any), window, candidate changes, its `law_section`, and
 the OLRC rows for that section of the law.
+
+**One amendment can have several rows.** An amendment that names no section in
+its own line and acts on many sections has one row for each item: each item of
+its list (*"(i) in section 103(c)(15) (50 U.S.C. 3025(c)(15)), by striking …"*),
+or each section its line cites (*"Sections 351(a), 352(a), and 353(b) … are
+amended"*). Such a row has `"item": true`, the amendment's id, and the item's own
+address: `address.path` is the item's place in the law. Resolve each row on its
+own, and record each link with the amendment's id. A row of an item goes away
+when a standing link of the amendment changes the item's section.
 
 **Then, before any stage recipe, read the effective date.** Many residue items
 are not failures at all: the change takes effect after the newest date the

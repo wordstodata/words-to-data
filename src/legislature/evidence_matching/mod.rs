@@ -16,10 +16,15 @@
 //!    changed in any window, but a window added or removed a provision the
 //!    address is inside, that provision is the change: the diff lists it as
 //!    one path and nothing beneath it (#336). The method gives it only to an
-//!    amendment that only adds, and only when the provision was added.
+//!    amendment that only adds, and only when the provision was added. When
+//!    the amendment's words do not show that provision, the change is the
+//!    provision at its address, added with it (#450).
 //!    Where a later amendment of the same law renumbered the provision the
 //!    address names in that window, the address is read at the new number
-//!    (#434).
+//!    (#434). Where another law moved it in that window, the words the
+//!    amendment quotes say where it is now (#391). For an amendment of
+//!    *"the heading for section X"*, only a change to the provision itself
+//!    counts, and no change below it (#451).
 //! 3. **Resolve.** The changes under one section in that window, assigned to
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
@@ -101,6 +106,11 @@ pub struct AmendmentMatch {
     pub address: AmendmentAddress,
     /// Which evidence gave the address.
     pub address_source: AddressSource,
+    /// The answer is for one item of an instruction that acts on many
+    /// sections (#434). `address` is the item's, and the amendment has one
+    /// answer for each item, each with the same `amendment_id`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub item: bool,
     /// Linked, or stopped with a reason.
     pub outcome: Outcome,
 }
@@ -313,6 +323,13 @@ impl AmendmentMatch {
                     .join(", ")
             ),
         };
+        let source = match self.item {
+            true => format!(
+                "{source}, for the item at {} of an instruction that acts on many sections",
+                self.address.path
+            ),
+            false => source,
+        };
         let mut reasoning = format!(
             "Address: {}, {source}. \
              Window: {} to {}, the first window after the law's enactment on {} \
@@ -404,14 +421,20 @@ fn match_laws<S: Storage + LegislatureReader>(
     progress.begin("read the amendments", None);
     let mut stated = stated_amendments(dataset)?;
     let classifications = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
+    for amendment in &mut stated {
+        address_by_olrc_where_the_markup_gives_none(amendment, &classifications, None);
+    }
+    let stated: Vec<Stated> = stated
+        .into_iter()
+        .flat_map(|amendment| one_for_each_item(amendment, &classifications))
+        .collect();
     let mut outcomes: Vec<Option<Outcome>> = vec![None; stated.len()];
     let mut windows = Vec::new();
 
     // Stage 1: the address. Each addressed amendment is sent on to the work of
     // the Code its section sits in.
     let mut by_work: BTreeMap<WorkId, Vec<usize>> = BTreeMap::new();
-    for (at, amendment) in stated.iter_mut().enumerate() {
-        address_by_olrc_where_the_markup_gives_none(amendment, &classifications);
+    for (at, amendment) in stated.iter().enumerate() {
         match addressed_work(&amendment.address) {
             Ok(work) => by_work.entry(work).or_default().push(at),
             Err(reason) => outcomes[at] = Some(residue(Stage::Address, reason)),
@@ -450,6 +473,7 @@ fn match_laws<S: Storage + LegislatureReader>(
             enacted: amendment.enacted,
             address: amendment.address,
             address_source: amendment.address_source,
+            item: amendment.item,
             outcome: outcome.expect("every amendment is answered for"),
         })
         .collect();
@@ -491,7 +515,8 @@ fn laws_quoting_no_strings(stated: &[Stated]) -> Vec<(String, String)> {
     laws
 }
 
-/// One amendment as its public law states it.
+/// One amendment as its public law states it, or one item of it.
+#[derive(Clone)]
 struct Stated {
     bill_id: String,
     /// The law's number: `119-21`.
@@ -506,6 +531,11 @@ struct Stated {
     address_source: AddressSource,
     /// The words the bill quotes for it.
     evidence: QuotedWords,
+    /// The words the bill quotes for each of `address.items`, in the same
+    /// order ([`QuotedWords::of_item`]).
+    item_evidence: Vec<QuotedWords>,
+    /// This is one item of an amendment that acts on many sections.
+    item: bool,
 }
 
 /// Every amendment of every public law the dataset holds as a document.
@@ -528,13 +558,28 @@ fn stated_amendments<S: Storage + LegislatureReader>(
             .unwrap_or(law.id.work.as_str())
             .to_string();
         for address in addresses_in(&law.root) {
-            let evidence = law
+            let facts = law
                 .root
                 .find(&address.path)
                 .and_then(|node| UslmFacts::of(&node.data))
-                .and_then(|facts| facts.amendment)
-                .map(|facts| QuotedWords::of(&facts, &law.id.at))
+                .and_then(|facts| facts.amendment);
+            let evidence = facts
+                .as_ref()
+                .map(|facts| QuotedWords::of(facts, &law.id.at))
                 .unwrap_or_default();
+            let item_evidence = address
+                .items
+                .iter()
+                .map(|item| {
+                    let words = law.root.find(&item.path).map(words_below);
+                    match (&facts, words) {
+                        (Some(facts), Some(words)) => {
+                            QuotedWords::of_item(facts, &law.id.at, &words)
+                        }
+                        _ => QuotedWords::default(),
+                    }
+                })
+                .collect();
             let amendment = bill.amendments.get(&address.amendment_id);
             stated.push(Stated {
                 bill_id: bill_id.clone(),
@@ -552,6 +597,8 @@ fn stated_amendments<S: Storage + LegislatureReader>(
                 address,
                 address_source: AddressSource::Markup,
                 evidence,
+                item_evidence,
+                item: false,
             });
         }
     }
@@ -574,7 +621,14 @@ fn stated_amendments<S: Storage + LegislatureReader>(
 /// tell its change from the others in the section. *"Subsection (e) of section
 /// 455 … is repealed"* took a change to § 1087e(d)(5)(B), which another
 /// amendment made, when the table alone addressed it (#259).
-fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classifications: &[Link]) {
+///
+/// With `numbered`, only a row whose section of the Code has that number
+/// counts: one of several sections a line cites (#434).
+fn address_by_olrc_where_the_markup_gives_none(
+    amendment: &mut Stated,
+    classifications: &[Link],
+    numbered: Option<&str>,
+) {
     let Some(markup_gave_none) = amendment.address.unresolved.clone() else {
         return;
     };
@@ -585,6 +639,7 @@ fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classific
         classifications,
         &amendment.public_law,
         &amendment.address.path,
+        numbered,
     ) else {
         return;
     };
@@ -594,6 +649,76 @@ fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classific
         law_sections: found.law_sections,
         markup_gave_none,
     };
+}
+
+/// An amendment that names no section and acts on many, as one amendment for
+/// each item its address reads (#434). Any other amendment, as it is.
+///
+/// Each item keeps the amendment's id and gets the item's address and the
+/// words the item quotes, so that one item's words cannot claim a change in
+/// another item's section. The window and resolve stages then run for each
+/// item as for any amendment.
+///
+/// Only an amendment that neither the markup nor the OLRC's table addresses
+/// whole is read by its items: an address for the whole wins.
+///
+/// Where the markup gives an item no section, the OLRC's table can, as for a
+/// whole amendment: the rows for the item's own place in the law, *"71401(b)(2)"*.
+/// A section that a line cites among several has no place of its own, so
+/// only a row whose section has the cited number counts, and only where the
+/// line did not say which law the number is of: *"Sections 351(a), 352(a) …
+/// of such title"*.
+fn one_for_each_item(mut amendment: Stated, classifications: &[Link]) -> Vec<Stated> {
+    if amendment.address.section.is_some() || amendment.address.items.is_empty() {
+        return vec![amendment];
+    }
+    let items = std::mem::take(&mut amendment.address.items);
+    let evidence = std::mem::take(&mut amendment.item_evidence);
+    items
+        .into_iter()
+        .zip(evidence)
+        .map(|(item, evidence)| {
+            let own_place = item.path != amendment.address.path;
+            let mut one = Stated {
+                address: AmendmentAddress {
+                    amendment_id: amendment.address.amendment_id.clone(),
+                    path: item.path,
+                    text: item.text,
+                    section: item.section,
+                    container: item.container,
+                    unresolved: item.unresolved,
+                    items: Vec::new(),
+                },
+                evidence,
+                item: true,
+                ..amendment.clone()
+            };
+            match one.address.unresolved.clone() {
+                _ if own_place => {
+                    address_by_olrc_where_the_markup_gives_none(&mut one, classifications, None);
+                }
+                Some(Reason::NoTitleForSection(number)) => {
+                    address_by_olrc_where_the_markup_gives_none(
+                        &mut one,
+                        classifications,
+                        Some(&number),
+                    );
+                }
+                _ => {}
+            }
+            one
+        })
+        .collect()
+}
+
+/// The words of a level of the bill and of every level below it, as one text.
+fn words_below(node: &DocumentNode) -> String {
+    let mut words = own_text(&node.data);
+    for child in &node.children {
+        words.push(' ');
+        words.push_str(&words_below(child));
+    }
+    words
 }
 
 /// The action a link records: the one the bill's markup states.
@@ -694,7 +819,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
         }
         return Ok(Vec::new());
     }
-    let windows = windows_after(dataset, work, earliest_enactment)?;
+    let mut windows = windows_after(dataset, work, earliest_enactment)?;
     // Where each amendment is in the order the laws state them.
     let stated_at: BTreeMap<&str, usize> = stated
         .iter()
@@ -738,9 +863,13 @@ fn match_in_work<S: Storage + LegislatureReader>(
             } else {
                 through_later_renumberings(under, &view.renumberings, renumbered_later)
             };
+            let under =
+                moved_by_another_law(view, &section, &under, &amendment.evidence).unwrap_or(under);
             found.insert(at);
+            let heading_alone = acts_on_the_heading_alone(amendment);
             let candidates: Vec<usize> = (0..view.changes.len())
                 .filter(|&change| is_at_or_below(&view.changes[change].path, &under))
+                .filter(|&change| !heading_alone || view.changes[change].path == under)
                 .collect();
             if !candidates.is_empty() {
                 placed.entry(at).or_default().push(Placed {
@@ -784,7 +913,8 @@ fn match_in_work<S: Storage + LegislatureReader>(
             .iter()
             .all(|&change| windows[inside.window].changes[change].whole == Some(Whole::Added));
         if added_whole && only_inserts(&stated[at]) {
-            placed.insert(at, vec![inside]);
+            let made = added_inside(&mut windows[inside.window], &stated[at], inside);
+            placed.insert(at, vec![made]);
         } else {
             enclosed.insert(at, inside);
         }
@@ -935,6 +1065,50 @@ fn match_in_work<S: Storage + LegislatureReader>(
         .collect())
 }
 
+/// The change an amendment that only adds made inside a provision the window
+/// added whole: that provision, when the amendment's words show it, and
+/// otherwise the provision at the amendment's address (#450).
+///
+/// The diff lists an added provision as one path, and nothing beneath it
+/// (#336). An amendment that enacts a new part with its sections made the
+/// part, and its block shows the part's words. An amendment whose block
+/// enacts one section inside it made that section, and not the unit above
+/// it: in the window where § 3117(a) of Pub. L. 119-60 adds 10 U.S.C. 6340,
+/// the OLRC moved the Atomic Energy Defense Act into a new subpart B of title
+/// 10, and the window adds the whole subpart. The section is added in the
+/// window too, so it is given as a change of its own, added whole.
+fn added_inside(view: &mut WindowView, amendment: &Stated, inside: Placed) -> Placed {
+    let shows_the_holder = inside.candidates.iter().any(|&change| {
+        let change = &view.changes[change];
+        !amendment
+            .evidence
+            .shown(&change.before, &change.after, change.added.as_ref(), &[])
+            .is_empty()
+    });
+    if shows_the_holder {
+        return inside;
+    }
+    let Some(node) = view.later.find(&inside.address) else {
+        return inside;
+    };
+    let added = Change::added(inside.address.clone(), added_words(&view.later, &node.data));
+    let at = match view
+        .changes
+        .iter()
+        .position(|change| change.path == added.path && change.whole == Some(Whole::Added))
+    {
+        Some(at) => at,
+        None => {
+            view.changes.push(added);
+            view.changes.len() - 1
+        }
+    };
+    Placed {
+        candidates: vec![at],
+        ..inside
+    }
+}
+
 /// The units an amendment's words name, read only when it quotes nothing
 /// ([`units_named_in`] says why).
 ///
@@ -945,6 +1119,38 @@ fn units_its_words_name(amendment: &Stated) -> Vec<Vec<Step>> {
         return Vec::new();
     }
     units_named_in(&amendment.amending_text)
+}
+
+/// Whether the amendment's words say that it acts on the heading of the
+/// provision its address names, and on nothing else: *"The heading for
+/// section 951A is amended"*, *"The heading of section 6041(a) is amended"*.
+///
+/// Such an amendment can change only the provision's own words. The address
+/// is the whole provision, and a change below it is not one of its changes.
+/// The heading of 951A(b) lost "global intangible low-taxed income" in the
+/// same window, by another amendment of Pub. L. 119-21 (#451).
+///
+/// The section the words name must be the section of the address, so that
+/// words of a longer instruction that name another section change nothing.
+fn acts_on_the_heading_alone(amendment: &Stated) -> bool {
+    static THE_HEADING_OF_SECTION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?i)\bthe heading (?:of|for) section ([0-9]+[a-z]*(?:-[0-9]+[a-z]*)?)(?:\([0-9a-z]+\))*(?: of [^,;]*?)? is amended\b",
+        )
+        .expect("the pattern must compile")
+    });
+    let Some(section) = amendment.address.section.as_deref() else {
+        return false;
+    };
+    THE_HEADING_OF_SECTION
+        .captures(&amendment.amending_text)
+        .is_some_and(|named| {
+            section
+                .rsplit('/')
+                .next()
+                .and_then(|last| last.strip_prefix('s'))
+                .is_some_and(|number| number.eq_ignore_ascii_case(&named[1]))
+        })
 }
 
 /// Whether an amendment only adds and inserts: the markup states `add` or
@@ -1105,6 +1311,90 @@ fn through_later_renumberings(
         [one] => one.clone(),
         _ => under,
     }
+}
+
+/// The provision another law moved the address to in the window, as the
+/// amendment's quoted words show it, or `None` (#391).
+///
+/// Two laws can change one section in one window, and the dataset can hold
+/// no record of the other law. 26 U.S.C. 25C: another law redesignated (h) as
+/// (i) and inserted a new (h). § 70505(a) of Pub. L. 119-21 amends "Section
+/// 25C(h)" by striking words and inserting "placed in service after December
+/// 31, 2025", and the Code after the window prints those words at (i). By its
+/// number alone, the address is the new (h), which is the other law's.
+///
+/// The quoted words decide. The address moves only when all of these are so:
+///
+/// - the provision at the address before the window holds every string the
+///   amendment strikes or quotes to mark a place, and it quotes one at least;
+/// - no change under the address shows words the amendment adds;
+/// - one provision, and only one, that the window added whole beside the
+///   address (the same provision above it, the same level) shows every string
+///   the amendment inserts and every block it enacts.
+///
+/// The OLRC's notes, which say which law moved a provision, are the next
+/// evidence, but the dataset does not hold them (#380). The effective date
+/// alone does not decide.
+fn moved_by_another_law(
+    view: &WindowView,
+    section: &str,
+    under: &str,
+    evidence: &QuotedWords,
+) -> Option<String> {
+    let (above, own) = under.rsplit_once('/')?;
+    let (level, _) = own.split_once('_')?;
+    if under == section || evidence.additions() == 0 {
+        return None;
+    }
+    let held_its_words = view
+        .earlier
+        .find_all(under)
+        .into_iter()
+        .any(|node| evidence.acts_on_words_in(&words_of_provision(node)));
+    if !held_its_words {
+        return None;
+    }
+    let adds = |change: &Change| {
+        evidence
+            .shown(&change.before, &change.after, change.added.as_ref(), &[])
+            .into_iter()
+            .filter(|shown| shown.adds)
+            .count()
+    };
+    let shown_under_address = view
+        .changes
+        .iter()
+        .any(|change| is_at_or_below(&change.path, under) && adds(change) > 0);
+    if shown_under_address {
+        return None;
+    }
+    let beside: Vec<&Change> = view
+        .changes
+        .iter()
+        .filter(|change| change.whole == Some(Whole::Added))
+        .filter(|change| {
+            change
+                .path
+                .rsplit_once('/')
+                .is_some_and(|(parent, segment)| {
+                    parent == above && segment.starts_with(&format!("{level}_"))
+                })
+        })
+        .filter(|change| adds(change) == evidence.additions())
+        .collect();
+    match beside.as_slice() {
+        [moved_to] => Some(moved_to.path.clone()),
+        _ => None,
+    }
+}
+
+/// The words of a provision and of every provision below it, as one text.
+fn words_of_provision(node: &DocumentNode) -> String {
+    provision_words(node)
+        .into_iter()
+        .map(|field| field.text)
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 /// Who made each renumbering in a window, by the two paths it moved a provision

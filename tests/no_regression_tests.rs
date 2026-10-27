@@ -385,11 +385,13 @@ fn should_compute_the_same_diff_as_before_nodes_became_class_neutral() {
 
     // Measured on the build before #129, over these same two release points:
     // 537. One of them, the heading of § 7206(5)(B), differs only in the soft
-    // hyphen of "rec\u{ad}ords", and that is not a change (#363).
+    // hyphen of "rec\u{ad}ords", and that is not a change (#363). 33 more
+    // differ only in the OLRC's footnotes, which are not the words (#416): a
+    // footnote numbered again, or added or taken away.
     assert_eq!(
         changed.len(),
-        536,
-        "title 26 changed at 536 paths between {EARLY} and {LATER}"
+        503,
+        "title 26 changed at 503 paths between {EARLY} and {LATER}"
     );
     assert_eq!(count_added(&diff), 360, "360 nodes were added");
     assert_eq!(count_removed(&diff), 161, "161 nodes were removed");

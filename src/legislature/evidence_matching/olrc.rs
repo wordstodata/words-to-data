@@ -132,10 +132,14 @@ pub(super) struct OlrcAddress {
 /// note forms, or `prec`, is left out: it never addresses a section's own
 /// text ([`is_a_note`]). When the rows left name more than one section, the
 /// table does not say which one this amendment acts on, and nothing is given.
+///
+/// With `numbered`, only the rows whose section of the Code has that number
+/// are read: `351` keeps 37 U.S.C. 351 and leaves 352 out (#434).
 pub(super) fn olrc_address(
     links: &[Link],
     public_law: &str,
     amendment_path: &str,
+    numbered: Option<&str>,
 ) -> Option<OlrcAddress> {
     let place = LawSection::of_path(amendment_path)?;
     let mut sections: Vec<String> = Vec::new();
@@ -149,6 +153,9 @@ pub(super) fn olrc_address(
             continue;
         }
         let section = uslm_section_of_path(&row.code_section)?;
+        if numbered.is_some_and(|number| !section.ends_with(&format!("/s{number}"))) {
+            continue;
+        }
         if !sections.contains(&section) {
             sections.push(section);
         }
