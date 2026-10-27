@@ -143,6 +143,19 @@ fn report(found: &EvidenceMatching, written: usize) {
     };
     println!("{} {}", ui::heading("Method:"), evidence_method());
     println!("{} amendment(s) of public laws", ui::figure(total));
+    let items = found
+        .matches
+        .iter()
+        .filter(|amendment| amendment.item)
+        .count();
+    if items > 0 {
+        // An amendment that acts on many sections has one answer for each
+        // item (#434), and the counts below count answers.
+        println!(
+            "  {} of them are items of amendments that act on many sections, one for each item",
+            ui::figure(items)
+        );
+    }
     println!(
         "  {} linked, as {} link(s)",
         ui::good(linked),

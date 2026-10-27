@@ -108,4 +108,20 @@ fn print_address(address: &AmendmentAddress) {
         (None, None) => println!("  {id}  not addressed"),
     }
     println!("    {}", address.path);
+    // An amendment that acts on many sections: where each item acts (#434).
+    for item in &address.items {
+        match (&item.section, &item.unresolved) {
+            (Some(section), _) => {
+                let below: String = item
+                    .container
+                    .iter()
+                    .map(|step| format!("({})", step.number))
+                    .collect();
+                println!("    item  {section}{below}");
+            }
+            (None, Some(reason)) => println!("    item  not addressed — {reason}"),
+            (None, None) => println!("    item  not addressed"),
+        }
+        println!("      {}", item.path);
+    }
 }

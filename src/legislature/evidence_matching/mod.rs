@@ -101,6 +101,11 @@ pub struct AmendmentMatch {
     pub address: AmendmentAddress,
     /// Which evidence gave the address.
     pub address_source: AddressSource,
+    /// The answer is for one item of an instruction that acts on many
+    /// sections (#434). `address` is the item's, and the amendment has one
+    /// answer for each item, each with the same `amendment_id`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub item: bool,
     /// Linked, or stopped with a reason.
     pub outcome: Outcome,
 }
@@ -282,8 +287,14 @@ pub enum Stage {
 /// for a reference to a law that the bill cites, and the date of enactment
 /// for *"the date of the enactment of this Act"*. A single and a double
 /// quotation mark are one mark.
+///
+/// Version 9 (#434): an amendment that names no section and acts on many is
+/// matched once for each item of its list, or for each section its line
+/// cites, with the item's own quoted words. *"The National Security Act of
+/// 1947 … is amended— (i) in section 103(c)(15) (50 U.S.C. 3025(c)(15)) …
+/// (ii) in section 112(c)(1) …"* acts in 50 U.S.C. 3025(c)(15) and 3047(c)(1).
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 8)
+    Method::new("address, window and quoted words", 9)
 }
 
 /// Who a link this method writes says made it.
@@ -359,6 +370,13 @@ impl AmendmentMatch {
                     .collect::<Vec<String>>()
                     .join(", ")
             ),
+        };
+        let source = match self.item {
+            true => format!(
+                "{source}, for the item at {} of an instruction that acts on many sections",
+                self.address.path
+            ),
+            false => source,
         };
         let mut reasoning = format!(
             "Address: {}, {source}. \
@@ -451,14 +469,20 @@ fn match_laws<S: Storage + LegislatureReader>(
     progress.begin("read the amendments", None);
     let mut stated = stated_amendments(dataset)?;
     let classifications = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
+    for amendment in &mut stated {
+        address_by_olrc_where_the_markup_gives_none(amendment, &classifications, None);
+    }
+    let stated: Vec<Stated> = stated
+        .into_iter()
+        .flat_map(|amendment| one_for_each_item(amendment, &classifications))
+        .collect();
     let mut outcomes: Vec<Option<Outcome>> = vec![None; stated.len()];
     let mut windows = Vec::new();
 
     // Stage 1: the address. Each addressed amendment is sent on to the work of
     // the Code its section sits in.
     let mut by_work: BTreeMap<WorkId, Vec<usize>> = BTreeMap::new();
-    for (at, amendment) in stated.iter_mut().enumerate() {
-        address_by_olrc_where_the_markup_gives_none(amendment, &classifications);
+    for (at, amendment) in stated.iter().enumerate() {
         match addressed_work(&amendment.address) {
             Ok(work) => by_work.entry(work).or_default().push(at),
             Err(reason) => outcomes[at] = Some(residue(Stage::Address, reason)),
@@ -497,6 +521,7 @@ fn match_laws<S: Storage + LegislatureReader>(
             enacted: amendment.enacted,
             address: amendment.address,
             address_source: amendment.address_source,
+            item: amendment.item,
             outcome: outcome.expect("every amendment is answered for"),
         })
         .collect();
@@ -538,7 +563,8 @@ fn laws_quoting_no_strings(stated: &[Stated]) -> Vec<(String, String)> {
     laws
 }
 
-/// One amendment as its public law states it.
+/// One amendment as its public law states it, or one item of it.
+#[derive(Clone)]
 struct Stated {
     bill_id: String,
     /// The law's number: `119-21`.
@@ -553,6 +579,11 @@ struct Stated {
     address_source: AddressSource,
     /// The words the bill quotes for it.
     evidence: QuotedWords,
+    /// The words the bill quotes for each of `address.items`, in the same
+    /// order ([`QuotedWords::of_item`]).
+    item_evidence: Vec<QuotedWords>,
+    /// This is one item of an amendment that acts on many sections.
+    item: bool,
 }
 
 /// Every amendment of every public law the dataset holds as a document.
@@ -575,13 +606,28 @@ fn stated_amendments<S: Storage + LegislatureReader>(
             .unwrap_or(law.id.work.as_str())
             .to_string();
         for address in addresses_in(&law.root) {
-            let evidence = law
+            let facts = law
                 .root
                 .find(&address.path)
                 .and_then(|node| UslmFacts::of(&node.data))
-                .and_then(|facts| facts.amendment)
-                .map(|facts| QuotedWords::of(&facts, &law.id.at))
+                .and_then(|facts| facts.amendment);
+            let evidence = facts
+                .as_ref()
+                .map(|facts| QuotedWords::of(facts, &law.id.at))
                 .unwrap_or_default();
+            let item_evidence = address
+                .items
+                .iter()
+                .map(|item| {
+                    let words = law.root.find(&item.path).map(words_below);
+                    match (&facts, words) {
+                        (Some(facts), Some(words)) => {
+                            QuotedWords::of_item(facts, &law.id.at, &words)
+                        }
+                        _ => QuotedWords::default(),
+                    }
+                })
+                .collect();
             let amendment = bill.amendments.get(&address.amendment_id);
             stated.push(Stated {
                 bill_id: bill_id.clone(),
@@ -599,6 +645,8 @@ fn stated_amendments<S: Storage + LegislatureReader>(
                 address,
                 address_source: AddressSource::Markup,
                 evidence,
+                item_evidence,
+                item: false,
             });
         }
     }
@@ -621,7 +669,14 @@ fn stated_amendments<S: Storage + LegislatureReader>(
 /// tell its change from the others in the section. *"Subsection (e) of section
 /// 455 … is repealed"* took a change to § 1087e(d)(5)(B), which another
 /// amendment made, when the table alone addressed it (#259).
-fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classifications: &[Link]) {
+///
+/// With `numbered`, only a row whose section of the Code has that number
+/// counts: one of several sections a line cites (#434).
+fn address_by_olrc_where_the_markup_gives_none(
+    amendment: &mut Stated,
+    classifications: &[Link],
+    numbered: Option<&str>,
+) {
     let Some(markup_gave_none) = amendment.address.unresolved.clone() else {
         return;
     };
@@ -632,6 +687,7 @@ fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classific
         classifications,
         &amendment.public_law,
         &amendment.address.path,
+        numbered,
     ) else {
         return;
     };
@@ -641,6 +697,76 @@ fn address_by_olrc_where_the_markup_gives_none(amendment: &mut Stated, classific
         law_sections: found.law_sections,
         markup_gave_none,
     };
+}
+
+/// An amendment that names no section and acts on many, as one amendment for
+/// each item its address reads (#434). Any other amendment, as it is.
+///
+/// Each item keeps the amendment's id and gets the item's address and the
+/// words the item quotes, so that one item's words cannot claim a change in
+/// another item's section. The window and resolve stages then run for each
+/// item as for any amendment.
+///
+/// Only an amendment that neither the markup nor the OLRC's table addresses
+/// whole is read by its items: an address for the whole wins.
+///
+/// Where the markup gives an item no section, the OLRC's table can, as for a
+/// whole amendment: the rows for the item's own place in the law, *"71401(b)(2)"*.
+/// A section that a line cites among several has no place of its own, so
+/// only a row whose section has the cited number counts, and only where the
+/// line did not say which law the number is of: *"Sections 351(a), 352(a) …
+/// of such title"*.
+fn one_for_each_item(mut amendment: Stated, classifications: &[Link]) -> Vec<Stated> {
+    if amendment.address.section.is_some() || amendment.address.items.is_empty() {
+        return vec![amendment];
+    }
+    let items = std::mem::take(&mut amendment.address.items);
+    let evidence = std::mem::take(&mut amendment.item_evidence);
+    items
+        .into_iter()
+        .zip(evidence)
+        .map(|(item, evidence)| {
+            let own_place = item.path != amendment.address.path;
+            let mut one = Stated {
+                address: AmendmentAddress {
+                    amendment_id: amendment.address.amendment_id.clone(),
+                    path: item.path,
+                    text: item.text,
+                    section: item.section,
+                    container: item.container,
+                    unresolved: item.unresolved,
+                    items: Vec::new(),
+                },
+                evidence,
+                item: true,
+                ..amendment.clone()
+            };
+            match one.address.unresolved.clone() {
+                _ if own_place => {
+                    address_by_olrc_where_the_markup_gives_none(&mut one, classifications, None);
+                }
+                Some(Reason::NoTitleForSection(number)) => {
+                    address_by_olrc_where_the_markup_gives_none(
+                        &mut one,
+                        classifications,
+                        Some(&number),
+                    );
+                }
+                _ => {}
+            }
+            one
+        })
+        .collect()
+}
+
+/// The words of a level of the bill and of every level below it, as one text.
+fn words_below(node: &DocumentNode) -> String {
+    let mut words = own_text(&node.data);
+    for child in &node.children {
+        words.push(' ');
+        words.push_str(&words_below(child));
+    }
+    words
 }
 
 /// The action a link records: the one the bill's markup states.

@@ -345,6 +345,15 @@ For each `work` row, read the row in full first — `residue --bill <bill> --jso
 gives its address (if any), window, candidate changes, its `law_section`, and
 the OLRC rows for that section of the law.
 
+**One amendment can have several rows.** An amendment that names no section in
+its own line and acts on many sections has one row for each item: each item of
+its list (*"(i) in section 103(c)(15) (50 U.S.C. 3025(c)(15)), by striking …"*),
+or each section its line cites (*"Sections 351(a), 352(a), and 353(b) … are
+amended"*). Such a row has `"item": true`, the amendment's id, and the item's own
+address: `address.path` is the item's place in the law. Resolve each row on its
+own, and record each link with the amendment's id. A row of an item goes away
+when a standing link of the amendment changes the item's section.
+
 **Then, before any stage recipe, read the effective date.** Many residue items
 are not failures at all: the change takes effect after the newest date the
 dataset holds. Find the effective-date words in the law's own text — usually the
