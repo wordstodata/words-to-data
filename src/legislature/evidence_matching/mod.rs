@@ -19,7 +19,8 @@
 //!    amendment that only adds, and only when the provision was added.
 //!    Where a later amendment of the same law renumbered the provision the
 //!    address names in that window, the address is read at the new number
-//!    (#434).
+//!    (#434). Where another law moved it in that window, the words the
+//!    amendment quotes say where it is now (#391).
 //! 3. **Resolve.** The changes under one section in that window, assigned to
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
@@ -282,8 +283,14 @@ pub enum Stage {
 /// for a reference to a law that the bill cites, and the date of enactment
 /// for *"the date of the enactment of this Act"*. A single and a double
 /// quotation mark are one mark.
+///
+/// Version 9 (#391): where another law moved the provision at the address in
+/// the window, and the dataset holds no record of that law, the address is
+/// read at the provision that shows the words the amendment adds
+/// ([`moved_by_another_law`]). The quoted words decide, and the number alone
+/// does not.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 8)
+    Method::new("address, window and quoted words", 9)
 }
 
 /// Who a link this method writes says made it.
@@ -785,6 +792,8 @@ fn match_in_work<S: Storage + LegislatureReader>(
             } else {
                 through_later_renumberings(under, &view.renumberings, renumbered_later)
             };
+            let under =
+                moved_by_another_law(view, &section, &under, &amendment.evidence).unwrap_or(under);
             found.insert(at);
             let candidates: Vec<usize> = (0..view.changes.len())
                 .filter(|&change| is_at_or_below(&view.changes[change].path, &under))
@@ -1152,6 +1161,90 @@ fn through_later_renumberings(
         [one] => one.clone(),
         _ => under,
     }
+}
+
+/// The provision another law moved the address to in the window, as the
+/// amendment's quoted words show it, or `None` (#391).
+///
+/// Two laws can change one section in one window, and the dataset can hold
+/// no record of the other law. 26 U.S.C. 25C: another law redesignated (h) as
+/// (i) and inserted a new (h). § 70505(a) of Pub. L. 119-21 amends "Section
+/// 25C(h)" by striking words and inserting "placed in service after December
+/// 31, 2025", and the Code after the window prints those words at (i). By its
+/// number alone, the address is the new (h), which is the other law's.
+///
+/// The quoted words decide. The address moves only when all of these are so:
+///
+/// - the provision at the address before the window holds every string the
+///   amendment strikes or quotes to mark a place, and it quotes one at least;
+/// - no change under the address shows words the amendment adds;
+/// - one provision, and only one, that the window added whole beside the
+///   address (the same provision above it, the same level) shows every string
+///   the amendment inserts and every block it enacts.
+///
+/// The OLRC's notes, which say which law moved a provision, are the next
+/// evidence, but the dataset does not hold them (#380). The effective date
+/// alone does not decide.
+fn moved_by_another_law(
+    view: &WindowView,
+    section: &str,
+    under: &str,
+    evidence: &QuotedWords,
+) -> Option<String> {
+    let (above, own) = under.rsplit_once('/')?;
+    let (level, _) = own.split_once('_')?;
+    if under == section || evidence.additions() == 0 {
+        return None;
+    }
+    let held_its_words = view
+        .earlier
+        .find_all(under)
+        .into_iter()
+        .any(|node| evidence.acts_on_words_in(&words_of_provision(node)));
+    if !held_its_words {
+        return None;
+    }
+    let adds = |change: &Change| {
+        evidence
+            .shown(&change.before, &change.after, change.added.as_ref(), &[])
+            .into_iter()
+            .filter(|shown| shown.adds)
+            .count()
+    };
+    let shown_under_address = view
+        .changes
+        .iter()
+        .any(|change| is_at_or_below(&change.path, under) && adds(change) > 0);
+    if shown_under_address {
+        return None;
+    }
+    let beside: Vec<&Change> = view
+        .changes
+        .iter()
+        .filter(|change| change.whole == Some(Whole::Added))
+        .filter(|change| {
+            change
+                .path
+                .rsplit_once('/')
+                .is_some_and(|(parent, segment)| {
+                    parent == above && segment.starts_with(&format!("{level}_"))
+                })
+        })
+        .filter(|change| adds(change) == evidence.additions())
+        .collect();
+    match beside.as_slice() {
+        [moved_to] => Some(moved_to.path.clone()),
+        _ => None,
+    }
+}
+
+/// The words of a provision and of every provision below it, as one text.
+fn words_of_provision(node: &DocumentNode) -> String {
+    provision_words(node)
+        .into_iter()
+        .map(|field| field.text)
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 /// Who made each renumbering in a window, by the two paths it moved a provision
