@@ -110,6 +110,8 @@ pub(super) struct Shown {
     /// more. A heading such as "In general" is in many blocks, so it is weak
     /// evidence that this block made the change (#389).
     pub few_words: bool,
+    /// Words the amendment adds: a string it inserts, or a block it enacts.
+    pub adds: bool,
 }
 
 impl Shown {
@@ -228,6 +230,30 @@ impl QuotedWords {
                 .all(|quoted| quoted.direction == Direction::Struck)
     }
 
+    /// How many words the amendment adds: the strings it inserts and the
+    /// blocks it enacts.
+    pub(super) fn additions(&self) -> usize {
+        let inserted = self
+            .quoted
+            .iter()
+            .filter(|quoted| quoted.direction == Direction::Inserted)
+            .count();
+        inserted + self.enacted.len()
+    }
+
+    /// Whether `text` holds every string the amendment strikes or quotes to
+    /// mark a place, and the amendment quotes one such string at least: the
+    /// words it acts on were there.
+    pub(super) fn acts_on_words_in(&self, text: &str) -> bool {
+        let tokens = tokens_of(text);
+        let mut acted_on = self
+            .quoted
+            .iter()
+            .filter(|quoted| quoted.direction != Direction::Inserted)
+            .peekable();
+        acted_on.peek().is_some() && acted_on.all(|quoted| contains_run(&tokens, &quoted.tokens))
+    }
+
     /// The amendment's quoted strings and enacted blocks this change shows.
     ///
     /// `after` is the change's words after it, as one text. For a provision
@@ -268,6 +294,7 @@ impl QuotedWords {
                 enacted: false,
                 rewrote: false,
                 few_words: false,
+                adds: quoted.direction == Direction::Inserted,
             });
         let undone = |text: &str| -> Vec<String> {
             without(&tokens_of(text), &later_insertions)
@@ -299,6 +326,7 @@ impl QuotedWords {
                 enacted: true,
                 rewrote,
                 few_words: count <= FEW_WORDS && block.words.len() > count,
+                adds: true,
             })
         });
         let shown: Vec<Shown> = strings.chain(blocks).collect();
