@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 0.6.2
+
+More right links, and a search that reads a phrase in quote marks. The
+evidence matcher links repeals, gives a tie to the narrower address, reads an
+address through a later renumbering of the same law ([#434](https://github.com/wordstodata/words-to-data/issues/434)), and finds a block
+that the OLRC printed with edits ([#433](https://github.com/wordstodata/words-to-data/issues/433)). The address reader reads the section
+that an item of a list names after "by amending" ([#438](https://github.com/wordstodata/words-to-data/issues/438)). `search` removes one
+pair of quote marks around the query ([#439](https://github.com/wordstodata/words-to-data/issues/439)), and the plain text of an opinion
+starts a paragraph at the first item of a quoted list ([#430](https://github.com/wordstodata/words-to-data/issues/430)).
+
+On a fresh build of `eval.sqlite`, `legislature.amended_by` goes from 3,424 to
+3,452 links, `legislature.redesignated_as` from 335 to 336, and
+`section-agreement` finds 0 disagreements.
+
+### Upgrade from 0.6.1
+
+- **The stored format does not change** (`SCHEMA_VERSION` 10). A dataset built
+  with 0.6.1 opens and reads as before, and keeps the links 0.6.1 made. The
+  fixes below change a dataset only when you run its commands again.
+- **Run `redesignations` for each bill and window, then `link-by-evidence`**,
+  to get the renumberings of version 7 and the evidence links of version 8.
+  `residue` then lists each link that only an older version made, for review.
+- **Add the opinions again with `add-opinions`** to get the paragraphs of
+  version 4 (a cached response costs no request).
+- **`search --json`** can give a new field, `notice`. The other output does
+  not change.
+- **Rust library:** one new function, `search::unquoted`. Nothing is removed
+  or changed.
+
 ### A block the OLRC printed with edits shows its change ([#433](https://github.com/wordstodata/words-to-data/issues/433))
 
 The OLRC edits some words of a law when it prints them in the Code. A block
