@@ -1,6 +1,6 @@
 //! Every amendment of a public law that no standing `legislature.amended_by`
-//! link names, with the stage and the reason it stopped (#251), and every
-//! amendment that is linked in part (#271).
+//! link names, with the stage and the reason it stopped (#251), and, when the
+//! caller asks, every amendment that is linked in part (#271).
 //!
 //! Stage 5 of
 //! `docs/adr/0013-matching-is-evidence-first-and-the-batch-calls-no-model.md`.
@@ -29,7 +29,9 @@
 //! and unclaimed. It does not say that the change is the amendment's. An agent
 //! reads the words and decides. A change whose link to this amendment was
 //! refuted is not listed again, because a reviewer has said that it is not
-//! this amendment's.
+//! this amendment's. These rows are not in the default list, which is the
+//! work the playbook gives an agent: a caller asks for them with
+//! [`Rows::AlsoLinkedInPart`] (`residue --partial`).
 //!
 //! **What it knows comes from the matcher.** Each unlinked amendment is
 //! described by the answer [`crate::legislature::evidence_matching`] gives for
@@ -163,18 +165,35 @@ pub enum Category {
     LinkedInPart,
 }
 
+/// Which rows [`unlinked_amendments`] gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rows {
+    /// Only the amendments that no standing link names. This is the default
+    /// list, the work the playbook gives an agent.
+    Unlinked,
+    /// Also each amendment that is linked in part ([`Category::LinkedInPart`],
+    /// `residue --partial`).
+    AlsoLinkedInPart,
+}
+
 /// Every amendment of the public law `bill` became, or of every public law the
 /// dataset holds when `bill` is `None`, that no standing `amended_by` link
-/// names, and every one that is linked in part ([`Category::LinkedInPart`]).
+/// names. With [`Rows::AlsoLinkedInPart`], also every one that is linked in
+/// part.
 ///
 /// In the order each bill states its amendments.
 pub fn unlinked_amendments<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     bill: Option<&str>,
+    rows: Rows,
 ) -> Result<Vec<Unlinked>, DatasetError> {
     let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
     let links = amendment_links(dataset, bill, &reviews)?;
-    let claims = claims(dataset, &reviews)?;
+    // Read only when the caller asks for the amendments linked in part.
+    let claims = match rows {
+        Rows::AlsoLinkedInPart => Some(claims(dataset, &reviews)?),
+        Rows::Unlinked => None,
+    };
     let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
     let no_links = standing_no_links(&dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?, &reviews);
     // For one bill, only the titles of the Code that it acts in are matched
@@ -183,19 +202,20 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
         Some(bill) => match_bill_by_evidence(dataset, bill)?,
         None => match_by_evidence(dataset)?.matches,
     };
-    let rows = matches
+    let listed = matches
         .into_iter()
         .filter_map(|amendment| {
             let reference = amendment_reference(&amendment.bill_id, &amendment.amendment_id);
             let refuted = links.refuted.get(&reference).cloned().unwrap_or_default();
             if links.standing.contains_key(&reference) {
-                return linked_in_part(amendment, &classified, refuted, &claims, &reference);
+                let claims = claims.as_ref()?;
+                return linked_in_part(amendment, &classified, refuted, claims, &reference);
             }
             let no_link = no_links.get(&reference).cloned();
             Some(unlinked(amendment, &classified, no_link, refuted))
         })
         .collect();
-    Ok(rows)
+    Ok(listed)
 }
 
 /// The row of an amendment a standing link names, when a change under its

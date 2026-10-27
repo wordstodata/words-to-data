@@ -267,10 +267,16 @@ read the words.
 7. **If no link names a change you found**, the batch may have missed it. Look
    at `residue` for the bill: the amendment may be listed there with its
    candidate changes. That is Job 2. **An amendment can also be linked in part**
-   — one of its changes linked, another not. `residue` lists it as
-   `linked_in_part`, with each change under its address that no link claims.
-   A change under no amendment's address is not on that list. `coverage` lists
-   every change in a window that no link claims:
+   — one of its changes linked, another not — and then `residue` does not list
+   it. `residue --bill <bill> --partial` lists it too, with the category
+   `linked_in_part` and each change under its address that no link claims:
+   ```
+   words_to_data residue <dataset> --bill <bill> --partial --json
+   ```
+   Such a row does not say that a change is the amendment's. Read the
+   amendment's words and the change, and link the change only when those words
+   made it. A change under no amendment's address is not on that list.
+   `coverage` lists every change in a window that no link claims:
    ```
    words_to_data coverage <dataset> --from <work@date> --to <work@date> --list
    ```
@@ -339,17 +345,9 @@ names. Each row has a **category** and, for work, the **stage** that stopped it:
 | category | meaning | what to do |
 | --- | --- | --- |
 | `work` | the batch could not decide | resolve it (below) |
-| `linked_in_part` | a link names it, and a change under its address is claimed by no link | read each listed change; link it if the amendment's words made it (below) |
 | `not_held` | it changes something the dataset does not hold (a table of sections, a note) | nothing — already explained |
 | `quiet` | nothing under its address changed after enactment | nothing — not work |
 | `reviewed: no link` | someone already concluded there is no link | nothing, unless you disagree |
-
-A `linked_in_part` row says only that the listed changes are under the
-amendment's address and that no link claims them. It does not say that they are
-the amendment's. Read the amendment's words and each change. Link a change with
-`link-amendment` only when the words made it. A change that another amendment
-made goes to that amendment. When no amendment's words made it, record nothing,
-and say so in your report.
 
 For each `work` row, read the row in full first — `residue --bill <bill> --json`
 gives its address (if any), window, candidate changes, its `law_section`, and

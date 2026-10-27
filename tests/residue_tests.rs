@@ -150,15 +150,25 @@ fn linked() -> &'static Path {
 
 /// The rows `residue --json` lists for the bill.
 fn residue_rows(dataset: &Path) -> Vec<serde_json::Value> {
-    let output = run(
-        "residue",
-        &[
-            dataset.to_str().expect("a UTF-8 path"),
-            "--bill",
-            BILL_ID,
-            "--json",
-        ],
-    );
+    residue_rows_with(dataset, &[])
+}
+
+/// The rows `residue --json --partial` lists for the bill: also each
+/// amendment that is linked in part (#271).
+fn partial_rows(dataset: &Path) -> Vec<serde_json::Value> {
+    residue_rows_with(dataset, &["--partial"])
+}
+
+/// The rows `residue --json` lists for the bill, with more options.
+fn residue_rows_with(dataset: &Path, options: &[&str]) -> Vec<serde_json::Value> {
+    let mut args = vec![
+        dataset.to_str().expect("a UTF-8 path"),
+        "--bill",
+        BILL_ID,
+        "--json",
+    ];
+    args.extend_from_slice(options);
+    let output = run("residue", &args);
     assert!(
         output.status.success(),
         "residue should exit zero, stderr: {}",
@@ -175,6 +185,13 @@ fn residue_rows(dataset: &Path) -> Vec<serde_json::Value> {
 fn linked_rows() -> &'static [serde_json::Value] {
     static ROWS: OnceLock<Vec<serde_json::Value>> = OnceLock::new();
     ROWS.get_or_init(|| residue_rows(linked()))
+}
+
+/// The rows `residue --json --partial` lists for the bill over the linked
+/// fixture, read once for every case.
+fn linked_partial_rows() -> &'static [serde_json::Value] {
+    static ROWS: OnceLock<Vec<serde_json::Value>> = OnceLock::new();
+    ROWS.get_or_init(|| partial_rows(linked()))
 }
 
 /// The row for one amendment, by the start of its id, if it is listed.
@@ -274,9 +291,14 @@ fn should_leave_the_list_when_an_agent_records_a_link_through_the_door() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // One link names the amendment, so it is no longer work. The other change
-    // under its address is claimed by no link, so it is linked in part (#271).
-    let rows = residue_rows(&dataset);
+    assert!(
+        row_of(&residue_rows(&dataset), STRIKES_SECTION_3_U_4).is_none(),
+        "one link names the amendment, so it is no longer listed"
+    );
+
+    // The other change under its address is claimed by no link, so
+    // `--partial` lists the amendment as linked in part (#271).
+    let rows = partial_rows(&dataset);
     let row = row_of(&rows, STRIKES_SECTION_3_U_4).expect("the amendment is linked in part");
     assert_eq!(row["category"], "linked_in_part");
     assert_eq!(
@@ -751,22 +773,27 @@ fn should_not_list_an_amendment_when_one_of_its_links_is_refuted_and_another_sta
         "This path is not where the amendment acts.",
     );
 
-    // The other link stands, so the amendment is not work. Its address,
-    // 2015(o), holds the new (4)(C), which no link claims, so it is linked in
-    // part (#271), and the row does not offer the refuted path to it again.
-    let rows = residue_rows(&dataset);
-    let row = row_of(&rows, RENUMBERS_2015_O_7).expect("the amendment is linked in part");
-    assert_eq!(row["category"], "linked_in_part");
+    assert!(
+        row_of(&residue_rows(&dataset), RENUMBERS_2015_O_7).is_none(),
+        "the other link stands, so the amendment is linked"
+    );
+
+    // The refuted path is under the amendment's address, and now no link
+    // claims it. A reviewer said that it is not this amendment's change, so
+    // `--partial` does not offer it to the amendment again (#271).
     let words_to_data::link::Target::Change { path, .. } = &links[0].subject else {
         panic!("an amended_by link names a change");
     };
-    assert!(
-        !row["changes"]
+    let rows = partial_rows(&dataset);
+    let offered = row_of(&rows, RENUMBERS_2015_O_7).is_some_and(|row| {
+        row["changes"]
             .as_array()
             .expect("a list of changes")
-            .contains(&serde_json::json!(path)),
-        "the refuted change is not offered to the amendment again: {}",
-        row["changes"]
+            .contains(&serde_json::json!(path))
+    });
+    assert!(
+        !offered,
+        "the refuted change is not offered to the amendment again"
     );
 }
 
@@ -829,24 +856,24 @@ fn full_id_in(dataset: &Path, id_start: &str) -> String {
         .to_string()
 }
 
-/// Section 10103(a) of the law amends 7 U.S.C. 2015(o)(4): its part (1)
-/// changes subparagraph (A)(ii), and its part (2) adds "(C) Definition of
-/// noncontiguous State". `link-by-evidence` links the change to (A)(ii), and
-/// no link claims the new (C), which is under the same address (#271).
-const CHANGES_2015_O_4: &str = "81ee6c9855af";
-const SUBPARAGRAPH_2015_O_4_C: &str =
-    "uscode/title_7/chapter_51/section_2015/subsection_o/paragraph_4/subparagraph_C";
+/// Section 10604(f) of the law amends 7 U.S.C. 390d: its part (1) changes
+/// subsection (c), and its part (2) adds "(e) Mandatory Funding".
+/// `link-by-evidence` links the change to (c), and no link claims the new (e),
+/// which is under the same address (#271).
+const AMENDS_390D: &str = "75b964747015";
+const SUBSECTION_390D_E: &str =
+    "uscode/title_7/chapter_14/subchapter_III/section_390d/subsection_e";
 
 #[test]
-fn should_list_an_amendment_as_linked_in_part_and_name_the_unclaimed_change_when_a_change_under_its_address_is_claimed_by_no_link()
+fn should_list_an_amendment_as_linked_in_part_and_name_the_unclaimed_change_when_partial_is_given_and_a_change_under_its_address_is_claimed_by_no_link()
  {
     let dataset = linked();
     assert!(
-        !links_naming(dataset, CHANGES_2015_O_4).is_empty(),
+        !links_naming(dataset, AMENDS_390D).is_empty(),
         "a link names the amendment"
     );
 
-    let row = row_of(linked_rows(), CHANGES_2015_O_4).expect("the amendment is listed");
+    let row = row_of(linked_partial_rows(), AMENDS_390D).expect("the amendment is listed");
     assert_eq!(row["category"], "linked_in_part");
     assert_eq!(
         row["from"],
@@ -854,10 +881,10 @@ fn should_list_an_amendment_as_linked_in_part_and_name_the_unclaimed_change_when
     );
     let changes = row["changes"].as_array().expect("a list of changes");
     assert!(
-        changes.contains(&serde_json::json!(SUBPARAGRAPH_2015_O_4_C)),
+        changes.contains(&serde_json::json!(SUBSECTION_390D_E)),
         "the row names the unclaimed change: {changes:?}"
     );
-    let linked_paths: Vec<String> = links_naming(dataset, CHANGES_2015_O_4)
+    let linked_paths: Vec<String> = links_naming(dataset, AMENDS_390D)
         .iter()
         .filter_map(|link| match &link.subject {
             words_to_data::link::Target::Change { path, .. } => Some(path.clone()),
@@ -873,7 +900,12 @@ fn should_list_an_amendment_as_linked_in_part_and_name_the_unclaimed_change_when
 
     let printed = run(
         "residue",
-        &[dataset.to_str().expect("a UTF-8 path"), "--bill", BILL_ID],
+        &[
+            dataset.to_str().expect("a UTF-8 path"),
+            "--bill",
+            BILL_ID,
+            "--partial",
+        ],
     );
     let stdout = String::from_utf8_lossy(&printed.stdout);
     assert!(
@@ -883,13 +915,44 @@ fn should_list_an_amendment_as_linked_in_part_and_name_the_unclaimed_change_when
 }
 
 #[test]
-fn should_not_list_an_amendment_a_link_names_when_no_change_under_its_address_is_unclaimed() {
+fn should_not_list_an_amendment_a_link_names_with_partial_when_no_change_under_its_address_is_unclaimed()
+ {
     assert!(
         !links_naming(linked(), EXTENDS_1359LL_A).is_empty(),
         "a link names the amendment"
     );
     assert!(
-        row_of(linked_rows(), EXTENDS_1359LL_A).is_none(),
+        row_of(linked_partial_rows(), EXTENDS_1359LL_A).is_none(),
         "its one change under the address is claimed, so it is not listed"
+    );
+}
+
+/// The default list is what the playbook gives an agent, so it lists no
+/// amendment that a link names (#271).
+#[test]
+fn should_list_no_amendment_as_linked_in_part_when_partial_is_not_given() {
+    assert!(
+        row_of(linked_partial_rows(), AMENDS_390D).is_some(),
+        "with --partial, the amendment is linked in part"
+    );
+    assert!(
+        row_of(linked_rows(), AMENDS_390D).is_none(),
+        "without --partial, a link names it, so it is not listed"
+    );
+    assert!(
+        linked_rows()
+            .iter()
+            .all(|row| row["category"] != "linked_in_part"),
+        "without --partial, no row is linked in part"
+    );
+
+    let printed = run(
+        "residue",
+        &[linked().to_str().expect("a UTF-8 path"), "--bill", BILL_ID],
+    );
+    let stdout = String::from_utf8_lossy(&printed.stdout);
+    assert!(
+        !stdout.contains("linked in part"),
+        "without --partial, a person sees no count of amendments linked in part: {stdout}"
     );
 }

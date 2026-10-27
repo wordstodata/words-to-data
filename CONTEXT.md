@@ -204,7 +204,7 @@ The newest one for an amendment is the one a reader reports, and it takes the am
 _Avoid_: Skip, dismissal, won't-fix
 
 **Linked in part**:
-An Amendment that a standing Link names, while a change under its address, in the window the matcher gives it, is claimed by no standing `legislature.amended_by` Link. The residue lists it as work, with each such change. The row says only that the change is under the address and unclaimed, not that it is the amendment's: an agent reads the words and decides. A change whose Link to the same amendment was refuted is not offered to it again (#271).
+An Amendment that a standing Link names, while a change under its address, in the window the matcher gives it, is claimed by no standing `legislature.amended_by` Link. The residue lists it only when asked (`residue --partial`), with each such change, because the default list is the work the playbook gives an agent. The row says only that the change is under the address and unclaimed, not that it is the amendment's: an agent reads the words and decides. A change whose Link to the same amendment was refuted is not offered to it again (#271).
 _Avoid_: Partly matched, half linked
 
 **Evidence**:
