@@ -318,6 +318,12 @@ pub enum Stage {
 /// cites, with the item's own quoted words. *"The National Security Act of
 /// 1947 … is amended— (i) in section 103(c)(15) (50 U.S.C. 3025(c)(15)) …
 /// (ii) in section 112(c)(1) …"* acts in 50 U.S.C. 3025(c)(15) and 3047(c)(1).
+///
+/// Version 9 (#416): the rules do not change, but the words they read do. The
+/// words of the Code no longer hold the OLRC's footnotes, so a change that was
+/// only a footnote is no change, and an enacted block can match words that a
+/// footnote broke before. On a fresh build of the benchmark dataset, 14 links
+/// go and 22 come.
 pub fn evidence_method() -> Method {
     Method::new("address, window and quoted words", 9)
 }

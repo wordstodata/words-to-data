@@ -2,7 +2,8 @@
 //!
 //! A [`DocumentNode`] carries what any reader needs in order to locate, search,
 //! diff and report a piece of a document: a structural path, a type, a date, the
-//! five text fields, its children, and where its text came from. It carries
+//! five text fields, the publisher's footnotes, its children, and where its text
+//! came from. It carries
 //! nothing that belongs to one class of document.
 //!
 //! This tree used to be `USLMElement`, named after one publisher's XML schema,
@@ -190,7 +191,7 @@ pub mod text_method {
 /// 1. Does it say *where* the node is, *what kind* of thing it is, *what it
 ///    says*, or *how its text was obtained*? Those four are what it takes to
 ///    report a node, and [`NodeData`] already holds all four: the path, the
-///    [`NodeType`], the five text fields, and the [`Provenance`]. Put it there.
+///    [`NodeType`], the text fields, and the [`Provenance`]. Put it there.
 /// 2. Would a reader use it to decide how far to trust the node? Then it is
 ///    provenance and not a class fact. `extracted_by_ocr` looked like a
 ///    judicial fact and became a [`text_method`]; a timestamp looked like a
@@ -243,9 +244,11 @@ impl ClassPayload {
 
 /// The different text content fields that can be present in a document node
 ///
-/// A node can have up to five distinct text fields, each serving a specific
-/// purpose in the document structure. These fields are tracked separately to
-/// enable precise change detection when comparing document versions.
+/// A node can have up to five distinct text fields of words, each serving a
+/// specific purpose in the document structure, and a sixth field for the
+/// publisher's footnotes. The five fields of words are tracked separately to
+/// enable precise change detection when comparing document versions. The diff
+/// does not compare the footnotes.
 ///
 /// - Heading: Opening text that appears before enumerated sub-elements
 /// - Chapeau: A conditional or qualifying clause (often starting with "Provided that")
@@ -268,6 +271,13 @@ pub enum TextContentField {
     Content,
     /// Text content that appears after all child nodes
     Continuation,
+    /// The publisher's footnotes to the node's words, one on each line.
+    ///
+    /// Not the words of the document: an editor's note about them, such as the
+    /// OLRC's "So in original. The comma probably should not appear." Search
+    /// reads it, and the diff does not compare it (#416,
+    /// `docs/adr/0015-a-publishers-footnotes-are-a-sixth-text-field-the-diff-does-not-compare.md`).
+    Footnotes,
 }
 
 /// Everything the core knows about one node of a document.
@@ -304,8 +314,8 @@ pub struct NodeData {
     /// court filed it, never the date a third party ingested the record.
     pub date: Date,
 
-    // Content fields. These are the fields the diff runs on, and the fields
-    // search reads. They are core because every document class has text.
+    // Content fields. The diff runs on the first five, and search reads all
+    // six. They are core because every document class has text.
     /// The heading or title text of the node
     pub heading: Option<Arc<str>>,
 
@@ -320,6 +330,18 @@ pub struct NodeData {
 
     /// Text content that appears after all child nodes
     pub continuation: Option<Arc<str>>,
+
+    /// The publisher's footnotes to the five fields above, one on each line,
+    /// in the order of their marks.
+    ///
+    /// Search reads this field, and the diff does not compare it: a footnote is
+    /// an editor's note about the words, not the words, and a publisher
+    /// numbers its footnotes again in each printing (#416). The marks are not
+    /// in the five fields either. A node of a class whose publisher prints its
+    /// footnotes as nodes of their own, such as a court writing's
+    /// `footnote_<label>`, leaves this empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footnotes: Option<Arc<str>>,
 
     /// Where this node's text came from, when the producer recorded it.
     ///
@@ -345,7 +367,7 @@ pub struct NodeData {
 impl NodeData {
     /// A node with a path, a type and a date, and no text.
     ///
-    /// The five text fields, the provenance and the payload are set by the
+    /// The text fields, the provenance and the payload are set by the
     /// producer. A constructor rather than `Default` because a node with no path
     /// and no date is not a node.
     pub fn new(path: impl Into<Arc<str>>, node_type: NodeType, date: Date) -> Self {
@@ -358,6 +380,7 @@ impl NodeData {
             proviso: None,
             content: None,
             continuation: None,
+            footnotes: None,
             provenance: None,
             payload: None,
         }
@@ -386,6 +409,7 @@ impl NodeData {
             TextContentField::Proviso => self.proviso.clone(),
             TextContentField::Content => self.content.clone(),
             TextContentField::Continuation => self.continuation.clone(),
+            TextContentField::Footnotes => self.footnotes.clone(),
         }
     }
 
@@ -414,6 +438,7 @@ impl NodeData {
         self.proviso = interner.intern_option(&self.proviso);
         self.content = interner.intern_option(&self.content);
         self.continuation = interner.intern_option(&self.continuation);
+        self.footnotes = interner.intern_option(&self.footnotes);
     }
 }
 

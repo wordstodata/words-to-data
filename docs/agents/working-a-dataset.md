@@ -174,7 +174,10 @@ read the words.
 
    Each hit is one field, and its line says how often the field holds the words
    (`[content]  5 occurrences`). The last line counts both: `1 field, 5
-   occurrences`. A hit in a court writing names the paragraph or footnote that
+   occurrences`. A hit in the field `footnotes` is a footnote that the OLRC
+   printed in the provision, such as "So in original. The comma probably
+   should not appear.": it is not the words of the law, and `diff` and
+   `coverage` do not compare it. A hit in a court writing names the paragraph or footnote that
    holds the words, such as
    `judicial/case_122262/opinion_9434365/page_457/paragraph_3`; a writing stored
    as one node is one field, so one hit is not one mention. `--occurrences`
