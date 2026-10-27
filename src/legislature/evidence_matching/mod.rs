@@ -70,6 +70,7 @@ use crate::uslm::amendment_address::{AmendmentAddress, addresses_in, units_named
 use quoted_words::{AddedWords, QuotedWords};
 use resolve::{Change, Contender, Resolution, Whole, resolve};
 
+mod code_edits;
 mod olrc;
 mod quoted_words;
 mod recorded;
@@ -275,6 +276,12 @@ pub enum Stage {
 /// equally, the one whose address is inside the address of every other gets
 /// it. An address that a later amendment of the same law renumbered in the
 /// window is read at the new number.
+///
+/// Also in version 8 (#433): an enacted block shows a change also as the OLRC prints
+/// it: *"title 5"* for *"title 5, United States Code"*, the Code's citation
+/// for a reference to a law that the bill cites, and the date of enactment
+/// for *"the date of the enactment of this Act"*. A single and a double
+/// quotation mark are one mark.
 pub fn evidence_method() -> Method {
     Method::new("address, window and quoted words", 8)
 }
@@ -573,7 +580,7 @@ fn stated_amendments<S: Storage + LegislatureReader>(
                 .find(&address.path)
                 .and_then(|node| UslmFacts::of(&node.data))
                 .and_then(|facts| facts.amendment)
-                .map(|facts| QuotedWords::of(&facts))
+                .map(|facts| QuotedWords::of(&facts, &law.id.at))
                 .unwrap_or_default();
             let amendment = bill.amendments.get(&address.amendment_id);
             stated.push(Stated {
