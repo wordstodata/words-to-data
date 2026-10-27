@@ -22,7 +22,8 @@
 //!    Where a later amendment of the same law renumbered the provision the
 //!    address names in that window, the address is read at the new number
 //!    (#434). Where another law moved it in that window, the words the
-//!    amendment quotes say where it is now (#391).
+//!    amendment quotes say where it is now (#391). For an amendment of *"the heading for section X"*, only a change
+//!    to the provision itself counts, and no change below it (#451).
 //! 3. **Resolve.** The changes under one section in that window, assigned to
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
@@ -301,6 +302,10 @@ pub enum Stage {
 /// provision the window added whole, takes that provision only when its words
 /// show it. Otherwise it takes the provision at its address, which the window
 /// added too.
+///
+/// Version 9 (#451): an amendment of *"the heading for section 951A"* acts on
+/// the heading of the provision its address names, and takes no change below
+/// that provision.
 pub fn evidence_method() -> Method {
     Method::new("address, window and quoted words", 9)
 }
@@ -807,8 +812,10 @@ fn match_in_work<S: Storage + LegislatureReader>(
             let under =
                 moved_by_another_law(view, &section, &under, &amendment.evidence).unwrap_or(under);
             found.insert(at);
+            let heading_alone = acts_on_the_heading_alone(amendment);
             let candidates: Vec<usize> = (0..view.changes.len())
                 .filter(|&change| is_at_or_below(&view.changes[change].path, &under))
+                .filter(|&change| !heading_alone || view.changes[change].path == under)
                 .collect();
             if !candidates.is_empty() {
                 placed.entry(at).or_default().push(Placed {
@@ -1058,6 +1065,38 @@ fn units_its_words_name(amendment: &Stated) -> Vec<Vec<Step>> {
         return Vec::new();
     }
     units_named_in(&amendment.amending_text)
+}
+
+/// Whether the amendment's words say that it acts on the heading of the
+/// provision its address names, and on nothing else: *"The heading for
+/// section 951A is amended"*, *"The heading of section 6041(a) is amended"*.
+///
+/// Such an amendment can change only the provision's own words. The address
+/// is the whole provision, and a change below it is not one of its changes.
+/// The heading of 951A(b) lost "global intangible low-taxed income" in the
+/// same window, by another amendment of Pub. L. 119-21 (#451).
+///
+/// The section the words name must be the section of the address, so that
+/// words of a longer instruction that name another section change nothing.
+fn acts_on_the_heading_alone(amendment: &Stated) -> bool {
+    static THE_HEADING_OF_SECTION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?i)\bthe heading (?:of|for) section ([0-9]+[a-z]*(?:-[0-9]+[a-z]*)?)(?:\([0-9a-z]+\))*(?: of [^,;]*?)? is amended\b",
+        )
+        .expect("the pattern must compile")
+    });
+    let Some(section) = amendment.address.section.as_deref() else {
+        return false;
+    };
+    THE_HEADING_OF_SECTION
+        .captures(&amendment.amending_text)
+        .is_some_and(|named| {
+            section
+                .rsplit('/')
+                .next()
+                .and_then(|last| last.strip_prefix('s'))
+                .is_some_and(|number| number.eq_ignore_ascii_case(&named[1]))
+        })
 }
 
 /// Whether an amendment only adds and inserts: the markup states `add` or
