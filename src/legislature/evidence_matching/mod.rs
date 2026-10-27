@@ -282,8 +282,12 @@ pub enum Stage {
 /// for a reference to a law that the bill cites, and the date of enactment
 /// for *"the date of the enactment of this Act"*. A single and a double
 /// quotation mark are one mark.
+///
+/// Version 9 (#452): an enacted block shows an added provision also when the
+/// Code prints two of its words with no space between them, as a table cell
+/// of two lines: *"Applicablepercentage"* at 26 U.S.C. 1202(a)(5).
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 8)
+    Method::new("address, window and quoted words", 9)
 }
 
 /// Who a link this method writes says made it.

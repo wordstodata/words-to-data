@@ -11,7 +11,9 @@
 //!   the same number of times on both sides, so it shows nothing, and that is
 //!   the right answer for it.
 //! - **An enacted block** (`<quotedContent>`). The after text of an added or
-//!   rewritten provision is a run of the block's words.
+//!   rewritten provision is a run of the block's words. Where the Code
+//!   prints two words with no space between them, as in a table cell of two
+//!   lines, the words are also compared with the spaces taken out (#452).
 //!
 //! A law's amendments act in order, and a later one can insert words inside
 //! the words an earlier one inserted. 26 U.S.C. 6041(a) prints "…receiving
@@ -406,6 +408,13 @@ impl Readings {
         if own_counts && contains_run(block, &self.own_undone) {
             return Some((self.own_undone.len(), false));
         }
+        // The Code can lose the space between two words: it prints a table
+        // cell of two lines as two paragraphs with nothing between them, and
+        // 26 U.S.C. 1202(a)(5) reads "Applicablepercentage:" (#452).
+        let spelled = Spelled::of(block);
+        if spelled.runs_in_order(&self.every_field) {
+            return Some((self.every_field.iter().map(Vec::len).sum(), true));
+        }
         None
     }
 
@@ -419,6 +428,49 @@ impl Readings {
             || self.below.iter().any(|field| {
                 field.len() > FEW_WORDS && runs_in_order(block, &[self.own.clone(), field.clone()])
             })
+    }
+}
+
+/// The words of a block spelled as one text with no spaces, and the place
+/// where each word starts and ends, so that two words the Code prints as one
+/// still match the block.
+struct Spelled {
+    letters: String,
+    /// The byte offsets where a word starts or ends.
+    word_edges: BTreeSet<usize>,
+}
+
+impl Spelled {
+    fn of(words: &[String]) -> Self {
+        let mut letters = String::new();
+        let mut word_edges = BTreeSet::from([0]);
+        for word in words {
+            letters.push_str(word);
+            word_edges.insert(letters.len());
+        }
+        Self {
+            letters,
+            word_edges,
+        }
+    }
+
+    /// Like [`runs_in_order`], with the spaces taken out: each run, spelled
+    /// with no spaces, is in the block from the start of a word to the end
+    /// of a word, each after the one before it.
+    fn runs_in_order(&self, runs: &[Vec<String>]) -> bool {
+        let mut from = 0;
+        for run in runs.iter().filter(|run| !run.is_empty()) {
+            let wanted = run.concat();
+            let found = self.word_edges.range(from..).find(|&&start| {
+                self.letters[start..].starts_with(&wanted)
+                    && self.word_edges.contains(&(start + wanted.len()))
+            });
+            match found {
+                Some(&start) => from = start + wanted.len(),
+                None => return false,
+            }
+        }
+        runs.iter().any(|run| !run.is_empty())
     }
 }
 
