@@ -28,7 +28,7 @@ use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, Wor
 use words_to_data::document::DocumentNode;
 use words_to_data::legislature::evidence_matching::{AmendmentMatch, Outcome, match_by_evidence};
 use words_to_data::legislature::redesignation::Reason;
-use words_to_data::legislature::residue::unlinked_amendments;
+use words_to_data::legislature::residue::{Rows, unlinked_amendments};
 use words_to_data::olrc::{ClassificationTable, classify};
 use words_to_data::storage::InMemoryStorage;
 use words_to_data::uslm::amendment_address::{AmendmentAddress, ItemAddress, addresses_in};
@@ -358,7 +358,7 @@ fn should_list_the_items_no_link_holds_when_one_item_of_the_amendment_is_linked(
         dataset.add_link(link).expect("the link should add");
     }
 
-    let rows: Vec<String> = unlinked_amendments(&dataset, Some("119-hr-1"))
+    let rows: Vec<String> = unlinked_amendments(&dataset, Some("119-hr-1"), Rows::Unlinked)
         .expect("residue should derive")
         .into_iter()
         .filter(|row| row.amendment_id.starts_with("ee250eb077b2"))

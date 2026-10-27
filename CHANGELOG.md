@@ -325,6 +325,9 @@ The method is now `address, window and quoted words@9`.
   item's own `address`. An item row goes away when a standing link of the
   amendment changes the item's section. On `eval.sqlite` 3 amendments have
   item rows (10 rows), and the rows go from 508 to 509.
+  With `residue --partial` (#271), a linked item is read as linked in part
+  against its own address: its row lists the changes under that address that
+  no link claims.
 - **`link-by-evidence`** counts each item as one answer and says how many
   there are.
 - **Rust library:** `AmendmentAddress::items` and `ItemAddress` are new, and
