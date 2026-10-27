@@ -74,6 +74,14 @@ Two consequences worth knowing:
 
 `gh pr merge <n>` adds a PR to the queue. It warns that the merge strategy is set by the queue, which is expected and is not an error. `--delete-branch` is rejected while a queue is enabled, so delete the branch after it lands.
 
+## Changelog, method versions and the release
+
+Two PRs that add text at the same place in one file conflict, and the queue removes the second one. So a PR does not edit `CHANGELOG.md` or the doc comment of a method for its history:
+
+- **Changelog entry.** Add one file, `changelog.d/<issue>-<short-topic>.md`, that holds the entry as it will show in `CHANGELOG.md`, starting with its `### ` heading. `changelog.d/README.md` gives the rule.
+- **Method version.** When a method's answers change, change only the number in `Method::new(…, N)`, and say so in the entry: ``Method version: `<name>@N` (was N-1).`` Do not add a "Version N" line to the doc comment above the method. `CHANGELOG.md` holds the history of each method; search it for `<name>@`. Two PRs that raise the same method to the same N merge clean, and the release reads both entries.
+- **The release PR** runs `scripts/changelog-release <version>`. It moves every file in `changelog.d/` into a new `## <version>` section below `## Unreleased`, in the order of the issue numbers, and deletes the files. Then write the summary and the `### Upgrade from …` section by hand at the top of the section, as `## 0.6.2` shows. Ask the user before a release.
+
 ## Communication
 Communicate _only_ via  ASD-STE100 Simplified Technical English (STE)
 

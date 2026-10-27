@@ -150,35 +150,10 @@ impl Opinion {
 /// comment or renaming a variable is not such a change
 /// (`crate::method::Method`).
 ///
-/// Version 2 (#309) reads a space before a subdivision's bracket, reads a dash
-/// of any kind between two numbers, and resolves each end of a range.
-///
-/// Version 3 (#341) reads the OCR form `V.S.C.` as `U.S.C.` and names the
-/// repair in the evidence, reads `U.S.C` with no last point, and reads a
-/// citation with no section marker when a subdivision is written onto the
-/// number (`7 U.S.C. 2015(o)(6)(G)`).
-///
-/// Version 4 (#316) makes a link from the paragraph or footnote that holds the
-/// citation to the subdivision the court wrote, and keeps every place in the
-/// payload. Version 3 made a link from the writing to the section.
-///
-/// Version 5 (#366) reads a range of subdivisions after one section,
-/// `26 U. S. C. §§994(a)(1)-(3)`, as a citation of each subdivision in the
-/// range: a link to each, and each place holds the whole written form. Version
-/// 4 read the first end alone and lost the rest.
-///
-/// Version 6 (#410) reads a designation of more than one character: a roman
-/// numeral, `(ii)` or `(II)`, a doubled letter, `(cc)`, and a number and a
-/// capital letter, `(14A)`. Version 5 stopped before it, so
-/// `7 U.S.C. § 2015(o)(4)(A)(ii)` was a link to (A). In the same release
-/// (#413), a footnote mark against the full stop after a section number,
-/// `§5311.6`, is no part of the number when the writing has that footnote
-/// ([`without_footnote_marks`]).
-///
-/// Version 7 (#449) reads the edition of the Code that a citation names in
-/// brackets after it, `8 U.S.C. § 1105a(a) (1976 ed.)` or `26 U.S.C. § 162
-/// (1988)`. Each place of the link records the edition, and the evidence ends
-/// with it. The link and its object do not change.
+/// What each version changed is in `CHANGELOG.md`: search it for
+/// `reporters-db laws.json U.S.C. patterns@`.
+/// To raise the version, change only the number below, and say so in the
+/// PR's file in `changelog.d/` (`changelog.d/README.md`).
 fn citation_rule() -> Method {
     Method::new("reporters-db laws.json U.S.C. patterns", 7)
 }
@@ -188,14 +163,10 @@ fn citation_rule() -> Method {
 /// its own, because it reads text the U.S.C. patterns never read, and a reviewer
 /// can then judge its links apart.
 ///
-/// Version 2 (#316): the link shape of [`citation_rule`] version 4.
-///
-/// Version 3 (#366): a range of subdivisions after one section, `section
-/// 41(b)(1)-(3)`, is read as [`citation_rule`] version 5 reads it.
-///
-/// Version 4 (#410): a designation of more than one character,
-/// `section 199A(c)(3)(A)(ii)`, is read as [`citation_rule`] version 6 reads it,
-/// and so is a footnote mark after a full stop, `IRC section 179.17` (#413).
+/// What each version changed is in `CHANGELOG.md`: search it for
+/// `bare section under the opinion's default code@`.
+/// To raise the version, change only the number below, and say so in the
+/// PR's file in `changelog.d/` (`changelog.d/README.md`).
 fn default_code_rule() -> Method {
     Method::new("bare section under the opinion's default code", 4)
 }

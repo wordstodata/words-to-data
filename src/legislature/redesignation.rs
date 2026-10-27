@@ -1467,34 +1467,10 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// the code that does the same reading is not such a change
 /// (`crate::method::Method`).
 ///
-/// Version 2 (#172): a statement is recorded in one window only, the first
-/// after the law's enactment in which the text under its container changed.
-/// Version 1 recorded it in every window it resolved in.
-///
-/// Version 3 (#273): a statement that already holds a standing link in an
-/// earlier window is not placed in a later one. Version 2 saw only the windows
-/// it was given, so a dataset that grew one window at a time recorded a move a
-/// second time.
-///
-/// Version 4 (#339): the container keeps every step the bill states: a scope
-/// phrase after *is amended* (*"is amended, in subsection (d)(2)"*), every
-/// designation of a scope phrase, and the units named before the section
-/// (*"Paragraph (2) of section 6213(b)"*).
-///
-/// Version 5 (#365): each item of a list under a whole title is its own
-/// statement, and a section-level move resolves in the part that holds the
-/// section (*"In chapter 40, … redesignating section 711 … as section 710a"*).
-///
-/// Version 6 (#387): where the publisher's reference places a whole section of
-/// an Act, the container keeps the units the line names below it:
-/// *"Section 1413(g) of the … Act of 2018 (22 U.S.C. 9613) is amended … by
-/// redesignating subparagraph …"* resolves in 9613(g), not in the whole of
-/// § 9613.
-///
-/// Version 7 (#438): an item of a list that opens with the publisher's
-/// marginal note, *"(3) 46 USC 7511.in section 7511(a)—"*, or with *"by
-/// amending section"*, names its section as an item that opens with *In*
-/// does.
+/// What each version changed is in `CHANGELOG.md`: search it for
+/// `amendingAction type=redesignate@`.
+/// To raise the version, change only the number below, and say so in the
+/// PR's file in `changelog.d/` (`changelog.d/README.md`).
 pub fn reading_method() -> Method {
     Method::new("amendingAction type=redesignate", 7)
 }
