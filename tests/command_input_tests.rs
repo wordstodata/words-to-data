@@ -708,3 +708,126 @@ fn should_read_an_id_in_upper_case_as_the_same_id() {
     let output = link_amendment(&copy, &upper_amendment, SUBPARAGRAPH_A);
     assert!(output.status.success(), "{}", stderr(&output));
 }
+
+// ---- #396: one input, one form in every command ----
+
+/// Each read-only command that takes a bill, asked about `bill`.
+fn each_bill_command(ds: &'static str, bill: &str) -> Vec<Vec<String>> {
+    [
+        vec!["show-bill", ds, bill, "--json"],
+        vec!["votes", ds, bill, "--json"],
+        vec!["residue", ds, "--bill", bill, "--json"],
+        vec!["amendment-addresses", ds, "--bill", bill, "--json"],
+        vec!["annotations", ds, "--bill", bill, "--json"],
+        vec!["section-agreement", ds, "--bill", bill, "--json"],
+        vec!["redesignation-report", ds, "--bill", bill, "--json"],
+    ]
+    .into_iter()
+    .map(|args| args.into_iter().map(str::to_string).collect())
+    .collect()
+}
+
+#[test]
+fn should_give_the_answer_for_the_bill_when_a_command_is_given_the_public_law_it_became() {
+    let ds = dataset();
+    for law in ["Pub. L. 119-21", "PL 119-21", "119-21"] {
+        for (asked, held) in each_bill_command(ds, law)
+            .into_iter()
+            .zip(each_bill_command(ds, BILL))
+        {
+            assert_same_answer(&asked, &held);
+        }
+    }
+}
+
+#[test]
+fn should_refuse_and_name_the_held_law_and_its_bill_when_a_command_is_given_a_law_not_held() {
+    let ds = dataset();
+    for args in each_bill_command(ds, "Pub. L. 119-22") {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let said = assert_refused(&args, "This dataset holds no document of Pub. L. 119-22");
+        assert!(
+            said.contains("Pub. L. 119-21 (119-hr-1)"),
+            "{args:?} should name the held law and its bill: {said}"
+        );
+    }
+}
+
+#[test]
+fn should_take_bill_and_keep_bill_id_as_a_hidden_old_name_when_a_redesignation_command_is_run() {
+    let ds = dataset();
+    let as_args = |args: &[&str]| -> Vec<String> { args.iter().map(|a| a.to_string()).collect() };
+    assert_same_answer(
+        &as_args(&["redesignation-report", ds, "--bill-id", BILL, "--json"]),
+        &as_args(&["redesignation-report", ds, "--bill", BILL, "--json"]),
+    );
+
+    for command in ["redesignation-report", "redesignations"] {
+        let help = stdout(&run(&[command, "--help"]));
+        assert!(help.contains("--bill <BILL>"), "{command}: {help}");
+        assert!(!help.contains("--bill-id"), "{command}: {help}");
+    }
+}
+
+/// `coverage` over the first window of title 7, with `extra` flags.
+fn coverage(extra: &[&str]) -> Output {
+    let from = at(TITLE_7, EARLY);
+    let to = at(TITLE_7, LATE);
+    let mut args = vec!["coverage", dataset(), "--from", &from, "--to", &to];
+    args.extend_from_slice(extra);
+    run(&args)
+}
+
+/// The unannotated paths a human `coverage` run prints, one for each line.
+fn listed_paths(output: &Output) -> Vec<String> {
+    assert!(output.status.success(), "{}", stderr(output));
+    stdout(output)
+        .lines()
+        .filter(|line| line.starts_with(&format!("  {TITLE_7}/")))
+        .map(|line| line.trim().to_string())
+        .collect()
+}
+
+#[test]
+fn should_list_paths_with_all_and_limit_as_the_other_list_commands_do_when_coverage_is_run() {
+    let json: serde_json::Value = serde_json::from_slice(&coverage(&["--json"]).stdout)
+        .expect("coverage --json should emit json");
+    let every: Vec<String> = json["unannotated_paths"]
+        .as_array()
+        .expect("a list of paths")
+        .iter()
+        .map(|path| path.as_str().expect("a path").to_string())
+        .collect();
+    assert!(every.len() > 3, "the window leaves paths unannotated");
+
+    assert_eq!(listed_paths(&coverage(&["--all"])), every);
+    assert_eq!(listed_paths(&coverage(&["--list"])), every, "the old name");
+    assert_eq!(listed_paths(&coverage(&["--limit", "3"])), every[..3]);
+
+    let limited: serde_json::Value =
+        serde_json::from_slice(&coverage(&["--limit", "3", "--json"]).stdout)
+            .expect("coverage --json should emit json");
+    assert_eq!(
+        limited["unannotated_paths"].as_array().map(Vec::len),
+        Some(3)
+    );
+    assert_eq!(limited["unannotated_count"], json["unannotated_count"]);
+
+    let help = stdout(&run(&["coverage", "--help"]));
+    assert!(help.contains("--all") && help.contains("--limit"), "{help}");
+    assert!(!help.contains("--list"), "{help}");
+}
+
+#[test]
+fn should_read_a_citation_with_or_without_a_section_marker_when_cases_citing_is_given_one() {
+    let ds = opinions_dataset();
+    let args = |citation: &str| -> Vec<String> {
+        ["cases-citing", ds, "--cites", citation, "--json"]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    };
+    for typed in ["26 USC 174", "26 U.S.C. 174", "26 USC § 174"] {
+        assert_same_answer(&args(typed), &args("26 U.S.C. § 174"));
+    }
+}

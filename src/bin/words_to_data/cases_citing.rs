@@ -54,7 +54,8 @@ pub struct Args {
     /// Path to a dataset (compact JSON or SQLite)
     pub dataset: String,
 
-    /// The citation to ask about, as a court would write it: `26 U.S.C. § 174`
+    /// The citation to ask about: `26 U.S.C. § 174`, `26 U.S.C. 174` or
+    /// `26 USC 174`. The section marker is optional
     #[arg(long, conflicts_with = "path")]
     pub cites: Option<String>,
 
@@ -163,7 +164,7 @@ fn say(json: bool, line: &str) {
 /// Every citation the text holds is answered: "§ 174 and § 162" answered § 174
 /// alone, and said nothing of § 162 (#426).
 fn resolved_paths<S: Storage>(dataset: &S, text: &str, json: bool) -> Vec<String> {
-    let (found, report) = usc::find_with_report(text);
+    let (found, report) = usc::find_typed(text);
     report.print_to_stderr();
 
     if found.is_empty() {

@@ -6,6 +6,7 @@
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
+use words_to_data::query::DEFAULT_LIMIT;
 
 use crate::load::{self, with_dataset};
 
@@ -26,9 +27,19 @@ pub struct Args {
     #[arg(long)]
     pub to: ExpressionId,
 
-    /// Print the full unannotated path list (human output truncates otherwise)
+    /// How many unannotated paths to print before stopping. The run says how
+    /// many it did not show
+    ///
+    /// Human output stops at 20 unless told otherwise. `--json` carries them all,
+    /// as `annotations` does, unless this is given explicitly
     #[arg(long)]
-    pub list: bool,
+    pub limit: Option<usize>,
+
+    /// Print every unannotated path, however many there are
+    //
+    // `--list` is the old name, kept hidden for one release (#396).
+    #[arg(long, alias = "list", conflicts_with = "limit")]
+    pub all: bool,
 
     /// Emit JSON instead of human-readable text
     #[arg(long)]
@@ -38,10 +49,21 @@ pub struct Args {
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     crate::held::refuse_unless_window_held(&ds, &args.from, &args.to);
-    let report = crate::fail::or_exit(
+    let mut report = crate::fail::or_exit(
         with_dataset!(ds, d => inspect::coverage(&d, &args.from, &args.to)),
         "Error computing coverage",
     );
+
+    // A screenful for a person, everything for a machine, as every list
+    // command does (#396). An explicit `--limit` is honoured either way, and
+    // `--all` lifts it. The counts always cover every path.
+    let limit = match (args.all, args.limit, args.json) {
+        (true, _, _) | (_, None, true) => report.unannotated_paths.len(),
+        (_, Some(explicit), _) => explicit,
+        (_, None, false) => DEFAULT_LIMIT,
+    };
+    let left_out = report.unannotated_paths.len().saturating_sub(limit);
+    report.unannotated_paths.truncate(limit);
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -57,19 +79,21 @@ pub fn run(args: Args) {
     // Not every changed path is caused by an amendment (editorial edits,
     // reclassifications, etc.), so 100% coverage is not the goal — these are
     // simply the changed paths without an annotation.
-    if args.list {
-        println!("\nUnannotated changed paths:");
-        for p in &report.unannotated_paths {
-            println!("  {p}");
-        }
-    } else if !report.unannotated_paths.is_empty() {
-        println!(
-            "\nUnannotated changed paths (first 10 of {}):",
+    if report.unannotated_paths.is_empty() {
+        return;
+    }
+    match left_out {
+        0 => println!("\nUnannotated changed paths:"),
+        _ => println!(
+            "\nUnannotated changed paths (first {} of {}):",
+            report.unannotated_paths.len(),
             report.unannotated_count
-        );
-        for p in report.unannotated_paths.iter().take(10) {
-            println!("  {p}");
-        }
-        println!("  … pass --list for all, or --json to pipe");
+        ),
+    }
+    for p in &report.unannotated_paths {
+        println!("  {p}");
+    }
+    if left_out > 0 {
+        println!("  … {left_out} more; pass --all for all of them, or --json to pipe");
     }
 }

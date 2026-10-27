@@ -2102,7 +2102,7 @@ impl std::fmt::Display for UnresolvedWindow {
         write!(
             f,
             "{} states {} redesignation(s) no step has resolved against {} {} -> {}: \
-             run `words_to_data redesignations <dataset> --bill-id {} --between {} {}`",
+             run `words_to_data redesignations <dataset> --bill {} --between {} {}`",
             self.bill_id,
             self.statements,
             self.work,

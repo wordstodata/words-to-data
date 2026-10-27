@@ -169,7 +169,7 @@ fn report_windows<S: Storage>(dataset: &Dataset<S>, before: &[ExpressionPair], w
     // the steps run on the dataset just written (#273).
     for (from, to) in spans_of(&new) {
         println!(
-            "  words_to_data redesignations {written} --bill-id <bill> \
+            "  words_to_data redesignations {written} --bill <bill> \
              --between {from} {to}"
         );
     }
