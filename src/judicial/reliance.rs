@@ -250,6 +250,12 @@ pub struct CitedPlace {
     /// How far the *link* can be trusted — not the provision, and not the
     /// opinion's text.
     pub verification: VerificationState,
+    /// The status a reader reports for the link: the newest review's verdict
+    /// when it has one, and else its maker's state (#415).
+    pub status: crate::annotation::AnnotationStatus,
+    /// The newest review of the link, with the record that states it. `None`
+    /// when nobody has reviewed it.
+    pub review: Option<crate::review::Reported>,
     /// The date the court decided the case, from the link's payload (#317).
     /// `None` for a link made before #317.
     pub decided: Option<String>,
@@ -307,6 +313,12 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
 ) -> Result<Vec<CitingCase>, DatasetError> {
     let scope = Scope::derive(reader)?;
     let links = reader.links_by_kind(LinkKind::CITES)?;
+    // A refuted citation claims nothing, so it names no opinion as citing the
+    // path (#415).
+    let reviews = reader.links_by_namespace(LinkKind::REVIEW)?;
+    let links = links
+        .into_iter()
+        .filter(|link| !crate::review::is_refuted(link, &reviews));
 
     // Every printing of each cited section, read once. Nine opinions cite § 174,
     // and reading its title nine times over is the cost of not keeping it.
@@ -332,7 +344,7 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
             .iter()
             .max_by(|a, b| a.0.at.cmp(&b.0.at))
             .map(|(_, section)| section);
-        let mut place = place_of(&link);
+        let mut place = place_of(&link, &reviews);
         if let Some(year) = &place.time_basis {
             place.printings_of_time_basis = printings_in_year(reader, &scope, &section, year)?;
         }
@@ -421,7 +433,8 @@ fn section_and_written(cited_path: &str) -> Option<(String, String)> {
 }
 
 /// One link, as the place a passage cites a provision.
-fn place_of(link: &Link) -> CitedPlace {
+fn place_of(link: &Link, reviews: &[Link]) -> CitedPlace {
+    let review = crate::review::reported_naming(&link.id(), reviews);
     let value = link.payload.as_ref().map(|payload| &payload.value);
     let places = value
         .and_then(|value| value["occurrences"].as_array())
@@ -452,6 +465,11 @@ fn place_of(link: &Link) -> CitedPlace {
             .as_ref()
             .and_then(|evidence| evidence.reasoning.clone()),
         verification: link.provenance.verification,
+        status: crate::link::status_reported(
+            link,
+            review.as_ref().map(|reported| &reported.review),
+        ),
+        review,
         decided: value
             .and_then(|value| value["decided"].as_str())
             .map(str::to_string),

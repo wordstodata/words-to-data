@@ -28,7 +28,7 @@ pub struct Args {
     pub bill: String,
 
     /// Show only this amendment, by its id or the start of it
-    #[arg(long)]
+    #[arg(long, value_parser = crate::held::id_argument)]
     pub amendment: Option<String>,
 
     /// Emit JSON instead of human-readable text
@@ -38,26 +38,38 @@ pub struct Args {
 
 pub fn run(args: Args) {
     let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    crate::held::refuse_unless_bill_held(&ds, &args.dataset, &args.bill);
     let document = crate::fail::or_exit(
-        with_dataset!(ds, d => d.bill_document(&args.bill)),
+        with_dataset!(&ds, d => d.bill_document(&args.bill)),
         "Error reading the bill",
     );
+    // The document is the public law, joined to the bill by the amendments it
+    // states. Most often a bill has none because it did not become law, so
+    // that reason comes first (#425).
     let Some(document) = document else {
-        eprintln!(
-            "The dataset holds no document for bill {}. A dataset built before \
-             the bill was stored as a document (#196) has none to read.",
+        crate::fail::refuse(&format!(
+            "This dataset holds bill {}, and no public-law document that states its \
+             amendments, so no address can be read.\nA bill that did not become law has \
+             none. A dataset built before bills were stored as documents (#196) has none \
+             either.",
             args.bill
-        );
-        std::process::exit(1);
+        ));
     };
 
     let mut addresses = addresses_in(&document.root);
-    if let Some(wanted) = &args.amendment {
-        addresses.retain(|address| address.amendment_id.starts_with(wanted.as_str()));
-        if addresses.is_empty() {
-            eprintln!("Bill {} states no amendment {wanted}", args.bill);
-            std::process::exit(1);
-        }
+    if let Some(typed) = &args.amendment {
+        let ids: Vec<String> = addresses
+            .iter()
+            .map(|address| address.amendment_id.clone())
+            .collect();
+        let wanted = with_dataset!(&ds, d => crate::held::amendment_id_argument(
+            d,
+            &ids,
+            &args.dataset,
+            &args.bill,
+            typed,
+        ));
+        addresses.retain(|address| address.amendment_id == wanted);
     }
 
     if args.json {

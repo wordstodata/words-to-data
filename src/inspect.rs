@@ -285,6 +285,23 @@ pub fn bill_of_public_law<S: Storage + LegislatureReader>(
         .map(|(bill_id, _)| bill_id))
 }
 
+/// The work of public law `law`'s document (such as
+/// `publiclawdocument_119-21` for `119-21`), when the dataset holds it.
+///
+/// A held law need not have a bill: a bill is joined to its law through the
+/// amendments the law's document holds, so a law whose bill is not held, or
+/// whose bill holds none of its amendments, has none. A refusal must tell that
+/// case from a law the dataset does not hold (#394).
+pub fn public_law_work<S: DocumentReader + ?Sized>(
+    dataset: &S,
+    law: &str,
+) -> Result<Option<WorkId>, DatasetError> {
+    Ok(dataset
+        .works()?
+        .into_iter()
+        .find(|work| public_law_number(work) == Some(law)))
+}
+
 /// A bill that a command was given and the dataset does not hold (#337).
 ///
 /// Part of the answer, as [`AbsentPath`] is: `votes` answered "No votes for
@@ -915,6 +932,115 @@ pub fn absent_path<R: DocumentReader + ?Sized>(
     }))
 }
 
+/// A path argument in the spelling the dataset holds (#395).
+///
+/// Every command that takes a path reads it through this one rule, so two
+/// commands cannot come to read one path in two ways. A path was used as
+/// typed, and two common forms matched nothing:
+///
+/// - **A trailing `/`** is removed. `section_174/` matched no provision, and
+///   `cases-citing` then read `section_174` as a provision that holds it.
+/// - **An ASCII hyphen in a section number** is read as the en dash the
+///   publisher prints (`section_1400Z–1`), and the reverse. Only when the path
+///   as typed is not held and the other spelling is: a segment made from a
+///   heading keeps its ASCII hyphens (see [`crate::uslm::path`]), and a path
+///   that no expression holds, such as one only a citation names, is kept.
+pub fn path_as_held<R: DocumentReader + ?Sized>(
+    reader: &R,
+    typed: &str,
+) -> Result<String, DatasetError> {
+    let trimmed = typed.trim().trim_end_matches('/');
+    let held = |path: &str| reader.holds_any(&Locator::new().at_path(path, PathMatch::Exact));
+    if held(trimmed)? {
+        return Ok(trimmed.to_string());
+    }
+    for (typed_dash, held_dash) in [('-', '–'), ('–', '-')] {
+        let respelled = respell_section_numbers(trimmed, typed_dash, held_dash);
+        if respelled != trimmed && held(&respelled)? {
+            return Ok(respelled);
+        }
+    }
+    Ok(trimmed.to_string())
+}
+
+/// `path` with `from` written as `to` in each section number, and nowhere else.
+fn respell_section_numbers(path: &str, from: char, to: char) -> String {
+    path.split('/')
+        .map(|segment| match segment.strip_prefix("section_") {
+            Some(number) => format!("section_{}", number.replace(from, &to.to_string())),
+            None => segment.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Why a window a command was given cannot be read (#392).
+///
+/// A window is two expressions of one work, the older one first. A command
+/// that read past a fault here answered with an empty list and exit 0:
+/// `annotations --from` at a date not held gave "0 annotation(s)", and a
+/// window of two works was read as a window of the first work alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "fault", rename_all = "snake_case")]
+pub enum WindowNotHeld {
+    /// The two ends are expressions of two works.
+    TwoWorks { from: String, to: String },
+    /// The dataset holds no expression at one end.
+    Expression {
+        /// The expression that was asked for, as `work@date`.
+        expression: String,
+        /// Its work.
+        work: String,
+        /// The dates the dataset holds the work at, in order. Empty when it
+        /// holds no expression of the work.
+        held_dates: Vec<String>,
+    },
+    /// The `from` end is not older than the `to` end.
+    NotOlder { from: String, to: String },
+}
+
+/// Whether the window from `from` to `to` is one the dataset can read.
+///
+/// `None` when both ends are held expressions of one work and `from` is the
+/// older. Every command that takes `--from` and `--to` asks this one question,
+/// so they cannot come to disagree about what a window is.
+pub fn window_not_held<R: DocumentReader + ?Sized>(
+    reader: &R,
+    from: &ExpressionId,
+    to: &ExpressionId,
+) -> Result<Option<WindowNotHeld>, DatasetError> {
+    if from.work != to.work {
+        return Ok(Some(WindowNotHeld::TwoWorks {
+            from: from.to_string(),
+            to: to.to_string(),
+        }));
+    }
+    let held_dates: Vec<String> = reader
+        .expressions(&from.work)?
+        .into_iter()
+        .map(|info| info.id.at)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    for end in [from, to] {
+        if !held_dates.contains(&end.at) {
+            return Ok(Some(WindowNotHeld::Expression {
+                expression: end.to_string(),
+                work: end.work.to_string(),
+                held_dates,
+            }));
+        }
+    }
+    // Dates are `YYYY-MM-DD`, so a string order is a date order.
+    if from.at >= to.at {
+        return Ok(Some(WindowNotHeld::NotOlder {
+            from: from.to_string(),
+            to: to.to_string(),
+        }));
+    }
+    Ok(None)
+}
+
 /// A work or a date that no expression in the dataset holds (#337).
 ///
 /// Part of the answer, as [`AbsentPath`] is. `search --work uscode/title_99`
@@ -1437,6 +1563,23 @@ pub enum EvidenceWords {
         /// Every text field of the provision and of everything beneath it.
         words: Vec<ProvisionField>,
     },
+    /// A citation: the words the court wrote, and the cited provision as the
+    /// printing the link was resolved in holds it (#393). A citation compares
+    /// nothing, so it has no two ends to read.
+    Cited {
+        /// The words the rule matched at each place in the passage where the
+        /// court wrote the citation, in the order of the text.
+        citing: Vec<String>,
+        /// The printing the cited provision was resolved in, as `work@date`.
+        /// `None` when the link records no printing, or the dataset does not
+        /// hold the provision in it.
+        expression: Option<String>,
+        /// The cited provision.
+        path: String,
+        /// Every text field of the cited provision at that printing. Empty when
+        /// `expression` is `None`.
+        words: Vec<ProvisionField>,
+    },
 }
 
 /// How a link was made, as its provenance records it and the dataset
@@ -1493,22 +1636,28 @@ pub fn how_made<S: Storage>(dataset: &S, link: &Link) -> Result<HowMade, Dataset
 }
 
 /// How many things the dataset links as the cause of the change `link` is
-/// about, `link`'s own object among them.
+/// about, `link`'s own object among them. A link that a review refutes is
+/// no cause, and the count leaves it out (#415).
 ///
 /// Several amendments can edit one provision in place, and the diff reports
 /// that as one change: 26 U.S.C. § 6041(a) has five. A reviewer of one of those
 /// links must know the others are there. Counted from the dataset every time,
 /// because it depends on every link, not on this one
 /// (`docs/adr/0007-a-record-is-what-was-said-everything-else-is-derived.md`).
-/// A link whose subject is not a change is its own only cause.
+/// A link whose subject is not a change is its own only cause: a citation's
+/// subject is a passage, and the other provisions that passage cites are not
+/// causes of anything (#411).
 pub fn causes_of<S: Storage>(dataset: &S, link: &Link) -> Result<usize, DatasetError> {
-    let Some(path) = link.subject.path() else {
+    let Target::Change { path, .. } = &link.subject else {
         return Ok(1);
     };
-    let causes: BTreeSet<String> = dataset
-        .links_for_path(path)?
-        .into_iter()
+    // A review copies the subject of the link it reviews, so the reviews of
+    // these links come back in the same rows. A refuted link is no cause (#415).
+    let at_path = dataset.links_for_path(path)?;
+    let causes: BTreeSet<String> = at_path
+        .iter()
         .filter(|other| other.kind == link.kind && other.subject == link.subject)
+        .filter(|other| !crate::review::is_refuted(other, &at_path))
         .map(|other| other.object.name())
         .chain(std::iter::once(link.object.name()))
         .collect();
@@ -1519,16 +1668,25 @@ pub fn causes_of<S: Storage>(dataset: &S, link: &Link) -> Result<usize, DatasetE
 /// provision this dataset holds at either end.
 ///
 /// `None` rather than an error: a link whose **subject** is not a change to a
-/// provision is a perfectly good link — an opinion citation names a node — and a
-/// reader asking for evidence about one has asked a question with no answer
-/// rather than made a mistake.
+/// provision is a perfectly good link, and a reader asking for evidence about
+/// one has asked a question with no answer rather than made a mistake.
 ///
 /// The object may be anything. Only the subject has to name a provision and a
 /// window, because that is what locates words to read.
+///
+/// A citation link is the exception: its subject is a passage, and its
+/// evidence is the words the court wrote and the provision they cite
+/// ([`EvidenceWords::Cited`]). Before #393 it had none, and `settle --explain`
+/// said the dataset held the provision at neither end.
 pub fn link_evidence<S: Storage>(
     dataset: &S,
     link: &Link,
 ) -> Result<Option<LinkEvidence>, DatasetError> {
+    if link.kind.0 == LinkKind::CITES
+        && let Target::Node(cited) = &link.object
+    {
+        return Ok(Some(cited_evidence(dataset, link, cited)?));
+    }
     let Target::Change {
         work,
         path: from_path,
@@ -1580,6 +1738,49 @@ pub fn link_evidence<S: Storage>(
     };
 
     Ok(Some(LinkEvidence { words, object_text }))
+}
+
+/// The evidence of a citation link: the words the court wrote at each place,
+/// and the cited provision in the printing the link was resolved in.
+///
+/// The payload carries both, as `occurrences` and `resolved_in` (ADR 0014). A
+/// link that records no printing shows the court's words alone.
+fn cited_evidence<S: Storage>(
+    dataset: &S,
+    link: &Link,
+    cited: &str,
+) -> Result<LinkEvidence, DatasetError> {
+    let payload = link.payload.as_ref().map(|payload| &payload.value);
+    let citing = payload
+        .and_then(|value| value["occurrences"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|place| place["words"].as_str())
+        .map(str::to_string)
+        .collect();
+    let printed = payload
+        .and_then(|value| value["resolved_in"].as_str())
+        .map(str::to_string);
+    let held = match printed {
+        Some(date) => dataset
+            .find_nodes(cited)?
+            .into_iter()
+            .find(|(id, _)| id.at == date),
+        None => None,
+    };
+    let (expression, words) = match held {
+        Some((id, node)) => (Some(id.to_string()), provision_words(&node)),
+        None => (None, Vec::new()),
+    };
+    Ok(LinkEvidence {
+        words: EvidenceWords::Cited {
+            citing,
+            expression,
+            path: cited.to_string(),
+            words,
+        },
+        object_text: None,
+    })
 }
 
 /// The first provision one expression holds at a path.
@@ -2257,7 +2458,9 @@ pub struct AnnotationSummary {
     pub bill_id: String,
     pub amendment_id: String,
     pub causative_text: String,
-    /// Verification status, serde string form (e.g. `"Pending"`).
+    /// What the record's links report, in the words of `AnnotationStatus`
+    /// (`"Pending"`, `"Rejected"`), and `"Mixed"` when its links differ. Each
+    /// link in `links` gives its own.
     pub status: String,
     pub confidence: Option<f32>,
     pub annotator: String,
@@ -2287,6 +2490,13 @@ pub struct LinkMade {
     pub id: String,
     /// The path the link states.
     pub path: String,
+    /// What a reader reports about the link: the verdict of its newest review,
+    /// and the maker's own state when no review names it, in the words the
+    /// record's `status` uses (`"Rejected"`, `"Pending"`).
+    pub status: String,
+    /// The newest review of the link, with the id of its record. `None` when no
+    /// review names the link.
+    pub review: Option<crate::review::Reported>,
     #[serde(flatten)]
     pub made: HowMade,
     /// Set when the current version of the link's batch method no longer
@@ -2294,6 +2504,24 @@ pub struct LinkMade {
     /// the re-run did not make this link (#185). `None` for a current link and
     /// for every link an agent or a person made. Derived, and never stored.
     pub outdated: Option<OutdatedLink>,
+}
+
+/// The status a record reports: the status its links share, and `"Mixed"`
+/// when they differ.
+///
+/// Read from the links, not from the maker's stored state, because a review
+/// never touches the link it reviews (ADR 0012). Each path of a record is its
+/// own link and is settled on its own (#232), so a record whose links differ
+/// says so, and each link gives its own status (#415).
+fn record_status(ann: &ChangeAnnotation, links: &[LinkMade]) -> String {
+    let Some(first) = links.first() else {
+        return format!("{:?}", ann.metadata.status);
+    };
+    if links.iter().all(|link| link.status == first.status) {
+        first.status.clone()
+    } else {
+        "Mixed".to_string()
+    }
 }
 
 /// Build a summary for `ann`, tagging it with the expression pair it was found
@@ -2315,7 +2543,7 @@ fn summarize(
         bill_id: ann.source_bill.bill_id.clone(),
         amendment_id: ann.source_bill.amendment_id.clone(),
         causative_text: ann.source_bill.causative_text.clone(),
-        status: format!("{:?}", ann.metadata.status),
+        status: record_status(ann, &links),
         confidence: ann.metadata.confidence,
         annotator: ann.metadata.annotator.clone(),
         paths: ann.paths.clone(),
@@ -2350,6 +2578,9 @@ pub fn annotations<S: Storage>(
         .into_iter()
         .map(|row| (row.link_id.clone(), row))
         .collect();
+    // Every review, read once for every link of the answer. A review names its
+    // link in its object, so an answer narrowed by bill does not carry them.
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
 
     // Grouped by the window they were made over, because an annotation is
     // reported with its pair and a link carries the pair in its subject.
@@ -2377,9 +2608,14 @@ pub fn annotations<S: Storage>(
         for (ann, link_ids) in crate::link::annotations_with_their_links(&group) {
             let mut links = Vec::new();
             for (id, path) in link_ids.iter().zip(&ann.paths) {
+                let review = crate::review::reported_naming(id, &reviews);
+                let status =
+                    crate::link::status_reported(by_id[id], review.as_ref().map(|r| &r.review));
                 links.push(LinkMade {
                     id: crate::review::short_id(id).to_string(),
                     path: path.clone(),
+                    status: format!("{status:?}"),
+                    review,
                     made: how_made(dataset, by_id[id])?,
                     outdated: outdated.remove(id),
                 });
@@ -2500,9 +2736,10 @@ pub struct CoverageReport {
     pub to_date: String,
     /// Distinct paths in the change universe.
     pub changed_path_count: usize,
-    /// Change-universe paths that carry at least one annotation.
+    /// Change-universe paths that carry at least one annotation that no review
+    /// refutes.
     pub annotated_count: usize,
-    /// Change-universe paths with no annotation.
+    /// Change-universe paths with no annotation, or only refuted ones.
     pub unannotated_count: usize,
     /// The unannotated changed paths, sorted.
     pub unannotated_paths: Vec<String>,
@@ -2511,6 +2748,10 @@ pub struct CoverageReport {
 }
 
 /// Measure annotation coverage of the diff between two expressions.
+///
+/// The two expressions can span several windows. The diff is then the diff of
+/// the whole span, and a path is annotated when a link of any window inside
+/// the span names it (#388).
 pub fn coverage<S: Storage>(
     dataset: &S,
     from: &ExpressionId,
@@ -2522,9 +2763,26 @@ pub fn coverage<S: Storage>(
     universe.extend(summary.added_paths);
     universe.extend(summary.removed_paths);
 
-    let annotated: std::collections::HashSet<String> = dataset
-        .get_annotations(from, to)?
-        .unwrap_or_default()
+    // Every window inside the span, through the locator's own rule (#388). A
+    // link is recorded for one window of two adjacent printings, so a span of
+    // several windows is annotated by the links of each of them.
+    let links = dataset
+        .links_matching(
+            &LinkQuery::new()
+                .of_kind(LinkKind::AMENDED_BY)
+                .at(Locator::new()
+                    .in_work(from.work.to_string())
+                    .in_window(from.at.clone(), to.at.clone())),
+        )?
+        .rows;
+    // A refuted link claims no change, so its path is unclaimed again, as its
+    // amendment is back on the residue (#415).
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
+    let links: Vec<Link> = links
+        .into_iter()
+        .filter(|link| !crate::review::is_refuted(link, &reviews))
+        .collect();
+    let annotated: std::collections::HashSet<String> = crate::link::annotations_from_links(&links)
         .iter()
         .flat_map(|a| a.paths.iter().cloned())
         .collect();
@@ -2984,9 +3242,15 @@ fn weakest_first(left: Option<f32>, right: Option<f32>) -> std::cmp::Ordering {
 
 /// Full-text search across every expression, returning each field match.
 ///
-/// Backends differ in coverage: the in-memory store searches all text fields,
-/// while SQLite indexes headings and content — a heading or content term is
-/// found by both.
+/// Both backends search all five text fields of each element: heading,
+/// chapeau, content, proviso and continuation. Each hit names the field it
+/// came from, so a proviso hit is a real hit. Both backends also return the
+/// hits in the same order: work, then date, then document position, then that
+/// field order. The backend does not change what a miss means: no text field
+/// of the dataset holds the term.
+///
+/// The field list is not a choice. A field that search does not read is a
+/// field whose text reads as absent from the law (#82).
 pub fn search<S: Storage>(dataset: &S, query: &str) -> Result<Vec<SearchResult>, DatasetError> {
     dataset.search_text(query)
 }
@@ -3333,6 +3597,11 @@ pub struct ContradictionGroup {
     pub kind: String,
     /// The subject, named without a window.
     pub subject: String,
+    /// For citation links, the words the court wrote at the one place in the
+    /// passage that every link in the group reads. `None` for every other kind,
+    /// and for a citation link that records no place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occurrence: Option<String>,
     /// Every link in the group, in an order that says nothing about which is
     /// right: by window, then by object, then by what made it.
     pub links: Vec<ContradictingLink>,
@@ -3348,6 +3617,9 @@ pub struct ContradictionTotals {
     pub duplication: usize,
     /// Disagreement groups found.
     pub disagreement: usize,
+    /// Links left out of every group because a review refutes them, or their
+    /// maker stored them as refuted. Counted in `links_read` too (#415).
+    pub refuted_left_out: usize,
 }
 
 /// The subjects a dataset holds more than one link about, in two categories.
@@ -3394,15 +3666,25 @@ pub struct Contradictions {
 ///
 /// They still count toward `links_read`, because that figure says how much was
 /// looked at.
+///
+/// **A refuted link is left out of every group.** Its newest review settles it
+/// as wrong, so it is not an answer that can contradict another. A group it
+/// stayed in told a reviewer to settle a link they had already refuted (#415).
+/// `refuted_left_out` says how many links this left out.
 pub fn contradictions<S: Storage>(dataset: &S) -> Result<Contradictions, DatasetError> {
     let mut report = Contradictions::default();
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
     for kind in dataset.count_links_by_kind()?.into_keys() {
         let links = dataset.links_by_kind(&kind)?;
         report.totals.links_read += links.len();
         if LinkKind::new(&kind).namespace() == LinkKind::REVIEW {
             continue;
         }
-        report.add_kind(&kind, &links);
+        let (refuted, standing): (Vec<Link>, Vec<Link>) = links
+            .into_iter()
+            .partition(|link| crate::review::is_refuted(link, &reviews));
+        report.totals.refuted_left_out += refuted.len();
+        report.add_kind(&kind, &standing);
     }
     report.totals.duplication = report.duplication.len();
     report.totals.disagreement = report.disagreement.len();
@@ -3432,8 +3714,57 @@ impl Maker {
     }
 }
 
+/// What one link makes a claim about, as a contradiction report groups it.
+///
+/// For most kinds that is the subject. A citation link is different: its
+/// subject is a passage, and a passage can cite many provisions, each of them
+/// true. What one citation link claims is that **the words at one place** in
+/// the passage lead to its object. So a citation link claims once for each
+/// place it reads, and two links disagree only when they read one place and
+/// name different provisions (#397).
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Claim {
+    subject: String,
+    /// Where the place starts in the passage, in bytes, and the words written
+    /// there. `None` for a link that is not a citation, or records no place.
+    place: Option<(u64, String)>,
+}
+
+impl Claim {
+    /// Every claim `link` makes.
+    fn of(link: &Link) -> Vec<Self> {
+        let subject = link.subject.name();
+        let places = match link.kind.0.as_str() {
+            LinkKind::CITES => link
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.value["occurrences"].as_array()),
+            _ => None,
+        };
+        let mut claims: Vec<Self> = places
+            .into_iter()
+            .flatten()
+            .filter_map(|place| {
+                let start = place["start"].as_u64()?;
+                let words = place["words"].as_str().unwrap_or_default().to_string();
+                Some(Self {
+                    subject: subject.clone(),
+                    place: Some((start, words)),
+                })
+            })
+            .collect();
+        if claims.is_empty() {
+            claims.push(Self {
+                subject,
+                place: None,
+            });
+        }
+        claims
+    }
+}
+
 impl Contradictions {
-    /// Group one kind's links by subject, and record each group that holds a
+    /// Group one kind's links by what they claim about ([`Claim`]), and record each group that holds a
     /// contradiction.
     ///
     /// **A contradiction needs two makers.** A maker is a method at a version
@@ -3453,15 +3784,17 @@ impl Contradictions {
     /// the duplication case a disagreement between two makers rather than one
     /// maker repeating itself.
     fn add_kind(&mut self, kind: &str, links: &[Link]) {
-        let mut by_subject: BTreeMap<String, Vec<ContradictingLink>> = BTreeMap::new();
+        let mut by_claim: BTreeMap<Claim, Vec<ContradictingLink>> = BTreeMap::new();
         for link in links {
-            by_subject
-                .entry(link.subject.name())
-                .or_default()
-                .push(ContradictingLink::of(link));
+            for claim in Claim::of(link) {
+                by_claim
+                    .entry(claim)
+                    .or_default()
+                    .push(ContradictingLink::of(link));
+            }
         }
 
-        for (subject, mut found) in by_subject {
+        for (claim, mut found) in by_claim {
             if found.len() < 2 {
                 continue;
             }
@@ -3491,7 +3824,8 @@ impl Contradictions {
 
             let group = ContradictionGroup {
                 kind: kind.to_string(),
-                subject: subject.clone(),
+                subject: claim.subject.clone(),
+                occurrence: claim.place.as_ref().map(|(_, words)| words.clone()),
                 links: found.clone(),
             };
             let distinct: BTreeSet<&BTreeSet<&str>> = answers.values().collect();

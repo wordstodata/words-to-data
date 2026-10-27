@@ -44,6 +44,7 @@ use words_to_data::judicial::reliance::{
 };
 use words_to_data::link::{LinkKind, Target, amendment_reference_parts};
 use words_to_data::method::Method;
+use words_to_data::query::{Locator, PathMatch};
 use words_to_data::storage::Storage;
 
 use crate::load::with_dataset;
@@ -77,7 +78,7 @@ pub fn run(args: Args) {
 
 fn report<S: Storage>(dataset: &S, args: &Args) {
     let paths = match (&args.path, &args.cites) {
-        (Some(path), _) => vec![path.clone()],
+        (Some(path), _) => vec![crate::held::path_argument(dataset, path)],
         (None, Some(citation)) => resolved_paths(dataset, citation, args.json),
         (None, None) => {
             eprintln!("Give either --cites \"26 U.S.C. § 174\" or --path <structural path>.");
@@ -92,6 +93,18 @@ fn report<S: Storage>(dataset: &S, args: &Args) {
             reliance::cases_citing(dataset, path),
             "Error reading citations",
         );
+        // A path typed with `--path` in a work the dataset carries, that no
+        // printing holds and no opinion cites, is not held: the run refuses
+        // it, as `diff` does (#392, #425). A work the dataset does not carry
+        // is answered as out of scope, as `--cites` answers it.
+        if !held && cases.is_empty() && args.path.is_some() && in_scope(dataset, path) {
+            crate::held::refuse_unless_path_held_in(
+                dataset,
+                &Locator::new().at_path(path, PathMatch::Subtree),
+                false,
+                &crate::held::scope_of(None, None),
+            );
+        }
         let (judicial, silent) = silent_opinions(dataset, &cases);
 
         if args.json {
@@ -145,27 +158,43 @@ fn say(json: bool, line: &str) {
     }
 }
 
-/// Where a citation resolves in this dataset, reported honestly.
+/// Where each citation in `text` resolves in this dataset, reported honestly.
 ///
-/// Exits without an answer where the dataset does not carry the title. That is
-/// not a failure of the query: it is the query's answer, and pretending to run it
-/// anyway would print an empty list that reads as "no case cites this".
+/// Every citation the text holds is answered: "§ 174 and § 162" answered § 174
+/// alone, and said nothing of § 162 (#426).
 fn resolved_paths<S: Storage>(dataset: &S, text: &str, json: bool) -> Vec<String> {
     let (found, report) = usc::find_with_report(text);
     report.print_to_stderr();
 
-    let Some(citation) = found.first() else {
+    if found.is_empty() {
         eprintln!(
             "`{text}` is not a U.S. Code citation this build reads. Write it as \
              a title, a reporter and a section, such as `26 U.S.C. § 174`."
         );
         std::process::exit(1);
-    };
+    }
 
     let scope = crate::fail::or_exit(
         words_to_data::dataset::Scope::derive(dataset),
         "Error reading the dataset's scope",
     );
+    found
+        .iter()
+        .flat_map(|citation| citation_paths(dataset, &scope, citation, json))
+        .collect()
+}
+
+/// Where one citation resolves in this dataset, reported honestly.
+///
+/// Gives no path where the dataset does not carry the title. That is not a
+/// failure of the query: it is the query's answer, and pretending to run it
+/// anyway would print an empty list that reads as "no case cites this".
+fn citation_paths<S: Storage>(
+    dataset: &S,
+    scope: &words_to_data::dataset::Scope,
+    citation: &usc::UscCitation,
+    json: bool,
+) -> Vec<String> {
     let work = citation.work();
     say(json, &format!("{} names {}", citation.text, work));
 
@@ -200,7 +229,7 @@ fn resolved_paths<S: Storage>(dataset: &S, text: &str, json: bool) -> Vec<String
     }
 
     let mut paths = Vec::new();
-    for section in resolve(citation, &scope, &index) {
+    for section in resolve(citation, scope, &index) {
         match section.resolution {
             Resolution::Provision { paths: found } => {
                 say(
@@ -446,11 +475,23 @@ fn report_each(cases: &[CitingCase]) {
                 cited.places.len()
             );
             for place in &cited.places {
+                // The review's verdict where the link has one, and who gave
+                // it. The stored state alone read as "nobody reviewed it"
+                // (#415).
+                let trust = match &place.review {
+                    None => format!("{:?}", place.verification),
+                    Some(reported) => format!(
+                        "{:?}, {} by {} on {}",
+                        place.status,
+                        reported.review.verdict,
+                        reported.review.reviewer,
+                        reported.review.at.date()
+                    ),
+                };
                 println!(
-                    "      {} — link {} is {:?}, matched {:?}{}",
+                    "      {} — link {} is {trust}, matched {:?}{}",
                     place.passage,
                     place.link,
-                    place.verification,
                     place.citation_text.as_deref().unwrap_or(""),
                     match place.unresolved.as_slice() {
                         [] => String::new(),
@@ -880,4 +921,13 @@ fn amending_bills<S: Storage>(dataset: &S, paths: &BTreeSet<&str>) -> BTreeSet<S
     }
 
     bills
+}
+
+/// Whether the dataset carries the work that holds `path`.
+fn in_scope<S: Storage>(dataset: &S, path: &str) -> bool {
+    let scope = crate::fail::or_exit(
+        words_to_data::dataset::Scope::derive(dataset),
+        "Error reading the dataset's scope",
+    );
+    scope.covers(path) == Coverage::InScope
 }

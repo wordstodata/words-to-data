@@ -31,12 +31,17 @@ pub fn run(args: Args) {
         "Error reading votes",
     );
 
+    // A held bill with no roll call is an answer, not a refusal: exit 0, as
+    // `annotations --bill` gives for a held bill with no link (#425).
     let Some(tallies) = tallies else {
-        eprintln!(
-            "This dataset holds bill {}, and no House roll call for it.",
-            args.bill_id
-        );
-        std::process::exit(1);
+        match args.json {
+            true => println!("[]"),
+            false => println!(
+                "This dataset holds bill {}, and no House roll call for it.",
+                args.bill_id
+            ),
+        }
+        return;
     };
 
     if args.json {

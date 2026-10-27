@@ -41,16 +41,19 @@ pub struct Args {
     pub json: bool,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    crate::held::refuse_unless_window_held(&ds, &args.from, &args.to);
     // The pair is the window, which `diff` already took. Only the path is new.
     let mut locator = Locator::new()
         .in_work(args.from.work.to_string())
         .in_window(args.from.at.clone(), args.to.at.clone());
-    if let Some(path) = &args.path {
-        locator = locator.at_path(path, path_matching(args.exact));
+    if let Some(typed) = &args.path {
+        let path = with_dataset!(&ds, d => crate::held::path_argument(d, typed));
+        locator = locator.at_path(&path, path_matching(args.exact));
+        args.path = Some(path);
     }
 
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     refuse_a_path_neither_end_holds(&ds, &args, &locator);
     let mut summary = crate::fail::or_exit(
         with_dataset!(&ds, d => inspect::diff(d, &args.from, &args.to)),

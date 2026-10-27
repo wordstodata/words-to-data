@@ -39,14 +39,18 @@ pub struct Args {
     pub json: bool,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let pair = match (&args.from, &args.to) {
-        (Some(from), Some(to)) => Some((from, to)),
+        (Some(from), Some(to)) => {
+            crate::held::refuse_unless_window_held(&ds, from, to);
+            Some((from, to))
+        }
         _ => None,
     };
+    args.path = with_dataset!(&ds, d => crate::held::path_argument(d, &args.path));
 
     let matching = crate::annotations::path_matching(args.exact);
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let report = crate::fail::or_exit(
         with_dataset!(&ds, d => inspect::path_report(d, &args.path, pair, matching)),
         "Error building path report",
@@ -63,6 +67,23 @@ pub fn run(args: Args) {
     } else {
         None
     };
+    // A path that no expression holds and nothing names is not held: the run
+    // refuses it, as `diff` does (#392, #425). A link, a citation or a
+    // classification can name a path no expression holds, and then the report
+    // is a true answer and is printed with the notice.
+    let names_it = !report.annotations.is_empty()
+        || !report.citations.is_empty()
+        || !report.olrc_classifications.is_empty()
+        || !report.unfollowed_redesignations.is_empty();
+    if let Some(absent) = &absent
+        && !names_it
+    {
+        crate::fail::refuse(&crate::annotations::absent_notice(
+            absent,
+            args.exact,
+            &crate::held::scope_of(None, None),
+        ));
+    }
 
     if args.json {
         // Only when the path is absent, so the answer over a real path is the

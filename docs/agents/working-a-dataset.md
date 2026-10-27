@@ -47,7 +47,8 @@ three jobs with the command alone:
 - An **amendment** is one instruction of a law ("Section 174 is amended by
   striking … and inserting …"). Each has a long hexadecimal id. Readers print
   its first twelve characters; `link-amendment` needs the **full** id, which
-  `residue --json` and `show-bill --json` print.
+  `show-bill` prints, and `residue --json`, `annotations --json` and
+  `amendment-addresses --json` give.
 - A **link** is a stored statement. `legislature.amended_by` says "this change to
   the Code was made by this amendment". Each link has a short id that `settle`
   accepts. A link's **source** says who made it: `rule:evidence_matching` (the
@@ -132,8 +133,10 @@ writing.
 
 "combined record … kept as a source, not as text" means the publisher also holds the whole case as one
 record with the same words, and the dataset stores the split writings instead.
-"court not recorded" means the dataset does not hold the court; it does not
-mean there is no court.
+"court not recorded" means the dataset does not hold the court as a field; it
+does not mean there is no court. The case text often names it: read the
+headmatter (`search <dataset> "" --path judicial/case_<cluster>/headmatter
+--snippet 0`), and quote the court from there.
 
 **Scope.** `info` prints `Covers:`, the works the dataset holds. If the dataset
 has a declaration, `info` also prints `Declared:`, any `Excluded:` path with its
@@ -386,10 +389,12 @@ The batch could not tell which provision of the Code the amendment acts on.
   that section is your candidate. If every row is a note, the change is in a note
   the dataset does not hold: record **no link, `not_held`**.
 - **"no level above the clause says what it amends"** or **"no section named"** —
-  the section is stated in an enclosing clause. Read the amendment's text in
-  `show-bill <dataset> <bill>`, and the clauses near its section of the law
-  (the residue row gives that as `law_section`, for example `70431(c)(1)`).
-  Amendments sharing a law section are usually siblings.
+  the section is stated in an enclosing clause. `show-bill <dataset> <bill>`
+  cuts each amendment's text at about 200 characters, so read the whole text in
+  `show-bill --json` (`amending_text`). Then read the clauses near its section
+  of the law (the residue row gives that as `law_section`, for example
+  `70431(c)(1)`): `search <dataset> "<words>" --work publiclawdocument_<law>`
+  finds them. Amendments sharing a law section are usually siblings.
 - **A whole section repealed** ("Section X of Public Law Y (NN U.S.C. Z) is
   repealed") — check with `diff --path` that the Code section is removed in the
   window, and link the removed path.
@@ -544,7 +549,12 @@ text is there after, and the provision is the one the amendment names.
 
 ## Report
 
-End every run with a short report:
+A question ends with its answer, and no separate report. The answer gives
+its evidence, labels each claim that did not come from command output, and
+names each part the commands could not answer.
+
+End every run that changes the dataset (residue, review, a build) with a short
+report:
 
 - what you were asked, and your answer with its evidence
 - each record you wrote (link, no-link, review), with its id

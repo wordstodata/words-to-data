@@ -133,7 +133,7 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// (?:\d+(?:\((?:[a-zA-Z]{1}|\d{1,2})\))+)|(?:\d+(?:[\-.:]\d+){,3})
 /// ```
 ///
-/// Six changes from it.
+/// Seven changes from it.
 ///
 /// `{,3}` is written `{0,3}`, because Python accepts an open lower bound and
 /// Rust does not. That is mechanical.
@@ -195,10 +195,17 @@ const SECTION_MARKER: &str = r"((§§?)|([Ss]((ec)(tion)?)?s?\.?))";
 /// may carry more designations, `(b)(1)–(2)(A)`, so that a range whose ends are
 /// at different levels is read whole and reported, not cut short
 /// ([`subdivision_range`]).
+///
+/// A subdivision may be designated with more than one character: `(ii)`,
+/// `(II)`, `(cc)` or `(14A)` ([`designation`], #410). The published pattern
+/// takes one letter or one or two digits, so it stopped before the `(ii)` of
+/// `7 U.S.C. § 2015(o)(4)(A)(ii)`. Both ends of a range take the same
+/// designations as the subdivisions before them.
 pub(crate) fn law_section() -> String {
     let dashes = dash_class();
-    let subsection = r"(?: ?\((?:[a-zA-Z]{1}|\d{1,2})\))";
-    let range_end = r"\((?:[a-zA-Z]{1,4}|\d{1,2})\)";
+    let designation = designation();
+    let subsection = format!(r"(?: ?\({designation}\))");
+    let range_end = format!(r"\({designation}\)");
     let with_a_range = format!(
         r"\d+[a-zA-Z]{{0,4}}{subsection}* ?{range_end}(?:[{dashes}]|{RANGE_WORD}){range_end}{subsection}*"
     );
@@ -235,7 +242,33 @@ pub(crate) fn law_section() -> String {
 /// assert_eq!(report.skipped[0].text, "16 U.S.C. 1533");
 /// ```
 fn unmarked_section() -> String {
-    r"\d+[a-zA-Z]{0,4}(?:\((?:[a-zA-Z]{1}|\d{1,2})\))+".to_string()
+    let designation = designation();
+    format!(r"\d+[a-zA-Z]{{0,4}}(?:\({designation}\))+")
+}
+
+/// One designation of a subdivision, without its brackets: the `ii` of
+/// `2015(o)(4)(A)(ii)`.
+///
+/// The Code designates a subsection `(a)`, a paragraph `(1)`, a subparagraph
+/// `(A)`, a clause `(i)`, a subclause `(I)` and an item `(aa)` (#410). A single
+/// letter is read at every level, so `(i)` can be a subsection i or a clause
+/// i, and the printing decides ([`super::resolve::reach`]). A roman numeral of
+/// more than one letter, `(ii)`, `(xiv)` or `(II)`, is a clause or a subclause,
+/// and a doubled letter, `(cc)`, is an item. A number and a capital letter,
+/// `(14A)`, is a paragraph put in between two others, as in `11 U.S.C. §
+/// 101(14A)`.
+///
+/// Only these forms, and not any run of letters, because one space may stand
+/// before a bracket ([`law_section`]): `§ 1158 (BIA)` names no subdivision.
+fn designation() -> String {
+    let doubled: Vec<String> = ('a'..='z')
+        .chain('A'..='Z')
+        .map(|letter| format!("{letter}{letter}"))
+        .collect();
+    format!(
+        r"(?:[a-zA-Z]|[ivx]{{2,7}}|[IVX]{{2,7}}|{doubled}|\d{{1,2}}[A-Z]?)",
+        doubled = doubled.join("|")
+    )
 }
 
 /// Every dash the Code writes inside a section number.

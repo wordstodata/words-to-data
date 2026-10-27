@@ -511,3 +511,24 @@ fn should_give_an_added_provision_to_one_amendment_when_several_show_words_in_it
         "the amendment of other parts of the section is not a cause of the new paragraph"
     );
 }
+
+#[test]
+fn should_link_an_added_provision_by_a_few_own_words_when_the_block_also_holds_a_field_below_them()
+{
+    // Section 10302 of the law adds subsection (e), "Additional Base Acres",
+    // to 7 U.S.C. 9012. The Code does not print the words below (e) as the
+    // bill does: "after the date of enactment of this subsection" is "after
+    // July 4, 2025" in the Code. So the block does not hold every field of
+    // (e).
+    //
+    // The three own words of (e) are in the block, and after them the words
+    // of fields below (e) too. That is evidence for (e), unlike three words
+    // alone (#432).
+    let subsection_e =
+        "uscode/title_7/chapter_115/subchapter_I/section_9012/subsection_e".to_string();
+
+    assert!(
+        linked_paths("b94f431541c6").contains(&subsection_e),
+        "§ 10302 added {subsection_e}"
+    );
+}

@@ -153,40 +153,33 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// `search` still answers 0 matches and exits zero, because an empty search is
-/// an answer. But the answer now says that no expression holds the path.
-#[test]
-fn should_say_no_expression_holds_the_path_when_search_is_given_a_guessed_path() {
-    let output = run(&["search", cli_fixture(), "arbitration", "--path", GUESSED]);
-    assert!(output.status.success(), "an empty search should exit zero");
-    let text = stdout(&output);
+/// The not-held rule of #392: exit 1, the notice and the nearest held path on
+/// stderr, and nothing on stdout.
+fn assert_refused(output: &Output, notice: &str) {
+    assert_eq!(output.status.code(), Some(1), "{}", stdout(output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(notice), "{stderr}");
     assert!(
-        text.contains(&format!("No expression this search reads holds {GUESSED}")),
-        "{text}"
+        stderr.contains("Nearest held path: uscode/title_9/chapter_1"),
+        "{stderr}"
     );
-    assert!(
-        text.contains("Nearest held path: uscode/title_9/chapter_1"),
-        "{text}"
-    );
-    assert!(text.contains("0 fields, 0 occurrences"), "{text}");
+    assert!(output.stdout.is_empty(), "{}", stdout(output));
+}
 
-    let output = run(&[
-        "search",
-        cli_fixture(),
-        "arbitration",
-        "--path",
-        GUESSED,
-        "--json",
-    ]);
-    assert!(output.status.success(), "an empty search should exit zero");
-    let answer: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("search --json should emit json");
-    assert_eq!(answer["total"], 0);
-    assert_eq!(answer["absent_path"]["path"], GUESSED);
-    assert_eq!(
-        answer["absent_path"]["nearest_held"],
-        "uscode/title_9/chapter_1"
-    );
+/// An empty search over a held path is an answer. Over a path no expression
+/// holds it is not, so `search` refuses the path as `diff` does (#392, #425).
+#[test]
+fn should_refuse_and_name_the_nearest_held_path_when_search_is_given_a_guessed_path() {
+    for json in [false, true] {
+        let mut args = vec!["search", cli_fixture(), "arbitration", "--path", GUESSED];
+        if json {
+            args.push("--json");
+        }
+        assert_refused(
+            &run(&args),
+            &format!("No expression this search reads holds {GUESSED} or a path beneath it."),
+        );
+    }
 }
 
 /// `--at` takes a date. A `work@date` used to be taken without a word, and it
@@ -262,35 +255,21 @@ fn should_list_no_change_and_exit_zero_when_diff_is_given_a_held_path_that_did_n
     assert!(!text.contains("holds"), "{text}");
 }
 
-/// `annotations` over a guessed path says that no expression holds it, in the
-/// text and in `--json`, beside the empty list.
+/// `annotations` over a guessed path refuses it as `diff` does: exit 1, the
+/// notice on stderr, nothing on stdout (#392, #425). "0 annotation(s)", exit 0,
+/// read as an answer about a held path.
 #[test]
-fn should_say_no_expression_holds_the_path_when_annotations_is_given_a_guessed_path() {
-    let output = run(&["annotations", cli_fixture(), "--path", GUESSED]);
-    assert!(output.status.success());
-    let text = stdout(&output);
-    assert!(
-        text.contains(&format!(
-            "No expression in the dataset holds {GUESSED} or a path beneath it."
-        )),
-        "{text}"
-    );
-    assert!(
-        text.contains("Nearest held path: uscode/title_9/chapter_1"),
-        "{text}"
-    );
-    assert!(text.contains("0 annotation(s)"), "{text}");
-
-    let output = run(&["annotations", cli_fixture(), "--path", GUESSED, "--json"]);
-    assert!(output.status.success());
-    let answer: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("annotations --json should emit json");
-    assert_eq!(answer["total"], 0);
-    assert_eq!(answer["absent_path"]["path"], GUESSED);
-    assert_eq!(
-        answer["absent_path"]["nearest_held"],
-        "uscode/title_9/chapter_1"
-    );
+fn should_refuse_and_name_the_nearest_held_path_when_annotations_is_given_a_guessed_path() {
+    for json in [false, true] {
+        let mut args = vec!["annotations", cli_fixture(), "--path", GUESSED];
+        if json {
+            args.push("--json");
+        }
+        assert_refused(
+            &run(&args),
+            &format!("No expression in the dataset holds {GUESSED} or a path beneath it."),
+        );
+    }
 }
 
 /// A real path with no match answers as it did: no notice, and no new field.
@@ -326,26 +305,20 @@ fn should_answer_as_before_when_search_and_annotations_are_given_a_held_path() {
 }
 
 /// `path` is the command an agent uses to check a path, so it most needs the
-/// notice (#326). It still exits zero: an absent path is an answer for `path`.
+/// notice (#326). It refuses a path that nothing holds or names, as `diff`
+/// does: exit 1, the notice on stderr, nothing on stdout (#392, #425).
 #[test]
-fn should_name_the_nearest_held_path_when_path_is_given_a_guessed_path() {
-    let output = run(&["path", cli_fixture(), GUESSED]);
-    assert!(output.status.success(), "an absent path should exit zero");
-    let text = stdout(&output);
-    assert!(
-        text.contains("Present in: (no expression)\nNearest held path: uscode/title_9/chapter_1\n"),
-        "{text}"
-    );
-
-    let output = run(&["path", cli_fixture(), GUESSED, "--json"]);
-    assert!(output.status.success(), "an absent path should exit zero");
-    let answer: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("path --json should emit json");
-    assert_eq!(answer["absent_path"]["path"], GUESSED);
-    assert_eq!(
-        answer["absent_path"]["nearest_held"],
-        "uscode/title_9/chapter_1"
-    );
+fn should_refuse_and_name_the_nearest_held_path_when_path_is_given_a_guessed_path() {
+    for json in [false, true] {
+        let mut args = vec!["path", cli_fixture(), GUESSED];
+        if json {
+            args.push("--json");
+        }
+        assert_refused(
+            &run(&args),
+            &format!("No expression in the dataset holds {GUESSED} or a path beneath it."),
+        );
+    }
 }
 
 /// A held path answers as it did: no notice, and no new field.
@@ -365,4 +338,21 @@ fn should_answer_as_before_when_path_is_given_a_held_path() {
     let answer: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("path --json should emit json");
     assert!(answer.get("absent_path").is_none(), "{answer}");
+}
+
+/// `cases-citing --path` gave "No opinion in this dataset cites it.", exit 0,
+/// for a path no printing holds. With no opinion to list, it refuses the path
+/// as `diff` does (#392, #425).
+#[test]
+fn should_refuse_and_name_the_nearest_held_path_when_cases_citing_is_given_a_guessed_path() {
+    for json in [false, true] {
+        let mut args = vec!["cases-citing", cli_fixture(), "--path", GUESSED];
+        if json {
+            args.push("--json");
+        }
+        assert_refused(
+            &run(&args),
+            &format!("No expression in the dataset holds {GUESSED} or a path beneath it."),
+        );
+    }
 }

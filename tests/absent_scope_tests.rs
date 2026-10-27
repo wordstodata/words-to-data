@@ -234,6 +234,7 @@ fn run(args: &[&str]) -> Output {
         .expect("the binary should run")
 }
 
+/// A search that finds nothing in a held work and date: the answer, exit 0.
 fn search(filters: &[&str]) -> (String, serde_json::Value) {
     let mut args = vec!["search", cli_fixture(), "arbitration"];
     args.extend_from_slice(filters);
@@ -249,90 +250,98 @@ fn search(filters: &[&str]) -> (String, serde_json::Value) {
     )
 }
 
-#[test]
-fn should_say_the_work_is_not_held_when_search_is_given_a_work_not_held() {
-    let (text, json) = search(&["--work", UNHELD_WORK]);
-
-    assert!(
-        text.contains(&format!("This dataset holds no work {UNHELD_WORK}.")),
-        "{text}"
-    );
-    assert!(
-        text.contains(&format!("Held works: {FLAG}, {ARBITRATION}")),
-        "{text}"
-    );
-    assert!(text.contains("0 fields, 0 occurrences"), "{text}");
-
-    assert_eq!(json["total"], 0);
-    assert_eq!(json["absent_scope"]["filter"], "work");
-    assert_eq!(json["absent_scope"]["work"], UNHELD_WORK);
+/// A search over a work or a date not held is refused, as `expressions --work`
+/// refuses it: exit 1, the notice on stderr, nothing on stdout, with and
+/// without `--json` (#392, #425). Gives the notice.
+fn refused(filters: &[&str]) -> String {
+    let mut args = vec!["search", cli_fixture(), "arbitration"];
+    args.extend_from_slice(filters);
+    let mut notices = Vec::new();
+    for json in [false, true] {
+        if json {
+            args.push("--json");
+        }
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(
+            output.stdout.is_empty(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        notices.push(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    assert_eq!(notices[0], notices[1], "--json gives the same notice");
+    notices.remove(0)
 }
 
 #[test]
-fn should_say_the_date_is_not_held_and_name_the_dates_around_it_when_search_is_given_a_date_not_held()
- {
-    let (text, json) = search(&["--at", BETWEEN]);
+fn should_refuse_and_name_the_held_works_when_search_is_given_a_work_not_held() {
+    let notice = refused(&["--work", UNHELD_WORK]);
 
     assert!(
-        text.contains(&format!(
+        notice.contains(&format!("This dataset holds no work {UNHELD_WORK}.")),
+        "{notice}"
+    );
+    assert!(
+        notice.contains(&format!("Held works: {FLAG}, {ARBITRATION}")),
+        "{notice}"
+    );
+}
+
+#[test]
+fn should_refuse_and_name_the_dates_around_it_when_search_is_given_a_date_not_held() {
+    let notice = refused(&["--at", BETWEEN]);
+
+    assert!(
+        notice.contains(&format!(
             "This dataset holds no expression dated {BETWEEN}."
         )),
-        "{text}"
+        "{notice}"
     );
     assert!(
-        text.contains(&format!(
+        notice.contains(&format!(
             "Held dates around it: {EARLY} before, {LATE} after"
         )),
-        "{text}"
+        "{notice}"
     );
-
-    assert_eq!(json["absent_scope"]["filter"], "date");
-    assert_eq!(json["absent_scope"]["date"], BETWEEN);
-    assert_eq!(json["absent_scope"]["held_before"], EARLY);
-    assert_eq!(json["absent_scope"]["held_after"], LATE);
 }
 
 /// The path is held at both dates. Only the date is not, so the notice names
 /// the date and does not blame the path.
 #[test]
 fn should_name_the_date_and_not_the_path_when_search_is_given_a_held_path_at_a_date_not_held() {
-    let (text, json) = search(&["--work", ARBITRATION, "--at", AFTER, "--path", SECTION_16]);
+    let notice = refused(&["--work", ARBITRATION, "--at", AFTER, "--path", SECTION_16]);
 
     assert!(
-        text.contains(&format!(
+        notice.contains(&format!(
             "This dataset holds no expression of {ARBITRATION} dated {AFTER}."
         )),
-        "{text}"
+        "{notice}"
     );
     assert!(
-        text.contains(&format!("Held dates around it: {LATE} before, none after")),
-        "{text}"
+        notice.contains(&format!("Held dates around it: {LATE} before, none after")),
+        "{notice}"
     );
     assert!(
-        !text.contains("No expression this search reads holds"),
-        "{text}"
+        !notice.contains("No expression this search reads holds"),
+        "{notice}"
     );
-
-    assert_eq!(json["absent_scope"]["work"], ARBITRATION);
-    assert!(json.get("absent_path").is_none(), "{json}");
 }
 
 #[test]
 fn should_name_the_date_and_not_the_path_when_search_is_given_a_path_held_only_at_other_dates() {
-    let (text, json) = search(&["--at", LATE, "--path", FLAG]);
+    let notice = refused(&["--at", LATE, "--path", FLAG]);
 
     assert!(
-        text.contains(&format!(
+        notice.contains(&format!(
             "No expression dated {LATE} holds {FLAG} or a path beneath it."
         )),
-        "{text}"
+        "{notice}"
     );
     assert!(
-        text.contains(&format!("Held dates around it: {EARLY} before, none after")),
-        "{text}"
+        notice.contains(&format!("Held dates around it: {EARLY} before, none after")),
+        "{notice}"
     );
-    assert_eq!(json["absent_scope"]["path"], FLAG);
-    assert!(json.get("absent_path").is_none(), "{json}");
 }
 
 /// A held work and date where the word does not occur answer as before.

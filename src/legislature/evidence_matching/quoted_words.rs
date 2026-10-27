@@ -33,24 +33,60 @@
 //! still decides.
 //!
 //! The words are compared as tokens: runs of letters and digits, lower case,
-//! and each other mark on its own. Curly quotation marks and every dash are
-//! folded first, because the bill and the Code print them differently.
+//! and each other mark on its own. Every quotation mark and every dash are
+//! folded first, because the bill and the Code print them differently. The
+//! bill quotes inside a quoted string with single marks, *"(determined by
+//! substituting '1996' for '1997' …)"*, and the Code prints double ones, so a
+//! single and a double mark are one mark (#433).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
 
+use super::code_edits::as_the_code_prints;
 use crate::uslm::{AmendmentFacts, QuotedText};
 
 /// The words one amendment states, ready to test against a change.
 #[derive(Debug, Clone, Default)]
 pub(super) struct QuotedWords {
     quoted: Vec<Quoted>,
-    /// Each enacted block, as words without marks.
-    enacted: Vec<Vec<String>>,
+    enacted: Vec<Block>,
     /// Every word the amendment states, for ranking a tie.
     words: BTreeSet<String>,
+    /// A string it inserts or a block it enacts opens a new provision.
+    opens_a_provision: bool,
+}
+
+/// One enacted block, as words without marks.
+#[derive(Debug, Clone)]
+struct Block {
+    /// As the bill prints it.
+    words: Vec<String>,
+    /// As the OLRC can print it in the Code, where that differs
+    /// ([`as_the_code_prints`]).
+    as_the_code_prints: Vec<Vec<String>>,
+}
+
+impl Block {
+    fn of(text: &str, enacted_on: &str) -> Self {
+        Self {
+            words: words_of(text),
+            as_the_code_prints: as_the_code_prints(text, enacted_on)
+                .iter()
+                .map(|printed| words_of(printed))
+                .collect(),
+        }
+    }
+
+    /// How many words of the change the block shows, and whether it rewrote
+    /// the provision, as [`Readings::shown_in`] says: the block as the bill
+    /// prints it first, then as the OLRC can print it.
+    fn shown_in(&self, readings: &Readings) -> Option<(usize, bool)> {
+        std::iter::once(&self.words)
+            .chain(&self.as_the_code_prints)
+            .find_map(|words| readings.shown_in(words))
+    }
 }
 
 /// One of an amendment's quoted strings or enacted blocks that a change
@@ -62,9 +98,16 @@ pub(super) struct Shown {
     pub said: String,
     /// Its words, as they are compared.
     words: Vec<String>,
+    /// An enacted block (`<quotedContent>`), and not a quoted string.
+    pub enacted: bool,
     /// An enacted block that holds every word the provision now prints: the
     /// amendment rewrote it.
     pub rewrote: bool,
+    /// An enacted block that the change shows by a few words alone: the
+    /// provision prints no more than [`FEW_WORDS`] words, and the block holds
+    /// more. A heading such as "In general" is in many blocks, so it is weak
+    /// evidence that this block made the change (#389).
+    pub few_words: bool,
 }
 
 impl Shown {
@@ -83,6 +126,12 @@ impl Shown {
             .all(|word| COMMON_WORDS.contains(&word.as_str()))
     }
 }
+
+/// The most words a provision can print and still be shown by an enacted
+/// block only weakly, when the block holds more words than that. 22 U.S.C.
+/// 9613(g)(2)(E) prints "support—", and blocks of the same law that enact
+/// other provisions hold "support" too (#389).
+const FEW_WORDS: usize = 3;
 
 /// The words that join and qualify the Code's clauses. A quoted string made
 /// of these alone is too little to say which change an amendment made: a
@@ -113,26 +162,34 @@ enum Direction {
 }
 
 impl QuotedWords {
-    /// The evidence one instruction's stored facts give.
-    pub(super) fn of(facts: &AmendmentFacts) -> Self {
+    /// The evidence one instruction's stored facts give, for a law enacted on
+    /// `enacted_on` (`2025-12-18`).
+    pub(super) fn of(facts: &AmendmentFacts, enacted_on: &str) -> Self {
         let quoted: Vec<Quoted> = facts.quoted_text.iter().filter_map(Quoted::of).collect();
-        let enacted: Vec<Vec<String>> = facts
+        let enacted: Vec<Block> = facts
             .enacted_text
             .iter()
-            .map(|block| words_of(&without_page_marks(block)))
-            .filter(|words| !words.is_empty())
+            .map(|block| Block::of(&without_page_marks(block), enacted_on))
+            .filter(|block| !block.words.is_empty())
             .collect();
         let words = quoted
             .iter()
             .flat_map(|quoted| quoted.tokens.iter())
-            .chain(enacted.iter().flatten())
+            .chain(enacted.iter().flat_map(|block| &block.words))
             .filter(|token| is_word(token))
             .cloned()
             .collect();
+        let opens_a_provision = quoted
+            .iter()
+            .filter(|quoted| quoted.direction == Direction::Inserted)
+            .map(|quoted| quoted.tokens.clone())
+            .chain(facts.enacted_text.iter().map(|block| tokens_of(block)))
+            .any(|tokens| opens_with_a_designation(&tokens));
         Self {
             quoted,
             enacted,
             words,
+            opens_a_provision,
         }
     }
 
@@ -150,6 +207,15 @@ impl QuotedWords {
         !self.quoted.is_empty()
     }
 
+    /// Whether the amendment inserts or enacts words that open a new
+    /// provision: a designation with words after it, at the start of the words
+    /// or after a quotation mark. *Striking "Subparagraphs" and inserting "(I)
+    /// In general.—Subparagraphs"* moves the words of a clause down into a new
+    /// subclause (I).
+    pub(super) fn opens_a_provision(&self) -> bool {
+        self.opens_a_provision
+    }
+
     /// Whether every word the bill quotes for this amendment is words it
     /// strikes: it enacts no block and inserts no string.
     pub(super) fn only_strikes(&self) -> bool {
@@ -162,12 +228,22 @@ impl QuotedWords {
 
     /// The amendment's quoted strings and enacted blocks this change shows.
     ///
+    /// `after` is the change's words after it, as one text. For a provision
+    /// added whole, `added` gives the same words field by field, and a block
+    /// is tested against them as [`AddedWords`] says.
+    ///
     /// `later` are the amendments the same law makes after this one, to the
     /// same section. A later amendment can insert words inside words this
     /// one inserted, so the Code never prints this one's words as the bill
     /// quotes them. A quoted string is also shown when it shows with the
     /// words the later amendments inserted in this change taken out of it.
-    pub(super) fn shown(&self, before: &str, after: &str, later: &[&QuotedWords]) -> Vec<Shown> {
+    pub(super) fn shown(
+        &self,
+        before: &str,
+        after: &str,
+        added: Option<&AddedWords>,
+        later: &[&QuotedWords],
+    ) -> Vec<Shown> {
         let (before_tokens, after_tokens) = (tokens_of(before), tokens_of(after));
         let later_insertions: Vec<&[String]> = later
             .iter()
@@ -187,27 +263,42 @@ impl QuotedWords {
             .map(|quoted| Shown {
                 said: quoted.described(),
                 words: quoted.tokens.clone(),
+                enacted: false,
                 rewrote: false,
+                few_words: false,
             });
-        let after_words = words_of(after);
-        let after_words_undone: Vec<String> = after_undone
-            .iter()
-            .filter(|token| is_word(token))
-            .cloned()
-            .collect();
-        let blocks = self
-            .enacted
-            .iter()
-            .enumerate()
-            .filter(|(_, block)| {
-                (!after_words.is_empty() && contains_run(block, &after_words))
-                    || (!after_words_undone.is_empty() && contains_run(block, &after_words_undone))
-            })
-            .map(|(at, block)| Shown {
+        let undone = |text: &str| -> Vec<String> {
+            without(&tokens_of(text), &later_insertions)
+                .into_iter()
+                .filter(|token| is_word(token))
+                .collect()
+        };
+        let readings = match added {
+            Some(added) => Readings {
+                every_field: added.fields.iter().map(|field| words_of(field)).collect(),
+                every_field_undone: added.fields.iter().map(|field| undone(field)).collect(),
+                own: words_of(&added.own),
+                own_undone: undone(&added.own),
+                below: added.below.iter().map(|field| words_of(field)).collect(),
+            },
+            None => Readings {
+                every_field: vec![words_of(after)],
+                every_field_undone: vec![undone(after)],
+                own: words_of(after),
+                own_undone: undone(after),
+                below: Vec::new(),
+            },
+        };
+        let blocks = self.enacted.iter().enumerate().filter_map(|(at, block)| {
+            let (count, rewrote) = block.shown_in(&readings)?;
+            Some(Shown {
                 said: format!("enacted text {} of {}", at + 1, self.enacted.len()),
-                words: block.clone(),
-                rewrote: !after_words.is_empty() && contains_run(block, &after_words),
-            });
+                words: block.words.clone(),
+                enacted: true,
+                rewrote,
+                few_words: count <= FEW_WORDS && block.words.len() > count,
+            })
+        });
         let shown: Vec<Shown> = strings.chain(blocks).collect();
         // Common words alone decide nothing, unless they are all the change
         // struck or inserted.
@@ -251,6 +342,86 @@ impl QuotedWords {
     }
 }
 
+/// The words of a provision added whole, field by field (#432).
+///
+/// An added provision holds every provision below it (#336). A block shows it
+/// when each field of it and of the provisions below is a run of the block's
+/// words, in the order the Code prints them: the block holds the designations
+/// of the provisions below between them.
+///
+/// The Code does not always print the words of a block as the bill does. The
+/// publisher prints a marginal note, such as "Applicability.", inside the
+/// words, and the Code's editors print "section 1101(a)(15) of title 8" for
+/// "section 101(a)(15) of the Immigration and Nationality Act". So a block
+/// shows the provision too when its own words are one run of the block, as
+/// before. Where they are [`FEW_WORDS`] words or fewer, the block must also
+/// hold, after them, the words of a field below of more words than that. A
+/// few words alone, such as "In this subsection:" at 10 U.S.C. 9062(j)(4),
+/// are in blocks that enact other provisions.
+#[derive(Debug, Clone)]
+pub(super) struct AddedWords {
+    /// Each text field of the provision and of every provision below it, in
+    /// the order the Code prints them: a continuation after the provisions
+    /// it closes.
+    pub fields: Vec<String>,
+    /// The provision's own words, as one text.
+    pub own: String,
+    /// Each text field of the provisions below it, in the same order.
+    pub below: Vec<String>,
+}
+
+/// The words of a change after it, ready to test against each block, each as
+/// the Code prints them and with the words later amendments inserted taken
+/// out.
+struct Readings {
+    /// The words of each field, in order.
+    every_field: Vec<Vec<String>>,
+    every_field_undone: Vec<Vec<String>>,
+    /// The provision's own words.
+    own: Vec<String>,
+    own_undone: Vec<String>,
+    /// The words of each field of the provisions below it, in order. Empty
+    /// for every change but a provision added whole.
+    below: Vec<Vec<String>>,
+}
+
+impl Readings {
+    /// How many words of the change a block shows, and whether it shows them
+    /// as the Code prints them: then the block holds every word the provision
+    /// prints, and the amendment rewrote it. `None` when it shows none.
+    ///
+    /// The fields in order first, then the own words alone, as
+    /// [`AddedWords`] says.
+    fn shown_in(&self, block: &[String]) -> Option<(usize, bool)> {
+        if runs_in_order(block, &self.every_field) {
+            return Some((self.every_field.iter().map(Vec::len).sum(), true));
+        }
+        let own_counts = self.own_counts_in(block);
+        if own_counts && contains_run(block, &self.own) {
+            return Some((self.own.len(), true));
+        }
+        if runs_in_order(block, &self.every_field_undone) {
+            return Some((self.every_field_undone.iter().map(Vec::len).sum(), false));
+        }
+        if own_counts && contains_run(block, &self.own_undone) {
+            return Some((self.own_undone.len(), false));
+        }
+        None
+    }
+
+    /// Whether the provision's own words alone are evidence in this block:
+    /// nothing was added below it, or its own words are more than a few, or
+    /// the block holds them and, after them, a field below of more than a few
+    /// words.
+    fn own_counts_in(&self, block: &[String]) -> bool {
+        self.below.is_empty()
+            || self.own.len() > FEW_WORDS
+            || self.below.iter().any(|field| {
+                field.len() > FEW_WORDS && runs_in_order(block, &[self.own.clone(), field.clone()])
+            })
+    }
+}
+
 impl Quoted {
     fn of(quoted: &QuotedText) -> Option<Self> {
         let tokens = tokens_of(&quoted.text);
@@ -289,6 +460,23 @@ impl Quoted {
             Direction::Either => was != is,
         }
     }
+}
+
+/// Whether tokens open a new provision: a designation, such as `(I)`, with
+/// words after it, at the start or after a quotation mark. The bill opens each
+/// provision it quotes with a quotation mark: `thereof—"(1) 'calendar year
+/// 2017'`. A designation inside a sentence, as in "subsection (e)(8) or", is a
+/// reference and not a new provision.
+fn opens_with_a_designation(tokens: &[String]) -> bool {
+    (0..tokens.len())
+        .filter(|&at| at == 0 || tokens[at - 1] == "\"")
+        .any(|at| {
+            matches!(
+                &tokens[at..],
+                [open, designation, close, next, ..]
+                    if open == "(" && close == ")" && is_word(designation) && next != "("
+            )
+        })
 }
 
 /// The page marks a public law prints inside the text it enacts: `139 STAT. 82`.
@@ -335,8 +523,7 @@ fn is_word(token: &str) -> bool {
 
 fn fold_mark(character: char) -> char {
     match character {
-        '\u{2018}' | '\u{2019}' | '`' => '\'',
-        '\u{201C}' | '\u{201D}' => '"',
+        '\u{2018}' | '\u{2019}' | '`' | '\'' | '\u{201C}' | '\u{201D}' => '"',
         _ if crate::citation::usc::DASHES.contains(&character) => '-',
         other => other,
     }
@@ -403,6 +590,22 @@ fn without(tokens: &[String], runs: &[&[String]]) -> Vec<String> {
         left = kept;
     }
     left
+}
+
+/// Whether each of `runs` is a run of `tokens`, each after the one before it,
+/// and at least one of them holds words. Words can stand between two runs.
+fn runs_in_order(tokens: &[String], runs: &[Vec<String>]) -> bool {
+    let mut from = 0;
+    for run in runs.iter().filter(|run| !run.is_empty()) {
+        match tokens[from..]
+            .windows(run.len())
+            .position(|at| at == run.as_slice())
+        {
+            Some(start) => from += start + run.len(),
+            None => return false,
+        }
+    }
+    runs.iter().any(|run| !run.is_empty())
 }
 
 fn contains_run(tokens: &[String], run: &[String]) -> bool {

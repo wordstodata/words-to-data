@@ -351,10 +351,14 @@ fn should_show_only_that_amendment_when_the_command_is_given_its_id() {
 
 /// Two different gaps, which a reviewer works in different ways.
 ///
-/// > SEC. 50103. ROYALTIES ON EXTRACTED METHANE. Section 50263 of Public Law
-/// > 117–169 (30 U.S.C. 1727) is repealed.
+/// > (1) Onshore oil and gas royalty rates.—Subsection (a) of section 50262 of
+/// > Public Law 117–169 30 USC 226. (136 Stat. 2056) is repealed, and any
+/// > provision of law amended or repealed by that subsection is restored …
 ///
-/// No level says *is amended*, so the resolver found no amending line at all.
+/// No level says *is amended*, and the repeal names a provision of another
+/// law that the Code does not hold, so the resolver found no amending line at
+/// all. The marginal note `30 USC 226` gives where the restored words are,
+/// and (a) is the other law's subsection, not one of § 226 (#434).
 ///
 /// > Chapter 509 of title 51, United States Code, is amended by adding at the
 /// > end the following new section: "§ 50924. …
@@ -365,7 +369,10 @@ fn should_tell_no_amending_line_apart_from_no_section_named_when_an_instruction_
     let bill = committed_bill();
     let addresses = addresses_in(&bill);
 
-    let repeal = address_saying(&addresses, "Section 50263 of Public Law 117–169");
+    let repeal = address_saying(
+        &addresses,
+        "Subsection (a) of section 50262 of Public Law 117–169",
+    );
     let chapter = address_saying(&addresses, "Chapter 509 of title 51, United States Code");
 
     assert_eq!(repeal.unresolved, Some(Reason::NoAmendingLine));
@@ -889,4 +896,182 @@ fn should_say_such_section_had_no_antecedent_when_no_earlier_amendment_names_a_s
         "\"Such section\" had no antecedent: no earlier amendment in the same \
          section of the bill names a section"
     );
+}
+
+// --- Units the line states before a section of an Act (#387) -----------------
+
+/// Pub. L. 119-60 § 6402(a):
+///
+/// > Subsection (c)(7) of section 102A of the National Security Act of 1947
+/// > (50 U.S.C. 3024) is amended by striking "(A) The Director" and all that
+/// > follows through "(B) The Director" and inserting "The Director".
+///
+/// The publisher's reference places the whole of § 102A at 50 U.S.C. 3024, so
+/// the units the line names stay below it. The address is 3024(c)(7), and not
+/// the whole section: there, the inserted words "The Director" matched 117
+/// provisions that the amendment does not touch (#387).
+#[test]
+fn should_keep_the_units_the_line_names_when_a_reference_places_the_whole_section_of_an_act() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Subsection (c)(7) of section 102A of the National Security Act of 1947",
+    );
+
+    assert_eq!(printed(&address), "/us/usc/t50/s3024(c)(7)");
+}
+
+/// Pub. L. 119-60 § 8725:
+///
+/// > Section 1413(g) of the Better Utilization of Investments Leading to
+/// > Development Act of 2018 (22 U.S.C. 9613) is amended …
+///
+/// The reference names § 9613 alone, and the citation's own (g) stays below
+/// it: the address is 9613(g) (#387).
+#[test]
+fn should_keep_the_citations_designations_when_a_reference_places_the_whole_section_of_an_act() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "Section 1413(g) of the Better Utilization of Investments Leading to Development Act",
+    );
+
+    assert_eq!(printed(&address), "/us/usc/t22/s9613(g)");
+}
+
+// --- The renumbering reader reads "Such section" too (#431) -----------------
+
+/// The one renumbering the stored bill states with these words.
+fn renumbering_saying<'a>(
+    stated: &'a [StatedRedesignation],
+    words: &str,
+) -> &'a StatedRedesignation {
+    let found: Vec<&StatedRedesignation> = stated
+        .iter()
+        .filter(|statement| statement.text.contains(words))
+        .collect();
+    let [statement] = found[..] else {
+        panic!("the bill should state one renumbering saying {words:?}: {found:?}");
+    };
+    statement
+}
+
+/// The renumbering's place as `redesignation-report` gives it:
+/// `/us/usc/t50/s3024(c)`.
+fn placed(statement: &StatedRedesignation) -> String {
+    let below: String = statement
+        .container
+        .iter()
+        .map(|step| format!("({})", step.number))
+        .collect();
+    format!("{}{below}", statement.section.as_deref().unwrap_or("none"))
+}
+
+/// Pub. L. 119-60 § 6402(c):
+///
+/// > (1) Section 102a.—Such section is further amended— (A) by redesignating
+/// > subsections (f) through (z) as subsections (e) through (y), respectively;
+///
+/// *Such section* is § 102A of the National Security Act of 1947, which the
+/// Code places at 50 U.S.C. 3024. The renumbering reader reads the line as the
+/// address reader does, so the renumbering is placed in § 3024, and not
+/// refused because the heading's bare *"Section 102a"* names no title.
+#[test]
+fn should_place_the_renumbering_in_the_section_an_earlier_amendment_named_when_the_line_says_such_section()
+ {
+    let stated = redesignations_stated_in("119-s-1071", &committed_ndaa());
+
+    let statement = renumbering_saying(
+        &stated,
+        "by redesignating subsections (f) through (z) as subsections (e) through (y)",
+    );
+
+    assert_eq!(statement.unreadable, None);
+    assert_eq!(placed(statement), "/us/usc/t50/s3024");
+    assert!(
+        statement.amendment_id.starts_with("3891c6d88b7a"),
+        "the renumbering belongs to § 6402(c)(1)(A): {}",
+        statement.amendment_id
+    );
+}
+
+/// Pub. L. 119-60 § 141:
+///
+/// > (a) … Section 9062(j) of title 10, United States Code, is amended— …
+/// >
+/// > (b) Retention Within Aircraft Inventory.—Such section is further
+/// > amended— … (2) by redesignating paragraph (3) as paragraph (4);
+///
+/// *Such section* repeats the earlier citation with its designations, so the
+/// renumbering is placed in 10 U.S.C. 9062(j). There the old paragraph (3)
+/// becomes paragraph (4).
+#[test]
+fn should_keep_the_earlier_citations_designations_when_a_renumbering_says_such_section() {
+    let stated = redesignations_stated_in("119-s-1071", &committed_ndaa());
+
+    // Four other amendments of the bill say these words too.
+    let found: Vec<&StatedRedesignation> = stated
+        .iter()
+        .filter(|statement| statement.amendment_id.starts_with("8d4eb6a4efa3"))
+        .collect();
+    let [statement] = found[..] else {
+        panic!("§ 141(b)(2) should state one renumbering: {found:?}");
+    };
+
+    assert_eq!(
+        statement.text,
+        "(2) by redesignating paragraph (3) as paragraph (4); and"
+    );
+    assert_eq!(statement.unreadable, None);
+    assert_eq!(placed(statement), "/us/usc/t10/s9062(j)");
+}
+
+// --- A repeal (#434) ---------------------------------------------------------
+
+/// Pub. L. 119-60 § 901(b):
+///
+/// > (b) Repeal of Chief Diversity Officer.—Section 147 of title 10, United
+/// > States Code, is repealed.
+///
+/// A repeal names its section as an amendment does, with *is repealed* in
+/// place of *is amended*. The publisher's marginal note `10 USC prec. 131.`
+/// sits before the words. The address is 10 U.S.C. 147.
+#[test]
+fn should_address_the_section_a_line_repeals_when_it_says_is_repealed() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(&addresses, "Section 147 of title 10, United States Code,");
+
+    assert_eq!(address.unresolved, None);
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t10/s147"));
+    assert!(address.container.is_empty());
+}
+
+// --- A unit the citation names, read once (#434) -----------------------------
+
+/// Pub. L. 119-60 § 7201(d):
+///
+/// > Subchapter I of chapter 5 of title 14, United States Code, is amended— …
+/// > (3) in subsection (b) of section 502, as so redesignated, by striking …
+///
+/// *subsection (b) of section 502* is one citation: the item names
+/// subsection (b) of § 502. It is not a scope phrase as well, so the address
+/// is 14 U.S.C. 502(b), and not 502(b)(b).
+#[test]
+fn should_read_a_unit_named_before_the_section_once_when_an_item_says_in_subsection_of_section() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "(3) in subsection (b) of section 502, as so redesignated",
+    );
+
+    assert_eq!(address.section.as_deref(), Some("/us/usc/t14/s502"));
+    assert_eq!(step_numbers(&address), ["b"]);
 }

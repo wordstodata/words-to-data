@@ -128,6 +128,7 @@ export CONGRESS_API_KEY=<your key>
 
 words_to_data build-dataset law.sqlite --uslm-dates 2025-07-18,2025-07-30 --bills 119-hr-1
 words_to_data add-classifications law.sqlite
+words_to_data redesignations law.sqlite --bill-id 119-hr-1 --between 2025-07-18 2025-07-30
 words_to_data link-by-evidence law.sqlite
 ```
 
@@ -154,7 +155,7 @@ $ words_to_data annotations law.sqlite --bill 119-hr-1 --path uscode/title_26/su
 $ words_to_data settle law.sqlite --link 7cdb05c5323a --explain
 How it was made:
   Source: rule:evidence_matching
-  Method: address, window and quoted words@6
+  Method: address, window and quoted words@8
   Address: /us/usc/t26/s174A, from the bill's markup
   Window: uscode/title_26@2025-07-18 to 2025-07-30
     the first window after the law's enactment on 2025-07-04 in which something under the

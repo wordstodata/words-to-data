@@ -129,7 +129,12 @@ pub fn redesignations_stated_in_document(
 /// Every redesignation a bill states, read from the bill a dataset holds.
 ///
 /// The same statements, in the same order, as
-/// [`redesignations_stated`] reads out of the same bill's XML.
+/// [`redesignations_stated`] reads out of the same bill's XML. One reading
+/// differs: where the amending line says *"Such section"* or *"Such
+/// subsection"*, this reader places the renumbering in the unit an earlier
+/// amendment named, as the address reader does
+/// ([`crate::uslm::amendment_address`], #431). The markup reader does not read
+/// the phrase, and refuses the statement.
 ///
 /// # Examples
 ///
@@ -458,10 +463,11 @@ pub(crate) fn own_text(level: &Node) -> String {
 ///    title, so nothing has to be inferred.
 /// 2. `Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o))` —
 ///    the citation numbers a section of an Act, and the publisher's own `<ref>`
-///    beside it gives the place in the Code. The reference is the authority, so
-///    the trail comes from it and not from the Act's numbering. A reference whose
-///    text says `note` or `et seq.` is refused: the Act is *not* codified at
-///    that section, and treating the note's home as the provision would point a
+///    beside it gives the place in the Code. The reference is the authority:
+///    where its trail and the line's disagree, the trail comes from it and not
+///    from the Act's numbering, and where they agree the line's units stay
+///    (#387). A reference whose text says `note` or `et seq.` is refused: the
+///    Act is *not* codified at that section, and treating the note's home as the provision would point a
 ///    link at somebody else's law. Both readers read this form through
 ///    [`section_of_an_act`], which also refuses a section of another law that
 ///    nothing places in the Code (#259).
@@ -475,6 +481,9 @@ pub(crate) fn own_text(level: &Node) -> String {
 /// [`Reason::NoTitleForSection`]. A title nobody told us is a confident guess,
 /// and this is the one place a wrong guess would silently move a provision
 /// between titles of the Code.
+///
+/// A line that says *"Such section"* is not read here. The stored reader
+/// ([`redesignations_stated_in`]), which a dataset uses, reads it (#431).
 fn section_under_amendment(
     line: &str,
     holder: Node,
@@ -486,7 +495,7 @@ fn section_under_amendment(
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
-    if let Some(placed) = section_of_an_act(line, &number, usc_references(holder)) {
+    if let Some(placed) = section_of_an_act(line, &number, &trail, usc_references(holder)) {
         return placed;
     }
 

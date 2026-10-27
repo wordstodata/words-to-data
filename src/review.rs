@@ -212,10 +212,52 @@ pub fn newest_naming(link_id: &str, records: &[Link]) -> Option<Review> {
 }
 
 fn newest_of<'a>(records: impl Iterator<Item = &'a Link>) -> Option<Review> {
-    records.filter_map(Review::read).max_by(|left, right| {
-        left.at
-            .cmp(&right.at)
-            .then_with(|| left.reviewer.cmp(&right.reviewer))
+    newest_record_of(records).map(|(_, review)| review)
+}
+
+/// The newest review, and the record that states it.
+fn newest_record_of<'a>(records: impl Iterator<Item = &'a Link>) -> Option<(&'a Link, Review)> {
+    records
+        .filter_map(|record| Some((record, Review::read(record)?)))
+        .max_by(|(_, left), (_, right)| {
+            left.at
+                .cmp(&right.at)
+                .then_with(|| left.reviewer.cmp(&right.reviewer))
+        })
+}
+
+/// True when a reader leaves `link` out as wrong: its newest review, out of
+/// `records`, refutes it, or its maker stored it as refuted.
+///
+/// `records` may hold any links, and only the reviews naming `link` are read.
+pub fn is_refuted(link: &Link, records: &[Link]) -> bool {
+    link.provenance.verification == VerificationState::Refuted
+        || newest_naming(&link.id(), records)
+            .is_some_and(|review| review.verdict == Verdict::Refuted)
+}
+
+/// The review a reader reports, with the id of the record that states it.
+///
+/// The id is what `settle` printed when the review was recorded, so a reader
+/// who sees a verdict can find the record that gave it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reported {
+    /// The record's id, shortened as a report prints it.
+    pub record: String,
+    #[serde(flatten)]
+    pub review: Review,
+}
+
+/// [`newest_naming`], with the id of the record that won.
+pub fn reported_naming(link_id: &str, records: &[Link]) -> Option<Reported> {
+    newest_record_of(
+        records
+            .iter()
+            .filter(|record| names(record) == Some(link_id)),
+    )
+    .map(|(record, review)| Reported {
+        record: short_id(&record.id()).to_string(),
+        review,
     })
 }
 

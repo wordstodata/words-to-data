@@ -38,11 +38,14 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Older expression of the pair, e.g. `uscode/title_26@2025-07-18` (requires `--to`)
+    /// Older end of the span, e.g. `uscode/title_26@2025-07-18` (requires `--to`)
+    ///
+    /// A span can hold more than one window, and the check reads the links of
+    /// every window inside it
     #[arg(long, requires = "to")]
     pub from: Option<ExpressionId>,
 
-    /// Newer expression of the pair (requires `--from`)
+    /// Newer end of the span, an expression of the same work (requires `--from`)
     #[arg(long, requires = "from")]
     pub to: Option<ExpressionId>,
 
@@ -74,17 +77,23 @@ pub struct Args {
 }
 
 pub fn run(args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    if let Some(bill) = &args.bill {
+        crate::held::refuse_unless_bill_held_or_linked(&ds, &args.dataset, bill);
+    }
     let mut locator = Locator::new();
     if let (Some(from), Some(to)) = (&args.from, &args.to) {
+        crate::held::refuse_unless_window_held(&ds, from, to);
         locator = locator
             .in_work(from.work.to_string())
             .in_window(from.at.clone(), to.at.clone());
     }
-    if let Some(path) = &args.path {
+    if let Some(typed) = &args.path {
+        let path = with_dataset!(&ds, d => crate::held::path_argument(d, typed));
         locator = locator.at_path(path, crate::annotations::path_matching(args.exact));
     }
 
-    let mut query = LinkQuery::new().at(locator);
+    let mut query = LinkQuery::new().at(locator.clone());
     if let Some(bill) = &args.bill {
         // The query is class-neutral: it filters on a prefix of the object's
         // reference, and turning a bill into that prefix is the CLI's job
@@ -92,19 +101,49 @@ pub fn run(args: Args) {
         query = query.with_object_prefix(words_to_data::link::bill_reference_prefix(bill));
     }
 
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let report = crate::fail::or_exit(
-        with_dataset!(ds, d => section_agreement::section_agreement(&d, &query)),
+        with_dataset!(&ds, d => section_agreement::section_agreement(d, &query)),
         "Error checking the amendments against their paths",
     );
+    // A path no expression holds, where no link was found, is not held: the
+    // run refuses it as `diff` does (#425).
+    if report.windows.is_empty() && args.path.is_some() {
+        with_dataset!(&ds, d => crate::held::refuse_unless_path_held_in(
+            d,
+            &locator,
+            args.exact,
+            &crate::held::scope_of(args.from.as_ref(), args.to.as_ref()),
+        ));
+    }
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        // Every row for a machine, unless it gives an explicit `--limit`, as
+        // `annotations --json` does (#426). Then the count of every row goes
+        // beside the ones given, so a cut list does not read as the whole.
+        let answer = match args.limit {
+            Some(limit) => {
+                let rows_total = report.rows.len();
+                let mut answer = serde_json::json!(report);
+                if let Some(rows) = answer["rows"].as_array_mut() {
+                    rows.truncate(limit);
+                }
+                answer["rows_total"] = serde_json::json!(rows_total);
+                answer
+            }
+            None => serde_json::json!(report),
+        };
+        println!("{}", serde_json::to_string_pretty(&answer).unwrap());
         return;
     }
 
     if report.windows.is_empty() {
-        println!("This dataset holds no amendment link to check.");
+        // A filter that matched nothing is not a dataset that holds nothing:
+        // "holds no amendment link" over a held bill sent a reader to look
+        // for links the dataset had (#425).
+        match filters_given(&args) {
+            Some(filters) => println!("No amendment link matches {filters}."),
+            None => println!("This dataset holds no amendment link to check."),
+        }
         return;
     }
 
@@ -145,6 +184,22 @@ pub fn run(args: Args) {
             report.rows.len() - shown
         );
     }
+}
+
+/// The filters the run was given, as they were typed. `None` when it was given
+/// none.
+fn filters_given(args: &Args) -> Option<String> {
+    let mut given = Vec::new();
+    if let Some(bill) = &args.bill {
+        given.push(format!("--bill {bill}"));
+    }
+    if let Some(path) = &args.path {
+        given.push(format!("--path {path}"));
+    }
+    if let (Some(from), Some(to)) = (&args.from, &args.to) {
+        given.push(format!("--from {from} --to {to}"));
+    }
+    (!given.is_empty()).then(|| given.join(" "))
 }
 
 /// One window's counts and its share.

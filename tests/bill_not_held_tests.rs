@@ -139,20 +139,28 @@ fn should_refuse_and_point_to_the_bill_list_when_no_held_bill_shares_the_number(
 }
 
 /// A held bill with no roll call is a different fact from a bill not held, so
-/// `votes` says it in different words.
+/// `votes` says it in different words. It is an answer about a held bill, so
+/// it exits 0, as `annotations --bill` does for a held bill with no link
+/// (#425), and `--json` gives an empty list.
 #[test]
-fn should_say_the_bill_is_held_when_votes_is_given_a_held_bill_with_no_roll_call() {
+fn should_say_the_bill_is_held_and_exit_zero_when_votes_is_given_a_held_bill_with_no_roll_call() {
     let output = run(&["votes", without_votes(), HELD]);
 
-    assert_eq!(output.status.code(), Some(1));
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stderr.contains(&format!(
+        stdout.contains(&format!(
             "This dataset holds bill {HELD}, and no House roll call for it."
         )),
-        "{stderr}"
+        "{stdout}"
     );
-    assert!(!stderr.contains("holds no bill"), "{stderr}");
+    assert!(!stdout.contains("holds no bill"), "{stdout}");
+
+    let output = run(&["votes", without_votes(), HELD, "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let answer: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("votes --json should emit json");
+    assert_eq!(answer, serde_json::json!([]));
 }
 
 /// A held bill still answers as it did.

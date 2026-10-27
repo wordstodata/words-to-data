@@ -37,7 +37,7 @@ pub struct Args {
 
     /// The link to settle, by any length of its id. `contradictions` prints the
     /// ids, and an ambiguous prefix is refused with the number it matched
-    #[arg(long)]
+    #[arg(long, value_parser = crate::held::id_argument)]
     pub link: String,
 
     /// What the reviewer found. Not needed with `--explain`
@@ -324,9 +324,18 @@ fn print_words_at_the_ends<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
         "Error reading the words at the link's ends",
     );
     let Some(evidence) = evidence else {
-        println!(
-            "\n  This dataset holds the provision at neither end, so there are no words to show."
-        );
+        // Said in two ways, because only a change has two ends. A link about
+        // something else has no words at its ends, and "neither end" would be
+        // a false statement about it (#393).
+        match &reviewed.subject {
+            Target::Change { .. } => println!(
+                "\n  This dataset holds the provision at neither end, so there are no words to show."
+            ),
+            _ => println!(
+                "\n  This link's subject is not a change to a provision, so there are no words \
+                 at two ends to show."
+            ),
+        }
         return;
     };
     // What the bill instructed, where the object carries it. Said before the
@@ -358,6 +367,41 @@ fn print_words_at_the_ends<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
             let rest = every_word(path, reviewed);
             crate::path::print_words("removed", path, words, "  ", &rest);
         }
+        EvidenceWords::Cited {
+            citing,
+            expression,
+            path,
+            words,
+        } => print_citation(citing, expression.as_deref(), path, words),
+    }
+}
+
+/// A citation's evidence: what the court wrote, and the provision it cites.
+fn print_citation(
+    citing: &[String],
+    expression: Option<&str>,
+    path: &str,
+    words: &[inspect::ProvisionField],
+) {
+    println!("\n{}", ui::heading("The words the court wrote:"));
+    if citing.is_empty() {
+        println!("  The link records no place in the passage.");
+    }
+    for written in citing {
+        println!("  {written}");
+    }
+    match expression {
+        Some(expression) => {
+            println!("\nThe cited provision, as {expression} holds it:");
+            let rest = format!(
+                "`words_to_data path <dataset> {path} --json` carries every field in full."
+            );
+            crate::path::print_words("cited", path, words, "  ", &rest);
+        }
+        None => println!(
+            "\n  This dataset holds no printing of {path} that the link was resolved in, \
+             so the cited words are not shown."
+        ),
     }
 }
 
@@ -435,16 +479,21 @@ fn settle<S: Storage>(dataset: &mut Dataset<S>, args: &Args) {
         ),
         at: time::OffsetDateTime::now_utc(),
     };
+    // The record's own id, said as `link-amendment` says it, so a reviewer can
+    // report each record by its id (#393).
+    let record = review.about(&reviewed);
+    let record_id = record.id();
     crate::fail::or_exit(
-        review::record(dataset, review.about(&reviewed)),
+        review::record(dataset, record),
         "Error recording the review",
     );
 
     println!(
-        "\nRecorded a review: {} by {} on {}.",
+        "\nRecorded a review: {} by {} on {}: record {}",
         review.verdict,
         review.reviewer,
-        review.at.date()
+        review.at.date(),
+        review::short_id(&record_id)
     );
     println!("  {}", review.reasoning.as_deref().unwrap_or_default());
 

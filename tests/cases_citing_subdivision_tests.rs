@@ -22,7 +22,8 @@ use std::sync::OnceLock;
 use words_to_data::citation::resolve::Subdivision;
 use words_to_data::dataset::{Dataset, DatasetMetadata};
 use words_to_data::judicial::reliance::{self, Citing, CitingCase, Relation};
-use words_to_data::storage::SqliteStorage;
+use words_to_data::link::LinkKind;
+use words_to_data::storage::{LinkReader, SqliteStorage};
 
 const TITLE_26_EARLIER: &str = "tests/test_data/usc/2025-07-18/usc26.xml";
 const TITLE_26_LATER: &str = "tests/test_data/usc/2025-07-30/usc26.xml";
@@ -434,5 +435,135 @@ fn should_carry_the_resolved_path_and_whether_it_fell_back_to_the_section_in_jso
     assert_eq!(
         answer["not_citing"],
         serde_json::json!(["judicial/case_2812209"])
+    );
+}
+
+/// `--cites "26 U.S.C. § 174 and 26 U.S.C. § 162"` answered § 174 alone and
+/// said nothing of § 162 (#426). Each citation in the text is answered.
+#[test]
+fn should_answer_each_citation_when_cites_is_given_two() {
+    let printed = stdout_of(&run(&[
+        "cases-citing",
+        dataset_path(),
+        "--cites",
+        "26 U.S.C. \u{a7} 174 and 26 U.S.C. \u{a7} 162",
+        "--json",
+    ]));
+    let answers: serde_json::Value =
+        serde_json::from_str(&printed).unwrap_or_else(|error| panic!("{error}: {printed}"));
+    let paths: Vec<&str> = answers
+        .as_array()
+        .expect("one entry per path")
+        .iter()
+        .map(|answer| answer["path"].as_str().expect("a path"))
+        .collect();
+
+    assert!(paths.contains(&SECTION_174), "{paths:?}");
+    assert!(
+        paths.iter().any(|path| path.ends_with("/section_162")),
+        "{paths:?}"
+    );
+}
+
+/// After `settle --verdict refuted`, `cases-citing` printed the refuted link
+/// as "MachineSuggested" and still counted its opinion (#415). A refuted
+/// citation claims nothing, so its opinion is not counted by it, and the link
+/// is not printed.
+#[test]
+fn should_leave_out_a_refuted_citation_when_cases_citing_counts_the_opinions() {
+    let copy = format!(
+        "{}/cases_citing_refuted.sqlite",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    std::fs::copy(dataset_path(), &copy).expect("the fixture should copy");
+    let harris: Vec<String> = dataset()
+        .links_by_kind(LinkKind::CITES)
+        .expect("the links should read")
+        .into_iter()
+        .filter(|link| link.subject.name().starts_with("judicial/case_6248/"))
+        .filter(|link| link.object.name().starts_with(SECTION_174))
+        .map(|link| link.id()[..12].to_string())
+        .collect();
+    assert!(!harris.is_empty(), "Harris cites § 174");
+    for link in &harris {
+        stdout_of(&run(&[
+            "settle",
+            &copy,
+            "--link",
+            link,
+            "--verdict",
+            "refuted",
+            "--reviewer",
+            "agent:test",
+            "--reason",
+            "A test refutes it.",
+        ]));
+    }
+    let asked = format!("{SECTION_174}/subsection_a/paragraph_1");
+
+    let printed = stdout_of(&run(&["cases-citing", &copy, "--path", &asked]));
+
+    assert!(
+        printed.contains("3 opinion(s) cite it:"),
+        "Snow, Boeing and its dissent; Harris is refuted, got:\n{printed}"
+    );
+    for link in &harris {
+        assert!(!printed.contains(link.as_str()), "{link}:\n{printed}");
+    }
+}
+
+/// A confirmed citation printed its stored state, "MachineSuggested", as if
+/// nobody had reviewed it (#415). The text gives the status the review sets,
+/// and who gave the review; `--json` carries the review and its record.
+#[test]
+fn should_print_the_reviewed_status_and_the_reviewer_when_cases_citing_reads_a_confirmed_citation()
+{
+    let copy = format!(
+        "{}/cases_citing_confirmed.sqlite",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    std::fs::copy(dataset_path(), &copy).expect("the fixture should copy");
+    let link = dataset()
+        .links_by_kind(LinkKind::CITES)
+        .expect("the links should read")
+        .into_iter()
+        .find(|link| link.subject.name().starts_with("judicial/case_6248/"))
+        .expect("Harris cites § 174");
+    let short = link.id()[..12].to_string();
+    stdout_of(&run(&[
+        "settle",
+        &copy,
+        "--link",
+        &short,
+        "--verdict",
+        "confirmed",
+        "--reviewer",
+        "agent:test",
+        "--reason",
+        "A test confirms it.",
+    ]));
+
+    let printed = stdout_of(&run(&["cases-citing", &copy, "--path", SECTION_174]));
+    let line = printed
+        .lines()
+        .find(|line| line.contains(&format!("link {short} is")))
+        .unwrap_or_else(|| panic!("{short} is printed:\n{printed}"));
+    assert!(
+        line.contains(&format!(
+            "link {short} is Verified, confirmed by agent:test on "
+        )),
+        "{line}"
+    );
+
+    let printed = stdout_of(&run(&[
+        "cases-citing",
+        &copy,
+        "--path",
+        SECTION_174,
+        "--json",
+    ]));
+    assert!(
+        printed.contains("\"verdict\": \"confirmed\""),
+        "the JSON carries the review:\n{printed}"
     );
 }

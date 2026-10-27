@@ -20,11 +20,15 @@ pub struct Args {
     /// Dataset file (`.json` compact or `.sqlite`)
     pub dataset: String,
 
-    /// Older expression of the pair, e.g. `uscode/title_9@2025-07-18` (requires `--to`)
+    /// Older end of the span, e.g. `uscode/title_9@2025-07-18` (requires `--to`)
+    ///
+    /// A span can hold more than one window. A link is recorded for one window
+    /// of two adjacent printings, and the span gives the links of every window
+    /// inside it
     #[arg(long, requires = "to")]
     pub from: Option<ExpressionId>,
 
-    /// Newer expression of the pair (requires `--from`)
+    /// Newer end of the span, an expression of the same work (requires `--from`)
     #[arg(long, requires = "from")]
     pub to: Option<ExpressionId>,
 
@@ -58,15 +62,22 @@ pub struct Args {
     pub json: bool,
 }
 
-pub fn run(args: Args) {
+pub fn run(mut args: Args) {
+    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
+    if let Some(bill) = &args.bill {
+        crate::held::refuse_unless_bill_held_or_linked(&ds, &args.dataset, bill);
+    }
     let mut locator = Locator::new();
     if let (Some(from), Some(to)) = (&args.from, &args.to) {
+        crate::held::refuse_unless_window_held(&ds, from, to);
         locator = locator
             .in_work(from.work.to_string())
             .in_window(from.at.clone(), to.at.clone());
     }
-    if let Some(path) = &args.path {
-        locator = locator.at_path(path, path_matching(args.exact));
+    if let Some(typed) = &args.path {
+        let path = with_dataset!(&ds, d => crate::held::path_argument(d, typed));
+        locator = locator.at_path(&path, path_matching(args.exact));
+        args.path = Some(path);
     }
 
     let mut query = LinkQuery::new().at(locator.clone());
@@ -88,7 +99,6 @@ pub fn run(args: Args) {
         query = query.with_limit(limit);
     }
 
-    let ds = crate::fail::or_exit(load::open(&args.dataset), "Error opening dataset");
     let asked = citations_asked(&args);
     let (found, mut citations) = crate::fail::or_exit(
         with_dataset!(&ds, d => inspect::annotations(d, &query).and_then(|found| {
@@ -113,6 +123,16 @@ pub fn run(args: Args) {
         with_dataset!(&ds, d => inspect::absent_path(d, &locator)),
         "Error checking the path",
     );
+    let scope = crate::held::scope_of(args.from.as_ref(), args.to.as_ref());
+    // Nothing found at a path no expression holds is not an answer: the run
+    // refuses the path, as `diff` does (#392, #425). What a link or a
+    // citation names there is still listed, with the notice.
+    if let Some(absent) = &absent
+        && found.total == 0
+        && citations_total == 0
+    {
+        crate::fail::refuse(&absent_notice(absent, args.exact, &scope));
+    }
 
     if args.json {
         let mut answer = serde_json::json!({
@@ -133,10 +153,6 @@ pub fn run(args: Args) {
     }
 
     if let Some(absent) = &absent {
-        let scope = match (&args.from, &args.to) {
-            (Some(from), Some(to)) => format!("of {} from {} to {}", from.work, from.at, to.at),
-            _ => "in the dataset".to_string(),
-        };
         println!("{}", absent_notice(absent, args.exact, &scope));
     }
 
@@ -250,14 +266,26 @@ pub fn print_annotation(a: &words_to_data::inspect::AnnotationSummary) {
     }
 }
 
-/// How a link was decided, in a few words: `  [elimination, address from
-/// olrc, 1 of 5 causes]`. The kind is the word `--json` gives as `chosen`, so
-/// what a person reads is what an agent filters on. An outdated link says so,
-/// with the version that made it and the newer one that did not make it again.
+/// How a link was decided, in a few words: `  [refuted by agent:x on
+/// 2026-10-26, elimination, address from olrc, 1 of 5 causes]`. The kind is
+/// the word `--json` gives as `chosen`, so what a person reads is what an
+/// agent filters on. The newest review comes first, with who gave it and
+/// when (#415). An outdated link says so, with the version that made it and
+/// the newer one that did not make it again.
 /// Empty for a link with nothing of the kind to say.
 fn decision(link: &words_to_data::inspect::LinkMade) -> String {
     let made = &link.made;
     let mut parts: Vec<String> = Vec::new();
+    // First, because a verdict outweighs how the link was made (#415).
+    if let Some(reported) = &link.review {
+        let review = &reported.review;
+        parts.push(format!(
+            "{} by {} on {}",
+            review.verdict,
+            review.reviewer,
+            review.at.date()
+        ));
+    }
     if let Some(outdated) = &link.outdated {
         parts.push(format!(
             "outdated: made by @{}, not made again by @{}",

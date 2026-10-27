@@ -58,7 +58,8 @@ use time::OffsetDateTime;
 
 use crate::dataset::{Dataset, DatasetError, ExpressionId};
 use crate::legislature::evidence_matching::{
-    AddressSource, AmendmentMatch, Outcome, Stage, is_a_note, match_by_evidence,
+    AddressSource, AmendmentMatch, Outcome, Stage, is_a_note, match_bill_by_evidence,
+    match_by_evidence,
 };
 use crate::legislature::redesignation::Reason;
 use crate::link::{LinkKind, Target, amendment_reference, bill_reference_prefix};
@@ -176,11 +177,14 @@ pub fn unlinked_amendments<S: Storage + LegislatureReader>(
     let claims = claims(dataset, &reviews)?;
     let classified = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
     let no_links = standing_no_links(&dataset.links_by_kind(LinkKind::REVIEW_NO_LINK)?, &reviews);
-    let found = match_by_evidence(dataset)?;
-    let rows = found
-        .matches
+    // For one bill, only the titles of the Code that it acts in are matched
+    // (#398).
+    let matches = match bill {
+        Some(bill) => match_bill_by_evidence(dataset, bill)?,
+        None => match_by_evidence(dataset)?.matches,
+    };
+    let rows = matches
         .into_iter()
-        .filter(|amendment| bill.is_none_or(|bill| bill == amendment.bill_id))
         .filter_map(|amendment| {
             let reference = amendment_reference(&amendment.bill_id, &amendment.amendment_id);
             let refuted = links.refuted.get(&reference).cloned().unwrap_or_default();

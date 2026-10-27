@@ -72,7 +72,8 @@ pub struct Row {
     /// The section the path sits in.
     pub path_section: Option<String>,
     pub outcome: Outcome,
-    /// Why the amendment could not be addressed, in the resolver's own words.
+    /// Why the amendment could not be addressed, in the resolver's own words,
+    /// or that the link's path is above a section, where nothing is compared.
     ///
     /// Only ever set on [`Outcome::CouldNotBeRead`]. A third case with no reason
     /// reads as a silent gap, and the whole point of the case is that the limit
@@ -143,6 +144,13 @@ pub fn section_agreement<S: Storage>(
     amendments.kind = Some(LinkKind::AMENDED_BY.to_string());
     amendments.limit = None;
     let Answer { rows: links, .. } = dataset.links_matching(&amendments)?;
+    // A refuted link is reviewed and claims nothing: it is not checked, and it
+    // is not queued for a reviewer again (#415).
+    let reviews = dataset.links_by_namespace(LinkKind::REVIEW)?;
+    let links: Vec<Link> = links
+        .into_iter()
+        .filter(|link| !crate::review::is_refuted(link, &reviews))
+        .collect();
 
     let mut addresses = Addresses::default();
     let mut checked: Vec<Row> = Vec::with_capacity(links.len());
@@ -228,6 +236,13 @@ fn check<S: Storage>(
     let path = link.subject.path().unwrap_or_default().to_string();
     let path_section = section_in_path(&path);
     let (named_section, reason) = match addresses.of(&link.object, dataset)? {
+        // A path above a section, such as a subchapter a window added whole,
+        // holds the section the amendment names or does not, and its own
+        // path cannot say which (#438).
+        Ok(section) if path_section.is_none() => (
+            Some(section),
+            Some("the link's path is above a section".to_string()),
+        ),
         Ok(section) => (Some(section), None),
         Err(why) => (None, Some(why)),
     };

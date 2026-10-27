@@ -69,19 +69,37 @@ pub fn run(args: Args) {
     }
 }
 
-/// The bill that became public law `law`, or stop the run with exit 1 when the
-/// dataset holds no document of that law.
+/// The bill that became public law `law`, or stop the run with exit 1 when no
+/// held bill did.
+///
+/// Two cases, two refusals: the dataset holds no document of the law, or it
+/// holds the document and no held bill became it (#394). Saying the first for
+/// the second sent an agent away from a law it could read.
 fn bill_of_law(dataset: &OpenDataset, path: &str, law: &str) -> String {
     let bill = crate::fail::or_exit(
         with_dataset!(dataset, d => inspect::bill_of_public_law(d, law)),
         "Error reading the dataset's public laws",
     );
-    bill.unwrap_or_else(|| {
-        crate::fail::refuse(&format!(
-            "This dataset holds no document of Pub. L. {law}, so no bill is known to have become it.\n\
-             `words_to_data bills {path}` lists each bill it holds and its public law."
-        ))
-    })
+    if let Some(bill) = bill {
+        return bill;
+    }
+    let work = crate::fail::or_exit(
+        with_dataset!(dataset, d => inspect::public_law_work(d, law)),
+        "Error reading the dataset's public laws",
+    );
+    let why = match work {
+        None => format!(
+            "This dataset holds no document of Pub. L. {law}, so no bill is known to have become it."
+        ),
+        Some(work) => format!(
+            "This dataset holds the document of Pub. L. {law} ({work}), but no bill it holds \
+             became that law.\n\
+             A bill is joined to a law when the law's document holds the bill's amendments."
+        ),
+    };
+    crate::fail::refuse(&format!(
+        "{why}\n`words_to_data bills {path}` lists each bill it holds and its public law."
+    ))
 }
 
 /// Shorten `text` to `max` characters, adding an ellipsis when clipped.

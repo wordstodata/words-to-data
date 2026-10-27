@@ -18,13 +18,28 @@
 //!    there shows, alone or inside longer words. Any other change goes to the
 //!    amendment whose quoted strings and enacted blocks it shows most. Where
 //!    two show equally, word overlap ranks them; where that ties too, the
-//!    change is held back and nobody gets it. An added or removed provision
+//!    amendment whose address is inside the address of every other gets it
+//!    (#434). Where none is, the change is held back and nobody gets it.
+//!    An added or removed provision
 //!    shows every string it holds, so it never has more than one cause.
+//!
+//!    A provision that prints three words or fewer, such as the heading "In
+//!    general", is in many enacted blocks. An enacted block that holds more
+//!    words is weak evidence for it: it does not count where other words show
+//!    in the change, and the change goes with the provision around it when
+//!    step 2 gives that provision's changes. Only where neither is so does the
+//!    block decide (#389).
 //! 2. **The provision it rewrote.** A change inside a provision an amendment
-//!    was given in step 1, and under that amendment's address, goes to it: a
-//!    paragraph struck and enacted anew carries its subparagraphs with it. A
-//!    provision several amendments edited does not say which of them made a
-//!    change inside it, so it gives nothing this way. Nor does a provision
+//!    was given in step 0 or 1, and under that amendment's address, goes to
+//!    it: a paragraph struck and enacted anew carries its subparagraphs with
+//!    it, and so does a paragraph renumbered, or a clause where the amendment
+//!    inserted *"(I) In general.—Subparagraphs"*. A provision whose words the
+//!    amendment only edited, by quoted strings, carries only the removal of a
+//!    provision inside it, which a strike of *"which" and all that follows*
+//!    can make. It does not carry an addition or an edit: 26 U.S.C. 274(o)
+//!    does not carry the paragraphs that another law added inside it (#390).
+//!    A provision several amendments were given does not say which of them
+//!    made a change inside it, so it gives nothing this way. Nor does a provision
 //!    that another amendment, addressed inside it, is nearer to: 24(h) does
 //!    not carry a change in 24(h)(7) when another amendment is addressed to
 //!    24(h)(7) (#339).
@@ -47,7 +62,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::quoted_words::{QuotedWords, Shown, brings_new_words};
+use super::quoted_words::{AddedWords, QuotedWords, Shown, brings_new_words};
 use crate::legislature::redesignation::Step;
 
 /// One change in a window: a path, and its words before and after.
@@ -55,7 +70,12 @@ use crate::legislature::redesignation::Step;
 pub(super) struct Change {
     pub path: String,
     pub before: String,
+    /// The words after the change, as one text. For a provision added whole,
+    /// its words and the words of every provision below it (#432).
     pub after: String,
+    /// For a provision added whole, the same words field by field. `None` for
+    /// every other change.
+    pub added: Option<AddedWords>,
     /// For a renumbering, the amendments the dataset's
     /// `legislature.redesignated_as` links say made it. Empty for every other
     /// change.
@@ -83,6 +103,31 @@ impl std::fmt::Display for Whole {
 }
 
 impl Change {
+    /// A change to a provision's own words, or a provision removed whole: its
+    /// words before and after.
+    pub fn new(path: String, before: String, after: String, whole: Option<Whole>) -> Self {
+        Self {
+            path,
+            before,
+            after,
+            added: None,
+            renumbered_by: Vec::new(),
+            whole,
+        }
+    }
+
+    /// A provision added whole, with every provision below it.
+    pub fn added(path: String, words: AddedWords) -> Self {
+        Self {
+            path,
+            before: String::new(),
+            after: words.fields.join(" "),
+            added: Some(words),
+            renumbered_by: Vec::new(),
+            whole: Some(Whole::Added),
+        }
+    }
+
     /// Whether the provision has words both before and after the change: it
     /// was edited, and not added, removed or emptied.
     fn is_edited_in_place(&self) -> bool {
@@ -116,6 +161,8 @@ pub(super) struct Contender<'a> {
     /// The public law that makes the amendment: `119-21`.
     pub public_law: &'a str,
     pub evidence: &'a QuotedWords,
+    /// The path of the provision its address names.
+    pub address: &'a str,
     pub candidates: Vec<usize>,
     /// The amendment's only action is to renumber. Its changes are the moves
     /// the dataset's redesignation links name, so elimination gives it none.
@@ -165,7 +212,8 @@ impl Contender<'_> {
             .filter(|other| other.public_law == self.public_law)
             .map(|other| other.evidence)
             .collect();
-        self.evidence.shown(&change.before, &change.after, &later)
+        self.evidence
+            .shown(&change.before, &change.after, change.added.as_ref(), &later)
     }
 }
 
@@ -185,13 +233,54 @@ pub(super) enum Found {
     /// this amendment made it.
     Renumbered,
     /// The change shows these of the amendment's quoted strings and enacted
-    /// blocks.
-    Quoted(Vec<String>),
+    /// blocks, as a reviewer reads them.
+    Quoted {
+        shown: Vec<String>,
+        /// One of them is an enacted block: the amendment enacted the
+        /// provision's words, and did not only edit them.
+        enacted: bool,
+    },
     /// The change sits inside the provision at this path, which the
     /// amendment's quoted words placed.
     Inside(String),
     /// No other amendment's address, still wanting a change, covers it.
     OnlyAddress,
+}
+
+impl Found {
+    /// Which changes inside a provision given this way to `contender` the
+    /// provision carries.
+    ///
+    /// A provision that the amendment enacted anew carries its subparagraphs,
+    /// and so does a provision that it renumbered: they moved with it. So does
+    /// a provision where the amendment's words open a new provision, such as
+    /// *inserting "(I) In general.—Subparagraphs"*.
+    ///
+    /// A provision whose words the amendment only edited carries only the
+    /// removal of a provision inside it: *striking "which" and all that
+    /// follows* can strike the clauses below. It does not carry an addition or
+    /// an edit. § 70305(a) of Pub. L. 119-21 strikes "No deduction" in 26
+    /// U.S.C. 274(o), and the paragraphs that came into (o) in the same window
+    /// are another law's (#390).
+    fn carries(&self, contender: &Contender) -> Carries {
+        match self {
+            Self::Renumbered => Carries::Everything,
+            Self::Quoted { enacted, .. } if *enacted || contender.evidence.opens_a_provision() => {
+                Carries::Everything
+            }
+            Self::Quoted { .. } => Carries::Removals,
+            Self::Inside(_) | Self::OnlyAddress => Carries::Nothing,
+        }
+    }
+}
+
+/// Which changes inside it a provision given in step 0 or 1 carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Carries {
+    Nothing,
+    /// Only the removal of a provision.
+    Removals,
+    Everything,
 }
 
 impl std::fmt::Display for Found {
@@ -204,7 +293,7 @@ impl std::fmt::Display for Found {
                 "the change is a renumbering, and the dataset's legislature.redesignated_as \
                  link says this amendment made it."
             ),
-            Self::Quoted(shown) => write!(
+            Self::Quoted { shown, .. } => write!(
                 f,
                 "the change shows the words the bill quotes: {}.",
                 shown.join(", ")
@@ -253,71 +342,51 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
         }
     }
 
-    // 1. The quoted words.
+    // 1. The quoted words. An enacted block that a change shows by a few
+    // words alone is weak evidence. It is not counted where another amendment
+    // shows stronger words, and where none does, the change waits until the
+    // provisions that carry what is inside them are known (#389).
+    let mut weakly_shown: Vec<(usize, Vec<Claim>)> = Vec::new();
     for &at in &every_change {
         if cause.contains_key(&at) {
             continue;
         }
         let change = &changes[at];
-        let claims: Vec<(usize, Vec<Shown>)> = contenders
+        let claims: Vec<Claim> = contenders
             .iter()
             .enumerate()
             .filter(|(_, contender)| contender.candidates.contains(&at))
             .map(|(who, contender)| (who, contender.shown(change, contenders, who)))
             .filter(|(_, shown)| !shown.is_empty())
             .collect();
-        // An amendment that enacted every word the provision now prints
-        // rewrote it, and another amendment's string that went with the old
-        // words is no edit of its own.
-        let rewrote: Vec<&(usize, Vec<Shown>)> = claims
-            .iter()
-            .filter(|(_, shown)| shown.iter().any(|words| words.rewrote))
-            .collect();
-        if let [(who, shown)] = rewrote.as_slice() {
-            cause.insert(at, vec![(*who, found_by(shown))]);
+        let strong = without_few_words(&claims);
+        if strong.is_empty() {
+            if !claims.is_empty() {
+                weakly_shown.push((at, claims));
+            }
             continue;
         }
-        // A provision edited in place can carry the edits of several
-        // amendments, and every amendment that shows words of its own in it
-        // made part of it. Words another amendment also states, alone or
-        // inside longer words of its own, are not its own.
-        //
-        // A provision added or removed whole shows every string it holds, so
-        // there a string of one's own says little, and one amendment is the
-        // cause.
-        let own: Vec<(usize, Found)> = claims
-            .iter()
-            .filter(|(who, shown)| {
-                shown.iter().any(|words| {
-                    claims.iter().all(|(other, theirs)| {
-                        other == who || !theirs.iter().any(|them| words.is_within(them))
-                    })
-                })
-            })
-            .map(|(who, shown)| (*who, found_by(shown)))
-            .collect();
-        if change.is_edited_in_place() && !own.is_empty() {
-            cause.insert(at, own);
+        match by_words(change, contenders, &strong) {
+            Some(causes) => {
+                cause.insert(at, causes);
+            }
+            None => {
+                held_back.insert(at);
+            }
+        }
+    }
+    // A change that only a few words of a block show goes with the provision
+    // around it, when one carries it. 26 U.S.C. 163(j)(12)(A) prints "In
+    // general", and it moved with the paragraph that § 70303(c) of Pub. L.
+    // 119-21 renumbered. Where no provision carries it, the block decides.
+    let carrying = provisions_that_carry(changes, contenders, &cause);
+    for (at, claims) in weakly_shown {
+        if inside_carrying(changes, contenders, &carrying, at).is_some() {
             continue;
         }
-        // The rest quote the same words, and the one that shows the most of
-        // them, or overlaps the change most, is the cause.
-        let Some(strongest) = claims.iter().map(|(_, shown)| shown.len()).max() else {
-            continue;
-        };
-        let tied: Vec<usize> = claims
-            .iter()
-            .filter(|(_, shown)| shown.len() == strongest)
-            .map(|(who, _)| *who)
-            .collect();
-        match rank_by_overlap(change, contenders, &tied) {
-            Some(who) => {
-                let found = claims
-                    .iter()
-                    .find(|(claimant, _)| *claimant == who)
-                    .map(|(_, shown)| found_by(shown))
-                    .unwrap_or(Found::Quoted(Vec::new()));
-                cause.insert(at, vec![(who, found)]);
+        match by_words(&changes[at], contenders, &claims) {
+            Some(causes) => {
+                cause.insert(at, causes);
             }
             None => {
                 held_back.insert(at);
@@ -325,40 +394,14 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
         }
     }
 
-    // 2. The provision it rewrote. A diff can report two changes at one path,
-    // so each provision and its amendment are kept once.
-    let placed: BTreeSet<(String, usize)> = cause
-        .iter()
-        .flat_map(|(&at, causes)| {
-            causes
-                .iter()
-                .map(move |(who, _)| (changes[at].path.clone(), *who))
-        })
-        .collect();
+    // 2. The provision it rewrote.
+    let carrying = provisions_that_carry(changes, contenders, &cause);
     for &at in &every_change {
         if cause.contains_key(&at) || held_back.contains(&at) {
             continue;
         }
-        let around: Vec<&(String, usize)> = placed
-            .iter()
-            .filter(|(path, who)| {
-                is_below(&changes[at].path, path) && contenders[*who].candidates.contains(&at)
-            })
-            .collect();
-        let Some(deepest) = around.iter().map(|(path, _)| path.len()).max() else {
-            continue;
-        };
-        // A provision several amendments edited does not say which of them
-        // made a change inside it.
-        if let [(path, who)] = around
-            .iter()
-            .filter(|(path, _)| path.len() == deepest)
-            .copied()
-            .collect::<Vec<_>>()
-            .as_slice()
-            && !addressed_inside(changes, contenders, at, path, *who)
-        {
-            cause.insert(at, vec![(*who, Found::Inside(path.clone()))]);
+        if let Some((who, path)) = inside_carrying(changes, contenders, &carrying, at) {
+            cause.insert(at, vec![(who, Found::Inside(path))]);
         }
     }
 
@@ -421,6 +464,141 @@ pub(super) fn resolve(changes: &[Change], contenders: &[Contender]) -> Vec<Resol
         .collect()
 }
 
+/// One amendment, by its place in the contenders, and the words it states
+/// that a change shows.
+type Claim = (usize, Vec<Shown>);
+
+/// The claims with every enacted block that shows by a few words alone taken
+/// out, and the claims left with nothing.
+fn without_few_words(claims: &[Claim]) -> Vec<Claim> {
+    claims
+        .iter()
+        .map(|(who, shown)| {
+            let strong: Vec<Shown> = shown
+                .iter()
+                .filter(|words| !words.few_words)
+                .cloned()
+                .collect();
+            (*who, strong)
+        })
+        .filter(|(_, shown)| !shown.is_empty())
+        .collect()
+}
+
+/// The amendments the words of `claims` say made the change, or `None` when
+/// two of them fit it equally and nothing breaks the tie. `claims` is not
+/// empty.
+fn by_words(
+    change: &Change,
+    contenders: &[Contender],
+    claims: &[Claim],
+) -> Option<Vec<(usize, Found)>> {
+    // An amendment that enacted every word the provision now prints rewrote
+    // it, and another amendment's string that went with the old words is no
+    // edit of its own.
+    let rewrote: Vec<&Claim> = claims
+        .iter()
+        .filter(|(_, shown)| shown.iter().any(|words| words.rewrote))
+        .collect();
+    if let [(who, shown)] = rewrote.as_slice() {
+        return Some(vec![(*who, found_by(shown))]);
+    }
+    // A provision edited in place can carry the edits of several amendments,
+    // and every amendment that shows words of its own in it made part of it.
+    // Words another amendment also states, alone or inside longer words of its
+    // own, are not its own.
+    //
+    // A provision added or removed whole shows every string it holds, so there
+    // a string of one's own says little, and one amendment is the cause.
+    let own: Vec<(usize, Found)> = claims
+        .iter()
+        .filter(|(who, shown)| {
+            shown.iter().any(|words| {
+                claims.iter().all(|(other, theirs)| {
+                    other == who || !theirs.iter().any(|them| words.is_within(them))
+                })
+            })
+        })
+        .map(|(who, shown)| (*who, found_by(shown)))
+        .collect();
+    if change.is_edited_in_place() && !own.is_empty() {
+        return Some(own);
+    }
+    // The rest quote the same words, and the one that shows the most of them,
+    // or overlaps the change most, is the cause.
+    let strongest = claims.iter().map(|(_, shown)| shown.len()).max()?;
+    let tied: Vec<usize> = claims
+        .iter()
+        .filter(|(_, shown)| shown.len() == strongest)
+        .map(|(who, _)| *who)
+        .collect();
+    // Where the words overlap the change as much too, the amendment addressed
+    // nearest to it made it (#434).
+    let who = rank_by_overlap(change, contenders, &tied)
+        .or_else(|| narrowest_address(contenders, &tied))?;
+    let (_, shown) = claims.iter().find(|(claimant, _)| *claimant == who)?;
+    Some(vec![(who, found_by(shown))])
+}
+
+/// Each provision given so far, with the amendment it was given to, and which
+/// changes inside it the provision carries. A diff can report two changes at
+/// one path, so each provision and its amendment are kept once, with the most
+/// they carry.
+fn provisions_that_carry(
+    changes: &[Change],
+    contenders: &[Contender],
+    cause: &BTreeMap<usize, Vec<(usize, Found)>>,
+) -> BTreeMap<(String, usize), Carries> {
+    let mut carrying: BTreeMap<(String, usize), Carries> = BTreeMap::new();
+    for (&at, causes) in cause {
+        for (who, found) in causes {
+            let carries = found.carries(&contenders[*who]);
+            let most = carrying
+                .entry((changes[at].path.clone(), *who))
+                .or_insert(carries);
+            *most = (*most).max(carries);
+        }
+    }
+    carrying
+}
+
+/// The amendment and the provision of `carrying` that carry the change: the
+/// nearest provision around it, given to one amendment whose address holds
+/// the change, that carries a change of its kind. `None` when no provision is
+/// around it, when several amendments were given the nearest one, or when
+/// another amendment is addressed inside it.
+fn inside_carrying(
+    changes: &[Change],
+    contenders: &[Contender],
+    carrying: &BTreeMap<(String, usize), Carries>,
+    at: usize,
+) -> Option<(usize, String)> {
+    let change = &changes[at];
+    let around: Vec<(&(String, usize), &Carries)> = carrying
+        .iter()
+        .filter(|((path, who), _)| {
+            is_below(&change.path, path) && contenders[*who].candidates.contains(&at)
+        })
+        .collect();
+    let deepest = around.iter().map(|((path, _), _)| path.len()).max()?;
+    // A provision several amendments were given does not say which of them
+    // made a change inside it.
+    let [((path, who), carries)] = around
+        .into_iter()
+        .filter(|((path, _), _)| path.len() == deepest)
+        .collect::<Vec<_>>()[..]
+    else {
+        return None;
+    };
+    let carries_it = match carries {
+        Carries::Everything => true,
+        Carries::Removals => change.removes_a_provision(),
+        Carries::Nothing => false,
+    };
+    (carries_it && !addressed_inside(changes, contenders, at, path, *who))
+        .then(|| (*who, path.clone()))
+}
+
 /// Whether another amendment than `who` is addressed inside the provision at
 /// `path`, which `who` was given, and the change is under its address.
 ///
@@ -464,7 +642,10 @@ fn holds_every_candidate(changes: &[Change], contender: &Contender, at: usize) -
 
 /// A change given by the words it shows, said as a reviewer reads them.
 fn found_by(shown: &[Shown]) -> Found {
-    Found::Quoted(shown.iter().map(|words| words.said.clone()).collect())
+    Found::Quoted {
+        shown: shown.iter().map(|words| words.said.clone()).collect(),
+        enacted: shown.iter().any(|words| words.enacted),
+    }
 }
 
 /// The one contender of `tied` whose words overlap the change most, or
@@ -494,6 +675,23 @@ fn rank_by_overlap(change: &Change, contenders: &[Contender], tied: &[usize]) ->
         [one] if best > 0.0 => Some(*one),
         _ => None,
     }
+}
+
+/// The one contender of `tied` whose address is inside the address of every
+/// other, or `None` when no single one is.
+///
+/// Such an amendment is nearer to a change under both addresses, as in step
+/// 2 ([`addressed_inside`]). 26 U.S.C. 168(k)(5)(A)(i): § 70301(b)(1) of Pub.
+/// L. 119-21 is addressed to 168(k) and § 70301(b)(2) to the clause itself,
+/// and both strike "the applicable percentage" and insert "100 percent". The
+/// clause is § 70301(b)(2)'s change (#434).
+fn narrowest_address(contenders: &[Contender], tied: &[usize]) -> Option<usize> {
+    let inside_every_other = |who: usize| {
+        tied.iter().all(|&other| {
+            other == who || is_below(contenders[who].address, contenders[other].address)
+        })
+    };
+    tied.iter().copied().find(|&who| inside_every_other(who))
 }
 
 fn why_stopped(

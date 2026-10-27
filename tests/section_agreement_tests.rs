@@ -19,10 +19,14 @@ use std::process::Command;
 use words_to_data::annotation::ChangeAnnotation;
 use words_to_data::congress::BillDownload;
 use words_to_data::dataset::{Dataset, DatasetMetadata, ExpressionId, Format, WorkId};
+use words_to_data::legislature::evidence_matching::evidence_method;
 use words_to_data::legislature::section_agreement::{self, Outcome};
-use words_to_data::link::{Link, Named};
+use words_to_data::link::{
+    Link, LinkKind, Named, Provenance, Target, VerificationState, amendment_reference,
+};
 use words_to_data::query::LinkQuery;
 use words_to_data::storage::{InMemoryStorage, LinkReader};
+use words_to_data::uslm::bill_parser::{bill_expression, bill_of_document};
 
 /// The committed output of one real matching run, by the model method
 /// `match-amendments` ran before it was removed (#252).
@@ -464,5 +468,110 @@ fn should_not_name_a_section_when_it_sits_only_in_the_inserted_text() {
                     .is_some_and(|reason| reason.contains("no section under amendment"))),
         "the Trump-accounts row should be unread, and say that the amendment \
          names no section; found {at_529a:?}"
+    );
+}
+
+/// `--json --limit 3` gave every row. `annotations --json` and `opinions
+/// --json` honor an explicit `--limit`, and so does this command now, with the
+/// count of every row beside the ones given (#426).
+#[test]
+fn should_give_as_many_rows_as_the_limit_and_the_total_when_json_is_given_a_limit() {
+    let path = format!(
+        "{}/section_agreement_limit.json",
+        env!("CARGO_TARGET_TMPDIR")
+    );
+    amendment_links()
+        .save(&path, Format::Compact)
+        .expect("the fixture should save");
+
+    let run = Command::new(env!("CARGO_BIN_EXE_words_to_data"))
+        .args(["section-agreement", &path, "--json", "--limit", "3"])
+        .output()
+        .expect("the binary should run");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&run.stdout).expect("--json should emit json");
+
+    assert_eq!(report["rows"].as_array().expect("rows").len(), 3);
+    assert!(
+        report["rows_total"]
+            .as_u64()
+            .expect("the count of every row")
+            > 3,
+        "{}",
+        report["rows_total"]
+    );
+}
+
+/// The new § 310 of title 14 that Pub. L. 119-60 § 7201(e)(5) inserts (#438):
+///
+/// > (e) Chapter 3 of title 14, United States Code, is amended—
+/// > (5) by inserting after section 309 … the following: "§ 310. …
+///
+/// The markup addresses the amendment to § 310. The window 2026-01-23 →
+/// 2026-07-12 adds the whole of `chapter_3/subchapter_II`, which holds the new
+/// section, and `link-by-evidence` recorded link `d762c3039aec` on that path.
+/// A path above a section cannot agree or disagree with one, and the row says
+/// so, rather than give no reason (#140).
+#[test]
+fn should_say_the_path_is_above_a_section_when_the_amendment_has_an_address_and_the_path_no_section()
+ {
+    const NDAA_ID: &str = "119-s-1071";
+    const ITEM_E_5: &str = "a43b61b51ba32f27da20066deaef5b664325cc96954e50c082d4d4f676b73c34";
+    const SUBCHAPTER_II: &str = "uscode/title_14/subtitle_I/chapter_3/subchapter_II";
+
+    let mut dataset = Dataset::new(DatasetMetadata::default());
+    let xml = std::fs::read_to_string(
+        "tests/test_data/congress_client_cache/bill/119/s/1071/public_law.xml",
+    )
+    .expect("the public law should be committed");
+    let markup = roxmltree::Document::parse(&xml).expect("the public law should parse");
+    let (bill, _) = bill_of_document(&markup, NDAA_ID);
+    dataset.add_bill(bill).expect("the bill should add");
+    let (document, _) = bill_expression(&markup, NDAA_ID).expect("the bill should read");
+    dataset
+        .add_expression(document)
+        .expect("the bill's document should add");
+    dataset
+        .add_link(Link {
+            subject: Target::Change {
+                work: WorkId::new("uscode/title_14"),
+                path: SUBCHAPTER_II.to_string(),
+                from_date: "2026-01-23".to_string(),
+                to_date: "2026-07-12".to_string(),
+            },
+            kind: LinkKind::new(LinkKind::AMENDED_BY),
+            object: Target::External {
+                reference: amendment_reference(NDAA_ID, ITEM_E_5),
+                display: "(5) by inserting after section 309".to_string(),
+            },
+            provenance: Provenance {
+                source: "rule:evidence_matching".to_string(),
+                method: Some(evidence_method()),
+                verification: VerificationState::MachineSuggested,
+                evidence: None,
+                raw_score: None,
+                timestamp: None,
+                corroboration: None,
+            },
+            payload: None,
+        })
+        .expect("the link should add");
+
+    let report = section_agreement::section_agreement(&dataset, &LinkQuery::new())
+        .expect("the check should read the dataset");
+
+    let [row] = &report.rows[..] else {
+        panic!("one row: {:?}", report.rows);
+    };
+    assert_eq!(row.outcome, Outcome::CouldNotBeRead);
+    assert_eq!(row.named_section.as_deref(), Some("310"));
+    assert_eq!(
+        row.reason.as_deref(),
+        Some("the link's path is above a section")
     );
 }

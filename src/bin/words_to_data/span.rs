@@ -16,9 +16,11 @@ use words_to_data::storage::DocumentReader;
 /// on `not-a-date`, so every work is skipped, the run reports covering nothing,
 /// and it exits zero. A pipeline would carry straight on past a job that never
 /// happened.
+///
+/// The date comes back zero-padded, as the dataset holds it: `2025-7-18` is
+/// 2025-07-18.
 pub(crate) fn publication_date(text: &str) -> Result<String, String> {
-    words_to_data::date::date_str_to_date(text)
-        .map(|_| text.to_string())
+    words_to_data::date::held_spelling(text)
         .map_err(|_| format!("`{text}` is not a date. Write it as YYYY-MM-DD, such as 2025-07-18."))
 }
 
@@ -52,10 +54,27 @@ impl Span {
     /// Prints what it skipped rather than returning a shorter list quietly: a
     /// corpus run that covered forty of fifty-eight works and said nothing
     /// would read as having done the whole job.
-    pub fn resolve<R: DocumentReader + ?Sized>(&self, reader: &R) -> Vec<ExpressionPair> {
+    ///
+    /// `path` is where the dataset is, for a notice that names a command to
+    /// run on it.
+    pub fn resolve<R: DocumentReader + ?Sized>(
+        &self,
+        reader: &R,
+        path: &str,
+    ) -> Vec<ExpressionPair> {
         match (&self.between, &self.from, &self.to) {
             (Some(dates), _, _) => {
                 let (from, to) = (&dates[0], &dates[1]);
+                // The check `--from` and `--to` get from the window check. Without
+                // it, reversed dates cover nothing, exit zero, and record a run.
+                if from >= to {
+                    crate::fail::refuse(&format!(
+                        "--between {from} {to}: {from} is not older than {to}. \
+                         Give the older date first."
+                    ));
+                }
+                crate::held::refuse_unless_date_held_in(reader, path, from);
+                crate::held::refuse_unless_date_held_in(reader, path, to);
                 let between =
                     crate::fail::or_exit(works_between(reader, from, to), "Error listing works");
 
@@ -71,7 +90,10 @@ impl Span {
                 }
                 between.pairs
             }
-            (None, Some(from), Some(to)) => vec![(from.clone(), to.clone())],
+            (None, Some(from), Some(to)) => {
+                crate::held::refuse_unless_window_held_in(reader, from, to);
+                vec![(from.clone(), to.clone())]
+            }
             // clap's `required_unless_present` and `requires` between them make
             // the remaining combinations unreachable.
             _ => unreachable!("clap requires --between or --from/--to"),

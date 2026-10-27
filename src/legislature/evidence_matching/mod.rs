@@ -17,6 +17,9 @@
 //!    address is inside, that provision is the change: the diff lists it as
 //!    one path and nothing beneath it (#336). The method gives it only to an
 //!    amendment that only adds, and only when the provision was added.
+//!    Where a later amendment of the same law renumbered the provision the
+//!    address names in that window, the address is read at the new number
+//!    (#434).
 //! 3. **Resolve.** The changes under one section in that window, assigned to
 //!    the amendments addressed there all together, by the words the bill
 //!    quotes ([`resolve`]).
@@ -51,6 +54,7 @@ use serde::Serialize;
 use crate::dataset::{Dataset, DatasetError, ExpressionId, WorkId};
 use crate::diff::{FieldChangeEvent, TreeDiff};
 use crate::document::{DocumentNode, NodeData};
+use crate::inspect::provision_words;
 use crate::legislature::AmendingAction;
 use crate::legislature::redesignation::Reason;
 use crate::legislature::redesignation::{SectionIndex, Step, walk_down};
@@ -63,9 +67,10 @@ use crate::storage::{LegislatureReader, LinkReader, Storage};
 use crate::uslm::UslmFacts;
 use crate::uslm::amendment_address::{AmendmentAddress, addresses_in, units_named_in};
 
-use quoted_words::QuotedWords;
+use quoted_words::{AddedWords, QuotedWords};
 use resolve::{Change, Contender, Resolution, Whole, resolve};
 
+mod code_edits;
 mod olrc;
 mod quoted_words;
 mod recorded;
@@ -242,8 +247,44 @@ pub enum Stage {
 /// the nearest earlier amendment in the same section of the bill named, so the
 /// markup gives these amendments their address. Before, only the OLRC's table
 /// could give one, and only the section.
+///
+/// Version 7 (#387): where the publisher's reference places a whole section of
+/// an Act, the address keeps the units the line names below it:
+/// *"Subsection (c)(7) of section 102A of the National Security Act of 1947
+/// (50 U.S.C. 3024)"* acts in 3024(c)(7), not in the whole of § 3024.
+///
+/// Version 7 (#389, #390): an enacted block that a change shows by three
+/// words or fewer, inside a longer block, is weak evidence. It is not counted
+/// where other words show in the change, and it gives way to a provision
+/// around the change that carries it. A provision carries every change inside
+/// it only when its amendment enacted it anew, renumbered it, or inserted words
+/// that open a new provision. A provision whose words the amendment only
+/// edited carries only the removal of a provision inside it.
+///
+/// Version 7 (#432): a provision the window added is compared with the words
+/// of every provision below it, field by field, in the order the Code prints
+/// them. Its own words alone show it only when they are more than three
+/// words, or when the block also holds a field below them.
+///
+/// Version 8 (#438): an item of a list under a line that names part of a
+/// title gives the section it names after *by amending*, after the
+/// publisher's marginal note, or in the `§ 310.` heading of a new section it
+/// inserts: *"Chapter 73 of title 46 … is amended— (1) by amending section
+/// 7306 …"* acts in § 7306.
+///
+/// Also in version 8 (#434): a section a line says *is repealed* is an address, where
+/// the line names the Code. Where two amendments' quoted words fit a change
+/// equally, the one whose address is inside the address of every other gets
+/// it. An address that a later amendment of the same law renumbered in the
+/// window is read at the new number.
+///
+/// Also in version 8 (#433): an enacted block shows a change also as the OLRC prints
+/// it: *"title 5"* for *"title 5, United States Code"*, the Code's citation
+/// for a reference to a law that the bill cites, and the date of enactment
+/// for *"the date of the enactment of this Act"*. A single and a double
+/// quotation mark are one mark.
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 6)
+    Method::new("address, window and quoted words", 8)
 }
 
 /// Who a link this method writes says made it.
@@ -383,6 +424,31 @@ pub fn match_by_evidence_reporting<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     progress: &dyn crate::progress::Progress,
 ) -> Result<EvidenceMatching, DatasetError> {
+    match_laws(dataset, None, progress)
+}
+
+/// What the matcher finds for every amendment of the public law `bill` became,
+/// in the order the bill states them.
+///
+/// These are the answers [`match_by_evidence`] gives for the bill, in less
+/// time: only the titles of the Code that the bill's amendments act in are
+/// matched (#398). Each of those titles is still matched with the amendments
+/// of every law that act in it, because the amendments that act in one section
+/// in one window are resolved together.
+pub fn match_bill_by_evidence<S: Storage + LegislatureReader>(
+    dataset: &Dataset<S>,
+    bill: &str,
+) -> Result<Vec<AmendmentMatch>, DatasetError> {
+    Ok(match_laws(dataset, Some(bill), &crate::progress::Silent)?.matches)
+}
+
+/// The matcher over every public law or, when `bill` is given, over the titles
+/// of the Code that the bill acts in, with answers for that bill alone.
+fn match_laws<S: Storage + LegislatureReader>(
+    dataset: &Dataset<S>,
+    bill: Option<&str>,
+    progress: &dyn crate::progress::Progress,
+) -> Result<EvidenceMatching, DatasetError> {
     progress.begin("read the amendments", None);
     let mut stated = stated_amendments(dataset)?;
     let classifications = dataset.links_by_kind(LinkKind::CLASSIFIED_FROM)?;
@@ -398,6 +464,10 @@ pub fn match_by_evidence_reporting<S: Storage + LegislatureReader>(
             Ok(work) => by_work.entry(work).or_default().push(at),
             Err(reason) => outcomes[at] = Some(residue(Stage::Address, reason)),
         }
+    }
+    // A title the bill does not act in can change none of the bill's answers.
+    if let Some(bill) = bill {
+        by_work.retain(|_, members| members.iter().any(|&at| stated[at].bill_id == bill));
     }
 
     // One work at a time, so only one title of the Code is in memory at once.
@@ -418,6 +488,7 @@ pub fn match_by_evidence_reporting<S: Storage + LegislatureReader>(
     let matches = stated
         .into_iter()
         .zip(outcomes)
+        .filter(|(amendment, _)| bill.is_none_or(|bill| bill == amendment.bill_id))
         .map(|(amendment, outcome)| AmendmentMatch {
             bill_id: amendment.bill_id,
             public_law: amendment.public_law,
@@ -510,7 +581,7 @@ fn stated_amendments<S: Storage + LegislatureReader>(
                 .find(&address.path)
                 .and_then(|node| UslmFacts::of(&node.data))
                 .and_then(|facts| facts.amendment)
-                .map(|facts| QuotedWords::of(&facts))
+                .map(|facts| QuotedWords::of(&facts, &law.id.at))
                 .unwrap_or_default();
             let amendment = bill.amendments.get(&address.amendment_id);
             stated.push(Stated {
@@ -630,6 +701,8 @@ struct WindowView {
     later: DocumentNode,
     /// Every change in the window, in document order.
     changes: Vec<Change>,
+    /// Who made each renumbering in the window.
+    renumberings: Renumberings,
 }
 
 /// Where one amendment's address changed in one window.
@@ -637,6 +710,8 @@ struct Placed {
     window: usize,
     /// The section's own path, which groups the amendments resolved together.
     section: String,
+    /// The path of the provision the address names, at or below `section`.
+    address: String,
     /// The changes under the address, by their place in the window's list.
     candidates: Vec<usize>,
 }
@@ -668,6 +743,12 @@ fn match_in_work<S: Storage + LegislatureReader>(
         return Ok(Vec::new());
     }
     let windows = windows_after(dataset, work, earliest_enactment)?;
+    // Where each amendment is in the order the laws state them.
+    let stated_at: BTreeMap<&str, usize> = stated
+        .iter()
+        .enumerate()
+        .map(|(at, amendment)| (amendment.address.amendment_id.as_str(), at))
+        .collect();
 
     // Stage 2: the window. Every window the amendment's address changed in,
     // oldest first.
@@ -693,6 +774,18 @@ fn match_in_work<S: Storage + LegislatureReader>(
             let Some((section, under)) = address_path(&later, &earlier, &amendment.address) else {
                 continue;
             };
+            let renumbered_later = |by: &str| {
+                stated_at.get(by).is_some_and(|&renumbering| {
+                    renumbering > at && stated[renumbering].public_law == amendment.public_law
+                })
+            };
+            let under = if amendment.amending_text.contains("as redesignated")
+                || amendment.amending_text.contains("as so redesignated")
+            {
+                under
+            } else {
+                through_later_renumberings(under, &view.renumberings, renumbered_later)
+            };
             found.insert(at);
             let candidates: Vec<usize> = (0..view.changes.len())
                 .filter(|&change| is_at_or_below(&view.changes[change].path, &under))
@@ -701,6 +794,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 placed.entry(at).or_default().push(Placed {
                     window,
                     section,
+                    address: under,
                     candidates,
                 });
                 continue;
@@ -720,6 +814,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
             enclosed.entry(at).or_insert(Placed {
                 window,
                 section,
+                address: under,
                 candidates: enclosing,
             });
         }
@@ -824,6 +919,7 @@ fn match_in_work<S: Storage + LegislatureReader>(
                 only_inserts: only_inserts(&stated[*at]),
                 rewrites: stated[*at].amending_text.contains("to read as follows"),
                 evidence: &stated[*at].evidence,
+                address: &placed[at][0].address,
                 candidates: placed[at][0].candidates.clone(),
             })
             .collect();
@@ -996,13 +1092,14 @@ fn windows_after<S: Storage + LegislatureReader>(
         let diff = dataset.compute_diff(&from, &to)?;
         let renumberings = renumberings(&dataset.storage().links_for_pair(&from, &to)?);
         let mut changes = Vec::new();
-        collect_changes(&diff, &renumberings, &mut changes);
+        collect_changes(&diff, &later.root, &renumberings, &mut changes);
         views.push(WindowView {
             from,
             to,
             earlier: earlier.root,
             later: later.root,
             changes,
+            renumberings,
         });
     }
     Ok(views)
@@ -1024,6 +1121,38 @@ fn address_path(
         let under = walk_down(section, &address.container).ok()?;
         Some((section.data.path.to_string(), under.data.path.to_string()))
     })
+}
+
+/// The path an address names, read through a renumbering that its own law
+/// makes after it in the same window (#434).
+///
+/// A law acts in the order it states its amendments. Where it amends a
+/// provision and a later amendment of it renumbers that provision, the Code
+/// after the window prints the provision at its new number. 26 U.S.C. 67:
+/// § 70110(a) of Pub. L. 119-21 amends 67(g), and § 70110(b)(2) then
+/// redesignates (g) as (h) and inserts a new (g). The change § 70110(a) made
+/// is at (h).
+///
+/// The address stays as it is where no renumbering, or more than one, moved
+/// it to a new path, and where the renumbering is another law's or comes
+/// earlier in the law: then the amendment names the provision by the number
+/// it already has.
+fn through_later_renumberings(
+    under: String,
+    renumberings: &Renumberings,
+    renumbered_later: impl Fn(&str) -> bool,
+) -> String {
+    let moved_to: BTreeSet<String> = renumberings
+        .iter()
+        .filter(|((from, _), by)| {
+            is_at_or_below(&under, from) && by.iter().any(|id| renumbered_later(id))
+        })
+        .map(|((from, to), _)| format!("{to}{}", &under[from.len()..]))
+        .collect();
+    match moved_to.into_iter().collect::<Vec<String>>().as_slice() {
+        [one] => one.clone(),
+        _ => under,
+    }
 }
 
 /// Who made each renumbering in a window, by the two paths it moved a provision
@@ -1059,7 +1188,17 @@ fn renumberings(links: &[Link]) -> Renumberings {
 
 /// Every change in a diff, with its words before and after: a provision whose
 /// own words changed, or one that was added, removed or renumbered.
-fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut Vec<Change>) {
+///
+/// `later` is the later document of the window. An added provision holds
+/// every provision below it (#336), and the diff lists only the provision, so
+/// its words after the change are read from `later`, with the provisions below
+/// it (#432).
+fn collect_changes(
+    diff: &TreeDiff,
+    later: &DocumentNode,
+    renumberings: &Renumberings,
+    changes: &mut Vec<Change>,
+) {
     if !diff.changes.is_empty() {
         let joined = |value: fn(&FieldChangeEvent) -> &str| {
             diff.changes
@@ -1068,40 +1207,71 @@ fn collect_changes(diff: &TreeDiff, renumberings: &Renumberings, changes: &mut V
                 .collect::<Vec<&str>>()
                 .join(" ")
         };
-        changes.push(Change {
-            path: diff.root_path.clone(),
-            before: joined(|field| &field.old_value),
-            after: joined(|field| &field.new_value),
-            renumbered_by: Vec::new(),
-            whole: None,
-        });
+        changes.push(Change::new(
+            diff.root_path.clone(),
+            joined(|field| &field.old_value),
+            joined(|field| &field.new_value),
+            None,
+        ));
     }
-    changes.extend(diff.added.iter().map(|node| Change {
-        path: node.path.to_string(),
-        before: String::new(),
-        after: own_text(node),
-        renumbered_by: Vec::new(),
-        whole: Some(Whole::Added),
-    }));
-    changes.extend(diff.removed.iter().map(|node| Change {
-        path: node.path.to_string(),
-        before: own_text(node),
-        after: String::new(),
-        renumbered_by: Vec::new(),
-        whole: Some(Whole::Removed),
+    changes.extend(
+        diff.added
+            .iter()
+            .map(|node| Change::added(node.path.to_string(), added_words(later, node))),
+    );
+    changes.extend(diff.removed.iter().map(|node| {
+        Change::new(
+            node.path.to_string(),
+            own_text(node),
+            String::new(),
+            Some(Whole::Removed),
+        )
     }));
     changes.extend(diff.moved.iter().map(|moved| {
         let paths = (moved.from.path.to_string(), moved.to.path.to_string());
         Change {
-            path: moved.to.path.to_string(),
-            before: own_text(&moved.from),
-            after: own_text(&moved.to),
             renumbered_by: renumberings.get(&paths).cloned().unwrap_or_default(),
-            whole: None,
+            ..Change::new(
+                moved.to.path.to_string(),
+                own_text(&moved.from),
+                own_text(&moved.to),
+                None,
+            )
         }
     }));
     for child in &diff.child_diffs {
-        collect_changes(child, renumberings, changes);
+        collect_changes(child, later, renumberings, changes);
+    }
+}
+
+/// The words of an added provision and of every provision below it, field by
+/// field, as the window's later document prints them.
+///
+/// 26 U.S.C. 904(b)(5) prints subparagraphs (A) to (C) between its chapeau
+/// and its continuation, and the block that enacted it holds them there too.
+/// Its own words alone are not one run of the block (#432).
+fn added_words(later: &DocumentNode, added: &NodeData) -> AddedWords {
+    let own = own_text(added);
+    let found = later
+        .find_all(&added.path)
+        .into_iter()
+        .find(|found| found.data == *added);
+    let Some(node) = found else {
+        return AddedWords {
+            fields: vec![own.clone()],
+            own,
+            below: Vec::new(),
+        };
+    };
+    let fields = provision_words(node);
+    AddedWords {
+        below: fields
+            .iter()
+            .filter(|field| field.path != *added.path)
+            .map(|field| field.text.clone())
+            .collect(),
+        fields: fields.into_iter().map(|field| field.text).collect(),
+        own,
     }
 }
 

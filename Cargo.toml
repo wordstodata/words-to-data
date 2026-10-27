@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "words-to-data"
-version = "0.6.0"
+version = "0.6.2"
 edition = "2024"
 exclude = ["tests/"]
 description = "Your agent's favorite legal database: the U.S. Code and the laws that change it, with evidence behind every link"

@@ -1484,8 +1484,19 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// Version 5 (#365): each item of a list under a whole title is its own
 /// statement, and a section-level move resolves in the part that holds the
 /// section (*"In chapter 40, … redesignating section 711 … as section 710a"*).
+///
+/// Version 6 (#387): where the publisher's reference places a whole section of
+/// an Act, the container keeps the units the line names below it:
+/// *"Section 1413(g) of the … Act of 2018 (22 U.S.C. 9613) is amended … by
+/// redesignating subparagraph …"* resolves in 9613(g), not in the whole of
+/// § 9613.
+///
+/// Version 7 (#438): an item of a list that opens with the publisher's
+/// marginal note, *"(3) 46 USC 7511.in section 7511(a)—"*, or with *"by
+/// amending section"*, names its section as an item that opens with *In*
+/// does.
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 5)
+    Method::new("amendingAction type=redesignate", 7)
 }
 
 /// How far the words at a redesignation's two ends agree.
