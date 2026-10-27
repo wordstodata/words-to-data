@@ -23,6 +23,10 @@
 //! - A hyphen between two letters is not read, so "substantially" matches
 //!   "substan-tially", where a line broke the word in a plain-text opinion
 //!   (#338). "well-known" still matches "well-known".
+//! - A curly quote mark is read as the straight one, so `\u{201C}error\u{201D}`
+//!   matches `"error"` and `court's` matches `court\u{2019}s`. The Code is
+//!   stored with straight marks, and opinions and copied text often have
+//!   curly ones (#453). See [`CURLY_QUOTE_MARKS`].
 //! - The characters in [`IGNORED`] are not read. The Code puts a soft hyphen
 //!   inside about 600 words of each printing, such as "rec\u{ad}ords" (#338).
 //! - One pair of double quote marks around the whole query is not read, so
@@ -96,6 +100,22 @@ pub const LIGATURES: &[(char, &str)] = &[
     ('\u{FB04}', "ffl"),
     ('\u{FB05}', "st"),
     ('\u{FB06}', "st"),
+];
+
+/// The curly quote marks, each with the straight mark that search reads for
+/// it.
+///
+/// The Code is stored with straight quote marks: the parser changes the curly
+/// ones of the XML to straight ones. A court opinion keeps the marks that its
+/// source has, and many have curly ones, as "the court\u{2019}s". Text copied
+/// from a PDF or a web page has curly ones too. Search reads each curly mark as
+/// the straight one, in the text and in the query, so each form finds the
+/// other (#453).
+pub const CURLY_QUOTE_MARKS: &[(char, char)] = &[
+    ('\u{2018}', '\''), // left single quote mark
+    ('\u{2019}', '\''), // right single quote mark, and the apostrophe
+    ('\u{201C}', '"'),  // left double quote mark
+    ('\u{201D}', '"'),  // right double quote mark
 ];
 
 /// A search query, ready to compare with text.
@@ -226,6 +246,8 @@ impl Query {
 /// assert_eq!(occurrences("IRC §7508(a)", "§ 7508(a)"), vec![4]);
 /// assert_eq!(occurrences("596 U. S. 212", "596 U.S. 212"), vec![0]);
 /// assert_eq!(occurrences("comply substan-tially", "substantially"), vec![7]);
+/// assert_eq!(occurrences("the court\u{2019}s reason", "court's"), vec![4]);
+/// assert_eq!(occurrences("\"error\" means", "\u{201C}error\u{201D} means"), vec![0]);
 /// ```
 pub fn occurrences(text: &str, query: &str) -> Vec<usize> {
     Query::new(query).occurrences(text)
@@ -234,11 +256,11 @@ pub fn occurrences(text: &str, query: &str) -> Vec<usize> {
 /// The text as search compares it, each character with the offset of the
 /// character in `text` it came from.
 ///
-/// Each character in [`IGNORED`] is dropped, each ligature becomes its
-/// letters, each other character is lowercased, each run of white space
-/// becomes one space, each spelling in [`CLOSED_UP`] loses its spaces, and so
-/// does a section sign before a digit, and a hyphen between two letters is
-/// dropped. Lowercasing can change how many
+/// Each character in [`IGNORED`] is dropped, each curly quote mark becomes
+/// the straight one, each ligature becomes its letters, each other character
+/// is lowercased, each run of white space becomes one space, each spelling in
+/// [`CLOSED_UP`] loses its spaces, and so does a section sign before a digit,
+/// and a hyphen between two letters is dropped. Lowercasing can change how many
 /// characters a string holds, so the offsets are carried along rather than
 /// counted again: an offset counted in the compared form would point at the
 /// wrong place in the original.
@@ -301,6 +323,7 @@ fn join_section_numbers(folded: Vec<(char, usize)>) -> Vec<(char, usize)> {
 /// The characters that search reads for `c`, given one at a time to `read`.
 ///
 /// A character in [`IGNORED`] gives none, white space gives one space, a
+/// curly quote mark in [`CURLY_QUOTE_MARKS`] gives its straight mark, a
 /// ligature in [`LIGATURES`] gives its letters, and any other character gives
 /// its lower case. This is the part of the rule that
 /// reads one character alone; [`comparable`] and [`bare`] both start here, so
@@ -321,6 +344,8 @@ fn read_char(c: char, mut read: impl FnMut(char)) {
     }
     if c.is_whitespace() {
         read(' ');
+    } else if let Some((_, straight)) = CURLY_QUOTE_MARKS.iter().find(|(curly, _)| *curly == c) {
+        read(*straight);
     } else if let Some((_, letters)) = LIGATURES.iter().find(|(ligature, _)| *ligature == c) {
         letters.chars().for_each(read);
     } else {

@@ -296,3 +296,43 @@ fn should_find_a_word_when_a_line_break_left_a_hyphen_inside_it() {
         );
     });
 }
+
+/// *Little Sandy Coal* (opinion 9377344) has curly quote marks: "the
+/// \u{201C}iterative process\u{201D} of designing" and "the court\u{2019}s
+/// reason". A person types straight ones, and search reads a curly mark as the
+/// straight one (#453).
+#[test]
+fn should_find_curly_quote_marks_when_the_query_has_straight_ones() {
+    let little_sandy_coal = |extension: &str| with_opinions("curly_quotes", extension, "9377344");
+    on_both_backends(little_sandy_coal, |dataset| {
+        let search = |query: &str| {
+            hits(&[
+                "search",
+                dataset,
+                query,
+                "--path",
+                "judicial/case_9381868",
+                "--all",
+                "--json",
+            ])
+        };
+        for (as_stored, as_typed) in [
+            (
+                "the \u{201C}iterative process\u{201D} of",
+                "the \"iterative process\" of",
+            ),
+            ("court\u{2019}s reason", "court's reason"),
+        ] {
+            let stored = search(as_stored);
+            assert!(
+                !stored.is_empty(),
+                "the opinion holds {as_stored:?}, in {dataset}"
+            );
+            assert_eq!(
+                paths_of(&search(as_typed)),
+                paths_of(&stored),
+                "{as_typed:?} finds the paragraphs that write {as_stored:?}, in {dataset}"
+            );
+        }
+    });
+}
