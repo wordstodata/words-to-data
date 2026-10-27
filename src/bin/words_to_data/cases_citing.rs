@@ -40,7 +40,7 @@ use words_to_data::citation::usc;
 use words_to_data::dataset::{Coverage, Expression, ExpressionId, WorkId};
 use words_to_data::document::{DocumentNode, NodeType, TextContentField};
 use words_to_data::judicial::reliance::{
-    self, ChangeWindow, ChangedAbove, CitedProvision, Citing, CitingCase, Relation,
+    self, ChangeWindow, ChangedAbove, CitedEdition, CitedProvision, Citing, CitingCase, Relation,
 };
 use words_to_data::link::{LinkKind, Target, amendment_reference_parts};
 use words_to_data::method::Method;
@@ -558,6 +558,23 @@ fn report_dates(cited: &CitedProvision) {
                 println!("{line}");
             }
         }
+        for edition in &place.editions {
+            let CitedEdition { written, year, .. } = edition;
+            let line = match edition.printings.as_slice() {
+                [] => format!(
+                    "      the opinion cites the {written} of the Code. This dataset holds \
+                     no printing of title {title} from {year}, so that law is out of scope."
+                ),
+                dates => format!(
+                    "      the opinion cites the {written} of the Code. This dataset holds \
+                     the printing(s) of {} from {year}.",
+                    dates.join(", ")
+                ),
+            };
+            if said.insert(line.clone()) {
+                println!("{line}");
+            }
+        }
     }
 }
 
@@ -602,7 +619,14 @@ fn report_since(cited: &CitedProvision) {
         Coverage::InScope => {}
     }
 
-    if since.windows.is_empty() {
+    if let Some(edition) = &since.edition_not_held {
+        println!(
+            "      no window is given: the opinion cites the {edition} of the Code, and \
+             this dataset holds no printing of it. A section number can be used again, \
+             so the provision now at that number can be a different provision from the \
+             one the court read."
+        );
+    } else if since.windows.is_empty() {
         match since.printings_after {
             0 => println!(
                 "      this dataset holds no printing of the cited work after the \

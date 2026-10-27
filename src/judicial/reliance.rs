@@ -171,8 +171,15 @@ pub struct SincePublication {
     /// Whether the dataset carries the cited material at all.
     pub coverage: Coverage,
     /// Every consecutive pair of printings held whose later date falls after the
-    /// opinion, oldest first.
+    /// opinion, oldest first. Empty when [`SincePublication::edition_not_held`]
+    /// is set.
     pub windows: Vec<ChangeWindow>,
+    /// The edition of the Code the opinion cites, such as `1976 ed.`, when each
+    /// passage names one and this dataset holds no printing from its year
+    /// (#449). Then there is no window: a section number can be used again,
+    /// so a window would compare the provision now at that number, and that
+    /// can be a different provision from the one the court read.
+    pub edition_not_held: Option<String>,
     /// How many printings of the cited work the dataset holds that are dated
     /// after the opinion. With no window, this tells "holds none after it"
     /// from "holds one, and nothing to compare it with" (#340).
@@ -276,6 +283,23 @@ pub struct CitedPlace {
     /// out of scope. Nothing is resolved against a printing the dataset does
     /// not hold.
     pub printings_of_time_basis: Vec<String>,
+    /// Each edition of the Code the passage names after the citation, once,
+    /// from the link's payload (#449). Empty when it names none.
+    pub editions: Vec<CitedEdition>,
+}
+
+/// An edition of the Code a passage names after a citation: `1976 ed.` of
+/// `8 U.S.C. § 1105a(a) (1976 ed.)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CitedEdition {
+    /// The words in the brackets: `1976 ed.` or `1994 ed., Supp. II`.
+    pub written: String,
+    /// The year of the edition: `1976`.
+    pub year: String,
+    /// The printings of the cited title this dataset holds from that year,
+    /// oldest first. Empty when it holds none: then the law the court read is
+    /// out of scope.
+    pub printings: Vec<String>,
 }
 
 /// One opinion, and the provisions it cites that the caller asked about.
@@ -348,6 +372,9 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
         if let Some(year) = &place.time_basis {
             place.printings_of_time_basis = printings_in_year(reader, &scope, &section, year)?;
         }
+        for edition in &mut place.editions {
+            edition.printings = printings_in_year(reader, &scope, &section, &edition.year)?;
+        }
         let subdivision = match latest.map(|section| resolve_subdivision(section, &written)) {
             // The link names the section, and a place names what the court
             // wrote below it that leads nowhere.
@@ -404,6 +431,10 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
         case.cites.sort_by(|a, b| a.path.cmp(&b.path));
         for cited in &mut case.cites {
             cited.places.sort_by(|a, b| a.passage.cmp(&b.passage));
+            if let Some(edition) = edition_not_held(&cited.places) {
+                cited.since.edition_not_held = Some(edition);
+                cited.since.windows.clear();
+            }
         }
     }
     Ok(cases)
@@ -432,6 +463,23 @@ fn section_and_written(cited_path: &str) -> Option<(String, String)> {
     Some((segments[..=at].join("/"), format!("{number}{below}")))
 }
 
+/// The edition the places cite, when each place names an edition and this
+/// dataset holds no printing from the year of any of them (#449). `None` when a
+/// place names no edition, or names one that a printing held is from.
+fn edition_not_held(places: &[CitedPlace]) -> Option<String> {
+    let not_held = places.iter().all(|place| {
+        !place.editions.is_empty()
+            && place
+                .editions
+                .iter()
+                .all(|edition| edition.printings.is_empty())
+    });
+    match not_held {
+        true => Some(places.first()?.editions.first()?.written.clone()),
+        false => None,
+    }
+}
+
 /// One link, as the place a passage cites a provision.
 fn place_of(link: &Link, reviews: &[Link]) -> CitedPlace {
     let review = crate::review::reported_naming(&link.id(), reviews);
@@ -442,7 +490,18 @@ fn place_of(link: &Link, reviews: &[Link]) -> CitedPlace {
         .unwrap_or_default();
     let mut written: Vec<String> = Vec::new();
     let mut unresolved: Vec<String> = Vec::new();
+    let mut editions: Vec<CitedEdition> = Vec::new();
     for place in places {
+        let edition = &place["edition"];
+        if let (Some(written), Some(year)) = (edition["written"].as_str(), edition["year"].as_str())
+            && !editions.iter().any(|known| known.written == written)
+        {
+            editions.push(CitedEdition {
+                written: written.to_string(),
+                year: year.to_string(),
+                printings: Vec::new(),
+            });
+        }
         if let Some(form) = place["written"].as_str()
             && !written.iter().any(|known| known == form)
         {
@@ -481,6 +540,7 @@ fn place_of(link: &Link, reviews: &[Link]) -> CitedPlace {
             .and_then(|value| value["time_basis"].as_str())
             .map(str::to_string),
         printings_of_time_basis: Vec::new(),
+        editions,
     }
 }
 
@@ -627,6 +687,7 @@ fn since_publication<R: DocumentReader + ?Sized>(
             windows: Vec::new(),
             printings_after: 0,
             uncovered: None,
+            edition_not_held: None,
         });
     };
 
@@ -678,6 +739,7 @@ fn since_publication<R: DocumentReader + ?Sized>(
         windows,
         printings_after,
         uncovered,
+        edition_not_held: None,
     })
 }
 

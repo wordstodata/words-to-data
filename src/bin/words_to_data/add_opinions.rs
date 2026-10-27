@@ -315,6 +315,7 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
     let mut out_of_scope = 0;
     let mut absent = 0;
     let mut on_a_stub = 0;
+    let mut with_an_edition = 0;
     let mut below_the_section = 0;
     let mut unresolved = 0;
     for (passage, citations) in &found {
@@ -333,6 +334,9 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
                     .iter()
                     .filter(|reached| reached.unresolved.is_some())
                     .count();
+            }
+            if citation.edition.is_some() {
+                with_an_edition += 1;
             }
             resolved.push((citation.clone(), cited));
         }
@@ -380,6 +384,12 @@ fn link_citations<S: Storage>(dataset: &mut Dataset<S>, stored: &[Stored]) {
         "{on_a_stub} of them land on a stub: a section whose heading in the printing \
          it was resolved in says Repealed, Renumbered, Transferred or Omitted. `path` \
          and `cases-citing` give the heading."
+    );
+    // A section number can be used again, so the section at that number in a
+    // printing held can be another provision from the one the court read (#449).
+    println!(
+        "{with_an_edition} of the citations read name an edition of the Code, such as \
+         \"(1976 ed.)\". Each place records it, and `cases-citing` names it."
     );
     println!(
         "{out_of_scope} cited section(s) name a title this dataset does not carry, and \
