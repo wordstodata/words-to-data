@@ -40,6 +40,11 @@
 //! bill quotes inside a quoted string with single marks, *"(determined by
 //! substituting '1996' for '1997' …)"*, and the Code prints double ones, so a
 //! single and a double mark are one mark (#433).
+//!
+//! A change of case only is no change in lower case: the heading of 10
+//! U.S.C. 132a went from "Performance improvement officer" to "Performance
+//! Improvement Officer". So a quoted string is also tested with the case of
+//! its words, as the bill prints them (#462).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
@@ -151,6 +156,8 @@ struct Quoted {
     /// The words as the bill quotes them, for a reviewer to read.
     text: String,
     tokens: Vec<String>,
+    /// The same tokens with their case, for a change of case only (#462).
+    cased: Vec<String>,
     direction: Direction,
 }
 
@@ -306,12 +313,14 @@ impl QuotedWords {
             without(&before_tokens, &later_insertions),
             without(&after_tokens, &later_insertions),
         );
+        let (before_cased, after_cased) = (cased_tokens_of(before), cased_tokens_of(after));
         let strings = self
             .quoted
             .iter()
             .filter(|quoted| {
                 quoted.is_shown(&before_tokens, &after_tokens)
                     || quoted.is_shown(&before_undone, &after_undone)
+                    || quoted.is_shown_with_case(&before_cased, &after_cased)
             })
             .map(|quoted| Shown {
                 said: quoted.described(),
@@ -541,6 +550,7 @@ impl Quoted {
         Some(Self {
             text: quoted.text.clone(),
             tokens,
+            cased: cased_tokens_of(&quoted.text),
             direction,
         })
     }
@@ -554,11 +564,21 @@ impl Quoted {
         format!("{verb} \"{}\"", self.text)
     }
 
+    /// Whether the lower-case tokens `before` and `after` a change show this
+    /// string.
     fn is_shown(&self, before: &[String], after: &[String]) -> bool {
-        let (was, is) = (
-            occurrences(before, &self.tokens),
-            occurrences(after, &self.tokens),
-        );
+        self.is_shown_as(&self.tokens, before, after)
+    }
+
+    /// Whether the tokens with their case show this string. A change of case
+    /// only, such as "improvement officer" to "Improvement Officer" in the
+    /// heading of 10 U.S.C. 132a, is no change in lower case (#462).
+    fn is_shown_with_case(&self, before: &[String], after: &[String]) -> bool {
+        self.is_shown_as(&self.cased, before, after)
+    }
+
+    fn is_shown_as(&self, run: &[String], before: &[String], after: &[String]) -> bool {
+        let (was, is) = (occurrences(before, run), occurrences(after, run));
         match self.direction {
             Direction::Struck => was > is,
             Direction::Inserted => is > was,
@@ -594,11 +614,19 @@ fn without_page_marks(text: &str) -> String {
 /// Lower-case tokens: each run of letters and digits, and each other mark on
 /// its own, after quotation marks and dashes are folded.
 pub(super) fn tokens_of(text: &str) -> Vec<String> {
+    cased_tokens_of(text)
+        .into_iter()
+        .map(|token| token.chars().flat_map(char::to_lowercase).collect())
+        .collect()
+}
+
+/// The tokens of [`tokens_of`], with their case.
+fn cased_tokens_of(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut word = String::new();
     for character in text.chars() {
         if character.is_alphanumeric() {
-            word.extend(character.to_lowercase());
+            word.push(character);
             continue;
         }
         if !word.is_empty() {
