@@ -263,11 +263,142 @@ fn should_not_call_the_provision_unchanged_when_cases_citing_reads_an_edition_no
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
-        stdout.contains("cites the 1976 ed. of the Code"),
+        stdout.contains(
+            "no window is given: the opinion cites the Code of 1976, written \"(1976 ed.)\" \
+             after the citation, and this dataset holds no printing of title 8 from that year."
+        ),
         "the edition is named, got:\n{stdout}"
     );
     assert!(
         !stdout.contains("unchanged") && !stdout.contains("CHANGED"),
         "no window is given, got:\n{stdout}"
+    );
+}
+
+/// The opinion of the Court in *Windsor* cites "8 U.S.C. § 1186a(b)(1) (2006
+/// ed. and Supp. V)": an edition and a supplement in one pair of brackets.
+#[test]
+fn should_name_the_year_and_the_words_written_when_cases_citing_reads_an_edition_with_a_supplement()
+{
+    let output = run(&[
+        "cases-citing",
+        dataset_path(),
+        "--cites",
+        "8 U.S.C. \u{a7} 1186a(b)(1)",
+    ]);
+    let stdout = stdout_of(&output);
+
+    assert!(
+        stdout.contains(
+            "no window is given: the opinion cites the Code of 2006, written \"(2006 ed. and \
+             Supp. V)\" after the citation, and this dataset holds no printing of title 8 from \
+             that year."
+        ),
+        "the year and the words written are named, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("of the Code"),
+        "the words written are not put in front of \"of the Code\", got:\n{stdout}"
+    );
+}
+
+fn stdout_of(output: &Output) -> String {
+    assert!(
+        output.status.success(),
+        "cases-citing should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// A printing of title 26, and two opinions that write only a year after a
+/// citation (#470): *United Stationers, Inc. v. United States* (N.D. Ill.
+/// 1997), "26 U.S.C. § 41 (1986)", and the opinion of case 6248 (1994),
+/// "26 U.S.C. § 162 (1988)". Both are added by `add-opinions` offline from
+/// the committed CourtListener records.
+fn title_26_path() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let path = format!("{}/edition_year_only.sqlite", env!("CARGO_TARGET_TMPDIR"));
+        let _ = std::fs::remove_file(&path);
+        let mut dataset = Dataset::new(DatasetMetadata {
+            name: "Title 26 and two opinions that write a year".to_string(),
+            ..Default::default()
+        });
+        let file = "tests/test_data/usc/2025-07-18/usc26.xml";
+        dataset
+            .add_uslm_xml(file, "2025-07-18", None)
+            .unwrap_or_else(|error| panic!("{file} should parse: {error}"));
+        dataset
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        let added = run(&[
+            "add-opinions",
+            &path,
+            "--offline",
+            "--cache-dir",
+            "tests/test_data",
+            "--opinions",
+            "1527901,6248",
+        ]);
+        assert!(
+            added.status.success(),
+            "add-opinions should store the opinions, stderr: {}",
+            String::from_utf8_lossy(&added.stderr)
+        );
+        path
+    })
+}
+
+#[test]
+fn should_name_the_year_when_the_opinion_writes_only_a_year_after_the_citation() {
+    let output = run(&[
+        "cases-citing",
+        title_26_path(),
+        "--cites",
+        "26 U.S.C. \u{a7} 41",
+    ]);
+    let stdout = stdout_of(&output);
+
+    assert!(
+        stdout.contains(
+            "the opinion cites the Code of 1986, written \"(1986)\" after the citation. This \
+             dataset holds no printing of title 26 from 1986, so that law is out of scope."
+        ),
+        "the year is named, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("the 1986 of the Code"),
+        "no word is missing, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn should_name_the_year_on_the_line_with_no_window_when_the_opinion_writes_only_a_year() {
+    let output = run(&[
+        "cases-citing",
+        title_26_path(),
+        "--cites",
+        "26 U.S.C. \u{a7} 162",
+    ]);
+    let stdout = stdout_of(&output);
+
+    assert!(
+        stdout.contains(
+            "no window is given: the opinion cites the Code of 1988, written \"(1988)\" after \
+             the citation, and this dataset holds no printing of title 26 from that year."
+        ),
+        "the year is named, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "the opinion cites the Code of 1988, written \"(1988)\" after the citation. This \
+             dataset holds no printing of title 26 from 1988, so that law is out of scope."
+        ),
+        "the line on the place names the year the same way, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("the 1988 of the Code"),
+        "no word is missing, got:\n{stdout}"
     );
 }
