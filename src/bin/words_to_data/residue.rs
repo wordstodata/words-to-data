@@ -16,11 +16,16 @@
 //! are review work, not resolve work, so they are a section of their own and
 //! not rows. See [`words_to_data::legislature::outdated`].
 //!
+//! **The counts are of amendments (#469).** An amendment that acts on many
+//! sections has one row for each item (#434), so a count gives its rows too
+//! when they are more, and the amendments whose rows fall in two categories are
+//! named.
+//!
 //! **A person sees a screenful.** The counts cover every row. The rows follow,
 //! work first, and stop at [`DEFAULT_LIMIT`] with the number left out. `--json`
 //! carries every row, in the order each bill states its amendments.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use clap::Args as ClapArgs;
 use serde::Serialize;
@@ -155,64 +160,179 @@ fn queue_place(category: Category) -> u8 {
     }
 }
 
-/// How many rows fall in each category, and for the work, at which stage and
-/// for which reason.
+/// How many amendments fall in each category, and for the work, at which
+/// stage and for which reason.
+///
+/// Every count is of amendments. An amendment that acts on many sections has
+/// one row for each item (#434), so where a count covers more rows than
+/// amendments, the rows follow it: "180 work (181 rows)".
 fn print_counts(rows: &[Unlinked], partial: bool) {
-    let count = |category: Category| rows.iter().filter(|row| row.category == category).count();
-    println!(
-        "{} amendment(s) that no standing link names",
-        ui::figure(rows.len() - count(Category::LinkedInPart))
+    let of = |category: Category| Tally::of(rows.iter().filter(|row| row.category == category));
+
+    let unlinked = Tally::of(
+        rows.iter()
+            .filter(|row| row.category != Category::LinkedInPart),
     );
+    if unlinked.rows == unlinked.amendments.len() {
+        println!(
+            "{} amendment(s) that no standing link names",
+            ui::figure(unlinked.amendments.len())
+        );
+    } else {
+        println!(
+            "{} row(s) for {} amendment(s) that no standing link names",
+            ui::figure(unlinked.rows),
+            ui::figure(unlinked.amendments.len())
+        );
+    }
+    let work = of(Category::Work);
     println!(
-        "  {:>4}  {}",
-        ui::attention(count(Category::Work)).bold(),
-        ui::heading("work")
+        "  {:>4}  {}{}",
+        ui::attention(work.amendments.len()).bold(),
+        ui::heading("work"),
+        work.rows_note()
     );
 
-    let mut reasons: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    let mut reasons: BTreeMap<(&str, &str), Tally> = BTreeMap::new();
     for row in rows.iter().filter(|row| row.category == Category::Work) {
-        *reasons
+        reasons
             .entry((stage_name(row), row.reason.as_str()))
-            .or_default() += 1;
+            .or_default()
+            .add(row);
     }
     for ((stage, reason), count) in &reasons {
         println!(
-            "          {:>4}  {}: {reason}",
-            ui::attention(count),
-            ui::quiet(stage)
+            "          {:>4}  {}{}: {reason}",
+            ui::attention(count.amendments.len()),
+            ui::quiet(stage),
+            count.rows_note()
         );
     }
 
     if partial {
+        let linked_in_part = of(Category::LinkedInPart);
         println!(
-            "  {:>4}  {}: a link names it, and a change under its address is claimed by no link",
-            ui::attention(count(Category::LinkedInPart)).bold(),
-            ui::heading("linked in part")
+            "  {:>4}  {}{}: a link names it, and a change under its address is claimed by no link",
+            ui::attention(linked_in_part.amendments.len()).bold(),
+            ui::heading("linked in part"),
+            linked_in_part.rows_note()
         );
     }
+    let unwritten = of(Category::Unwritten);
     println!(
-        "  {:>4}  linked by the evidence method, and not written: run link-by-evidence",
-        count(Category::Unwritten)
+        "  {:>4}  linked by the evidence method, and not written{}: run link-by-evidence",
+        unwritten.amendments.len(),
+        unwritten.rows_note()
     );
+    let not_held = of(Category::NotHeld);
     println!(
-        "  {:>4}  not held: the amendment changes something the dataset does not hold",
-        count(Category::NotHeld)
+        "  {:>4}  not held{}: the amendment changes something the dataset does not hold",
+        not_held.amendments.len(),
+        not_held.rows_note()
     );
+    let quiet = of(Category::Quiet);
     println!(
-        "  {:>4}  quiet: nothing under the address changed after the law's enactment; not work",
-        count(Category::Quiet)
+        "  {:>4}  quiet{}: nothing under the address changed after the law's enactment; not work",
+        quiet.amendments.len(),
+        quiet.rows_note()
     );
 
-    let mut concluded: BTreeMap<String, usize> = BTreeMap::new();
-    for no_link in rows.iter().filter_map(|row| row.no_link.as_ref()) {
-        *concluded.entry(no_link.category.to_string()).or_default() += 1;
+    let mut concluded: BTreeMap<String, Tally> = BTreeMap::new();
+    for row in rows {
+        if let Some(no_link) = &row.no_link {
+            concluded
+                .entry(no_link.category.to_string())
+                .or_default()
+                .add(row);
+        }
     }
+    let reviewed = of(Category::ReviewedNoLink);
     println!(
-        "  {:>4}  reviewed: no link: a reviewer concluded the amendment has no correct link; not work",
-        count(Category::ReviewedNoLink)
+        "  {:>4}  reviewed: no link{}: a reviewer concluded the amendment has no correct link; not work",
+        reviewed.amendments.len(),
+        reviewed.rows_note()
     );
     for (category, count) in &concluded {
-        println!("          {count:>4}  {category}");
+        println!(
+            "          {:>4}  {category}{}",
+            count.amendments.len(),
+            count.rows_note()
+        );
+    }
+    print_counted_twice(rows);
+}
+
+/// Each amendment whose rows fall in more than one category, with those
+/// categories: each of the counts above counts it, so the counts add up to
+/// more than the amendments. At most a screenful.
+fn print_counted_twice(rows: &[Unlinked]) {
+    let mut categories: BTreeMap<&str, BTreeSet<(u8, &str)>> = BTreeMap::new();
+    for row in rows {
+        categories
+            .entry(&row.amendment_id)
+            .or_default()
+            .insert((queue_place(row.category), category_name(row.category)));
+    }
+    let twice: Vec<(&str, Vec<&str>)> = categories
+        .into_iter()
+        .filter(|(_, of)| of.len() > 1)
+        .map(|(id, of)| (id, of.into_iter().map(|(_, name)| name).collect()))
+        .collect();
+    if twice.is_empty() {
+        return;
+    }
+    println!(
+        "{} amendment(s) have rows in more than one category, and each of those categories counts them:",
+        ui::figure(twice.len())
+    );
+    for (id, names) in twice.iter().take(DEFAULT_LIMIT) {
+        println!("  {}  {}", ui::figure(short_id(id)), names.join(", "));
+    }
+    if twice.len() > DEFAULT_LIMIT {
+        println!("  … {} more", twice.len() - DEFAULT_LIMIT);
+    }
+}
+
+/// A category as the text output names it.
+fn category_name(category: Category) -> &'static str {
+    match category {
+        Category::Work => "work",
+        Category::LinkedInPart => "linked in part",
+        Category::Unwritten => "unwritten",
+        Category::NotHeld => "not held",
+        Category::Quiet => "quiet",
+        Category::ReviewedNoLink => "reviewed: no link",
+    }
+}
+
+/// The rows one count covers, and the amendments they are for.
+#[derive(Default)]
+struct Tally<'a> {
+    rows: usize,
+    amendments: BTreeSet<&'a str>,
+}
+
+impl<'a> Tally<'a> {
+    fn of(rows: impl Iterator<Item = &'a Unlinked>) -> Self {
+        let mut tally = Self::default();
+        for row in rows {
+            tally.add(row);
+        }
+        tally
+    }
+
+    fn add(&mut self, row: &'a Unlinked) {
+        self.rows += 1;
+        self.amendments.insert(&row.amendment_id);
+    }
+
+    /// " (181 rows)" when the rows are more than the amendments, else nothing.
+    fn rows_note(&self) -> String {
+        if self.rows == self.amendments.len() {
+            String::new()
+        } else {
+            format!(" ({} rows)", self.rows)
+        }
     }
 }
 
@@ -223,12 +343,7 @@ fn print_row(row: &Unlinked) {
         (Category::ReviewedNoLink, Some(no_link)) => {
             format!("reviewed: no link ({})", no_link.category)
         }
-        (Category::ReviewedNoLink, None) => "reviewed: no link".to_string(),
-        (Category::Work, _) => "work".to_string(),
-        (Category::Unwritten, _) => "unwritten".to_string(),
-        (Category::NotHeld, _) => "not held".to_string(),
-        (Category::Quiet, _) => "quiet".to_string(),
-        (Category::LinkedInPart, _) => "linked in part".to_string(),
+        (other, _) => category_name(other).to_string(),
     };
     println!(
         "  {}  {} {}: {}",

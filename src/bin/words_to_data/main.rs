@@ -97,6 +97,13 @@ enum Command {
     /// Show the Code address each amendment of a public law acts on, or why it is not known
     AmendmentAddresses(amendment_addresses::Args),
     /// List the amendments of public laws that no standing link names, with the stage and reason each stopped
+    ///
+    /// One amendment can have one row for each item: an amendment that names
+    /// no section in its own line and acts on many sections has a row for
+    /// each item of its list. Such a row has `"item": true` in `--json`. So
+    /// the counts are of amendments, and a count gives its rows too when they
+    /// are more: "180 work (181 rows)". An amendment whose rows fall in two
+    /// categories is counted in each, and the output names it.
     Residue(residue::Args),
 
     /// Show a bill's amendments
