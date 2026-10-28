@@ -512,16 +512,21 @@ fn report_each(cases: &[CitingCase]) {
     }
 }
 
-/// When the court read the law, and which printing the citation was resolved
-/// in (#317). Each different statement once: the places of one writing carry
-/// one decision date.
-fn report_dates(cited: &CitedProvision) {
-    let title = cited
+/// The number of the title the cited path is in: `26` for `uscode/title_26/…`.
+fn title_of(cited: &CitedProvision) -> &str {
+    cited
         .path
         .split('/')
         .nth(1)
         .and_then(|segment| segment.strip_prefix("title_"))
-        .unwrap_or("?");
+        .unwrap_or("?")
+}
+
+/// When the court read the law, and which printing the citation was resolved
+/// in (#317). Each different statement once: the places of one writing carry
+/// one decision date.
+fn report_dates(cited: &CitedProvision) {
+    let title = title_of(cited);
     let mut said: BTreeSet<String> = BTreeSet::new();
     for place in &cited.places {
         let line = match (&place.decided, &place.resolved_in) {
@@ -559,15 +564,15 @@ fn report_dates(cited: &CitedProvision) {
             }
         }
         for edition in &place.editions {
-            let CitedEdition { written, year, .. } = edition;
+            let cites = cites_edition(edition);
+            let year = &edition.year;
             let line = match edition.printings.as_slice() {
                 [] => format!(
-                    "      the opinion cites the {written} of the Code. This dataset holds \
-                     no printing of title {title} from {year}, so that law is out of scope."
+                    "      {cites}. This dataset holds no printing of title {title} from \
+                     {year}, so that law is out of scope."
                 ),
                 dates => format!(
-                    "      the opinion cites the {written} of the Code. This dataset holds \
-                     the printing(s) of {} from {year}.",
+                    "      {cites}. This dataset holds the printing(s) of {} from {year}.",
                     dates.join(", ")
                 ),
             };
@@ -576,6 +581,19 @@ fn report_dates(cited: &CitedProvision) {
             }
         }
     }
+}
+
+/// The opinion cites an edition: `the opinion cites the Code of 1986, written
+/// "(1986)" after the citation`. The year comes first, and the words in the
+/// brackets follow as the court wrote them, because they can be a year alone,
+/// `1986`, and "the 1986 of the Code" is not English (#470). For title 26 a
+/// year alone can name the Internal Revenue Code of that year, and "the Code
+/// of 1986" stays true then too.
+fn cites_edition(edition: &CitedEdition) -> String {
+    format!(
+        "the opinion cites the Code of {}, written \"({})\" after the citation",
+        edition.year, edition.written
+    )
 }
 
 /// What the opinion wrote below the section, and where it leads.
@@ -619,12 +637,21 @@ fn report_since(cited: &CitedProvision) {
         Coverage::InScope => {}
     }
 
-    if let Some(edition) = &since.edition_not_held {
+    if let Some(written) = &since.edition_not_held {
+        let edition = cited
+            .places
+            .iter()
+            .flat_map(|place| &place.editions)
+            .find(|edition| &edition.written == written);
+        let (cites, held) = match edition {
+            Some(edition) => (cites_edition(edition), "from that year"),
+            None => (format!("the opinion cites \"({written})\""), "of it"),
+        };
         println!(
-            "      no window is given: the opinion cites the {edition} of the Code, and \
-             this dataset holds no printing of it. A section number can be used again, \
-             so the provision now at that number can be a different provision from the \
-             one the court read."
+            "      no window is given: {cites}, and this dataset holds no printing of \
+             title {} {held}. A section number can be used again, so the provision now \
+             at that number can be a different provision from the one the court read.",
+            title_of(cited)
         );
     } else if since.windows.is_empty() {
         match since.printings_after {
