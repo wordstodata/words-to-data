@@ -1472,7 +1472,7 @@ const MEASURE: &str = "similar::TextDiff::from_words ratio over heading, chapeau
 /// To raise the version, change only the number below, and say so in the
 /// PR's file in `changelog.d/` (`changelog.d/README.md`).
 pub fn reading_method() -> Method {
-    Method::new("amendingAction type=redesignate", 7)
+    Method::new("amendingAction type=redesignate", 8)
 }
 
 /// How far the words at a redesignation's two ends agree.

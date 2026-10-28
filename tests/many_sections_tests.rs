@@ -36,6 +36,8 @@ use words_to_data::uslm::bill_parser::{bill_expression, parse_bill_amendments};
 
 const NDAA: &str = "tests/test_data/congress_client_cache/bill/119/s/1071/public_law.xml";
 const NDAA_ID: &str = "119-s-1071";
+const APEX: &str = "tests/test_data/congress_client_cache/bill/119/hr/618/public_law.xml";
+const APEX_ID: &str = "119-hr-618";
 
 /// A committed public law, as the dataset stores it.
 fn committed_law(file: &str, bill_id: &str) -> DocumentNode {
@@ -129,37 +131,27 @@ fn should_give_an_item_for_each_section_when_every_item_of_the_list_names_one() 
 
 /// Pub. L. 119-60 § 601(c)(4): *"Sections 351(a), 352(a), 353(a), and 353(b)
 /// of such title are amended by striking …"*. The line cites four places in
-/// three sections. *"such title"* is title 37, which an earlier line names,
-/// and this reader does not read *"such title"*, so no item has a section.
-/// Each keeps the cited number in its reason and the designations below it,
-/// so that the matcher can read the section from the OLRC's table.
+/// three sections. *"such title"* is title 37, which the line of § 601(a)
+/// names (#463), so each item is in title 37, with the designations its
+/// citation gives. Each item has the instruction's own path.
 #[test]
 fn should_give_an_item_for_each_section_a_line_cites_when_it_cites_several() {
     let law = committed_law(NDAA, NDAA_ID);
     let address = address_of(&law, "214ccd5d3dd6");
 
-    let items: Vec<(Option<Reason>, String, String)> = address
-        .items
-        .iter()
-        .map(|item| {
-            let below: String = item
-                .container
-                .iter()
-                .map(|step| format!("({})", step.number))
-                .collect();
-            (item.unresolved.clone(), below, item.path.clone())
-        })
-        .collect();
-    let reason = |number: &str| Some(Reason::NoTitleForSection(number.to_string()));
+    let items: Vec<String> = address.items.iter().map(printed).collect();
     assert_eq!(
         items,
         vec![
-            (reason("351"), "(a)".to_string(), address.path.clone()),
-            (reason("352"), "(a)".to_string(), address.path.clone()),
-            (reason("353"), "(a)".to_string(), address.path.clone()),
-            (reason("353"), "(b)".to_string(), address.path.clone()),
+            "/us/usc/t37/s351(a)",
+            "/us/usc/t37/s352(a)",
+            "/us/usc/t37/s353(a)",
+            "/us/usc/t37/s353(b)",
         ]
     );
+    for item in &address.items {
+        assert_eq!(item.path, address.path);
+    }
 }
 
 /// Pub. L. 119-60 § 1411(c): *"Sections 5(a)(2), 6(d)(1), and 6(d)(2) of such
@@ -178,6 +170,41 @@ fn should_place_each_cited_section_by_its_reference_when_the_line_gives_one_for_
             "/us/usc/t50/s98d(a)(2)",
             "/us/usc/t50/s98e(d)(1)",
             "/us/usc/t50/s98e(d)(2)",
+        ]
+    );
+}
+
+/// Pub. L. 119-24 § 2 amends the Apex Project, Nevada Land Transfer and
+/// Authorization Act of 1989, and five of its six items open with the page
+/// of the Statutes at Large the section is on (#463):
+///
+/// > (3) 103 Stat. 171.in section 4(c), by striking "Pursuant" …
+/// >
+/// > (5) in section 4(e), by adding at the end the following: …
+///
+/// The page mark is not the start of the item, so each item names its
+/// section as item (5) does. The Act is not in the Code, so no item has a
+/// section, and each gives the same reason.
+#[test]
+fn should_read_the_section_an_item_names_when_a_page_mark_opens_the_item() {
+    let law = committed_law(APEX, APEX_ID);
+    let address = address_of(&law, "737663e18f52");
+
+    let reasons: Vec<Option<Reason>> = address
+        .items
+        .iter()
+        .map(|item| item.unresolved.clone())
+        .collect();
+    let another_law = |number: &str| Some(Reason::SectionOfAnotherLaw(number.to_string()));
+    assert_eq!(
+        reasons,
+        vec![
+            another_law("2"),
+            another_law("3"),
+            another_law("4"),
+            another_law("4"),
+            another_law("4"),
+            another_law("6"),
         ]
     );
 }

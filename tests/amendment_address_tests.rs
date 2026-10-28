@@ -1075,3 +1075,49 @@ fn should_read_a_unit_named_before_the_section_once_when_an_item_says_in_subsect
     assert_eq!(address.section.as_deref(), Some("/us/usc/t14/s502"));
     assert_eq!(step_numbers(&address), ["b"]);
 }
+
+// --- "Of such title" names the title an earlier line named (#463) -----------
+
+/// Pub. L. 119-60 § 601:
+///
+/// > (a) Definitions.—Section 101 of title 37, United States Code, is
+/// > amended— …
+/// >
+/// > (b) Basic Pay.— (1) References to officer grades.—Section 201(a) of such
+/// > title is amended— …
+///
+/// *Such title* is title 37, which the line of § 601(a) names. The bill's
+/// own words give the title, so the address does not depend on the OLRC's
+/// table.
+#[test]
+fn should_address_the_title_an_earlier_line_named_when_the_line_says_of_such_title() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(
+        &addresses,
+        "(1) References to officer grades.—Section 201(a) of such title is amended",
+    );
+
+    assert_eq!(address.unresolved, None);
+    assert_eq!(printed(&address), "/us/usc/t37/s201(a)");
+}
+
+/// Pub. L. 119-60 § 601(b)(4):
+///
+/// > (4) Inactive-duty training pay.—Section 20637 USC 206. of such title is
+/// > amended—
+///
+/// The publisher's marginal note `37 USC 206.` follows the citation with no
+/// space between. The cited section is § 206, not § 20637: a section of the
+/// Code that does not exist.
+#[test]
+fn should_read_the_cited_number_without_the_marginal_note_when_the_note_follows_it_with_no_space() {
+    let bill = committed_ndaa();
+    let addresses = addresses_in(&bill);
+
+    let address = address_saying(&addresses, "(4) Inactive-duty training pay.—Section");
+
+    assert_eq!(address.unresolved, None);
+    assert_eq!(printed(&address), "/us/usc/t37/s206");
+}
