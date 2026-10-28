@@ -301,11 +301,11 @@ fn linked_below_the_chapter(answers: &[&AmendmentMatch]) -> Vec<Vec<String>> {
 /// item's place: 71401(b)(1) to 42 U.S.C. 1397aa, (b)(2) to 1397ee, (b)(3)
 /// to 1397ff. Before #434 no link held these changes.
 ///
-/// 1397aa(a) changed too, and stays without a link: item (1) inserts
-/// *"… established in section 2105(h), the purpose"*, and the Code prints
-/// the Act's § 2105(h) as the Code's section, so the quoted words do not show
-/// in the change. Item (1) has (b) by its quoted words, so elimination does
-/// not give it (a) as well.
+/// Item (1) acts on 1397aa(a) and (b). In (a) it strikes "The purpose" and
+/// inserts *"… established in section 2105(h), the purpose"*. The Code
+/// prints the Act's § 2105(h) as the Code's section, so the inserted words
+/// do not show, and in lower case "the purpose" is in (a) before and after.
+/// With its case, the struck "The purpose" shows in (a) (#462).
 #[test]
 fn should_link_each_item_to_the_changes_in_its_own_section_when_the_olrc_places_each_item() {
     let answers = answers_for(hr_1_matches(), "ee250eb077b2");
@@ -315,7 +315,10 @@ fn should_link_each_item_to_the_changes_in_its_own_section_when_the_olrc_places_
     assert_eq!(
         linked_below_the_chapter(&answers),
         vec![
-            vec!["section_1397aa/subsection_b".to_string()],
+            vec![
+                "section_1397aa/subsection_a".to_string(),
+                "section_1397aa/subsection_b".to_string(),
+            ],
             vec!["section_1397ee/subsection_c/paragraph_1".to_string()],
             vec!["section_1397ff/subsection_a/paragraph_1".to_string()],
         ]
