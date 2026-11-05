@@ -27,8 +27,12 @@ A Dataset serialized to one file, to carry it to another party. A serialization,
 _Avoid_: Export, dump, archive
 
 **Scope**:
-The statement of what a Dataset covers. A Dataset declares the scope it intends, and reports the scope it holds. A reader uses the scope to answer "out of scope" instead of "not found". The difference between the two halves is a Gap.
+The statement of what a Dataset covers. A Dataset declares the scope it intends, and reports the scope it holds. A reader uses the scope to answer "out of scope" instead of "not found". The difference between the two halves is a Gap. The held half also gives the Document class of each work.
 _Avoid_: Coverage, extent, contents
+
+**Document class**:
+The namespace of a work's root Node type: `uscode`, `bill` or `judicial`. A Dataset derives it and does not store it or declare it (`docs/adr/0007`, #148), so a command asks the Scope and does not read a class from a Work id or a Structural path. A link namespace is a different thing, and a Declaration lists those. Only `uscode` is published at release points, so only its works take part in a span of two dates.
+_Avoid_: Document type, corpus
 
 **Gap**:
 Material a Dataset declared, did not exclude, and does not hold. A gap says the build did not do what it said it would, so it is a fault in the Dataset rather than a statement about the law. This is why it is a separate answer from "out of scope": one means incomplete, the other means out of its lane.

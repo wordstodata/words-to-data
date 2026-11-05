@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::types::ValueRef;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::congress::{BillVotes, HouseRollCall, Member, MemberVote, SponsorInfo, VotePosition};
 use crate::dataset::{
@@ -14,7 +14,7 @@ use crate::dataset::{
     SearchAnswer, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
-use crate::document::DocumentNode;
+use crate::document::{DocumentNode, NodeType};
 use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
 use crate::link::{Link, LinkKind, Provenance, Target, Window};
@@ -1105,6 +1105,22 @@ impl DocumentReader for SqliteStorage {
              WHERE work = ?1 AND date = ?2",
             &[&id.work.as_str(), &id.at],
         )
+    }
+
+    /// Read from the index, because the root is the first row of each walk
+    /// and `element_json` holds the whole tree. A title of the Code takes
+    /// seconds to read that way.
+    fn root_type(&self, id: &ExpressionId) -> Result<Option<NodeType>, DatasetError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT node_type FROM element_index \
+                 WHERE work = ?1 AND date = ?2 AND ordinal = 0",
+                params![id.work.as_str(), id.at],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(NodeType::new))
     }
 
     fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {

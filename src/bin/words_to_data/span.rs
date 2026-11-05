@@ -28,7 +28,7 @@ pub(crate) fn publication_date(text: &str) -> Result<String, String> {
 /// dates.
 #[derive(ClapArgs)]
 pub struct Span {
-    /// Every work published on both dates, e.g. `--between 2025-07-18 2025-07-30`
+    /// Every work of the US Code published on both dates, e.g. `--between 2025-07-18 2025-07-30`
     #[arg(
         long,
         num_args = 2,

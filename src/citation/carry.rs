@@ -31,7 +31,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dataset::DatasetError;
+use crate::dataset::{DatasetError, Scope};
+use crate::document::NodeType;
 use crate::judicial::CaseFacts;
 use crate::link::{KindPayload, Link, LinkKind, Target};
 use crate::method::Method;
@@ -177,10 +178,11 @@ type Sources = BTreeMap<String, String>;
 /// The combined records that the cases in `dataset` keep only as sources.
 fn sources<D: DocumentReader>(dataset: &D) -> Result<Sources, DatasetError> {
     let mut sources = Sources::new();
-    for work in dataset.works()? {
-        if !work.as_str().starts_with("judicial/case_") {
-            continue;
-        }
+    let cases = Scope::derive(dataset)?
+        .classes()
+        .remove(NodeType::JUDICIAL)
+        .unwrap_or_default();
+    for work in cases {
         let Some(latest) = dataset.expressions(&work)?.pop() else {
             continue;
         };

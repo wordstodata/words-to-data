@@ -20,7 +20,7 @@ use crate::dataset::{
     bill_public_laws, public_law_number,
 };
 use crate::diff::{Redesignations, TreeDiff};
-use crate::document::DocumentNode;
+use crate::document::{DocumentNode, NodeType};
 use crate::judicial::cites::{CitationLink, citations_naming};
 use crate::judicial::held::{CourtFacts, court_facts};
 use crate::legislature::evidence_matching::{Recorded, evidence_method};
@@ -846,15 +846,18 @@ fn judicial_contents<S: Storage>(
     path: &str,
     present_in: &[PathPresence],
 ) -> Result<Vec<ContentsEntry>, DatasetError> {
-    if !path.starts_with("judicial/") {
-        return Ok(Vec::new());
-    }
     let Some(latest) = present_in
         .last()
         .and_then(|presence| presence.expression.parse::<ExpressionId>().ok())
     else {
         return Ok(Vec::new());
     };
+    let is_judicial = dataset
+        .root_type(&latest)?
+        .is_some_and(|root| root.namespace() == NodeType::JUDICIAL);
+    if !is_judicial {
+        return Ok(Vec::new());
+    }
     let Some(expression) = dataset.get_expression(&latest)? else {
         return Ok(Vec::new());
     };
