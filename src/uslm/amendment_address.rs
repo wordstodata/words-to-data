@@ -734,6 +734,16 @@ fn earlier_line_naming_a_section<'a>(
     holder: &DocumentNode,
     came_through: &[&'a DocumentNode],
 ) -> Option<Vec<&'a DocumentNode>> {
+    earlier_level_saying(holder, came_through, &line_names_a_section)
+}
+
+/// The path from the root to the nearest level before `holder`, in the same
+/// section of the bill, whose own words `says` accepts.
+fn earlier_level_saying<'a>(
+    holder: &DocumentNode,
+    came_through: &[&'a DocumentNode],
+    says: &dyn Fn(&str) -> bool,
+) -> Option<Vec<&'a DocumentNode>> {
     let at_holder = came_through
         .iter()
         .rposition(|node| std::ptr::eq(*node, holder))?;
@@ -742,17 +752,24 @@ fn earlier_line_naming_a_section<'a>(
     })?;
     let mut path = came_through[..bill_section].to_vec();
     let mut nearest = None;
-    walk_until(came_through[bill_section], holder, &mut path, &mut nearest);
+    walk_until(
+        came_through[bill_section],
+        holder,
+        says,
+        &mut path,
+        &mut nearest,
+    );
     nearest
 }
 
 /// Walk down from `node` in document order until `holder`, and keep in
-/// `nearest` the path to the last level whose amending line names a section.
+/// `nearest` the path to the last level whose own words `says` accepts.
 ///
 /// Whether the walk came to `holder`.
 fn walk_until<'a>(
     node: &'a DocumentNode,
     holder: &DocumentNode,
+    says: &dyn Fn(&str) -> bool,
     path: &mut Vec<&'a DocumentNode>,
     nearest: &mut Option<Vec<&'a DocumentNode>>,
 ) -> bool {
@@ -760,11 +777,11 @@ fn walk_until<'a>(
         return true;
     }
     path.push(node);
-    if is_stored_level(node) && line_names_a_section(&stored_own_text(node)) {
+    if is_stored_level(node) && says(&stored_own_text(node)) {
         *nearest = Some(path.clone());
     }
     for child in &node.children {
-        if walk_until(child, holder, path, nearest) {
+        if walk_until(child, holder, says, path, nearest) {
             return true;
         }
     }
@@ -779,6 +796,53 @@ fn line_names_a_section(text: &str) -> bool {
         !line.contains("table of sections")
             && (citation_in(&line).is_some() || such_unit_named_by(&line).is_some())
     })
+}
+
+// --- "Of such title": the title an earlier line named (#463) ---
+
+/// The title an amending line names as *"of such title"*: the title the
+/// nearest earlier line in the same section of the bill names outright.
+///
+/// > (a) Definitions.—Section 101 of title 37, United States Code, is
+/// > amended— …
+/// >
+/// > (b) Basic Pay.— (1) … Section 201(a) of such title is amended—
+///
+/// *Such title* is title 37. The earlier line is an amending line or a
+/// repeal, as [`Scope::above`] reads one, and only a title it names outright
+/// counts: *"of title 37"*, or *"Title 10, United States Code"*. `None` when
+/// the line does not say *"of such title"*, or no earlier line in the same
+/// section of the bill names a title. Then the line is read as a bare
+/// section.
+fn such_title_named_by(
+    line: &str,
+    holder: &DocumentNode,
+    came_through: &[&DocumentNode],
+) -> Option<String> {
+    static OF_SUCH_TITLE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\bof\s+such\s+title\b").expect("the such-title pattern must compile")
+    });
+    if !OF_SUCH_TITLE.is_match(line) {
+        return None;
+    }
+    let names_a_title = |text: &str| title_a_line_names_outright(text).is_some();
+    let earlier = earlier_level_saying(holder, came_through, &names_a_title)?;
+    title_a_line_names_outright(&stored_own_text(earlier.last()?))
+}
+
+/// The title of the Code the amending line or repeal in `text` names
+/// outright: *"of title 37"*, or *"Title 10, United States Code"*.
+fn title_a_line_names_outright(text: &str) -> Option<String> {
+    static TITLE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\b(?:of\s+title\s+([0-9]+[A-Za-z]?)\b|title\s+([0-9]+[A-Za-z]?)\s*,\s*United States Code)")
+            .expect("the outright-title pattern must compile")
+    });
+    let line = amending_line_of(text).or_else(|| repealing_line_of(text))?;
+    let found = TITLE.captures(&line)?;
+    found
+        .get(1)
+        .or_else(|| found.get(2))
+        .map(|title| title.as_str().to_string())
 }
 
 /// The USLM facts of a node, or `None` when it carries none.
@@ -867,7 +931,9 @@ fn stored_usc_references(node: &DocumentNode) -> Vec<UscReference> {
 /// Three forms, in the order they are trusted.
 ///
 /// 1. `Section 2881a of title 10, United States Code` — the bill says which
-///    title, so nothing has to be inferred.
+///    title, so nothing has to be inferred. `Section 201(a) of such title`
+///    says it too, by the title an earlier line names
+///    ([`such_title_named_by`], #463).
 /// 2. `Section 6(o) of the Food and Nutrition Act of 2008 (7 U.S.C. 2015(o))`,
 ///    or `Section 321(a)(2) of such Act (19 U.S.C. 1321(a)(2))` — the citation
 ///    numbers a section of an Act, and the publisher's own `<ref>` beside it
@@ -900,6 +966,10 @@ fn stored_section_under_amendment(
     let (number, trail) = cited;
 
     if let Some(title) = title_named_in(line) {
+        return Ok((uslm_section_id(&title, &number), trail));
+    }
+
+    if let Some(title) = such_title_named_by(line, holder, came_through) {
         return Ok((uslm_section_id(&title, &number), trail));
     }
 
@@ -1258,10 +1328,30 @@ pub(crate) fn citation_in(line: &str) -> Option<(String, Vec<String>)> {
 /// `b`.
 fn citation_alone_in(line: &str) -> Option<(String, Vec<String>)> {
     let cited = CITATION.captures(line)?;
+    let number = crate::citation::usc::fold_dashes(&cited[1]);
+    let after = &line[cited.get(0).map_or(0, |whole| whole.end())..];
     Some((
-        crate::citation::usc::fold_dashes(&cited[1]),
+        number_before_a_joined_note(&number, after).unwrap_or(number),
         designations_in(&cited[2]),
     ))
+}
+
+/// The cited number, when the publisher's marginal note follows it with no
+/// space between, and the number read so holds the note's title too.
+///
+/// Pub. L. 119-60 § 601(b)(4) prints *"Section 20637 USC 206. of such
+/// title"*: the citation is § 206, and the note is `37 USC 206.` A number
+/// that ends with the note's title, after the note's own section, is read as
+/// the note's section. `None` when no note follows the number so.
+fn number_before_a_joined_note(number: &str, after: &str) -> Option<String> {
+    static NOTE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^\s*USC\s*([0-9][0-9A-Za-z\-]*?)\.")
+            .expect("the joined-note pattern must compile")
+    });
+    let noted = NOTE.captures(after)?.get(1)?.as_str();
+    let title = number.strip_prefix(noted)?;
+    (!title.is_empty() && title.chars().all(|character| character.is_ascii_digit()))
+        .then(|| noted.to_string())
 }
 
 /// The designations of the units the words right before a citation name, the
@@ -1393,7 +1483,9 @@ pub(crate) fn title_a_list_amends(line: &str) -> Option<String> {
 /// 7306* names the section it changes (#438). Another verb does not: in *"by
 /// inserting after section 309"* the section is only where new text goes. The
 /// publisher's marginal note can stand before the words: *"(3) 46 USC 7308.in
-/// section 7308 by striking …"*. An item that edits an index — *"In the
+/// section 7308 by striking …"*. So can the page of the Statutes at Large the
+/// section is on: *"(3) 103 Stat. 171.in section 4(c), by striking …"* (#463).
+/// An item that edits an index — *"In the
 /// analysis for chapter 700 by striking the item relating to section 70006"*
 /// — names no section it acts on.
 pub(crate) fn section_a_list_item_names(words: &str) -> Option<(String, Vec<String>)> {
@@ -1402,6 +1494,8 @@ pub(crate) fn section_a_list_item_names(words: &str) -> Option<(String, Vec<Stri
             r"(?i)^\W*(?:\([0-9A-Za-z]{1,6}\)\s*)?",
             // The publisher's marginal note: `46 USC 7308.`
             r"(?:[0-9]+[A-Za-z]?\s*USC\s*(?:prec\.\s*)?[0-9A-Za-z.\-]*?\.\s*)?",
+            // The page of the Statutes at Large: `103 Stat. 171.`
+            r"(?:[0-9]+\s*Stat\.\s*[0-9]+\.\s*)?",
             r"(?:in|section|by\s+amending\s+section)\b",
         ))
         .expect("the list-item pattern must compile")
