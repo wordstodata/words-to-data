@@ -23,9 +23,11 @@
 //! a gap. "Title 26 except section 174, because the source failed" is a
 //! complete answer; an unexplained absence is not.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::dataset::{DatasetError, WorkId};
+use crate::dataset::{DatasetError, ExpressionId, WorkId};
 use crate::storage::DocumentReader;
 use crate::uslm::path::covers_path;
 
@@ -115,6 +117,13 @@ impl Declaration {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkCoverage {
     pub work: WorkId,
+    /// The document class of this work: the namespace of its root node type,
+    /// such as `uscode`, `bill` or `judicial`.
+    ///
+    /// A projection (`docs/adr/0007`). It is read from the newest expression and
+    /// it is not stored. It is not a link namespace, which is what
+    /// [`Declaration::namespaces`] lists.
+    pub class: String,
     /// The dates this work was published, oldest first.
     pub dates: Vec<String>,
 }
@@ -131,17 +140,19 @@ pub struct Scope {
 impl Scope {
     /// Derive the scope of anything that can read documents.
     ///
-    /// This reads keys only. Asking what a dataset holds no longer costs the
-    /// text of everything it holds.
+    /// This reads keys, and one root node type for each work. Asking what a
+    /// dataset holds no longer costs the text of everything it holds.
     pub fn derive<R: DocumentReader + ?Sized>(reader: &R) -> Result<Self, DatasetError> {
         let mut held = Vec::new();
         for work in reader.works()? {
-            let dates = reader
-                .expressions(&work)?
-                .into_iter()
-                .map(|info| info.id.at)
-                .collect();
-            held.push(WorkCoverage { work, dates });
+            let expressions = reader.expressions(&work)?;
+            // A backend lists a work only when it holds an expression of it.
+            let Some(latest) = expressions.last() else {
+                continue;
+            };
+            let class = class_of(reader, &latest.id)?;
+            let dates = expressions.into_iter().map(|info| info.id.at).collect();
+            held.push(WorkCoverage { work, class, dates });
         }
         Ok(Self {
             held,
@@ -174,6 +185,21 @@ impl Scope {
     /// Every work held, in work order.
     pub fn works(&self) -> impl Iterator<Item = &WorkId> {
         self.held.iter().map(|coverage| &coverage.work)
+    }
+
+    /// Each document class held, with its works in work order.
+    ///
+    /// A command asks this, so that it does not read a class from a work id or
+    /// a path. A class this build does not know is listed like any other.
+    pub fn classes(&self) -> BTreeMap<&str, Vec<WorkId>> {
+        let mut classes: BTreeMap<&str, Vec<WorkId>> = BTreeMap::new();
+        for held in &self.held {
+            classes
+                .entry(held.class.as_str())
+                .or_default()
+                .push(held.work.clone());
+        }
+        classes
     }
 
     /// Every date any work was published, sorted and deduplicated.
@@ -222,5 +248,19 @@ impl Scope {
             }
             _ => Coverage::OutOfScope,
         }
+    }
+}
+
+/// The document class of one expression.
+///
+/// A held expression with no root type is an error and not an empty class: the
+/// storage listed an expression that it cannot read.
+fn class_of<R: DocumentReader + ?Sized>(
+    reader: &R,
+    id: &ExpressionId,
+) -> Result<String, DatasetError> {
+    match reader.root_type(id)? {
+        Some(root) => Ok(root.namespace().to_string()),
+        None => Err(DatasetError::ExpressionNotFound(id.clone())),
     }
 }

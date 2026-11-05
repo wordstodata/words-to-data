@@ -10,7 +10,7 @@ use crate::dataset::{
     SearchAnswer, SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
-use crate::document::DocumentNode;
+use crate::document::{DocumentNode, NodeType};
 use crate::intern::StringInterner;
 use crate::legislature::AmendmentChanges;
 use crate::link::{Link, Target};
@@ -195,6 +195,14 @@ impl DocumentReader for InMemoryStorage {
             .get(&id.work)
             .and_then(|by_date| by_date.get(&id.at))
             .cloned())
+    }
+
+    fn root_type(&self, id: &ExpressionId) -> Result<Option<NodeType>, DatasetError> {
+        Ok(self
+            .expressions
+            .get(&id.work)
+            .and_then(|by_date| by_date.get(&id.at))
+            .map(|expression| expression.root.data.node_type.clone()))
     }
 
     fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {

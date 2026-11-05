@@ -40,7 +40,7 @@ use crate::dataset::{
     SearchResult, WorkId,
 };
 use crate::diff::TreeDiff;
-use crate::document::DocumentNode;
+use crate::document::{DocumentNode, NodeType};
 use crate::link::Link;
 use crate::query::Locator;
 use crate::uslm::bill_parser::Bill;
@@ -147,6 +147,21 @@ pub trait DocumentReader {
     ///
     /// [`works`]: DocumentReader::works
     fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError>;
+
+    /// The node type at the root of one expression, without its tree.
+    ///
+    /// The root says what the whole document is, so its namespace is the
+    /// document class. `None` means this dataset holds no such expression.
+    ///
+    /// This default reads the whole tree. A backend that can read the type
+    /// alone overrides it, because [`Scope::derive`] asks once for each work.
+    ///
+    /// [`Scope::derive`]: crate::dataset::Scope::derive
+    fn root_type(&self, id: &ExpressionId) -> Result<Option<NodeType>, DatasetError> {
+        Ok(self
+            .get_expression(id)?
+            .map(|expression| expression.root.data.node_type))
+    }
 
     /// The next expression of the same work, or `None` at the latest one.
     fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError>;

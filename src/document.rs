@@ -92,6 +92,11 @@ impl NodeType {
     /// decision 4).
     pub const PAGE: &'static str = "judicial.page";
 
+    /// The document classes published at release points: every title again on
+    /// each date. A span of two dates can compare these. A bill and a case are
+    /// published once, so no span of two dates can hold them.
+    pub const RELEASE_POINT_CLASSES: &'static [&'static str] = &[Self::USCODE];
+
     /// One paragraph of a writing, `paragraph_3`.
     pub const PARAGRAPH: &'static str = "judicial.paragraph";
 
