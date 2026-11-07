@@ -334,9 +334,13 @@ fn parse_document(
                 if let Some(pref) = preface {
                     if let Some(doc_num) = pref.children().find(|n| n.has_tag_name("docNumber")) {
                         if let Some(text) = doc_num.text() {
+                            // The print writes `119–21` with an en dash, and the
+                            // work path writes `publiclawdocument_119-21` with a
+                            // hyphen. Write a hyphen here too, so that the law has
+                            // one spelling (#488).
                             DocumentType::Bill {
                                 bill_type: BillType::PublicLaw,
-                                bill_id: text.to_string(),
+                                bill_id: crate::citation::usc::fold_dashes(text),
                             }
                         } else {
                             return Err(ParseError::UnsupportedDocumentType(

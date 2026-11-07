@@ -1,9 +1,10 @@
 use rstest::rstest;
 mod common;
 
+use words_to_data::dataset::{WorkId, public_law_number};
 use words_to_data::document::DocumentNode;
-use words_to_data::uslm::UslmFacts;
 use words_to_data::uslm::parser::{parse, parse_from_str, parse_with_report};
+use words_to_data::uslm::{BillType, DocumentType, UslmFacts};
 
 /// The USLM facts of a node, out of its class payload.
 ///
@@ -334,6 +335,55 @@ fn should_hold_the_bills_section_and_titles_when_a_public_law_is_parsed() {
         "a public law should drop no container it cannot name, got {:?}",
         report.dropped_containers
     );
+}
+
+/// The print writes the number of a public law with an en dash, `119–21`, and
+/// the work path of the law writes it with a hyphen, `publiclawdocument_119-21`.
+/// One law had two spellings, and an exact search with one of them did not find
+/// the other (#488). Each node of the law carries the document type, so each
+/// node must give the hyphen.
+#[test]
+fn should_give_the_bill_id_with_a_hyphen_when_the_print_writes_an_en_dash() {
+    let (root, _) = parse_with_report(PL_XML_PATH, "2025-07-04")
+        .expect("the committed public law should parse");
+
+    let mut all = Vec::new();
+    walk(&root, &mut all);
+    for node in all {
+        match facts(node).document_type {
+            DocumentType::Bill { bill_type, bill_id } => {
+                assert_eq!(bill_type, BillType::PublicLaw);
+                assert_eq!(
+                    bill_id, "119-21",
+                    "{} should give the law's number with a hyphen",
+                    node.data.path
+                );
+            }
+            other => panic!("{} has the document type {other:?}", node.data.path),
+        }
+    }
+}
+
+/// Each committed public law prints its number with an en dash. Its `bill_id`
+/// and the number in its work path are the same text (#488).
+#[rstest]
+#[case::pl_119_21("hr/1")]
+#[case::pl_119_22("hr/42")]
+#[case::pl_119_24("hr/618")]
+#[case::pl_119_39("hr/998")]
+#[case::pl_119_60("s/1071")]
+fn should_give_the_number_of_the_work_path_as_bill_id_when_a_public_law_is_parsed(
+    #[case] bill: &str,
+) {
+    let path = format!("tests/test_data/congress_client_cache/bill/119/{bill}/public_law.xml");
+    let (root, _) = parse_with_report(&path, "2025-07-04").expect("the public law should parse");
+
+    let work = WorkId::new(&*root.data.path);
+    let number = public_law_number(&work).expect("the root names a public law's work");
+    match facts(&root).document_type {
+        DocumentType::Bill { bill_id, .. } => assert_eq!(bill_id, number),
+        other => panic!("{bill} has the document type {other:?}"),
+    }
 }
 
 /// The parser steps into `<main>`, so the root's other children never enter the
