@@ -541,3 +541,78 @@ fn should_never_mark_an_agents_link_outdated_when_a_newer_version_of_its_method_
         "an agent covers only the items it chose, so none of its links is outdated: {outdated:?}"
     );
 }
+
+/// `residue` always gives the count of the outdated links, also when it is 0,
+/// so an agent can tell "no outdated link" from "the output was cut" (#447).
+#[test]
+fn should_print_the_section_with_a_count_of_zero_when_no_link_is_outdated() {
+    let output = run("residue", &[saved_corpus(), "--bill", BILL_ID]);
+    let printed = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        printed
+            .lines()
+            .any(|line| line.trim() == "Links the current method no longer makes (0)"),
+        "residue should print the empty section with its count: {printed}"
+    );
+}
+
+/// The summary at the top gives the count of the outdated links, so the count
+/// is visible when the rows are cut at a screenful (#447).
+#[test]
+fn should_give_the_outdated_count_in_the_summary_when_residue_prints_text() {
+    let output = run("residue", &[saved_re_run(), "--bill", BILL_ID]);
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let summary = printed
+        .split("Work first:")
+        .next()
+        .expect("split gives one part at least");
+
+    let line = summary
+        .lines()
+        .find(|line| line.contains("link(s) the current method no longer makes"))
+        .unwrap_or_else(|| panic!("the summary should count the outdated links: {summary}"));
+    assert_eq!(
+        line.split_whitespace().next(),
+        Some("1"),
+        "one link is outdated: {line}"
+    );
+}
+
+/// `residue --json` gives the outdated count and the outdated links before the
+/// rows. A reader that cuts the JSON after its start still sees them (#447).
+#[test]
+fn should_give_the_outdated_count_and_links_before_the_rows_when_residue_prints_json() {
+    let output = run("residue", &[saved_re_run(), "--bill", BILL_ID, "--json"]);
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&printed).expect("--json should emit json");
+    assert_eq!(json["outdated_count"], 1, "one link is outdated");
+    assert_eq!(json["outdated"].as_array().map(Vec::len), Some(1));
+
+    let place = |key: &str| {
+        printed
+            .find(&format!("\n  \"{key}\":"))
+            .unwrap_or_else(|| panic!("the JSON should have the top-level key {key}"))
+    };
+    assert!(
+        place("outdated_count") < place("rows") && place("outdated") < place("rows"),
+        "the outdated count and links should come before the rows"
+    );
+}
+
+/// `residue --help` names the section of the outdated links and says that the
+/// output always gives its count (#447).
+#[test]
+fn should_name_the_outdated_section_and_its_count_when_residue_help_is_asked_for() {
+    let output = run("residue", &["--help"]);
+    let help = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        help.contains("Links the current method no longer makes"),
+        "the help should name the section: {help}"
+    );
+    assert!(
+        help.contains("outdated_count"),
+        "the help should name the count in --json: {help}"
+    );
+}
