@@ -150,9 +150,16 @@ pub struct WorksBetween {
 /// is one diff per document rather than one over everything. This decides which
 /// documents that is, once, for every command that needs it.
 ///
-/// A work published on only one of the two dates cannot be diffed between them.
-/// It is returned in `skipped` rather than dropped: a run that quietly covered
-/// forty of fifty-eight works would report success for a job it did not do.
+/// Only a class published at release points takes part
+/// ([`NodeType::RELEASE_POINT_CLASSES`]). A bill or a case is published once, so
+/// its absence from a date is no fault, and it is neither paired nor skipped.
+///
+/// A work of such a class published on only one of the two dates cannot be
+/// diffed between them. It is returned in `skipped` rather than dropped: a run
+/// that quietly covered forty of fifty-eight works would report success for a
+/// job it did not do.
+///
+/// [`NodeType::RELEASE_POINT_CLASSES`]: crate::document::NodeType::RELEASE_POINT_CLASSES
 pub fn works_between<R: crate::storage::DocumentReader + ?Sized>(
     reader: &R,
     from: &str,
@@ -161,14 +168,16 @@ pub fn works_between<R: crate::storage::DocumentReader + ?Sized>(
     let mut pairs = Vec::new();
     let mut skipped = Vec::new();
 
-    for work in reader.works()? {
-        let dates: Vec<String> = reader
-            .expressions(&work)?
-            .into_iter()
-            .map(|info| info.id.at)
-            .collect();
+    let release_point_works = crate::dataset::Scope::derive(reader)?
+        .held
+        .into_iter()
+        .filter(|held| {
+            crate::document::NodeType::RELEASE_POINT_CLASSES.contains(&held.class.as_str())
+        });
 
-        if dates.iter().any(|d| d == from) && dates.iter().any(|d| d == to) {
+    for held in release_point_works {
+        let work = held.work;
+        if held.dates.iter().any(|d| d == from) && held.dates.iter().any(|d| d == to) {
             pairs.push((
                 ExpressionId::new(work.clone(), from),
                 ExpressionId::new(work, to),
@@ -223,9 +232,9 @@ pub fn adjacent_expressions<R: crate::storage::DocumentReader + ?Sized>(
 /// before #196 holds the bill's amendments and no document, which is the same
 /// answer: there is nothing here to read.
 ///
-/// Only works whose path opens with a public law's are opened, because reading
-/// every title of the Code to find one bill would cost the whole corpus. The
-/// node type below is what says the class; the path is a filter.
+/// Only works of the bill class are opened, because reading every title of the
+/// Code to find one bill would cost the whole corpus. The work id plays no part,
+/// so a bill document stored under another convention is found too.
 ///
 /// A free function rather than a method, so a read-only report over any backend
 /// can ask for a bill without holding a [`crate::dataset::Dataset`].
@@ -323,27 +332,21 @@ pub fn public_law_number(work: &WorkId) -> Option<&str> {
         .filter(|number| !number.is_empty())
 }
 
-/// Every work whose path opens with a public law's.
+/// Every work of the bill class.
 ///
 /// Only these are opened, because reading every title of the Code to find one
-/// bill would cost the whole corpus. The node type [`law_document`] reads is
-/// what says the class; the path is a filter.
+/// bill would cost the whole corpus.
 fn law_works<R>(reader: &R) -> Result<Vec<WorkId>, crate::dataset::DatasetError>
 where
     R: crate::storage::DocumentReader + ?Sized,
 {
-    let opens_a_public_law = format!(
-        "{}_",
-        crate::uslm::ElementType::PublicLawDocument.path_segment_name()
-    );
-    Ok(reader
-        .works()?
-        .into_iter()
-        .filter(|work| work.as_str().starts_with(&opens_a_public_law))
-        .collect())
+    Ok(crate::dataset::Scope::derive(reader)?
+        .classes()
+        .remove(crate::document::NodeType::BILL)
+        .unwrap_or_default())
 }
 
-/// The newest expression of `work`, when it is a bill's document.
+/// The newest expression of a bill's work.
 fn law_document<R>(
     reader: &R,
     work: &WorkId,
@@ -354,13 +357,7 @@ where
     let Some(latest) = reader.expressions(work)?.pop() else {
         return Ok(None);
     };
-    let Some(expression) = reader.get_expression(&latest.id)? else {
-        return Ok(None);
-    };
-    if expression.root.data.node_type.namespace() != crate::document::NodeType::BILL {
-        return Ok(None);
-    }
-    Ok(Some(expression))
+    reader.get_expression(&latest.id)
 }
 
 /// Split a parsed tree into the works it holds.

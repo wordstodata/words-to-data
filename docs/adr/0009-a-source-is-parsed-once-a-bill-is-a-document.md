@@ -37,7 +37,7 @@ Four parts follow from it:
 
 **`redesignations` drops `--bill-xml` and `--bill-id`.** Its flags become a span, and `build-dataset` records the links itself as part of loading a bill (#150).
 
-**`works_between` will list every bill as skipped.** It walks every work in the reader, so `--between 2025-07-18 2025-07-30` will report "Skipping 5 work(s) not held at both dates: bill/119-hr-1, …". That is a true statement made in a misleading place, and it belongs to #148 — a dataset cannot declare which document classes it holds, so a command cannot ask for the Code alone. We accept the noise rather than grow a second collection to hide it.
+**`works_between` will list every bill as skipped.** It walks every work in the reader, so `--between 2025-07-18 2025-07-30` will report "Skipping 5 work(s) not held at both dates: bill/119-hr-1, …". That is a true statement made in a misleading place, and it belongs to #148 — a dataset cannot declare which document classes it holds, so a command cannot ask for the Code alone. We accept the noise rather than grow a second collection to hide it. #148 removed the noise: a dataset now derives the class of each work from its root node type (`Scope::classes`), and a span reads only the classes published at release points.
 
 **A reader that wants the bill's words no longer needs the Congress cache.** Today a dataset is not self-contained for this question: the answer lives in a file beside it.
 

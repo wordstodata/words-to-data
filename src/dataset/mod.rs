@@ -26,7 +26,7 @@ use crate::congress::{
     BillDownload, BillVotes, CosponsorRecord, HouseRollCall, Member, SponsorInfo, VotePosition,
 };
 use crate::diff::{Redesignations, TreeDiff};
-use crate::document::DocumentNode;
+use crate::document::{DocumentNode, NodeType};
 use crate::legislature::redesignation::{self, RedesignationReport};
 use crate::link::{Link, ProvisionHistory};
 use crate::method::{Method, MethodRun};
@@ -1012,6 +1012,10 @@ impl<S: Storage> DocumentReader for Dataset<S> {
 
     fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
         self.storage.get_expression(id)
+    }
+
+    fn root_type(&self, id: &ExpressionId) -> Result<Option<NodeType>, DatasetError> {
+        self.storage.root_type(id)
     }
 
     fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
