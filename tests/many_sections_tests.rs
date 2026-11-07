@@ -508,8 +508,14 @@ fn strings_named(why: &str) -> Vec<String> {
 /// names is quoted in that item's own words, and not only in another item's.
 /// Pub. L. 119-60 § 8402(a) and § 7701(g) quote "Secretary", "subsection
 /// (d)" and other words in more than one item.
+///
+/// The evidence quotes a string without the Stat. page marks inside it
+/// (#485), so the item's words are read without them too. § 8402(a)(3)(B)(i)
+/// inserts ", acting through … Natural Resources and 139 STAT. 1910 the
+/// Committee on Science, …".
 #[test]
 fn should_name_only_the_items_own_quoted_words_when_items_of_one_list_quote_different_words() {
+    let page_mark = regex::Regex::new(r"\s*\d+\s+STAT\.\s+\d+\s*").expect("the page mark compiles");
     let law = committed_law(NDAA, NDAA_ID);
     let mut checked = 0;
     for id in ["331284f0c930", "c1213b7b65b7"] {
@@ -520,7 +526,7 @@ fn should_name_only_the_items_own_quoted_words_when_items_of_one_list_quote_diff
             let item = law
                 .find(&answer.address.path)
                 .expect("the item is in the law");
-            let words = words_below(item);
+            let words = page_mark.replace_all(&words_below(item), " ").into_owned();
             for change in &linked.changes {
                 for string in strings_named(&change.why) {
                     assert!(
