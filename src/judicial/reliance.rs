@@ -512,18 +512,7 @@ fn place_of(link: &Link, reviews: &[Link]) -> CitedPlace {
         .unwrap_or_default();
     let mut written: Vec<String> = Vec::new();
     let mut unresolved: Vec<String> = Vec::new();
-    let mut editions: Vec<CitedEdition> = Vec::new();
     for place in places {
-        let edition = &place["edition"];
-        if let (Some(written), Some(year)) = (edition["written"].as_str(), edition["year"].as_str())
-            && !editions.iter().any(|known| known.written == written)
-        {
-            editions.push(CitedEdition {
-                written: written.to_string(),
-                year: year.to_string(),
-                printings: Vec::new(),
-            });
-        }
         if let Some(form) = place["written"].as_str()
             && !written.iter().any(|known| known == form)
         {
@@ -562,8 +551,55 @@ fn place_of(link: &Link, reviews: &[Link]) -> CitedPlace {
             .and_then(|value| value["time_basis"].as_str())
             .map(str::to_string),
         printings_of_time_basis: Vec::new(),
-        editions,
+        editions: editions_named(link),
     }
+}
+
+/// Each edition of the Code a citation link names after the citation, once,
+/// with the printings of the cited title this dataset holds from its year
+/// (#414). Empty when the link names none.
+///
+/// `path` and `settle --explain` read a link with this, so that they say what
+/// `cases-citing` says of the same link.
+pub fn editions_cited<R: DocumentReader + ?Sized>(
+    reader: &R,
+    link: &Link,
+) -> Result<Vec<CitedEdition>, DatasetError> {
+    let mut editions = editions_named(link);
+    // The scope is read only for a link that names an edition: most do not.
+    let Some(cited) = link.object.path().filter(|_| !editions.is_empty()) else {
+        return Ok(editions);
+    };
+    let scope = Scope::derive(reader)?;
+    for edition in &mut editions {
+        edition.printings = printings_in_year(reader, &scope, cited, &edition.year)?;
+    }
+    Ok(editions)
+}
+
+/// Each edition the places in the link's payload name, once, in the order
+/// they name it (#449). The printings are not read here.
+fn editions_named(link: &Link) -> Vec<CitedEdition> {
+    let places = link
+        .payload
+        .as_ref()
+        .and_then(|payload| payload.value["occurrences"].as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut editions: Vec<CitedEdition> = Vec::new();
+    for place in places {
+        let edition = &place["edition"];
+        if let (Some(written), Some(year)) = (edition["written"].as_str(), edition["year"].as_str())
+            && !editions.iter().any(|known| known.written == written)
+        {
+            editions.push(CitedEdition {
+                written: written.to_string(),
+                year: year.to_string(),
+                printings: Vec::new(),
+            });
+        }
+    }
+    editions
 }
 
 /// The dates of the printings held of the work that holds `path`, from the

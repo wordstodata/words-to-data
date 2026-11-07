@@ -19,6 +19,7 @@ mod convert_dataset;
 mod coverage;
 mod declare;
 mod diff;
+mod edition;
 mod expressions;
 mod fail;
 mod held;
