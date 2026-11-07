@@ -396,6 +396,14 @@ fn print_citation(citation: &CitationLink, indent: &str) {
         trust_of(citation.verification, citation.review.as_ref()),
         citation.id
     );
+    // The edition first, because it says whether the law at the cited number
+    // is the law the court read (#414).
+    for edition in &citation.editions {
+        println!(
+            "{indent}  {}",
+            crate::edition::warning(edition, &citation.cited_path)
+        );
+    }
     if !citation.unresolved.is_empty() {
         println!(
             "{indent}  {} of what the court wrote leads to no provision in the printing \

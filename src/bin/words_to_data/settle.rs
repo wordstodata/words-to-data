@@ -21,6 +21,7 @@
 use clap::{Args as ClapArgs, ValueEnum};
 use words_to_data::dataset::Dataset;
 use words_to_data::inspect::{self, EvidenceWords};
+use words_to_data::judicial::reliance;
 use words_to_data::legislature::evidence_matching::{Recorded, RecordedSource};
 use words_to_data::legislature::outdated::outdated_link;
 use words_to_data::link::{Link, Named, Target};
@@ -293,9 +294,27 @@ fn print_wrapped(text: &str, indent: &str) {
 /// What a verdict rests on: how the link was made, the words at its ends,
 /// and the OLRC's classification of the section they sit in.
 fn print_evidence<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
+    print_editions(dataset, reviewed);
     print_how_made(dataset, reviewed);
     print_words_at_the_ends(dataset, reviewed);
     print_olrc(dataset, reviewed);
+}
+
+/// Each edition of the Code the citation names, as `cases-citing` says it
+/// (#414). Said before the evidence, because the cited words below are from
+/// a printing the dataset holds, and the court can have read a different
+/// provision at that number. Said only for a link that names an edition.
+fn print_editions<S: Storage>(dataset: &Dataset<S>, reviewed: &Link) {
+    let editions = crate::fail::or_exit(
+        reliance::editions_cited(dataset, reviewed),
+        "Error reading the editions the citation names",
+    );
+    let Some(cited) = reviewed.object.path() else {
+        return;
+    };
+    for edition in &editions {
+        println!("\n  {}", crate::edition::warning(edition, cited));
+    }
 }
 
 /// The OLRC's classifications of the section the link's subject belongs to.

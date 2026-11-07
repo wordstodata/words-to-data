@@ -402,3 +402,160 @@ fn should_name_the_year_on_the_line_with_no_window_when_the_opinion_writes_only_
         "no word is missing, got:\n{stdout}"
     );
 }
+
+/// What `cases-citing` says of an edition the dataset does not hold, as `path`
+/// and `settle --explain` must say it too (#414).
+const WARNING_1976: &str = "the opinion cites the Code of 1976, written \"(1976 ed.)\" after the \
+citation. This dataset holds no printing of title 8 from 1976, so that law is out of scope. A \
+section number can be used again, so the provision now at that number can be a different \
+provision from the one the court read.";
+
+/// The link from the *Windsor* dissent to § 1105a(a), by its short id.
+fn link_to_1105a_a() -> String {
+    let links = citation_links();
+    let link = links
+        .iter()
+        .find(|link| link.object.path() == Some(SECTION_1105A_A))
+        .expect("one passage cites § 1105a(a)");
+    words_to_data::review::short_id(&link.id()).to_string()
+}
+
+#[test]
+fn should_warn_under_the_link_when_path_reads_a_citation_of_an_edition_not_held() {
+    let output = run(&["path", dataset_path(), SECTION_1105A_A]);
+    let stdout = stdout_of(&output);
+
+    let link = format!("[link {}]", link_to_1105a_a());
+    let lines: Vec<&str> = stdout.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.contains(&link))
+        .unwrap_or_else(|| panic!("path lists the link, got:\n{stdout}"));
+    assert_eq!(
+        lines.get(at + 1).map(|line| line.trim()),
+        Some(WARNING_1976),
+        "the warning is the line under the link, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn should_give_the_edition_on_the_link_when_path_json_reads_a_citation_of_an_edition() {
+    let output = run(&["path", dataset_path(), SECTION_1105A_A, "--json"]);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout_of(&output)).expect("path --json should print JSON");
+
+    let link = link_to_1105a_a();
+    let [citation] = report["citations"]
+        .as_array()
+        .expect("the report lists citations")
+        .iter()
+        .filter(|citation| citation["id"] == link.as_str())
+        .collect::<Vec<_>>()
+        .try_into()
+        .expect("the report lists the link once");
+    assert_eq!(
+        citation["editions"],
+        serde_json::json!([{ "written": "1976 ed.", "year": "1976", "printings": [] }]),
+        "the edition is a field of the link"
+    );
+}
+
+#[test]
+fn should_warn_before_the_evidence_when_settle_explains_a_citation_of_an_edition_not_held() {
+    let output = run(&[
+        "settle",
+        dataset_path(),
+        "--link",
+        &link_to_1105a_a(),
+        "--explain",
+    ]);
+    let stdout = stdout_of(&output);
+
+    let warning = stdout
+        .find(WARNING_1976)
+        .unwrap_or_else(|| panic!("settle --explain gives the warning, got:\n{stdout}"));
+    let evidence = stdout
+        .find("How it was made:")
+        .unwrap_or_else(|| panic!("settle --explain shows the evidence, got:\n{stdout}"));
+    assert!(
+        warning < evidence,
+        "the warning comes before the evidence, got:\n{stdout}"
+    );
+}
+
+/// A link of the title 26 fixture that names no edition, to a provision that
+/// no link with an edition cites: its short id and the cited path.
+fn link_with_no_edition() -> (String, String) {
+    let links = Dataset::open_sqlite(title_26_path())
+        .expect("the fixture should open")
+        .links_by_kind(LinkKind::CITES)
+        .expect("the links should read");
+    let names_edition = |link: &Link| {
+        link.payload.as_ref().is_some_and(|payload| {
+            payload.value["occurrences"]
+                .as_array()
+                .is_some_and(|places| places.iter().any(|place| place.get("edition").is_some()))
+        })
+    };
+    let with_edition: Vec<&str> = links
+        .iter()
+        .filter(|link| names_edition(link))
+        .filter_map(|link| link.object.path())
+        .collect();
+    let link = links
+        .iter()
+        .find(|link| {
+            !names_edition(link)
+                && link
+                    .object
+                    .path()
+                    .is_some_and(|path| !with_edition.iter().any(|cited| cited.starts_with(path)))
+        })
+        .expect("the fixture holds a citation with no edition");
+    (
+        words_to_data::review::short_id(&link.id()).to_string(),
+        link.object
+            .path()
+            .expect("a citation names a path")
+            .to_string(),
+    )
+}
+
+#[test]
+fn should_print_no_edition_when_path_and_settle_read_a_citation_that_names_none() {
+    let (link, cited) = link_with_no_edition();
+
+    let shown = stdout_of(&run(&["path", title_26_path(), &cited]));
+    assert!(
+        shown.contains(&format!("[link {link}]")),
+        "path lists the link, got:\n{shown}"
+    );
+    let explained = stdout_of(&run(&[
+        "settle",
+        title_26_path(),
+        "--link",
+        &link,
+        "--explain",
+    ]));
+    for stdout in [&shown, &explained] {
+        assert!(
+            !stdout.contains("the opinion cites the Code of")
+                && !stdout.contains("A section number can be used again"),
+            "no edition is said, got:\n{stdout}"
+        );
+    }
+
+    let report: serde_json::Value = serde_json::from_str(&stdout_of(&run(&[
+        "path",
+        title_26_path(),
+        &cited,
+        "--json",
+    ])))
+    .expect("path --json should print JSON");
+    for citation in report["citations"].as_array().expect("citations") {
+        assert!(
+            citation.get("editions").is_none(),
+            "a link that names no edition has no editions field, got {citation}"
+        );
+    }
+}

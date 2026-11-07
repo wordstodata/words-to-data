@@ -41,13 +41,14 @@ use words_to_data::dataset::{Coverage, Expression, ExpressionId, WorkId};
 use words_to_data::document::{DocumentNode, NodeType, TextContentField};
 use words_to_data::judicial::range::CitedRange;
 use words_to_data::judicial::reliance::{
-    self, ChangeWindow, ChangedAbove, CitedEdition, CitedProvision, Citing, CitingCase, Relation,
+    self, ChangeWindow, ChangedAbove, CitedProvision, Citing, CitingCase, Relation,
 };
 use words_to_data::link::{LinkKind, Target, amendment_reference_parts};
 use words_to_data::method::Method;
 use words_to_data::query::{Locator, PathMatch};
 use words_to_data::storage::Storage;
 
+use crate::edition;
 use crate::load::with_dataset;
 
 #[derive(ClapArgs)]
@@ -545,12 +546,7 @@ fn report_ranges(ranges: &[CitedRange]) {
 
 /// The number of the title the cited path is in: `26` for `uscode/title_26/…`.
 fn title_of(cited: &CitedProvision) -> &str {
-    cited
-        .path
-        .split('/')
-        .nth(1)
-        .and_then(|segment| segment.strip_prefix("title_"))
-        .unwrap_or("?")
+    edition::title_of(&cited.path)
 }
 
 /// When the court read the law, and which printing the citation was resolved
@@ -595,36 +591,16 @@ fn report_dates(cited: &CitedProvision) {
             }
         }
         for edition in &place.editions {
-            let cites = cites_edition(edition);
-            let year = &edition.year;
-            let line = match edition.printings.as_slice() {
-                [] => format!(
-                    "      {cites}. This dataset holds no printing of title {title} from \
-                     {year}, so that law is out of scope."
-                ),
-                dates => format!(
-                    "      {cites}. This dataset holds the printing(s) of {} from {year}.",
-                    dates.join(", ")
-                ),
-            };
+            let line = format!(
+                "      {}. {}",
+                edition::cites(edition),
+                edition::held(edition, title)
+            );
             if said.insert(line.clone()) {
                 println!("{line}");
             }
         }
     }
-}
-
-/// The opinion cites an edition: `the opinion cites the Code of 1986, written
-/// "(1986)" after the citation`. The year comes first, and the words in the
-/// brackets follow as the court wrote them, because they can be a year alone,
-/// `1986`, and "the 1986 of the Code" is not English (#470). For title 26 a
-/// year alone can name the Internal Revenue Code of that year, and "the Code
-/// of 1986" stays true then too.
-fn cites_edition(edition: &CitedEdition) -> String {
-    format!(
-        "the opinion cites the Code of {}, written \"({})\" after the citation",
-        edition.year, edition.written
-    )
 }
 
 /// What the opinion wrote below the section, and where it leads.
@@ -675,14 +651,14 @@ fn report_since(cited: &CitedProvision) {
             .flat_map(|place| &place.editions)
             .find(|edition| &edition.written == written);
         let (cites, held) = match edition {
-            Some(edition) => (cites_edition(edition), "from that year"),
+            Some(edition) => (edition::cites(edition), "from that year"),
             None => (format!("the opinion cites \"({written})\""), "of it"),
         };
         println!(
             "      no window is given: {cites}, and this dataset holds no printing of \
-             title {} {held}. A section number can be used again, so the provision now \
-             at that number can be a different provision from the one the court read.",
-            title_of(cited)
+             title {} {held}. {}",
+            title_of(cited),
+            edition::NUMBER_USED_AGAIN
         );
     } else if since.windows.is_empty() {
         match since.printings_after {

@@ -12,6 +12,7 @@ use serde::Serialize;
 use crate::citation::resolve::stub_heading;
 use crate::dataset::{DatasetError, ExpressionId};
 use crate::judicial::range::{CitedRange, ranges_of};
+use crate::judicial::reliance::{CitedEdition, editions_cited};
 use crate::link::{Link, LinkKind, Target, VerificationState};
 use crate::query::{ObjectPlace, PathMatch, ReviewStatus, links_by_object};
 use crate::review::{Review, newest_naming, short_id};
@@ -83,6 +84,12 @@ pub struct CitationLink {
     /// as it was.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ranges: Vec<CitedRange>,
+    /// Each edition of the Code the passage names after the citation, such as
+    /// `1994 ed., Supp. II`, with the printings of the cited title this dataset
+    /// holds from its year (#414). Absent from the JSON when the passage names
+    /// none, so that row stays as it was.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub editions: Vec<CitedEdition>,
 }
 
 /// Every `judicial.cites` link that names `path` at either end, ordered by the
@@ -108,7 +115,8 @@ pub fn citations_naming<R: DocumentReader + LinkReader + ?Sized>(
             .subject
             .path()
             .is_some_and(|opinion| matching.accepts(path, opinion));
-        if cites && let Some(row) = row_of(&link, PathRole::CitingOpinion, &reviews) {
+        if cites && let Some(mut row) = row_of(&link, PathRole::CitingOpinion, &reviews) {
+            row.editions = editions_cited(reader, &link)?;
             rows.push(row);
         }
     }
@@ -118,7 +126,8 @@ pub fn citations_naming<R: DocumentReader + LinkReader + ?Sized>(
             ObjectPlace::BeneathPath => PathRole::CitedBeneathPath,
             ObjectPlace::AbovePath => PathRole::CitedAbovePath,
         };
-        if let Some(row) = row_of(&link, role, &reviews) {
+        if let Some(mut row) = row_of(&link, role, &reviews) {
+            row.editions = editions_cited(reader, &link)?;
             rows.push(row);
         }
     }
@@ -199,6 +208,8 @@ fn row_of(link: &Link, role: PathRole, reviews: &[Link]) -> Option<CitationLink>
         review,
         // Read for every row at once, by `citations_naming`.
         ranges: Vec::new(),
+        // Read by `citations_naming`, which holds the reader.
+        editions: Vec::new(),
     })
 }
 
