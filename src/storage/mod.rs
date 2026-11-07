@@ -148,6 +148,20 @@ pub trait DocumentReader {
     /// [`works`]: DocumentReader::works
     fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError>;
 
+    /// Each expression of `ids`, in the same order: what
+    /// [`DocumentReader::get_expression`] gives for each.
+    ///
+    /// A title of the Code takes seconds to read, and a reader that compares
+    /// the windows of a work needs each of its expressions. This default reads
+    /// them one after the other. A backend that can read them at the same time
+    /// overrides it (#426).
+    fn get_expressions(
+        &self,
+        ids: &[ExpressionId],
+    ) -> Result<Vec<Option<Expression>>, DatasetError> {
+        ids.iter().map(|id| self.get_expression(id)).collect()
+    }
+
     /// The node type at the root of one expression, without its tree.
     ///
     /// The root says what the whole document is, so its namespace is the

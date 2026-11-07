@@ -51,18 +51,22 @@
 //! computable for the residue report (#251).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::sync::LazyLock;
 
+use rayon::prelude::*;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::dataset::{Dataset, DatasetError, ExpressionId, WorkId};
+use crate::dataset::{
+    Dataset, DatasetError, ExpressionId, ExpressionPair, WorkId, window_documents,
+};
 use crate::diff::{FieldChangeEvent, TreeDiff};
 use crate::document::{DocumentNode, NodeData};
 use crate::inspect::provision_words;
 use crate::legislature::AmendingAction;
 use crate::legislature::redesignation::Reason;
-use crate::legislature::redesignation::{SectionIndex, Step, walk_down};
+use crate::legislature::redesignation::{SectionIndex, Step, WindowIndexes, walk_down};
 use crate::link::{
     Evidence, KindPayload, Link, LinkKind, Provenance, Target, VerificationState,
     amendment_reference,
@@ -774,8 +778,10 @@ fn work_of(section: &str) -> Option<WorkId> {
 struct WindowView {
     from: ExpressionId,
     to: ExpressionId,
-    earlier: DocumentNode,
-    later: DocumentNode,
+    /// Shared with the window before, whose later document it is.
+    earlier: Arc<DocumentNode>,
+    /// Shared with the window after, whose earlier document it is.
+    later: Arc<DocumentNode>,
     /// Every change in the window, in document order.
     changes: Vec<Change>,
     /// Who made each renumbering in the window.
@@ -839,16 +845,20 @@ fn match_in_work<S: Storage + LegislatureReader>(
     // removed whole: the first such window, and the changes that hold the
     // address.
     let mut enclosed: BTreeMap<usize, Placed> = BTreeMap::new();
+    let documents: Vec<_> = windows
+        .iter()
+        .map(|view| (&*view.earlier, &*view.later))
+        .collect();
+    let indexes = WindowIndexes::of(&documents);
     for (window, view) in windows.iter().enumerate() {
-        let later = SectionIndex::of(&view.later);
-        let earlier = SectionIndex::of(&view.earlier);
+        let (earlier, later) = indexes.of_window(window);
         for &at in members {
             let amendment = &stated[at];
             if !window_can_hold(&amendment.enacted, &view.to.at) {
                 continue;
             }
             looked_for.insert(at);
-            let Some((section, under)) = address_path(&later, &earlier, &amendment.address) else {
+            let Some((section, under)) = address_path(later, earlier, &amendment.address) else {
                 continue;
             };
             let renumbered_later = |by: &str| {
@@ -1059,10 +1069,14 @@ fn match_in_work<S: Storage + LegislatureReader>(
             });
         }
     }
-    Ok(windows
-        .into_iter()
-        .map(|view| (view.from, view.to))
-        .collect())
+    let read = windows
+        .iter()
+        .map(|view| (view.from.clone(), view.to.clone()))
+        .collect();
+    // Freeing the documents of a title takes a good part of the time reading
+    // them takes, so they are freed at the same time (#426).
+    windows.into_par_iter().for_each(drop);
+    Ok(read)
 }
 
 /// The change an amendment that only adds made inside a provision the window
@@ -1230,32 +1244,47 @@ pub fn window_can_hold(enacted: &str, window_end: &str) -> bool {
 
 /// Every window of a work that can hold a change made on `enacted`, oldest
 /// first, each read and diffed once.
+///
+/// The later expression of one window is the earlier one of the next, so each
+/// expression is read once, and the windows share it. The expressions are
+/// read, and the windows diffed, at the same time (#426).
 fn windows_after<S: Storage + LegislatureReader>(
     dataset: &Dataset<S>,
     work: &WorkId,
     enacted: &str,
 ) -> Result<Vec<WindowView>, DatasetError> {
     let held = dataset.expressions(work)?;
-    let mut views = Vec::new();
-    for pair in held.windows(2) {
-        let (from, to) = (pair[0].id.clone(), pair[1].id.clone());
-        if !window_can_hold(enacted, &to.at) {
-            continue;
-        }
-        let (Some(earlier), Some(later)) =
-            (dataset.get_expression(&from)?, dataset.get_expression(&to)?)
-        else {
-            continue;
-        };
-        let diff = dataset.compute_diff(&from, &to)?;
+    let windows: Vec<ExpressionPair> = held
+        .windows(2)
+        .map(|pair| (pair[0].id.clone(), pair[1].id.clone()))
+        .filter(|(_, to)| window_can_hold(enacted, &to.at))
+        .collect();
+    let documents = window_documents(dataset, &windows)?;
+    // A window whose expression the dataset does not hold is left out.
+    let read: Vec<_> = windows
+        .into_iter()
+        .filter_map(|(from, to)| {
+            let earlier = Arc::clone(documents.get(&from)?);
+            let later = Arc::clone(documents.get(&to)?);
+            Some((from, to, earlier, later))
+        })
+        .collect();
+    let diffs = dataset.diffs_of(
+        &read
+            .iter()
+            .map(|(from, to, earlier, later)| ((from, &**earlier), (to, &**later)))
+            .collect::<Vec<_>>(),
+    )?;
+    let mut views = Vec::with_capacity(read.len());
+    for ((from, to, earlier, later), diff) in read.into_iter().zip(diffs) {
         let renumberings = renumberings(&dataset.storage().links_for_pair(&from, &to)?);
         let mut changes = Vec::new();
-        collect_changes(&diff, &later.root, &renumberings, &mut changes);
+        collect_changes(&diff, &later, &renumberings, &mut changes);
         views.push(WindowView {
             from,
             to,
-            earlier: earlier.root,
-            later: later.root,
+            earlier,
+            later,
             changes,
             renumberings,
         });

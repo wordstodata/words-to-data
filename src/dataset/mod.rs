@@ -11,8 +11,8 @@ pub use error::DatasetError;
 pub use scope::{Coverage, DateRange, Declaration, Exclusion, Scope, WorkCoverage};
 pub use work::{
     Expression, ExpressionId, ExpressionInfo, ParseExpressionIdError, WorkId, WorksBetween,
-    adjacent_expressions, bill_document, bill_public_laws, public_law_number, work_roots,
-    works_between,
+    adjacent_expressions, bill_document, bill_public_laws, public_law_number, window_documents,
+    work_roots, works_between,
 };
 
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
+
+use rayon::prelude::*;
 
 use crate::annotation::ChangeAnnotation;
 use crate::congress::{
@@ -141,6 +143,14 @@ fn invalid_data(cause: &dyn std::fmt::Display) -> DatasetError {
 /// The two expressions an annotation sits between. Both name the same work.
 pub type ExpressionPair = (ExpressionId, ExpressionId);
 
+/// One window whose two documents are read already, for
+/// [`Dataset::diffs_of`]: the earlier expression and its root, then the later
+/// expression and its root.
+pub type ReadWindow<'a> = (
+    (&'a ExpressionId, &'a DocumentNode),
+    (&'a ExpressionId, &'a DocumentNode),
+);
+
 /// A collection of versioned legal documents with bill annotations
 ///
 /// Generic over storage backend. Use `Dataset<InMemoryStorage>` for in-memory
@@ -205,6 +215,15 @@ impl<S: Storage> Dataset<S> {
     /// expression is not mistaken for an absent document.
     pub fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
         self.storage.get_expression(id)
+    }
+
+    /// Each expression of `ids`, in the same order, read at the same time
+    /// where the backend can. See [`DocumentReader::get_expressions`].
+    pub fn get_expressions(
+        &self,
+        ids: &[ExpressionId],
+    ) -> Result<Vec<Option<Expression>>, DatasetError> {
+        self.storage.get_expressions(ids)
     }
 
     /// The next expression of the same work, or `None` at the latest one.
@@ -283,6 +302,35 @@ impl<S: Storage> Dataset<S> {
             &to_expression.root,
             &known,
         ))
+    }
+
+    /// [`Dataset::compute_diff`] of each window, whose two documents the caller
+    /// has read already. A window is its earlier expression and that
+    /// expression's root, then its later expression and that root.
+    ///
+    /// A title of the Code takes seconds to read, so a caller that holds the
+    /// documents gives them here, and they are not read again (#426). The
+    /// windows are diffed at the same time. Each diff is the one
+    /// [`Dataset::compute_diff`] gives for the two ids, in the order of
+    /// `windows`.
+    pub fn diffs_of(&self, windows: &[ReadWindow<'_>]) -> Result<Vec<TreeDiff>, DatasetError> {
+        let mut known = Vec::with_capacity(windows.len());
+        for ((from, _), (to, _)) in windows {
+            if from.work != to.work {
+                return Err(DatasetError::WorkMismatch {
+                    from: from.work.clone(),
+                    to: to.work.clone(),
+                });
+            }
+            known.push(self.redesignations_over(from, to)?);
+        }
+        Ok(windows
+            .par_iter()
+            .zip(&known)
+            .map(|(((_, earlier), (_, later)), known)| {
+                TreeDiff::from_nodes_with(earlier, later, known)
+            })
+            .collect())
     }
 
     /// The renumberings between two dates of one work, window by window.
@@ -1012,6 +1060,13 @@ impl<S: Storage> DocumentReader for Dataset<S> {
 
     fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
         self.storage.get_expression(id)
+    }
+
+    fn get_expressions(
+        &self,
+        ids: &[ExpressionId],
+    ) -> Result<Vec<Option<Expression>>, DatasetError> {
+        self.storage.get_expressions(ids)
     }
 
     fn root_type(&self, id: &ExpressionId) -> Result<Option<NodeType>, DatasetError> {

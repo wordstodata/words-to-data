@@ -785,18 +785,28 @@ fn field_changes(element_a: &DocumentNode, element_b: &DocumentNode) -> Vec<Fiel
     ]
     .into_iter()
     {
-        let field_changes = diff_field(element_a, element_b, field_name);
         // A field is a change only when its words differ. Two texts that differ
         // only in format characters, such as the soft hyphen the Code puts in
         // "rec\u{ad}ords", read the same, and search reads them the same (#363).
         // Every reader of a diff comes through here, so `diff`, `cases-citing`,
         // `residue` and `coverage` cannot come to disagree about it.
-        let has_real_changes =
-            !equal_but_for_format(&field_changes.old_value, &field_changes.new_value)
-                && field_changes
-                    .changes
-                    .iter()
-                    .any(|c| c.tag != TextChangeType::Equal);
+        //
+        // The check comes before the word diff. Almost every field of a title
+        // is the same on both dates, and a word diff of a field that did not
+        // change was most of the time a diff of a whole title took (#426).
+        let old_value = element_a.data.get_text_content(field_name);
+        let new_value = element_b.data.get_text_content(field_name);
+        if equal_but_for_format(
+            old_value.as_deref().unwrap_or_default(),
+            new_value.as_deref().unwrap_or_default(),
+        ) {
+            continue;
+        }
+        let field_changes = diff_field(element_a, element_b, field_name);
+        let has_real_changes = field_changes
+            .changes
+            .iter()
+            .any(|c| c.tag != TextChangeType::Equal);
         if has_real_changes {
             changes.push(field_changes);
         }

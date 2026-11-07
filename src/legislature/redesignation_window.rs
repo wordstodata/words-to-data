@@ -38,15 +38,18 @@
 //! back. Two documents compared by position say whether anything changed at
 //! all, which is the whole question here.
 
+use std::sync::Arc;
+
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::dataset::{DatasetError, ExpressionId, ExpressionPair, WorkId};
+use crate::dataset::{DatasetError, ExpressionId, ExpressionPair, WorkId, window_documents};
 use crate::diff::TreeDiff;
 use crate::document::DocumentNode;
 use crate::legislature::evidence_matching::window_can_hold;
 use crate::legislature::redesignation::{
     Reader, Reason, RedesignationReport, SectionIndex, StatedRedesignation, UnplacedStatement,
-    resolve, walk_down,
+    WindowIndexes, resolve, walk_down,
 };
 use crate::link::{Link, LinkKind, Target, VerificationState};
 use crate::review::{Verdict, newest_naming};
@@ -205,14 +208,31 @@ pub fn place_beside<R: DocumentReader + ?Sized>(
 
     let mut reports = Vec::new();
     for work in works_of(windows) {
+        let of_work: Vec<ExpressionPair> = windows
+            .iter()
+            .filter(|(from, _)| from.work == work)
+            .cloned()
+            .collect();
+        if let Some((from, to)) = of_work.iter().find(|(from, to)| from.work != to.work) {
+            return Err(DatasetError::WorkMismatch {
+                from: from.work.clone(),
+                to: to.work.clone(),
+            });
+        }
+        let documents = window_documents(reader, &of_work)?;
+        let document = |id: &ExpressionId| {
+            documents
+                .get(id)
+                .cloned()
+                .ok_or_else(|| DatasetError::ExpressionNotFound(id.clone()))
+        };
         let mut views = Vec::new();
-        for (from, to) in windows.iter().filter(|(from, _)| from.work == work) {
-            let (earlier, later) = crate::storage::memory::require_same_work(reader, from, to)?;
+        for (from, to) in of_work.iter() {
             views.push(WindowView {
+                earlier: document(from)?,
+                later: document(to)?,
                 from: from.clone(),
                 to: to.clone(),
-                earlier: earlier.root,
-                later: later.root,
             });
         }
         // Oldest first, so the first window that qualifies is the earliest.
@@ -226,6 +246,10 @@ pub fn place_beside<R: DocumentReader + ?Sized>(
             &mut placement,
             &mut reports,
         );
+        // Freeing the documents of a title takes a good part of the time
+        // reading them takes, so they are freed at the same time (#426).
+        drop(documents);
+        views.into_par_iter().for_each(drop);
     }
     placement.windows = windows
         .iter()
@@ -245,8 +269,10 @@ pub fn place_beside<R: DocumentReader + ?Sized>(
 struct WindowView {
     from: ExpressionId,
     to: ExpressionId,
-    earlier: DocumentNode,
-    later: DocumentNode,
+    /// Shared with each other window that holds this expression.
+    earlier: Arc<DocumentNode>,
+    /// Shared with each other window that holds this expression.
+    later: Arc<DocumentNode>,
 }
 
 impl WindowView {
@@ -300,15 +326,11 @@ fn place_in_work(
     placement: &mut Placement,
     reports: &mut Vec<(ExpressionPair, RedesignationReport)>,
 ) {
-    let indexes: Vec<(SectionIndex, SectionIndex)> = views
+    let documents: Vec<_> = views
         .iter()
-        .map(|view| {
-            (
-                SectionIndex::of(&view.earlier),
-                SectionIndex::of(&view.later),
-            )
-        })
+        .map(|view| (&*view.earlier, &*view.later))
         .collect();
+    let indexes = WindowIndexes::of(&documents);
 
     // The statements each window holds, by the window's place in `views`.
     let mut landed: Vec<Vec<StatedRedesignation>> = vec![Vec::new(); views.len()];
@@ -317,7 +339,7 @@ fn place_in_work(
         let can_hold: Vec<usize> = (0..views.len())
             .filter(|&at| window_can_hold(enacted, &views[at].to.at))
             .filter(|&at| {
-                let (earlier, later) = &indexes[at];
+                let (earlier, later) = indexes.of_window(at);
                 container_changed(statement, earlier, later, &views[at].later)
             })
             .collect();
