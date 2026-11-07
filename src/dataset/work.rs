@@ -14,6 +14,9 @@
 //! These are now the storage keys themselves, not a view over a global version
 //! list (`docs/adr/0003-storage-is-keyed-by-work.md`).
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::document::DocumentNode;
@@ -216,6 +219,34 @@ pub fn adjacent_expressions<R: crate::storage::DocumentReader + ?Sized>(
         }
     }
     Ok(pairs)
+}
+
+/// The document of each expression that a window of `windows` holds, by its
+/// id. An expression the dataset does not hold is not in the map.
+///
+/// The later expression of one window is the earlier one of the next, so each
+/// expression is read once, and the windows share its document. They are read
+/// at the same time where the backend can
+/// ([`crate::storage::DocumentReader::get_expressions`]). A title of the Code
+/// takes seconds to read (#426).
+pub fn window_documents<R: crate::storage::DocumentReader + ?Sized>(
+    reader: &R,
+    windows: &[crate::dataset::ExpressionPair],
+) -> Result<BTreeMap<ExpressionId, Arc<DocumentNode>>, crate::dataset::DatasetError> {
+    let mut ids: Vec<ExpressionId> = Vec::new();
+    for (from, to) in windows {
+        for id in [from, to] {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+    }
+    let read = reader.get_expressions(&ids)?;
+    Ok(ids
+        .into_iter()
+        .zip(read)
+        .filter_map(|(id, expression)| Some((id, Arc::new(expression?.root))))
+        .collect())
 }
 
 /// One bill's own document, as a dataset holds it.

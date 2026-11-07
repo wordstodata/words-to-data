@@ -60,6 +60,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::citation::usc::fold_dashes;
@@ -1174,6 +1175,53 @@ fn roman(mut value: u32) -> String {
 #[derive(Debug, Default)]
 pub struct SectionIndex<'a> {
     sections: std::collections::BTreeMap<String, Vec<&'a DocumentNode>>,
+}
+
+/// The section index of the earlier and the later document of each window of
+/// one work.
+///
+/// The later document of one window is the earlier one of the next, so each
+/// document is indexed once, and the documents are indexed at the same time
+/// (#426).
+pub(crate) struct WindowIndexes<'a> {
+    /// One for each document.
+    indexes: Vec<SectionIndex<'a>>,
+    /// For each window, the place in `indexes` of its earlier and its later
+    /// document.
+    ends: Vec<(usize, usize)>,
+}
+
+impl<'a> WindowIndexes<'a> {
+    /// Index the earlier and the later document of each window. A document
+    /// that two windows share is the same node in memory.
+    pub(crate) fn of(windows: &[(&'a DocumentNode, &'a DocumentNode)]) -> Self {
+        let mut documents: Vec<&'a DocumentNode> = Vec::new();
+        let mut place_of = |document: &'a DocumentNode| match documents
+            .iter()
+            .position(|held| std::ptr::eq(*held, document))
+        {
+            Some(at) => at,
+            None => {
+                documents.push(document);
+                documents.len() - 1
+            }
+        };
+        let ends = windows
+            .iter()
+            .map(|&(earlier, later)| (place_of(earlier), place_of(later)))
+            .collect();
+        let indexes = documents
+            .par_iter()
+            .map(|document| SectionIndex::of(document))
+            .collect();
+        Self { indexes, ends }
+    }
+
+    /// The index of the earlier and of the later document of one window.
+    pub(crate) fn of_window(&self, window: usize) -> (&SectionIndex<'a>, &SectionIndex<'a>) {
+        let (earlier, later) = self.ends[window];
+        (&self.indexes[earlier], &self.indexes[later])
+    }
 }
 
 impl<'a> SectionIndex<'a> {

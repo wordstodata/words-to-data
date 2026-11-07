@@ -390,3 +390,52 @@ fn store_annotation<S: words_to_data::storage::Storage>(
         dataset.add_link(link).expect("the link should be added");
     }
 }
+
+/// What `get_expression` gives for one id: the id, the label and the tree.
+fn read_alone(
+    storage: &SqliteStorage,
+    id: &ExpressionId,
+) -> Option<(
+    ExpressionId,
+    Option<String>,
+    words_to_data::document::DocumentNode,
+)> {
+    storage
+        .get_expression(id)
+        .expect("the expression should read")
+        .map(|expression| (expression.id, expression.label, expression.root))
+}
+
+#[test]
+fn should_read_several_expressions_as_each_reads_alone_when_the_file_is_sqlite() {
+    // A file is read on a connection for each expression (#426), so the
+    // answer must be the one connection the storage holds would give.
+    let mut dataset = make_test_dataset();
+    dataset
+        .add_expression(make_expression("2024-01-01", Some("First")))
+        .unwrap();
+    dataset
+        .add_expression(make_expression("2024-06-01", None))
+        .unwrap();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("several.db");
+    dataset.save_to_sqlite(&path).unwrap();
+    let storage = SqliteStorage::open(&path).unwrap();
+
+    // Out of date order, and with a date the file does not hold.
+    let ids = [at("2024-06-01"), at("2023-01-01"), at("2024-01-01")];
+    let together: Vec<_> = storage
+        .get_expressions(&ids)
+        .expect("the expressions should read")
+        .into_iter()
+        .map(|read| read.map(|expression| (expression.id, expression.label, expression.root)))
+        .collect();
+
+    let alone: Vec<_> = ids.iter().map(|id| read_alone(&storage, id)).collect();
+    assert_eq!(together, alone);
+    assert!(
+        together[1].is_none(),
+        "the file holds no expression of 2023-01-01"
+    );
+    assert_eq!(together[2].as_ref().unwrap().1.as_deref(), Some("First"));
+}

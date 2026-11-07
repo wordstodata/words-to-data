@@ -4,9 +4,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use rusqlite::functions::FunctionFlags;
 use rusqlite::types::ValueRef;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use crate::congress::{BillVotes, HouseRollCall, Member, MemberVote, SponsorInfo, VotePosition};
 use crate::dataset::{
@@ -1034,30 +1035,28 @@ impl SqliteStorage {
     }
 }
 
-impl SqliteStorage {
-    /// Read one expression row, given a query that selects
-    /// `work, date, label, element_json` and its parameters.
-    fn expression_row(
-        &self,
-        sql: &str,
-        bound: &[&dyn rusqlite::ToSql],
-    ) -> Result<Option<Expression>, DatasetError> {
-        let mut stmt = self.conn.prepare(sql)?;
-        let mut rows = stmt.query(bound)?;
+/// Read one expression row on `conn`, given a query that selects
+/// `work, date, label, element_json` and its parameters.
+fn expression_row(
+    conn: &Connection,
+    sql: &str,
+    bound: &[&dyn rusqlite::ToSql],
+) -> Result<Option<Expression>, DatasetError> {
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query(bound)?;
 
-        let Some(row) = rows.next()? else {
-            return Ok(None);
-        };
-        let work: String = row.get(0)?;
-        let date: String = row.get(1)?;
-        let label: Option<String> = row.get(2)?;
-        let element_json: String = row.get(3)?;
-        Ok(Some(Expression {
-            id: ExpressionId::new(WorkId::new(work), date),
-            label,
-            root: serde_json::from_str(&element_json)?,
-        }))
-    }
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    let work: String = row.get(0)?;
+    let date: String = row.get(1)?;
+    let label: Option<String> = row.get(2)?;
+    let element_json: String = row.get(3)?;
+    Ok(Some(Expression {
+        id: ExpressionId::new(WorkId::new(work), date),
+        label,
+        root: serde_json::from_str(&element_json)?,
+    }))
 }
 
 impl DocumentReader for SqliteStorage {
@@ -1100,11 +1099,39 @@ impl DocumentReader for SqliteStorage {
     }
 
     fn get_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
-        self.expression_row(
+        expression_row(
+            &self.conn,
             "SELECT work, date, label, element_json FROM expressions \
              WHERE work = ?1 AND date = ?2",
             &[&id.work.as_str(), &id.at],
         )
+    }
+
+    /// The expressions are read at the same time, each on a connection of its
+    /// own. One connection reads a title of the Code one page after the other,
+    /// and the parse of its tree is most of the rest of the time (#426).
+    ///
+    /// A database in memory has no file another connection can open, so it is
+    /// read one expression after the other.
+    fn get_expressions(
+        &self,
+        ids: &[ExpressionId],
+    ) -> Result<Vec<Option<Expression>>, DatasetError> {
+        let Some(file) = self.conn.path().filter(|file| !file.is_empty()) else {
+            return ids.iter().map(|id| self.get_expression(id)).collect();
+        };
+        ids.par_iter()
+            .map(|id| {
+                let conn = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+                conn.busy_timeout(BUSY_TIMEOUT)?;
+                expression_row(
+                    &conn,
+                    "SELECT work, date, label, element_json FROM expressions \
+                     WHERE work = ?1 AND date = ?2",
+                    &[&id.work.as_str(), &id.at],
+                )
+            })
+            .collect()
     }
 
     /// Read from the index, because the root is the first row of each walk
@@ -1124,7 +1151,8 @@ impl DocumentReader for SqliteStorage {
     }
 
     fn next_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
-        self.expression_row(
+        expression_row(
+            &self.conn,
             "SELECT work, date, label, element_json FROM expressions \
              WHERE work = ?1 AND date > ?2 ORDER BY date LIMIT 1",
             &[&id.work.as_str(), &id.at],
@@ -1132,7 +1160,8 @@ impl DocumentReader for SqliteStorage {
     }
 
     fn prev_expression(&self, id: &ExpressionId) -> Result<Option<Expression>, DatasetError> {
-        self.expression_row(
+        expression_row(
+            &self.conn,
             "SELECT work, date, label, element_json FROM expressions \
              WHERE work = ?1 AND date < ?2 ORDER BY date DESC LIMIT 1",
             &[&id.work.as_str(), &id.at],
