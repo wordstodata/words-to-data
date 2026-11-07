@@ -174,7 +174,7 @@ fn should_say_in_the_evidence_that_the_olrc_table_gave_the_address_when_it_did()
 /// section's own text, so the amendment keeps no address.
 #[test]
 fn should_not_address_an_amendment_by_a_row_that_classifies_only_a_note() {
-    let answer = answer_for("5219c7e9a020");
+    let answer = answer_for("18fdc45c57aa");
 
     assert_eq!(answer.address.section, None);
     let Outcome::Residue(residue) = &answer.outcome else {
@@ -195,7 +195,7 @@ fn should_not_address_an_amendment_by_a_row_that_classifies_only_a_note() {
 /// with nothing to choose among its changes is not an address to link from.
 #[test]
 fn should_not_address_by_the_olrc_an_amendment_that_quotes_no_words() {
-    let answer = answer_for("ac1415f08ef8");
+    let answer = answer_for("b615d5c186e0");
 
     assert_eq!(answer.address.section, None);
     let Outcome::Residue(residue) = &answer.outcome else {

@@ -84,7 +84,7 @@ fn printed(item: &ItemAddress) -> String {
 #[test]
 fn should_give_each_item_the_section_its_reference_places_when_a_list_under_an_act_names_none() {
     let law = committed_law(NDAA, NDAA_ID);
-    let address = address_of(&law, "f0261be731d3");
+    let address = address_of(&law, "e7491993892c");
 
     // The address of the whole instruction does not change.
     assert_eq!(address.section, None);
@@ -114,7 +114,7 @@ fn should_give_each_item_the_section_its_reference_places_when_a_list_under_an_a
 #[test]
 fn should_give_an_item_for_each_section_when_every_item_of_the_list_names_one() {
     let law = committed_law(NDAA, NDAA_ID);
-    let address = address_of(&law, "331284f0c930");
+    let address = address_of(&law, "b7dd2cb27a61");
 
     let items: Vec<String> = address.items.iter().map(printed).collect();
     assert_eq!(
@@ -188,7 +188,7 @@ fn should_place_each_cited_section_by_its_reference_when_the_line_gives_one_for_
 #[test]
 fn should_read_the_section_an_item_names_when_a_page_mark_opens_the_item() {
     let law = committed_law(APEX, APEX_ID);
-    let address = address_of(&law, "737663e18f52");
+    let address = address_of(&law, "4f86ce8ee81e");
 
     let reasons: Vec<Option<Reason>> = address
         .items
@@ -216,7 +216,7 @@ fn should_read_the_section_an_item_names_when_a_page_mark_opens_the_item() {
 #[test]
 fn should_give_no_item_when_no_item_of_the_list_names_a_section() {
     let law = committed_law(NDAA, NDAA_ID);
-    let address = address_of(&law, "20c7d5f9b2c6");
+    let address = address_of(&law, "6efaf0cafc05");
 
     assert_eq!(address.unresolved, Some(Reason::NoSectionNamed));
     assert!(address.items.is_empty(), "{:?}", address.items);
@@ -335,7 +335,7 @@ fn linked_below_the_chapter(answers: &[&AmendmentMatch]) -> Vec<Vec<String>> {
 /// With its case, the struck "The purpose" shows in (a) (#462).
 #[test]
 fn should_link_each_item_to_the_changes_in_its_own_section_when_the_olrc_places_each_item() {
-    let answers = answers_for(hr_1_matches(), "ee250eb077b2");
+    let answers = answers_for(hr_1_matches(), "d634f707cbdc");
 
     assert_eq!(answers.len(), 3, "one answer for each item");
     assert!(answers.iter().all(|answer| answer.item));
@@ -356,7 +356,7 @@ fn should_link_each_item_to_the_changes_in_its_own_section_when_the_olrc_places_
 /// is in the bill.
 #[test]
 fn should_name_the_item_in_the_evidence_when_a_link_is_for_one_item() {
-    let answers = answers_for(hr_1_matches(), "ee250eb077b2");
+    let answers = answers_for(hr_1_matches(), "d634f707cbdc");
     let links = answers[1].links();
 
     assert_eq!(links.len(), 1);
@@ -380,7 +380,7 @@ fn should_name_the_item_in_the_evidence_when_a_link_is_for_one_item() {
 #[test]
 fn should_list_the_items_no_link_holds_when_one_item_of_the_amendment_is_linked() {
     let mut dataset = hr_1_in_title_42();
-    let answers: Vec<AmendmentMatch> = answers_for(hr_1_matches(), "ee250eb077b2")
+    let answers: Vec<AmendmentMatch> = answers_for(hr_1_matches(), "d634f707cbdc")
         .into_iter()
         .cloned()
         .collect();
@@ -391,7 +391,7 @@ fn should_list_the_items_no_link_holds_when_one_item_of_the_amendment_is_linked(
     let rows: Vec<String> = unlinked_amendments(&dataset, Some("119-hr-1"), Rows::Unlinked)
         .expect("residue should derive")
         .into_iter()
-        .filter(|row| row.amendment_id.starts_with("ee250eb077b2"))
+        .filter(|row| row.amendment_id.starts_with("d634f707cbdc"))
         .map(|row| {
             assert!(row.item, "each row is for one item");
             row.address
@@ -435,7 +435,7 @@ fn ndaa_matches_in_title_33() -> &'static [AmendmentMatch] {
 /// 33.
 #[test]
 fn should_link_each_item_only_inside_its_own_section_when_the_markup_places_each_item() {
-    let answers = answers_for(ndaa_matches_in_title_33(), "331284f0c930");
+    let answers = answers_for(ndaa_matches_in_title_33(), "b7dd2cb27a61");
 
     assert_eq!(answers.len(), 5, "one answer for each item");
     let linked = linked_below_the_chapter(&answers);
@@ -458,7 +458,7 @@ fn should_link_each_item_only_inside_its_own_section_when_the_markup_places_each
 /// link rather than a wrong one.
 #[test]
 fn should_give_no_link_to_an_item_when_its_reference_places_it_in_the_wrong_section() {
-    let answers = answers_for(ndaa_matches_in_title_33(), "c1213b7b65b7");
+    let answers = answers_for(ndaa_matches_in_title_33(), "da33038fdd59");
 
     let fifth = answers
         .iter()
@@ -512,7 +512,7 @@ fn strings_named(why: &str) -> Vec<String> {
 fn should_name_only_the_items_own_quoted_words_when_items_of_one_list_quote_different_words() {
     let law = committed_law(NDAA, NDAA_ID);
     let mut checked = 0;
-    for id in ["331284f0c930", "c1213b7b65b7"] {
+    for id in ["b7dd2cb27a61", "da33038fdd59"] {
         for answer in answers_for(ndaa_matches_in_title_33(), id) {
             let Outcome::Linked(linked) = &answer.outcome else {
                 continue;
@@ -565,7 +565,7 @@ fn should_print_each_item_under_its_amendment_when_the_command_shows_one_that_ac
 
     let run = std::process::Command::new(env!("CARGO_BIN_EXE_words_to_data"))
         .args(["amendment-addresses", &path, "--bill", NDAA_ID])
-        .args(["--amendment", "331284f0c930"])
+        .args(["--amendment", "b7dd2cb27a61"])
         .output()
         .expect("the binary should run");
 

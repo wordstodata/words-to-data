@@ -33,7 +33,7 @@ const TITLE_26_LATER: &str = "tests/test_data/usc/2025-08-14/usc26.xml";
 const LATER: &str = "uscode/title_26@2025-08-14";
 
 /// The amendment that inserts a new § 174A after § 174.
-const INSERTS_174A: &str = "2841e731435d7fb5b093e5bd6a39be845b1f565418a78949b0d8e0820ac2e62b";
+const INSERTS_174A: &str = "fc6183ebbd37b9c2384b8d0065634e3e773231c3c23424d8445954244b164a3a";
 /// The section that amendment adds, which the diff reports as added.
 const SECTION_174A: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_174A";
 
@@ -571,7 +571,7 @@ fn should_refuse_and_write_nothing_when_the_method_is_not_a_name_and_a_whole_num
 /// subchapter B of chapter 1. The dataset does not hold a table of sections, so
 /// no change it holds can be this amendment's.
 const AMENDS_A_TABLE_OF_SECTIONS: &str =
-    "4010e01c92b0071935b303ad59df08c1f226ce10143dfca31a5924ec92e0e9a9";
+    "d0cdb4bfd5bce21789493a4169b763501156a137854ce5628486db5d4081e69c";
 
 /// The arguments of a run that concludes the table-of-sections amendment has
 /// no link.

@@ -29,7 +29,7 @@ const RELEASE_POINTS: [&str; 2] = ["2026-01-23", "2026-07-12"];
 /// by striking "improvement officer" and inserting "Improvement Officer"; and
 /// (B) in subsection (c)(1), by striking "… Act of Fiscal Year 2008" and
 /// inserting "… Act for Fiscal Year 2008"."
-const AMENDS_SECTION_132A: &str = "e1eff77cb587";
+const AMENDS_SECTION_132A: &str = "454306508449";
 
 const SECTION_132A: &str = "uscode/title_10/subtitle_A/part_I/chapter_4/section_132a";
 

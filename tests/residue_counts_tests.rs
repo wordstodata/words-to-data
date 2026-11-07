@@ -7,8 +7,8 @@
 //!
 //! The case is `119-s-1071` (Pub. L. 119-60) with title 10 at 2025-08-14 and
 //! 2026-01-23 and title 33 at 2026-01-23 and 2026-07-12, all committed. Its
-//! amendment 7049142d0b26 has two work rows (law section 3113(a)(1) and
-//! 3113(a)(2)). Its amendment c1213b7b65b7, which amends the Oil Pollution Act
+//! amendment 25562ec99b01 has two work rows (law section 3113(a)(1) and
+//! 3113(a)(2)). Its amendment da33038fdd59, which amends the Oil Pollution Act
 //! of 1990 in seven items, has a work row (7701(g)(5)) and six rows the
 //! evidence method links and no link is written for. No link is written,
 //! because the batch does not run here. Nothing is mocked.
@@ -109,7 +109,7 @@ fn categories_of(short: &str) -> Vec<&'static str> {
 #[test]
 fn should_give_the_rows_and_the_amendments_in_the_headline_when_an_amendment_has_more_than_one_row()
 {
-    assert_eq!(categories_of("7049142d0b26"), ["work", "work"]);
+    assert_eq!(categories_of("25562ec99b01"), ["work", "work"]);
     let amendments: BTreeSet<&str> = rows().iter().map(|(id, _)| id.as_str()).collect();
 
     let text = residue(&[]);
@@ -146,7 +146,7 @@ fn rows_and_amendments(category: &str) -> (usize, usize) {
 #[test]
 fn should_count_amendments_and_give_the_rows_in_the_work_count_when_an_amendment_has_two_work_rows()
 {
-    assert_eq!(categories_of("7049142d0b26"), ["work", "work"]);
+    assert_eq!(categories_of("25562ec99b01"), ["work", "work"]);
     let (rows, amendments) = rows_and_amendments("work");
 
     let text = residue(&[]);
@@ -165,8 +165,8 @@ fn should_name_each_amendment_counted_in_two_categories_when_its_rows_fall_in_bo
         categories.entry(id).or_default().insert(category);
     }
     let in_two = categories.values().filter(|of| of.len() > 1).count();
-    assert!(categories_of("c1213b7b65b7").contains(&"work"));
-    assert!(categories_of("c1213b7b65b7").contains(&"unwritten"));
+    assert!(categories_of("da33038fdd59").contains(&"work"));
+    assert!(categories_of("da33038fdd59").contains(&"unwritten"));
 
     let text = residue(&[]);
 
@@ -176,8 +176,8 @@ fn should_name_each_amendment_counted_in_two_categories_when_its_rows_fall_in_bo
     );
     assert!(lines.contains(&expected), "a line {expected:?} in:\n{text}");
     assert!(
-        lines.contains(&"c1213b7b65b7 work, unwritten".to_string()),
-        "a line that names c1213b7b65b7 in:\n{text}"
+        lines.contains(&"da33038fdd59 work, unwritten".to_string()),
+        "a line that names da33038fdd59 in:\n{text}"
     );
 }
 

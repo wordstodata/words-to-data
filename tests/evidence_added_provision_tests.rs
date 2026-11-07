@@ -92,7 +92,7 @@ fn should_link_an_added_provision_whose_own_fields_are_empty_by_the_words_below_
     // by the words below it.
     let subsection_n = format!("{SECTION_9062}/subsection_n");
 
-    let of_1632 = linked_paths("931a4d58392f");
+    let of_1632 = linked_paths("b9da12048a4b");
 
     assert!(
         of_1632.contains(&subsection_n),
@@ -111,7 +111,7 @@ fn should_not_give_an_added_provision_to_a_block_that_holds_only_its_few_own_wor
     // blocks, and they are no evidence that § 1632(a) made (4).
     let paragraph_4 = format!("{SECTION_9062}/subsection_j/paragraph_4");
 
-    let of_1632 = linked_paths("931a4d58392f");
+    let of_1632 = linked_paths("b9da12048a4b");
 
     assert!(
         !of_1632.contains(&paragraph_4),

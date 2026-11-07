@@ -41,7 +41,7 @@ const TITLES: [(&str, &str); 2] = [
 /// Section 70204(a)(1) of the law: "Subchapter F of chapter 1 is amended by
 /// adding at the end the following new part: PART IX ... § 530A". The markup
 /// names no section, and the OLRC classifies it to 26 U.S.C. 530A.
-const ADDS_PART_IX: &str = "7bdf27afebe2";
+const ADDS_PART_IX: &str = "8d6acb591db7";
 const PART_IX: &str = "uscode/title_26/subtitle_A/chapter_1/subchapter_F/part_IX";
 
 /// Section 70311(b)(3) of the law: "Section 951A(f)(1)(A) is amended by
