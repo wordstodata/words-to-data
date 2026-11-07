@@ -56,9 +56,19 @@ impl Words {
 }
 
 fn collect(element: &Node, into: &mut Words) {
+    let mut after_public_law_footnote = false;
     for child in element.children() {
+        let is_public_law_footnote = is_public_law_footnote(&child);
+        if is_public_law_footnote {
+            take_spaces_before_public_law_footnote(&mut into.text);
+        }
         if child.is_text() {
-            into.text.push_str(child.text().unwrap_or_default());
+            let text = child.text().unwrap_or_default();
+            let text = match after_public_law_footnote {
+                true => text.trim_start_matches(NARROW_NO_BREAK_SPACE),
+                false => text,
+            };
+            into.text.push_str(text);
         } else if is_footnote_text(&child) {
             into.add_footnote(Some(footnote_text(&child)));
         } else if is_footnote_ref(&child) {
@@ -75,7 +85,31 @@ fn collect(element: &Node, into: &mut Words) {
         } else if child.is_element() {
             collect(&child, into);
         }
+        after_public_law_footnote = is_public_law_footnote;
     }
+}
+
+/// A public law sets its mark and its `<footnote>` apart from the words with
+/// narrow no-break spaces, one or more on each side: "\u{202f}\u{202f}<ref
+/// idref="…">*</ref>\u{202f}<footnote …>…</footnote>\u{202f}(1) ". The spaces
+/// are part of the mark and the footnote, so they go with them, and the number
+/// reads "(1) " (#486).
+///
+/// The OLRC's own forms keep the rule of [`take_space_before_mark`]. A Code
+/// note can have a narrow space after it that is part of the words: "“5,000
+/// <ref …>1</ref><note …>…</note>\u{202f}” in item (aa)".
+fn is_public_law_footnote(element: &Node) -> bool {
+    let is_mark = element.has_tag_name("ref")
+        && element.attribute("class").is_none()
+        && is_footnote_ref(element);
+    is_mark || element.has_tag_name("footnote")
+}
+
+/// Take the narrow no-break spaces before a public law's mark or footnote out
+/// of the words.
+fn take_spaces_before_public_law_footnote(text: &mut String) {
+    let words = text.trim_end_matches(NARROW_NO_BREAK_SPACE).len();
+    text.truncate(words);
 }
 
 /// The OLRC sets a mark apart from the word before it with a narrow no-break
@@ -89,8 +123,20 @@ fn take_space_before_mark(text: &mut String) {
 
 const NARROW_NO_BREAK_SPACE: char = '\u{202F}';
 
+/// The OLRC marks a footnote with `<ref class="footnoteRef" idref="…">`. A
+/// public law marks it with a `<ref idref="…">` that has no class, and the
+/// `idref` points at a `<footnote>` (#486):
+///
+/// ```xml
+/// <num value="1"> <ref idref="fn-d2717e98748">*</ref> <footnote
+///   id="fn-d2717e98748"><num>* </num>Note: Classifications for …</footnote>
+///   (1) </num>
+/// ```
 fn is_footnote_ref(element: &Node) -> bool {
-    element.attribute("class") == Some("footnoteRef")
+    if element.attribute("class") == Some("footnoteRef") {
+        return true;
+    }
+    element.has_tag_name("ref") && note_by_id(element).is_some()
 }
 
 /// Whether the footnote text a mark points at follows the mark, as it does at
@@ -172,8 +218,11 @@ fn is_mark(element: &Node, before: &str) -> bool {
 /// U+2044, which the Code prints between the two halves of a fraction.
 const FRACTION_SLASH: char = '\u{2044}';
 
+/// The OLRC writes footnote text as `<note type="footnote">`. A public law
+/// writes it as the USLM element `<footnote>` (#486).
 fn is_footnote_text(element: &Node) -> bool {
-    element.has_tag_name("note") && element.attribute("type") == Some("footnote")
+    let is_note = element.has_tag_name("note") && element.attribute("type") == Some("footnote");
+    is_note || element.has_tag_name("footnote")
 }
 
 /// The text of a `<note type="footnote">`, without the number it starts with.
