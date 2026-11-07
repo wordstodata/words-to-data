@@ -250,7 +250,7 @@ pub enum Stage {
 /// To raise the version, change only the number below, and say so in the
 /// PR's file in `changelog.d/` (`changelog.d/README.md`).
 pub fn evidence_method() -> Method {
-    Method::new("address, window and quoted words", 10)
+    Method::new("address, window and quoted words", 11)
 }
 
 /// Who a link this method writes says made it.

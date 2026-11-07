@@ -219,7 +219,8 @@ impl QuotedWords {
         let item_words = words_of(&without_page_marks(item_words));
         let mut own = facts.clone();
         own.quoted_text.retain(|quoted| {
-            contains_run(&item_tokens, &tokens_of(&format!("\"{}\"", quoted.text)))
+            let text = without_page_marks(&quoted.text);
+            contains_run(&item_tokens, &tokens_of(&format!("\"{text}\"")))
         });
         own.enacted_text.retain(|block| {
             let words = words_of(&without_page_marks(block));
@@ -538,7 +539,10 @@ impl Spelled {
 
 impl Quoted {
     fn of(quoted: &QuotedText) -> Option<Self> {
-        let tokens = tokens_of(&quoted.text);
+        // A page mark is not a word of the law, so the Code does not hold it
+        // (#485).
+        let text = without_page_marks(&quoted.text);
+        let tokens = tokens_of(&text);
         if tokens.is_empty() {
             return None;
         }
@@ -548,9 +552,9 @@ impl Quoted {
             _ => Direction::Either,
         };
         Some(Self {
-            text: quoted.text.clone(),
+            cased: cased_tokens_of(&text),
+            text,
             tokens,
-            cased: cased_tokens_of(&quoted.text),
             direction,
         })
     }
@@ -604,10 +608,14 @@ fn opens_with_a_designation(tokens: &[String]) -> bool {
         })
 }
 
-/// The page marks a public law prints inside the text it enacts: `139 STAT. 82`.
+/// The text without the page marks a public law prints inside the text it
+/// enacts and inside the strings it quotes: `139 STAT. 82`. One space replaces
+/// a mark and the spaces around it, so a reviewer reads the words as the law
+/// states them.
 fn without_page_marks(text: &str) -> String {
-    static PAGE_MARK: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"\d+\s+STAT\.\s+\d+").expect("the page mark must compile"));
+    static PAGE_MARK: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\s*\d+\s+STAT\.\s+\d+\s*").expect("the page mark must compile")
+    });
     PAGE_MARK.replace_all(text, " ").into_owned()
 }
 
