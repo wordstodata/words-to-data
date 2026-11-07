@@ -458,7 +458,7 @@ fn enacted_text(instruction: &Node) -> Vec<String> {
                     .eq_ignore_ascii_case("quotedContent")
             })
         })
-        .map(|node| node_text(&node))
+        .map(|node| enacted_words(&node))
         .filter(|text| !text.trim().is_empty())
         .collect()
 }
@@ -485,7 +485,7 @@ fn quoted_text(instruction: &Node) -> Vec<QuotedText> {
             last_action = node.attribute("type").map(str::to_string);
         } else if is(&node, "quotedText") {
             quoted.push(QuotedText {
-                text: node_text(&node),
+                text: enacted_words(&node),
                 action: last_action.clone(),
             });
         }
@@ -864,20 +864,48 @@ fn levels_in<'a, 'input>(node: &Node<'a, 'input>) -> impl Iterator<Item = Node<'
 /// join to "chapter 6126 USCprec. 6041.is amended", and the chapter number
 /// changes. The boundary does not depend on the layout of the file, because
 /// the fold above removes the white space next to the note in each printing.
+/// The words a bill enacts or quotes do not get the boundary
+/// ([`enacted_words`]).
 ///
 /// Quotes are folded here for the same reason ([`normalize_quotes`]), and the
 /// Code's dashes are folded in the citation reader for a related one
 /// ([`fold_dashes`](crate::citation::usc::fold_dashes), #141).
 pub(crate) fn node_text(node: &Node) -> String {
+    gathered_text(node, NoteEdges::Spaced)
+}
+
+/// The words a bill enacts or quotes under a node, as one line: [`node_text`]
+/// without the word boundary at the edges of a marginal note.
+///
+/// The matcher looks for these words in the stored fields of the bill, as the
+/// block of one item of a list (#434). The stored fields join a note to the
+/// words next to it, so these words must join it too, or the item does not
+/// find its block. Pub. L. 119-60 § 3113(a)(2) enacts "SEC. 4225. 10
+/// USCprec. 6101, 6137.RAPID CAPABILITIES PROGRAM.". With the boundary, that
+/// item lost its block, and with it its address from the OLRC's table (#484).
+fn enacted_words(node: &Node) -> String {
+    gathered_text(node, NoteEdges::Joined)
+}
+
+/// What [`push_words`] puts at each edge of a marginal note line.
+#[derive(Clone, Copy, PartialEq)]
+enum NoteEdges {
+    /// A space: the edge is a word boundary.
+    Spaced,
+    /// Nothing: the note joins the words next to it.
+    Joined,
+}
+
+fn gathered_text(node: &Node, note_edges: NoteEdges) -> String {
     let mut raw = String::new();
-    push_words(node, &mut raw);
+    push_words(node, note_edges, &mut raw);
     let folded = fold_dash_runs(&normalize_quotes(&raw));
     folded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The text nodes under `node` that carry words, in document order, with a
-/// space at each edge of a marginal note line ([`node_text`]).
-fn push_words(node: &Node, raw: &mut String) {
+/// space at each edge of a marginal note line when `note_edges` says so.
+fn push_words(node: &Node, note_edges: NoteEdges, raw: &mut String) {
     if node.is_text() {
         let text = node.text().unwrap_or("");
         if !text.trim().is_empty() {
@@ -885,12 +913,12 @@ fn push_words(node: &Node, raw: &mut String) {
         }
         return;
     }
-    let boundary = is_sidenote_line(node);
+    let boundary = note_edges == NoteEdges::Spaced && is_sidenote_line(node);
     if boundary {
         raw.push(' ');
     }
     for child in node.children() {
-        push_words(&child, raw);
+        push_words(&child, note_edges, raw);
     }
     if boundary {
         raw.push(' ');

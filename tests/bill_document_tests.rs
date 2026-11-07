@@ -296,15 +296,18 @@ fn should_keep_the_words_a_bill_enacts_in_the_payload_when_the_tree_leaves_them_
         1,
         "the instruction quotes one block, so one block is kept"
     );
-    // One space between the two. Only one of the two printings of this act
-    // puts a space between the number and the heading: the cached one writes
-    // `<heading> <sidenote>` and the Government Publishing Office writes
-    // `<heading><sidenote>`. A text node that is entirely whitespace is a fact
-    // about the file and not about the law, so it does not reach the text
-    // (#219). The space comes from the edge of the marginal note, which is a
-    // word boundary in each printing (#484).
+    // No space between the two. The number and the heading are separate
+    // elements, and only one of the two printings of this act puts a space
+    // between them: the cached one writes `<heading> <sidenote>` and the
+    // Government Publishing Office writes `<heading><sidenote>`. A text node
+    // that is entirely whitespace is therefore a fact about the file and not
+    // about the law, so it does not reach the text (#219).
+    //
+    // The amending text puts a space at each edge of a marginal note (#484),
+    // but the words a bill enacts do not: the matcher finds them in the stored
+    // fields of the bill, which join the note to the words next to it.
     assert!(
-        stated.enacted_text[0].contains("20306. Deadlines. 51 USC 20306. Special"),
+        stated.enacted_text[0].contains("20306.Deadlines."),
         "the words the bill enacts should travel with the node that enacts them"
     );
 
