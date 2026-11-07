@@ -33,6 +33,7 @@
 
 pub mod cites;
 pub mod held;
+pub mod range;
 pub mod reliance;
 
 use serde::{Deserialize, Serialize};

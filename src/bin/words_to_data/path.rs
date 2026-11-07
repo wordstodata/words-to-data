@@ -1,11 +1,14 @@
 //! `words_to_data path` — everything about one structural path: where it
 //! exists, its field-level changes for an expression pair, and its annotations.
 
+use std::collections::BTreeSet;
+
 use clap::Args as ClapArgs;
 use words_to_data::dataset::ExpressionId;
 use words_to_data::inspect;
 use words_to_data::judicial::cites::{CitationLink, PathRole};
 use words_to_data::judicial::held::{CourtFacts, HeldWriting};
+use words_to_data::judicial::range::CitedRange;
 use words_to_data::query::{DEFAULT_LIMIT, Locator, PathMatch};
 
 use crate::load::{self, with_dataset};
@@ -327,51 +330,86 @@ pub fn print_citations(citations: &[CitationLink], total: usize) {
     println!(
         "\nCitations (judicial.cites) naming this path or a provision that holds it ({total}):"
     );
+    // A range is one item, and each link of it is a line below it (#383).
+    // Each link is told once, under the first range that holds it.
+    let mut told_links: BTreeSet<&str> = BTreeSet::new();
+    let mut told_ranges: Vec<&CitedRange> = Vec::new();
     for citation in citations {
-        let words = citation
-            .matched_words
-            .as_deref()
-            .map(|words| format!(" as \"{words}\""))
-            .unwrap_or_default();
-        let said = match citation.role {
-            // The writing is named on every line: on a case, the lines of a
-            // dissent and of the Court's opinion must not read alike (#313).
-            PathRole::CitingOpinion => {
-                format!("{} cites {}{words}", citation.opinion, citation.cited_path)
+        if citation.ranges.is_empty() {
+            print_citation(citation, "  ");
+            continue;
+        }
+        for range in &citation.ranges {
+            if told_ranges.contains(&range) {
+                continue;
             }
-            PathRole::CitedPath => format!("cited by {}{words}", opinion_of(citation)),
-            PathRole::CitedBeneathPath => format!(
-                "cited by {}{words}, at {}",
-                opinion_of(citation),
-                citation.cited_path
-            ),
-            PathRole::CitedAbovePath => format!(
-                "{}{words} cites the {} that holds this path, not this path: {}",
-                opinion_of(citation),
-                holder(&citation.cited_path),
-                citation.cited_path
-            ),
-        };
+            told_ranges.push(range);
+            println!(
+                "  cites one range in {}, written \"{}\": {} links, one to each provision below",
+                range.passage,
+                range.words,
+                range.members.len()
+            );
+            for member in &range.members {
+                match citations.iter().find(|row| row.id == member.link) {
+                    Some(row) if told_links.insert(&row.id) => print_citation(row, "    "),
+                    Some(_) => println!("    {} [link {}], told above", member.path, member.link),
+                    None => println!(
+                        "    {} [link {}], which this listing does not hold",
+                        member.path, member.link
+                    ),
+                }
+            }
+        }
+    }
+}
+
+/// One citation link as one line, and the lines that qualify it, each after
+/// `indent`.
+fn print_citation(citation: &CitationLink, indent: &str) {
+    let words = citation
+        .matched_words
+        .as_deref()
+        .map(|words| format!(" as \"{words}\""))
+        .unwrap_or_default();
+    let said = match citation.role {
+        // The writing is named on every line: on a case, the lines of a
+        // dissent and of the Court's opinion must not read alike (#313).
+        PathRole::CitingOpinion => {
+            format!("{} cites {}{words}", citation.opinion, citation.cited_path)
+        }
+        PathRole::CitedPath => format!("cited by {}{words}", opinion_of(citation)),
+        PathRole::CitedBeneathPath => format!(
+            "cited by {}{words}, at {}",
+            opinion_of(citation),
+            citation.cited_path
+        ),
+        PathRole::CitedAbovePath => format!(
+            "{}{words} cites the {} that holds this path, not this path: {}",
+            opinion_of(citation),
+            holder(&citation.cited_path),
+            citation.cited_path
+        ),
+    };
+    println!(
+        "{indent}{said} ({}) [link {}]",
+        trust_of(citation.verification, citation.review.as_ref()),
+        citation.id
+    );
+    if !citation.unresolved.is_empty() {
         println!(
-            "  {said} ({}) [link {}]",
-            trust_of(citation.verification, citation.review.as_ref()),
-            citation.id
+            "{indent}  {} of what the court wrote leads to no provision in the printing \
+             the link was made against, so the link ends at {}",
+            citation.unresolved.join(", "),
+            citation.cited_path
         );
-        if !citation.unresolved.is_empty() {
-            println!(
-                "    {} of what the court wrote leads to no provision in the printing \
-                 the link was made against, so the link ends at {}",
-                citation.unresolved.join(", "),
-                citation.cited_path
-            );
-        }
-        if let Some(stub) = &citation.stub_heading {
-            println!(
-                "    the cited {} is now a stub: {stub}. That is its heading in the latest \
-                 printing held, which holds no law at that number.",
-                holder(&citation.cited_path)
-            );
-        }
+    }
+    if let Some(stub) = &citation.stub_heading {
+        println!(
+            "{indent}  the cited {} is now a stub: {stub}. That is its heading in the latest \
+             printing held, which holds no law at that number.",
+            holder(&citation.cited_path)
+        );
     }
 }
 

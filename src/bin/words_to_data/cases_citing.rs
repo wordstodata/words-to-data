@@ -39,6 +39,7 @@ use words_to_data::citation::resolve::{
 use words_to_data::citation::usc;
 use words_to_data::dataset::{Coverage, Expression, ExpressionId, WorkId};
 use words_to_data::document::{DocumentNode, NodeType, TextContentField};
+use words_to_data::judicial::range::CitedRange;
 use words_to_data::judicial::reliance::{
     self, ChangeWindow, ChangedAbove, CitedEdition, CitedProvision, Citing, CitingCase, Relation,
 };
@@ -353,9 +354,21 @@ fn with_relation(cases: &[CitingCase], relation: Relation) -> Vec<CitingCase> {
                 .filter(|cited| cited.relation == relation)
                 .cloned()
                 .collect();
+            let ranges = case
+                .ranges
+                .iter()
+                .filter(|range| {
+                    cites
+                        .iter()
+                        .flat_map(|cited| &cited.places)
+                        .any(|place| range.holds(&place.link))
+                })
+                .cloned()
+                .collect();
             (!cites.is_empty()).then(|| CitingCase {
                 citing: case.citing.clone(),
                 cites,
+                ranges,
             })
         })
         .collect()
@@ -469,6 +482,7 @@ fn report_each(cases: &[CitingCase]) {
             ),
         }
 
+        report_ranges(&case.ranges);
         for cited in &case.cites {
             println!(
                 "    cites {}, from {} passage(s):",
@@ -509,6 +523,23 @@ fn report_each(cases: &[CitingCase]) {
             report_since(cited);
         }
         println!();
+    }
+}
+
+/// Each range the writing wrote, as one item with each provision it links
+/// below it (#383). The windows of each provision follow, as for any other
+/// citation.
+fn report_ranges(ranges: &[CitedRange]) {
+    for range in ranges {
+        println!(
+            "    cites one range in {}, written \"{}\": {} links, one to each provision below",
+            range.passage,
+            range.words,
+            range.members.len()
+        );
+        for member in &range.members {
+            println!("      {} — link {}", member.path, member.link);
+        }
     }
 }
 
