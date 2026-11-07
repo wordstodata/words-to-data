@@ -14,7 +14,10 @@
 //!
 //! **It ends with the links the current method no longer makes (#185).** They
 //! are review work, not resolve work, so they are a section of their own and
-//! not rows. See [`words_to_data::legislature::outdated`].
+//! not rows. See [`words_to_data::legislature::outdated`]. The section and the
+//! summary at the top always give its count, also 0, and `--json` puts the
+//! count and the links before the rows, so a reader of a cut output still
+//! sees the count (#447).
 //!
 //! **The counts are of amendments (#469).** An amendment that acts on many
 //! sections has one row for each item (#434), so a count gives its rows too
@@ -66,12 +69,18 @@ pub struct Args {
 }
 
 /// What `--json` prints.
+///
+/// The outdated links come before the rows (#447). The rows of one bill can
+/// be hundreds of thousands of characters, and a reader that cuts the JSON
+/// after its start must still see how many links are outdated.
 #[derive(Serialize)]
 struct Listing {
-    rows: Vec<Unlinked>,
+    /// How many entries `outdated` has.
+    outdated_count: usize,
     /// The links the current version of their batch method no longer makes.
     /// Review work, not resolve work, so apart from the rows.
     outdated: Vec<OutdatedLink>,
+    rows: Vec<Unlinked>,
 }
 
 pub fn run(mut args: Args) {
@@ -93,12 +102,18 @@ pub fn run(mut args: Args) {
     if args.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&Listing { rows, outdated }).unwrap()
+            serde_json::to_string_pretty(&Listing {
+                outdated_count: outdated.len(),
+                outdated,
+                rows,
+            })
+            .unwrap()
         );
         return;
     }
 
     print_counts(&rows, args.partial);
+    print_outdated_count(outdated.len());
     if !rows.is_empty() {
         print_queue(rows);
     }
@@ -125,11 +140,26 @@ fn print_queue(rows: Vec<Unlinked>) {
     }
 }
 
+/// How many links the current version of their method no longer makes, in the
+/// summary at the top. The rows stop at a screenful, so a reader who sees only
+/// the top still sees this count (#447). The links are links, not amendments,
+/// so the line is not one of the amendment counts above it.
+fn print_outdated_count(count: usize) {
+    println!(
+        "{} link(s) the current method no longer makes: review work, listed at the end",
+        ui::figure(count)
+    );
+}
+
 /// The links the current version of their method no longer makes, one line
 /// each. Review work: a reviewer settles each one (Job 3 of
 /// `docs/agents/working-a-dataset.md`).
+///
+/// The heading is printed also when no link is outdated, with the count 0, so
+/// a reader can tell "none" from "the output was cut" (#447).
 fn print_outdated(outdated: &[OutdatedLink]) {
     if outdated.is_empty() {
+        println!("\nLinks the current method no longer makes (0)");
         return;
     }
     println!(

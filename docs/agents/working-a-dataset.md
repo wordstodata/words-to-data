@@ -519,12 +519,18 @@ To **correct** a wrong link, refute it and record the right one with
 ### Links the current method no longer makes
 
 `residue <dataset> --bill <bill>` ends with a section **"Links the current
-method no longer makes"**. Each row is an **outdated** link: the batch made it
+method no longer makes (N)"**. Each row is an **outdated** link: the batch made it
 at an older version, the bill was re-run over the same window at a newer
 version, and the re-run did not make it again. The row gives the link id, the
 path, the older and the newer version, and the window. `residue --json` gives
 the same rows as `outdated`, and `annotations --json` marks the link with an
 `outdated` field. `settle --explain` says it on an `Outdated:` line.
+
+The output always gives N, also when it is 0. The summary at the top gives it
+too, on the line "N link(s) the current method no longer makes". In
+`residue --json`, `outdated_count` and `outdated` come before `rows`. So when
+the output is cut, read the count at the top: 0 means that no link is
+outdated, not that the section was cut.
 
 An outdated link is not wrong because it is outdated. The newer version can
 have lost a right answer. Review each one like any other link, and then:

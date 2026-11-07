@@ -104,6 +104,13 @@ enum Command {
     /// the counts are of amendments, and a count gives its rows too when they
     /// are more: "180 work (181 rows)". An amendment whose rows fall in two
     /// categories is counted in each, and the output names it.
+    ///
+    /// The output ends with the section "Links the current method no longer
+    /// makes (N)": the links the batch made at an older version and did not
+    /// make again at its newer version. Review each with settle. The output
+    /// always gives N, also when it is 0, and the summary at the top gives it
+    /// too, so the count is there when the rows are cut. `--json` gives
+    /// `outdated_count` and `outdated` before `rows`.
     Residue(residue::Args),
 
     /// Show a bill's amendments
