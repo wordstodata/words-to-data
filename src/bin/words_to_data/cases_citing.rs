@@ -619,12 +619,20 @@ fn report_dates(cited: &CitedProvision) {
 /// brackets follow as the court wrote them, because they can be a year alone,
 /// `1986`, and "the 1986 of the Code" is not English (#470). For title 26 a
 /// year alone can name the Internal Revenue Code of that year, and "the Code
-/// of 1986" stays true then too.
+/// of 1986" stays true then too. A Statutes at Large cite of a Revenue Code
+/// comes before the citation and has no brackets: `the opinion cites the Code
+/// of 1939, written "53 Stat. 574" before the citation` (#482).
 fn cites_edition(edition: &CitedEdition) -> String {
-    format!(
-        "the opinion cites the Code of {}, written \"({})\" after the citation",
-        edition.year, edition.written
-    )
+    match edition.before {
+        true => format!(
+            "the opinion cites the Code of {}, written \"{}\" before the citation",
+            edition.year, edition.written
+        ),
+        false => format!(
+            "the opinion cites the Code of {}, written \"({})\" after the citation",
+            edition.year, edition.written
+        ),
+    }
 }
 
 /// What the opinion wrote below the section, and where it leads.

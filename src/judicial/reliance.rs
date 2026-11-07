@@ -297,6 +297,10 @@ pub struct CitedEdition {
     pub written: String,
     /// The year of the edition: `1976`.
     pub year: String,
+    /// Whether the court wrote the words before the citation, as the
+    /// Statutes at Large cite `53 Stat. 574` of `53 Stat. 574, 26 U.S.C.
+    /// § 22(a)` (#482). Words in brackets come after it.
+    pub before: bool,
     /// The printings of the cited title this dataset holds from that year,
     /// oldest first. Empty when it holds none: then the law the court read is
     /// out of scope.
@@ -521,6 +525,7 @@ fn place_of(link: &Link, reviews: &[Link]) -> CitedPlace {
             editions.push(CitedEdition {
                 written: written.to_string(),
                 year: year.to_string(),
+                before: edition["before"].as_bool().unwrap_or(false),
                 printings: Vec::new(),
             });
         }

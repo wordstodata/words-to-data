@@ -437,8 +437,10 @@ pub struct UscCitation {
     /// citation that names its title.
     pub default_code: Option<DefaultCode>,
     /// The edition of the Code the citation names, in brackets right after
-    /// it: `(1976 ed.)` of `8 U.S.C. § 1105a(a) (1976 ed.)` (#449). `None` when
-    /// it names none.
+    /// it: `(1976 ed.)` of `8 U.S.C. § 1105a(a) (1976 ed.)` (#449). A
+    /// Statutes at Large cite of a Revenue Code right before a title 26
+    /// citation also names an edition: `53 Stat. 574` of `53 Stat. 574, 26
+    /// U.S.C. § 22(a)` (#482). `None` when it names none.
     pub edition: Option<Edition>,
 }
 
@@ -459,14 +461,36 @@ pub struct UscCitation {
 /// let edition = found[0].edition.as_ref().expect("the citation names an edition");
 /// assert_eq!(edition.written, "1976 ed.");
 /// assert_eq!(edition.year, "1976");
+/// assert!(!edition.before);
+/// ```
+///
+/// A court can also cite a Revenue Code through the Statutes at Large, right
+/// before the title 26 citation (#482). Volume 53 holds the Internal Revenue
+/// Code of 1939, and volume 68A holds the Internal Revenue Code of 1954:
+///
+/// ```
+/// use words_to_data::citation::usc;
+///
+/// let found = usc::find("68A Stat. 17, 26 U.S.C. § 61(a).");
+///
+/// let edition = found[0].edition.as_ref().expect("the Stat. cite names an edition");
+/// assert_eq!(edition.written, "68A Stat. 17");
+/// assert_eq!(edition.year, "1954");
+/// assert!(edition.before);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Edition {
-    /// The words in the brackets, with each run of whitespace as one space:
-    /// `1976 ed.`, `1994 ed., Supp. II` or `1988`.
+    /// The words the court wrote, with each run of whitespace as one space:
+    /// `1976 ed.`, `1994 ed., Supp. II` or `1988` in the brackets, or the
+    /// Statutes at Large cite `53 Stat. 574`.
     pub written: String,
     /// The year of the edition: `1976`.
     pub year: String,
+    /// Whether the words come before the citation, as a Statutes at Large
+    /// cite does. Words in brackets come after it. Left out of the JSON when
+    /// false, so a link of an edition in brackets keeps its old payload.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub before: bool,
 }
 
 /// A repair the reader made to read a citation: what the text wrote, and what it
@@ -918,17 +942,19 @@ fn read_citations(text: &str) -> Vec<UscCitation> {
             end = stop;
         }
 
+        let title = capture
+            .name("title")
+            .expect("the pattern names a title")
+            .as_str()
+            .to_string();
         found.push(UscCitation {
             repair: capture
                 .name("ocr")
                 .map(|written| ocr_repair(written.as_str())),
             default_code: None,
-            title: capture
-                .name("title")
-                .expect("the pattern names a title")
-                .as_str()
-                .to_string(),
-            edition: edition_after(text, end),
+            edition: edition_after(text, end)
+                .or_else(|| revenue_code_before(text, whole.start(), &title)),
+            title,
             sections,
             text: text[whole.start()..end].to_string(),
             start: whole.start(),
@@ -955,6 +981,62 @@ fn edition_after(text: &str, end: usize) -> Option<Edition> {
             .collect::<Vec<_>>()
             .join(" "),
         year: found["year"].to_string(),
+        before: false,
+    })
+}
+
+/// The volumes of the Statutes at Large that hold a Revenue Code, and the year
+/// of that Code. Other volumes hold other laws, such as the Revenue Act of
+/// 1962 in volume 76, and name no edition of the Code.
+const REVENUE_CODE_VOLUMES: [(&str, &str); 2] = [
+    // The Internal Revenue Code of 1939.
+    ("53", "1939"),
+    // The Internal Revenue Code of 1954.
+    ("68A", "1954"),
+];
+
+/// A Statutes at Large cite and the comma after it, at the end of the text
+/// before a citation: `53 Stat. 574, ` of `53 Stat. 574, 26 U.S.C. § 22(a)`.
+/// Anchored at the end, because a Stat. cite earlier in the sentence can be
+/// for another provision.
+static STAT_BEFORE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?P<written>\b(?P<volume>\d+A?)\s+Stat\.\s+\d+),\s*$")
+        .expect("the Stat. pattern must compile")
+});
+
+/// How many bytes before a citation [`STAT_BEFORE`] reads: more than the
+/// longest Stat. cite with its comma and whitespace.
+const STAT_BEFORE_REACH: usize = 40;
+
+/// The edition of the Code that a Statutes at Large cite of a Revenue Code
+/// names, when it comes right before a title 26 citation that starts at
+/// `start` (#482).
+fn revenue_code_before(text: &str, start: usize, title: &str) -> Option<Edition> {
+    if title != "26" {
+        return None;
+    }
+    // Only the last words before the citation can be the Stat. cite. A search
+    // of all the text before each citation would be slow in a long opinion.
+    let mut from = start.saturating_sub(STAT_BEFORE_REACH);
+    while !text.is_char_boundary(from) {
+        from -= 1;
+    }
+    let found = STAT_BEFORE.captures(&text[from..start])?;
+    let cite_start = from + found.get(0).expect("a match always has a whole").start();
+    if text[..cite_start].ends_with(|c: char| c.is_alphanumeric()) {
+        // The window cut a longer volume number: `153 Stat.` is not `53 Stat.`
+        return None;
+    }
+    let (_, year) = REVENUE_CODE_VOLUMES
+        .iter()
+        .find(|(volume, _)| *volume == &found["volume"])?;
+    Some(Edition {
+        written: found["written"]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+        year: year.to_string(),
+        before: true,
     })
 }
 

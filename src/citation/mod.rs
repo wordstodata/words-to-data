@@ -155,7 +155,7 @@ impl Opinion {
 /// To raise the version, change only the number below, and say so in the
 /// PR's file in `changelog.d/` (`changelog.d/README.md`).
 fn citation_rule() -> Method {
-    Method::new("reporters-db laws.json U.S.C. patterns", 7)
+    Method::new("reporters-db laws.json U.S.C. patterns", 8)
 }
 
 /// The rule that reads a bare section reference under the default code an
@@ -346,9 +346,11 @@ struct Place {
     #[serde(skip_serializing_if = "Option::is_none")]
     unresolved: Option<String>,
     /// The edition of the Code the court named after the citation, such as
-    /// `1976 ed.`, and its year (#449). The object was resolved in a printing
-    /// held, which is not that edition, and the section at that number can now
-    /// hold another provision. Absent when the court named no edition.
+    /// `1976 ed.`, and its year (#449), or the Statutes at Large cite of a
+    /// Revenue Code that it wrote before the citation (#482). The object was
+    /// resolved in a printing held, which is not that edition, and the section
+    /// at that number can now hold another provision. Absent when the court
+    /// named no edition.
     #[serde(skip_serializing_if = "Option::is_none")]
     edition: Option<usc::Edition>,
 }
@@ -480,6 +482,8 @@ impl Gathered {
 /// A repair follows the words: `26 V.S.C. §§ 1361(a)(1) (OCR repair: "V.S.C."
 /// read as "U.S.C.")`. A bare reference is read only because of the opinion's
 /// default, so the default follows the words, with the writing that states it.
+/// An edition follows the words too: `(1976 ed.)`, or `(after 53 Stat. 574)`
+/// for a Statutes at Large cite that the court wrote before the citation.
 fn evidence_of(citation: &UscCitation) -> String {
     let read = match (&citation.repair, &citation.default_code) {
         (Some(repair), _) => format!("{} ({repair})", citation.text),
@@ -490,6 +494,7 @@ fn evidence_of(citation: &UscCitation) -> String {
         (None, None) => citation.text.clone(),
     };
     match &citation.edition {
+        Some(edition) if edition.before => format!("{read} (after {})", edition.written),
         Some(edition) => format!("{read} ({})", edition.written),
         None => read,
     }
