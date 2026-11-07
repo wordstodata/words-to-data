@@ -273,7 +273,7 @@ fn report(args: &Args, hits: &[SearchResult], found: &SearchAnswer) -> std::io::
 /// The work and the date are checked first. A path is "not held" only inside
 /// a work and a date that are held: when the date is not held, the path is not
 /// the filter that matched nothing (#337).
-fn not_held(
+pub(crate) fn not_held(
     ds: &load::OpenDataset,
     locator: &Locator,
     dataset: &str,

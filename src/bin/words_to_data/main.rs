@@ -38,6 +38,7 @@ mod section_agreement;
 mod settle;
 mod show_bill;
 mod span;
+mod text;
 mod ui;
 mod validate;
 mod votes;
@@ -138,6 +139,18 @@ enum Command {
     Annotations(annotations::Args),
     /// Inspect one path: presence, field changes, and annotations
     Path(path::Args),
+    /// Print a Code provision and its children at one date, in document order, with their numbers
+    ///
+    /// Each node prints its number and heading on one line, then its chapeau,
+    /// content, footnotes (marked `[footnote]`), children, proviso and
+    /// continuation, in the order the law prints them. Each level is indented
+    /// two spaces more.
+    ///
+    /// The answer stops after 400 lines (`--limit` changes it) and says how
+    /// many nodes it did not show. `--depth N` prints only N levels below the
+    /// path, and the last level prints its number and heading only:
+    /// `--depth 1` on a chapter lists its sections. Code paths only.
+    Text(text::Args),
     /// Check a dataset's internal consistency (non-zero exit on failure)
     Validate(validate::Args),
 }
@@ -175,6 +188,7 @@ fn main() {
         Command::Coverage(args) => coverage::run(args),
         Command::Annotations(args) => annotations::run(args),
         Command::Path(args) => path::run(args),
+        Command::Text(args) => text::run(args),
         Command::Validate(args) => validate::run(args),
     }
 }
