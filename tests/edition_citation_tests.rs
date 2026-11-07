@@ -166,7 +166,7 @@ fn should_record_the_edition_in_the_link_when_a_citation_names_one() {
         "the evidence shows the edition, got {evidence:?}"
     );
     let method = link.provenance.method.as_ref().expect("a rule made it");
-    assert_eq!(method.version, 7);
+    assert_eq!(method.version, 8);
 }
 
 /// *Boeing Co. v. United States* (2003): "Compare 26 U. S. C. §§ 991-997 with
