@@ -187,7 +187,7 @@ fn should_not_let_one_common_word_decide_a_change_when_the_amendment_quotes_noth
     let matches = title_42_matches();
 
     assert!(
-        !linked_paths(matches, "c8020929f28e").contains(&clause_iv),
+        !linked_paths(matches, "560b9c11ba00").contains(&clause_iv),
         "a struck \"and\" does not link the whole-section amendment to the clause"
     );
     assert!(linked_paths(matches, "016d2c93ae1d").contains(&clause_iv));
@@ -201,7 +201,7 @@ fn should_let_common_words_decide_a_change_when_they_are_all_the_change_struck_o
     // amendment made when they are all the change there is.
     let paragraph_86 = format!("{SECTION_1396A}/subsection_a/paragraph_86");
 
-    assert!(linked_paths(title_42_matches(), "c8020929f28e").contains(&paragraph_86));
+    assert!(linked_paths(title_42_matches(), "560b9c11ba00").contains(&paragraph_86));
 }
 
 #[test]
@@ -262,7 +262,7 @@ fn should_give_a_rewritten_provision_only_to_the_amendment_that_enacted_its_word
         "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_k/paragraph_10/subparagraph_A".to_string();
     let matches = title_26_matches();
 
-    assert!(linked_paths(matches, "3becff5cdac9").contains(&subparagraph_a));
+    assert!(linked_paths(matches, "0fd22dd64780").contains(&subparagraph_a));
     assert!(
         !linked_paths(matches, "1be2c21a3613").contains(&subparagraph_a),
         "the amendment of paragraph (1)(A) did not edit the rewritten subparagraph"
@@ -380,7 +380,7 @@ fn should_not_give_an_amendment_that_only_adds_a_change_that_removes_a_provision
     // residue.
     let matches = matches_read_backwards("usc07.xml");
 
-    match &match_of(&matches, "63c608ae5b45").outcome {
+    match &match_of(&matches, "6d6f9bc9bf34").outcome {
         Outcome::Residue(_) => {}
         Outcome::Linked(linked) => panic!(
             "an addition made none of these changes: {:?}",
@@ -414,7 +414,7 @@ fn should_not_give_a_change_inside_a_provision_to_its_editor_when_another_amendm
         !of_a.contains(&paragraph_7),
         "§ 70104(a) should not hold (h)(7): {of_a:?}"
     );
-    let of_b = linked_paths(matches, "6c0a0ef049ab");
+    let of_b = linked_paths(matches, "a0931acf3a6c");
     assert!(
         of_b.contains(&paragraph_7),
         "§ 70104(b) should hold (h)(7): {of_b:?}"
@@ -431,7 +431,7 @@ fn should_give_a_change_inside_a_rewritten_provision_to_its_amendment_when_a_wid
     let matches = title_26_matches();
     let paragraph_5 = format!("{SECTION_24_H}/paragraph_5");
 
-    let of_d = linked_paths(matches, "000b7e5b4e86");
+    let of_d = linked_paths(matches, "1126c74bf273");
     for below in ["subparagraph_A", "subparagraph_B"] {
         let path = format!("{paragraph_5}/{below}");
         assert!(
@@ -522,12 +522,12 @@ fn should_not_let_an_enacted_block_take_a_change_of_a_few_words_that_a_renumbere
     let matches = title_26_matches();
     let subparagraph_a = format!("{SECTION_163_J_12}/subparagraph_A");
 
-    let of_a = linked_paths(matches, "b2f12a7edfa5");
+    let of_a = linked_paths(matches, "c0fec4f14b04");
     assert!(
         !of_a.iter().any(|path| path.starts_with(&subparagraph_a)),
         "§ 70303(a) did not make (12)(A): {of_a:?}"
     );
-    let of_c = linked_paths(matches, "21c6fe30594a");
+    let of_c = linked_paths(matches, "1e95396e207b");
     assert!(
         of_c.contains(&subparagraph_a),
         "the renumbering of (12) carries (12)(A): {of_c:?}"
@@ -634,7 +634,7 @@ fn should_link_an_added_provision_by_its_own_words_when_a_marginal_note_splits_t
         "uscode/title_26/subtitle_A/chapter_1/subchapter_B/part_VI/section_168/subsection_n"
             .to_string();
 
-    let of_70307 = linked_paths(title_26_matches(), "b7565236f4ad");
+    let of_70307 = linked_paths(title_26_matches(), "61db619be0f2");
 
     assert!(
         of_70307.contains(&subsection_n),

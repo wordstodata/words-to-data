@@ -34,7 +34,7 @@ const RELEASE_POINTS: [&str; 2] = ["2026-01-23", "2026-07-12"];
 /// Defense Act (50 U.S.C. 2791 et seq.) is amended by adding at the end the
 /// following section: SEC. 4816. …". The OLRC classifies it to 10 U.S.C.
 /// 6340.
-const ADDS_SECTION_6340: &str = "4340e4e026e1";
+const ADDS_SECTION_6340: &str = "3d64a206f12f";
 
 /// The subpart of title 10 that holds the Atomic Energy Defense Act. The
 /// OLRC moved the Act there in the same window, so the window adds the

@@ -507,8 +507,8 @@ fn should_give_the_answer_for_the_held_date_when_a_date_is_not_zero_padded() {
 }
 
 /// An amendment of the committed bill, in full, and as `annotations` prints it.
-const AMENDMENT: &str = "000b7e5b4e862a95dd2223f05c7a08c464a11705bdb540389750c39a01de11ba";
-const AMENDMENT_SHORT: &str = "000b7e5b4e86";
+const AMENDMENT: &str = "1126c74bf27346f1ee5ebc69499862f4b0fd4bcf511529db7eb2aca2d50c8fcc";
+const AMENDMENT_SHORT: &str = "1126c74bf273";
 
 /// A provision of § 1308–1 that changed between the first two release points.
 const SUBPARAGRAPH_A: &str = "uscode/title_7/chapter_35/subchapter_II/part_A/section_1308–1/subsection_b/paragraph_2/subparagraph_A";
@@ -562,7 +562,7 @@ fn should_record_the_amendment_when_link_amendment_is_given_its_short_id() {
 #[test]
 fn should_refuse_an_amendment_prefix_that_names_more_than_one_amendment() {
     let ds = copy_of_dataset("link_amendment_ambiguous");
-    let notice = format!("`0` names 24 amendments of bill {BILL}. Type more of the id.");
+    let notice = format!("`0` names 26 amendments of bill {BILL}. Type more of the id.");
     let output = link_amendment(&ds, "0", SUBPARAGRAPH_A);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     assert!(stderr(&output).contains(&notice), "{}", stderr(&output));
@@ -618,7 +618,7 @@ fn should_refuse_an_amendment_prefix_that_names_more_than_one_amendment_when_ame
             "--amendment",
             "0",
         ],
-        &format!("`0` names 24 amendments of bill {BILL}. Type more of the id."),
+        &format!("`0` names 26 amendments of bill {BILL}. Type more of the id."),
     );
 }
 

@@ -71,5 +71,5 @@ fn should_link_the_removal_of_a_section_to_the_amendment_that_repeals_it() {
     // is repealed." The Code after the window holds no § 147.
     let section_147 = "uscode/title_10/subtitle_A/part_I/chapter_4/section_147";
 
-    assert_eq!(linked_paths("d82893752bc9"), vec![section_147.to_string()]);
+    assert_eq!(linked_paths("ba3acfadffec"), vec![section_147.to_string()]);
 }

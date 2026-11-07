@@ -457,7 +457,7 @@ fn should_not_report_an_amendment_as_quiet_when_the_window_added_a_parent_of_its
     // window (#336).
     let rows = residue_rows(unlinked());
 
-    let row = row_of(&rows, "7bdf27afebe2").expect("the amendment is listed");
+    let row = row_of(&rows, "8d6acb591db7").expect("the amendment is listed");
     assert_eq!(row["address"]["section"], "/us/usc/t26/s530A");
     assert_ne!(row["category"], "quiet", "the row: {row}");
     assert!(
@@ -480,7 +480,7 @@ fn should_say_the_olrc_table_gave_the_address_when_the_markup_names_no_section()
     // disagreement (#336).
     let rows = residue_rows(unlinked());
 
-    let row = row_of(&rows, "7bdf27afebe2").expect("the amendment is listed");
+    let row = row_of(&rows, "8d6acb591db7").expect("the amendment is listed");
     assert_eq!(row["address"]["section"], "/us/usc/t26/s530A");
     assert_eq!(
         row["address_source"]["olrc"]["law_sections"],
@@ -516,7 +516,7 @@ fn should_report_an_amendment_to_a_note_as_not_held_and_not_as_a_miss() {
     // this amendment's, and an agent has nothing to look for.
     let rows = linked_rows();
 
-    let row = row_of(rows, "5219c7e9a020").expect("the amendment is listed");
+    let row = row_of(rows, "18fdc45c57aa").expect("the amendment is listed");
     assert_eq!(row["category"], "not_held");
     assert_eq!(
         row["olrc"],
@@ -540,7 +540,7 @@ fn should_report_an_amendment_to_a_table_of_sections_as_not_held_and_not_as_a_mi
     // index of the law, and the dataset does not hold it as a provision.
     let rows = linked_rows();
 
-    let row = row_of(rows, "4010e01c92b0").expect("the amendment is listed");
+    let row = row_of(rows, "d0cdb4bfd5bc").expect("the amendment is listed");
     assert_eq!(row["stage"], "address");
     assert_eq!(row["category"], "not_held");
     assert_eq!(
@@ -558,7 +558,7 @@ fn should_say_the_batch_has_not_written_its_link_when_the_method_links_an_amendm
     // not work for an agent: the batch writes it.
     let rows = residue_rows(unlinked());
 
-    let row = row_of(&rows, "d624331f459d").expect("the amendment is listed");
+    let row = row_of(&rows, "367426b6a030").expect("the amendment is listed");
     assert_eq!(row["category"], "unwritten");
     assert!(row["stage"].is_null(), "the method did not stop");
     assert_eq!(
@@ -757,7 +757,7 @@ fn should_leave_the_list_when_a_newer_review_confirms_the_refuted_link() {
 
 /// Section 10102(c) of the law renumbers paragraph (7) of 7 U.S.C. 2015(o) as
 /// (8) and inserts a new (7). `link-by-evidence` names it with two links.
-const RENUMBERS_2015_O_7: &str = "d624331f459d";
+const RENUMBERS_2015_O_7: &str = "367426b6a030";
 
 #[test]
 fn should_not_list_an_amendment_when_one_of_its_links_is_refuted_and_another_stands() {

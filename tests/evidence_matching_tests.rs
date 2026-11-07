@@ -156,7 +156,7 @@ fn should_assign_each_change_by_the_words_the_bill_quotes_when_two_amendments_sh
         "the new paragraph (3) causes only changes inside paragraph (3): {new_paragraph_3:?}"
     );
 
-    let new_paragraph_7 = linked_paths("d624331f459d");
+    let new_paragraph_7 = linked_paths("367426b6a030");
     assert!(
         new_paragraph_7.contains(&paragraph_7),
         "the new paragraph (7) is linked: {new_paragraph_7:?}"
@@ -399,7 +399,7 @@ fn should_link_only_in_the_first_window_when_the_address_is_unchanged_in_a_later
     // #172 the renumbering was recorded over that window too, and the diff it
     // made named the window here as one in which the address "changed again".
     // Nothing changed in it, so no later window is named.
-    let found = match_of("d624331f459d");
+    let found = match_of("367426b6a030");
 
     let Outcome::Linked(linked) = &found.outcome else {
         panic!("the amendment should be linked: {:?}", found.outcome);
@@ -426,7 +426,7 @@ fn should_give_a_renumbering_to_the_amendment_its_redesignation_link_names() {
     // the `legislature.redesignated_as` link the bill's reading recorded.
     let paragraph_8 = format!("{SECTION_2015_O}/paragraph_8");
 
-    let caused = linked_paths("d624331f459d");
+    let caused = linked_paths("367426b6a030");
 
     assert!(
         caused.contains(&paragraph_8),
@@ -443,7 +443,7 @@ fn should_say_the_dataset_does_not_hold_the_title_when_an_address_is_outside_it(
     // Section 1240O(b) of the Food Security Act of 1985 (16 U.S.C.
     // 3839bb-2(b)), and this dataset holds title 7 alone. That is a limit of the dataset, not
     // a statement that nothing changed, and the reason must not read as one.
-    let found = match_of("c0b8fadcd360");
+    let found = match_of("91fddc4eee03");
 
     let Outcome::Residue(residue) = &found.outcome else {
         panic!("the amendment should be residue: {:?}", found.outcome);
@@ -505,9 +505,9 @@ fn should_give_an_added_provision_to_one_amendment_when_several_show_words_in_it
         "uscode/title_7/chapter_115/subchapter_II/section_9034/subsection_g/paragraph_1"
             .to_string();
 
-    assert!(linked_paths("165bdc0e6631").contains(&paragraph_1));
+    assert!(linked_paths("a593273c6856").contains(&paragraph_1));
     assert!(
-        !linked_paths("6660f71439fb").contains(&paragraph_1),
+        !linked_paths("af642fd28a69").contains(&paragraph_1),
         "the amendment of other parts of the section is not a cause of the new paragraph"
     );
 }
@@ -528,7 +528,7 @@ fn should_link_an_added_provision_by_a_few_own_words_when_the_block_also_holds_a
         "uscode/title_7/chapter_115/subchapter_I/section_9012/subsection_e".to_string();
 
     assert!(
-        linked_paths("b94f431541c6").contains(&subsection_e),
+        linked_paths("10db1fc2ffdb").contains(&subsection_e),
         "§ 10302 added {subsection_e}"
     );
 }

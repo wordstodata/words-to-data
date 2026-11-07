@@ -157,7 +157,7 @@ fn should_show_a_block_whose_date_of_enactment_the_code_prints_as_the_date() {
     // part of the law, and the Code prints "on or after December 18, 2025,".
     let paragraph_3 = "uscode/title_21/chapter_28/subchapter_I/section_2312/paragraph_3";
 
-    let caused = caused_by(ndaa_matches(), "a391e5b77813");
+    let caused = caused_by(ndaa_matches(), "ae20b78be787");
 
     assert!(
         caused

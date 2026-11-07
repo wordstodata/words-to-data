@@ -857,18 +857,60 @@ fn levels_in<'a, 'input>(node: &Node<'a, 'input>) -> impl Iterator<Item = Node<'
 ///   `two words` and `twowords` stay two texts.
 /// * A **run of dashes** folds to one hyphen ([`fold_dash_runs`]).
 ///
+/// One boundary is added: each edge of a marginal note, and of each line in
+/// it, is a word boundary ([`is_sidenote_line`], #484). The Public Law print
+/// puts a note between two words, as in `chapter 61<sidenote><p>26 USC</p><p>prec.
+/// 6041.</p></sidenote> <amendingAction>`. Without the boundary, the words
+/// join to "chapter 6126 USCprec. 6041.is amended", and the chapter number
+/// changes. The boundary does not depend on the layout of the file, because
+/// the fold above removes the white space next to the note in each printing.
+///
 /// Quotes are folded here for the same reason ([`normalize_quotes`]), and the
 /// Code's dashes are folded in the citation reader for a related one
 /// ([`fold_dashes`](crate::citation::usc::fold_dashes), #141).
 pub(crate) fn node_text(node: &Node) -> String {
-    let raw: String = node
-        .descendants()
-        .filter(|n| n.is_text())
-        .map(|n| n.text().unwrap_or(""))
-        .filter(|text| !text.trim().is_empty())
-        .collect();
+    let mut raw = String::new();
+    push_words(node, &mut raw);
     let folded = fold_dash_runs(&normalize_quotes(&raw));
     folded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The text nodes under `node` that carry words, in document order, with a
+/// space at each edge of a marginal note line ([`node_text`]).
+fn push_words(node: &Node, raw: &mut String) {
+    if node.is_text() {
+        let text = node.text().unwrap_or("");
+        if !text.trim().is_empty() {
+            raw.push_str(text);
+        }
+        return;
+    }
+    let boundary = is_sidenote_line(node);
+    if boundary {
+        raw.push(' ');
+    }
+    for child in node.children() {
+        push_words(&child, raw);
+    }
+    if boundary {
+        raw.push(' ');
+    }
+}
+
+/// Whether `node` is a marginal note (`<sidenote>`) or one line of it (a `<p>`
+/// in the note).
+///
+/// A `<ref>` in a line is not a boundary, because its words and the period
+/// after it are one cite: `<p><ref>26 USC 112 note</ref>.</p>`.
+fn is_sidenote_line(node: &Node) -> bool {
+    match node.tag_name().name() {
+        "sidenote" => true,
+        "p" => node
+            .ancestors()
+            .skip(1)
+            .any(|ancestor| ancestor.tag_name().name() == "sidenote"),
+        _ => false,
+    }
 }
 
 /// Every run of dashes as one hyphen.
