@@ -379,3 +379,147 @@ fn should_give_the_public_law_and_no_change_count_when_show_bill_is_read_as_text
         "each amendment a standing link names shows its count"
     );
 }
+
+/// Each committed bill with its law, as the dataset builder stores them.
+///
+/// `119-hr-2215` became Pub. L. 119-25, a law that states no amendment to the
+/// Code, so no amendment can join the bill to its law (#487).
+const ENACTED: [(&str, &str, &str); 6] = [
+    ("119-hr-1", "hr/1", "119-21"),
+    ("119-hr-42", "hr/42", "119-22"),
+    ("119-hr-618", "hr/618", "119-24"),
+    ("119-hr-998", "hr/998", "119-39"),
+    ("119-hr-2215", "hr/2215", "119-25"),
+    ("119-s-1071", "s/1071", "119-60"),
+];
+
+fn every_committed_law() -> &'static Dataset<InMemoryStorage> {
+    static FIXTURE: OnceLock<Dataset<InMemoryStorage>> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let mut dataset = Dataset::new(DatasetMetadata::default());
+        for (bill_id, dir, _) in ENACTED {
+            add(&mut dataset, bill_id, dir, true);
+        }
+        dataset
+    })
+}
+
+/// The same dataset, saved as a database for the binary to open.
+fn every_committed_law_on_disk() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let path = format!(
+            "{}/bill_public_law_every_law.sqlite",
+            env!("CARGO_TARGET_TMPDIR")
+        );
+        let _ = std::fs::remove_file(&path);
+        every_committed_law()
+            .save_to_sqlite(&path)
+            .expect("the fixture should save");
+        path
+    })
+}
+
+#[test]
+fn should_join_a_bill_to_its_law_when_the_law_states_no_amendment() {
+    let dataset = every_committed_law();
+    let bills = inspect::bills(dataset).expect("the bills should list");
+    let bill = bills
+        .iter()
+        .find(|bill| bill.bill_id == "119-hr-2215")
+        .expect("119-hr-2215 should be listed");
+    assert_eq!(bill.amendment_count, 0, "the law states no amendment");
+
+    assert_eq!(bill.public_law.as_deref(), Some("119-25"));
+    let shown = inspect::show_bill(dataset, "119-hr-2215")
+        .expect("the bill should read")
+        .expect("the bill is held");
+    assert_eq!(shown.public_law.as_deref(), Some("119-25"));
+}
+
+#[test]
+fn should_join_each_bill_to_its_own_law_when_the_dataset_holds_every_law() {
+    let bills = inspect::bills(every_committed_law()).expect("the bills should list");
+
+    for (bill_id, _, law) in ENACTED {
+        let listed = bills
+            .iter()
+            .find(|bill| bill.bill_id == bill_id)
+            .unwrap_or_else(|| panic!("{bill_id} should be listed"));
+        assert_eq!(listed.public_law.as_deref(), Some(law), "for {bill_id}");
+    }
+}
+
+#[test]
+fn should_print_the_law_of_a_bill_that_states_no_amendment_when_bills_is_run() {
+    let dataset = every_committed_law_on_disk();
+
+    let text = run(&["bills", dataset]);
+    assert!(
+        text.status.success(),
+        "bills should exit zero, stderr: {}",
+        String::from_utf8_lossy(&text.stderr)
+    );
+    let said = String::from_utf8_lossy(&text.stdout);
+    let line = said
+        .lines()
+        .find(|line| line.starts_with("119-hr-2215"))
+        .unwrap_or_else(|| panic!("119-hr-2215 should have a line, got:\n{said}"));
+    assert!(line.contains("Pub. L. 119-25"), "got:\n{said}");
+
+    let json = run(&["bills", dataset, "--json"]);
+    let listed: serde_json::Value =
+        serde_json::from_slice(&json.stdout).expect("bills --json should emit json");
+    let bill = listed
+        .as_array()
+        .expect("a list of bills")
+        .iter()
+        .find(|bill| bill["bill_id"] == "119-hr-2215")
+        .expect("119-hr-2215 should be listed");
+    assert_eq!(bill["public_law"], "119-25");
+
+    let shown = run(&["show-bill", dataset, "119-hr-2215", "--json"]);
+    let shown: serde_json::Value =
+        serde_json::from_slice(&shown.stdout).expect("show-bill --json should emit json");
+    assert_eq!(shown["public_law"], "119-25");
+}
+
+/// A real dataset made before #487: its law of `119-hr-1` names no bill
+/// (`tests/link_by_evidence_cli_tests.rs` tells how it was made).
+const STORED_BEFORE_487: &str = "tests/test_data/processed/bill_stored_before_257.zip";
+
+/// A dataset built before #487 holds no note of the bill on its laws, so the
+/// amendments are the only join it can make, and that join must stay.
+#[test]
+fn should_join_a_bill_to_its_law_by_its_amendments_when_the_law_names_no_bill() {
+    use std::io::Read;
+
+    let file = std::fs::File::open(STORED_BEFORE_487).expect("the fixture should be committed");
+    let mut archive = zip::ZipArchive::new(file).expect("the fixture should be a zip");
+    let mut json = String::new();
+    archive
+        .by_index(0)
+        .expect("the zip holds the dataset")
+        .read_to_string(&mut json)
+        .expect("the dataset should read");
+    // Written at schema 10, and it reads the same at the schema of this build:
+    // see `tests/link_by_evidence_cli_tests.rs`.
+    let mut dataset: serde_json::Value =
+        serde_json::from_str(&json).expect("the fixture should be JSON");
+    dataset["schema_version"] = words_to_data::storage::SCHEMA_VERSION.into();
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("stored_before_487.json");
+    std::fs::write(&path, dataset.to_string()).expect("the dataset should write");
+    let path = path.to_str().expect("a UTF-8 path");
+
+    let output = run(&["bills", path, "--json"]);
+    assert!(
+        output.status.success(),
+        "bills should exit zero, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let listed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("bills --json should emit json");
+    assert_eq!(listed[0]["bill_id"], "119-hr-1");
+    assert_eq!(listed[0]["public_law"], "119-21");
+}

@@ -253,11 +253,17 @@ pub fn window_documents<R: crate::storage::DocumentReader + ?Sized>(
 ///
 /// A bill is a work like any other, stored under the number its publisher gave
 /// it — `publiclawdocument_119-21` — while the dataset knows the bill by the id
-/// it was downloaded under, `119-hr-1`. The two are joined by what the bill says
-/// rather than by a second name written down twice: every instruction in the
-/// stored document carries the content hash minted under the dataset's id, so
-/// the document that states this bill's amendments is this bill's document
-/// (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`).
+/// it was downloaded under, `119-hr-1`. The two are joined by what the law says:
+///
+/// - The publisher's note on the law names its bill, `[H.R. 1]`
+///   ([`crate::uslm::bill_parser::enacted_bill`]). This join works also for a
+///   law that states no amendment, such as Pub. L. 119-25 (#487).
+/// - Every instruction in the stored document carries the content hash minted
+///   under the dataset's id, so the document that states this bill's
+///   amendments is this bill's document
+///   (`docs/adr/0004-links-are-stored-and-identified-by-what-they-say.md`). A
+///   dataset built before #487 holds no note, and this join is the only one
+///   that it can make.
 ///
 /// `None` means this dataset holds no document for that bill. A dataset built
 /// before #196 holds the bill's amendments and no document, which is the same
@@ -290,10 +296,14 @@ where
         let Some(law) = law_document(reader, &work)? else {
             continue;
         };
-        let states_this_bill = crate::uslm::bill_parser::amendment_paths(&law.root)
-            .keys()
-            .any(|amendment| bill.amendments.contains_key(amendment));
-        if states_this_bill {
+        let names_this_bill =
+            crate::uslm::bill_parser::enacted_bill(&law.root).as_deref() == Some(bill_id);
+        let states_this_bill = || {
+            crate::uslm::bill_parser::amendment_paths(&law.root)
+                .keys()
+                .any(|amendment| bill.amendments.contains_key(amendment))
+        };
+        if names_this_bill || states_this_bill() {
             return Ok(Some(law));
         }
     }
@@ -303,8 +313,10 @@ where
 /// The public law each bill became, for every bill whose law document the
 /// dataset holds: `119-hr-1` to `119-21`.
 ///
-/// The join is the one [`bill_document`] makes, by the amendments the law
-/// states, so a bill that states no amendment is joined to no law. Each law is
+/// The joins are the ones [`bill_document`] makes: by the bill that the law
+/// names, and else by the amendments that the law states. In a dataset built
+/// before #487, a law names no bill, so a bill that states no amendment is
+/// joined to no law there. Each law is
 /// read once for all the bills, because `bills` asks for every bill at once and
 /// one law can hold thousands of provisions.
 pub fn bill_public_laws<R>(
@@ -316,8 +328,9 @@ where
 {
     // An amendment id is minted from its bill's id, so it names one bill.
     let mut bill_of_amendment = std::collections::HashMap::new();
-    for bill_id in legislature.list_bill_ids()? {
-        let Some(bill) = legislature.get_bill(&bill_id)? else {
+    let bill_ids = legislature.list_bill_ids()?;
+    for bill_id in &bill_ids {
+        let Some(bill) = legislature.get_bill(bill_id)? else {
             continue;
         };
         for amendment in bill.amendments.into_keys() {
@@ -333,6 +346,12 @@ where
         let Some(law) = law_document(reader, &work)? else {
             continue;
         };
+        if let Some(bill_id) = crate::uslm::bill_parser::enacted_bill(&law.root)
+            && bill_ids.contains(&bill_id)
+        {
+            laws.insert(bill_id, number.to_string());
+            continue;
+        }
         for amendment in crate::uslm::bill_parser::amendment_paths(&law.root).keys() {
             if let Some(bill_id) = bill_of_amendment.get(amendment) {
                 laws.entry(bill_id.clone())
