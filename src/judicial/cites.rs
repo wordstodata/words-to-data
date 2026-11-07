@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::citation::resolve::stub_heading;
 use crate::dataset::{DatasetError, ExpressionId};
+use crate::judicial::range::{CitedRange, ranges_of};
 use crate::link::{Link, LinkKind, Target, VerificationState};
 use crate::query::{ObjectPlace, PathMatch, ReviewStatus, links_by_object};
 use crate::review::{Review, newest_naming, short_id};
@@ -76,6 +77,12 @@ pub struct CitationLink {
     /// That review: who said it, when and why. `None` when nobody has
     /// reviewed the link.
     pub review: Option<Review>,
+    /// Each range the link is one of, with every link of the range: the
+    /// passage wrote `§§ 991-997`, and the link cites one of its ends (#383).
+    /// Absent from the JSON for a link of a single citation, so its row stays
+    /// as it was.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ranges: Vec<CitedRange>,
 }
 
 /// Every `judicial.cites` link that names `path` at either end, ordered by the
@@ -92,7 +99,11 @@ pub fn citations_naming<R: DocumentReader + LinkReader + ?Sized>(
     // Every review, read once, so a report of many links asks the store once.
     let reviews = reader.links_by_namespace(LinkKind::REVIEW)?;
     let mut rows: Vec<CitationLink> = Vec::new();
-    for link in reader.links_by_kind(LinkKind::CITES)? {
+    let links = reader.links_by_kind(LinkKind::CITES)?;
+    // Read from every link, not only from those that name `path`: a range can
+    // lead past the path asked about, and the range still names each link.
+    let ranges = ranges_of(&links);
+    for link in links {
         let cites = link
             .subject
             .path()
@@ -117,6 +128,11 @@ pub fn citations_naming<R: DocumentReader + LinkReader + ?Sized>(
     let stubs = stub_headings(reader, &cited)?;
     for row in &mut rows {
         row.stub_heading = stubs.get(&row.cited_path).cloned();
+        row.ranges = ranges
+            .iter()
+            .filter(|range| range.holds(&row.id))
+            .cloned()
+            .collect();
     }
     Ok(rows)
 }
@@ -181,6 +197,8 @@ fn row_of(link: &Link, role: PathRole, reviews: &[Link]) -> Option<CitationLink>
             ReviewStatus::of_verdict(review.verdict)
         }),
         review,
+        // Read for every row at once, by `citations_naming`.
+        ranges: Vec::new(),
     })
 }
 

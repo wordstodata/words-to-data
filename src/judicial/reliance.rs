@@ -59,6 +59,7 @@ use crate::citation::resolve::{Subdivision, resolve_subdivision, stub_heading};
 use crate::dataset::{Coverage, DatasetError, ExpressionId, Scope, WorkId};
 use crate::diff::TreeDiff;
 use crate::document::{DocumentNode, TextContentField};
+use crate::judicial::range::{CitedRange, ranges_of};
 use crate::link::{Link, LinkKind, Target, VerificationState};
 use crate::method::Method;
 use crate::review::short_id;
@@ -308,6 +309,12 @@ pub struct CitingCase {
     pub citing: Citing,
     /// In path order, so two runs report alike.
     pub cites: Vec<CitedProvision>,
+    /// Each range the writing wrote that leads to one of [`CitingCase::cites`],
+    /// with every link of the range (#383). Absent from the JSON when the
+    /// writing wrote no range there, so the answer about a single citation
+    /// stays as it was.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ranges: Vec<CitedRange>,
 }
 
 /// Every opinion in this dataset that cites a provision at or under `path`, or
@@ -340,9 +347,13 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
     // A refuted citation claims nothing, so it names no opinion as citing the
     // path (#415).
     let reviews = reader.links_by_namespace(LinkKind::REVIEW)?;
-    let links = links
+    let links: Vec<Link> = links
         .into_iter()
-        .filter(|link| !crate::review::is_refuted(link, &reviews));
+        .filter(|link| !crate::review::is_refuted(link, &reviews))
+        .collect();
+    // Read from every link, not only from those about `path`: a range can lead
+    // past the path asked about, and the range still names each of its links.
+    let ranges = ranges_of(&links);
 
     // Every printing of each cited section, read once. Nine opinions cite § 174,
     // and reading its title nine times over is the cost of not keeping it.
@@ -397,6 +408,7 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
                 cases.push(CitingCase {
                     citing,
                     cites: Vec::new(),
+                    ranges: Vec::new(),
                 });
                 cases.last_mut().expect("just pushed")
             }
@@ -428,6 +440,16 @@ pub fn cases_citing<R: DocumentReader + LinkReader + ?Sized>(
     }
 
     for case in &mut cases {
+        case.ranges = ranges
+            .iter()
+            .filter(|range| {
+                case.cites
+                    .iter()
+                    .flat_map(|cited| &cited.places)
+                    .any(|place| range.holds(&place.link))
+            })
+            .cloned()
+            .collect();
         case.cites.sort_by(|a, b| a.path.cmp(&b.path));
         for cited in &mut case.cites {
             cited.places.sort_by(|a, b| a.passage.cmp(&b.passage));
