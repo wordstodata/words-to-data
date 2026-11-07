@@ -262,12 +262,21 @@ read the words.
    A link chosen "by quoted words" under an address holding one change is strong.
    A link chosen "by elimination", or with an address "from the OLRC
    classification table", deserves a closer look.
-5. **Read the words themselves.** `search` with `--path` and `--snippet 0` prints
-   whole fields:
+5. **Read the words themselves.** `text` prints a Code provision and its
+   children at one date, in the order of the law, with their numbers:
    ```
-   words_to_data search <dataset> "" --path <path> --at 2025-07-30 --snippet 0
+   words_to_data text <dataset> <path> --at 2025-07-30
    ```
-   An empty query matches every field under the path.
+   Each node prints its number and heading, then its words, its children and
+   its continuation. A footnote of the publisher is marked `[footnote]`: it is
+   not the law. The answer stops after 400 lines and says how many nodes it
+   did not show; give a deeper path, or `--depth 1` to list what a chapter or
+   a section holds. `text` reads Code paths only. For a court writing or a
+   public law, `search` with `--path` and `--snippet 0` prints whole fields
+   (an empty query matches every field under the path):
+   ```
+   words_to_data search <dataset> "" --path <path> --snippet 0
+   ```
 6. **Votes.** `votes <dataset> <bill>` gives the House roll calls on a bill,
    counted by party. No command names an individual member's vote yet; if the
    question needs one, say so, and label any party-level inference as such.
@@ -321,8 +330,7 @@ read the words.
   after the law's changes may report a paragraph "moved" or "added" when the
   text at both dates is identical. `settle --explain` may then say the address
   "changed again". Before you report a change in a window, compare the whole
-  text at both dates (`search "" --path <path> --at <date> --snippet 0 --json`
-  for each date).
+  text at both dates (`text <dataset> <path> --at <date>` for each date).
 - **`diff` can miss the new children of a provision it reports as changed,**
   and `path` on that provision shows only its own fields. The whole-text
   comparison above is the final check.

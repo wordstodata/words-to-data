@@ -28,6 +28,7 @@ pub mod bill_redesignation;
 pub(crate) mod footnote;
 pub mod parser;
 pub mod path;
+pub mod text;
 
 /// Errors that can occur when parsing or processing USLM documents
 #[derive(Error, Debug)]
