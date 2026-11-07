@@ -546,6 +546,25 @@ pub struct UslmFacts {
     /// read out of the text by [`crate::citation::usc`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<UscReference>,
+
+    /// The bill that this law enacted, as the publisher names it:
+    /// `/us/bill/119/hr/2215`
+    ///
+    /// The publisher writes it in the marginal note of the long title,
+    /// `[H.R. 2215]`, as a `<ref>`. The tree does not keep the note. Without
+    /// this field, the only join from a law to its bill is by the amendments
+    /// that the law states, and a law that states no amendment joins to no
+    /// bill (#487).
+    ///
+    /// Only on the root node of a public law. `None` on every other node, and
+    /// on a law that a dataset built before this field holds: a rebuild fills
+    /// it in.
+    ///
+    /// A payload fact: it does not say where the node is, what it says or how
+    /// far to trust it, and only the bill reader of this module reads it
+    /// ([`crate::uslm::bill_parser::enacted_bill`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enacted_bill: Option<String>,
 }
 
 /// A reference into the US Code, as a bill's publisher wrote it

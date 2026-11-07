@@ -392,6 +392,7 @@ fn parse_document(
                 amendment: None,
                 amending_actions: Vec::new(),
                 references: Vec::new(),
+                enacted_bill: None,
             };
             let container_data = NodeData::new(
                 "uscode",
@@ -861,6 +862,7 @@ fn parse_element(
         amendment: None,
         amending_actions: Vec::new(),
         references: Vec::new(),
+        enacted_bill: None,
     };
 
     let element_data = NodeData {

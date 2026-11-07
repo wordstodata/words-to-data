@@ -379,7 +379,64 @@ fn state_bill_facts(
         }
     }
 
-    record_bill_facts(root, &stated)
+    record_bill_facts(root, &stated)?;
+    record_enacted_bill(root, document)
+}
+
+/// Record on the root node the bill that the law enacted
+///
+/// The publisher names the bill in the marginal note of the long title,
+/// `[<ref href="/us/bill/119/hr/2215">H.R. 2215</ref>]`. Only a reference in
+/// that note is taken, because the long title itself can name another bill.
+fn record_enacted_bill(root: &mut DocumentNode, document: &roxmltree::Document) -> Result<()> {
+    let named = document
+        .descendants()
+        .filter(|node| node.tag_name().name() == "longTitle")
+        .flat_map(|title| title.descendants())
+        .filter(|node| node.tag_name().name() == "sidenote")
+        .flat_map(|note| note.descendants())
+        .filter(|node| node.tag_name().name() == "ref")
+        .filter_map(|reference| reference.attribute("href"))
+        .find(|href| href.starts_with(BILL_HREF_PREFIX));
+    if let Some(href) = named
+        && let Some(mut facts) = UslmFacts::of(&root.data)
+    {
+        facts.enacted_bill = Some(href.to_string());
+        root.data.payload = Some(facts.to_payload()?);
+    }
+    Ok(())
+}
+
+/// The start of the publisher's name for a bill: `/us/bill/119/hr/2215`.
+const BILL_HREF_PREFIX: &str = "/us/bill/";
+
+/// The id of the bill that a stored law enacted, in the form a dataset knows
+/// bills by: `119-hr-2215`
+///
+/// Read from the publisher's own note on the law
+/// ([`UslmFacts::enacted_bill`]), so a law that states no amendment is joined
+/// to its bill too (#487). `None` for a document that is not a public law, and
+/// for a law that a dataset built before #487 holds.
+///
+/// # Examples
+///
+/// ```
+/// use words_to_data::uslm::bill_parser::{bill_expression, enacted_bill};
+///
+/// let path = "tests/test_data/congress_client_cache/bill/119/hr/2215/public_law.xml";
+/// let xml = std::fs::read_to_string(path).unwrap();
+/// let document = roxmltree::Document::parse(&xml).unwrap();
+///
+/// let (law, _) = bill_expression(&document, "119-hr-2215").unwrap();
+/// assert_eq!(enacted_bill(&law.root).as_deref(), Some("119-hr-2215"));
+/// ```
+pub fn enacted_bill(root: &DocumentNode) -> Option<String> {
+    let href = UslmFacts::of(&root.data)?.enacted_bill?;
+    let parts: Vec<&str> = href.strip_prefix(BILL_HREF_PREFIX)?.split('/').collect();
+    match parts.as_slice() {
+        [congress, bill_type, number] => Some(format!("{congress}-{bill_type}-{number}")),
+        _ => None,
+    }
 }
 
 /// Every USLM identifier the tree kept, which is what an owner is looked up in.
